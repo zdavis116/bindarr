@@ -44,45 +44,4 @@ async function gatherMtg(http) {
   return out;
 }
 
-// Pokémon: page pokemontcg.io /cards (no bulk file). Uses POKEMON_TCG_API_KEY
-// if set. Retries each page with backoff (the API is slow/flaky under load).
-async function gatherPokemon(http, delay, limit) {
-  const key = process.env.POKEMON_TCG_API_KEY || '';
-  const headers = key ? { 'X-Api-Key': key } : {};
-  if (!key) console.warn('No POKEMON_TCG_API_KEY set — paging may throttle.');
-  console.log(`Paging pokemontcg.io /cards${key ? ' (with API key)' : ' (no key)'}...`);
-  const out = [];
-  let page = 1;
-  let total = Infinity;
-  while ((page - 1) * 250 < total) {
-    let data = null;
-    const MAX_ATTEMPTS = 5;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS && data === null; attempt++) {
-      try {
-        const r = await http.get('https://api.pokemontcg.io/v2/cards', {
-          params: { page, pageSize: 250, select: 'id,name,number,set,images' },
-          headers,
-          timeout: 30000,
-        });
-        total = r.data.totalCount || 0;
-        data = r.data.data || [];
-      } catch (e) {
-        if (attempt === MAX_ATTEMPTS - 1) throw e;
-        console.warn(`  page ${page} attempt ${attempt + 1} failed (${e.message}); retrying...`);
-        await sleep(2000 * Math.pow(2, attempt));
-      }
-    }
-    if (data.length === 0) break;
-    for (const c of data) {
-      const img = c.images?.large || c.images?.small;
-      if (img) out.push({ name: c.name || '', set: c.set?.id || '', number: c.number || '', img });
-    }
-    console.log(`  page ${page} (${out.length}/${total})`);
-    if (limit && out.length >= limit) break;
-    page++;
-    await sleep(delay);
-  }
-  return out;
-}
-
-module.exports = { makeHttp, gatherMtg, gatherPokemon, sleep };
+module.exports = { makeHttp, gatherMtg, sleep };

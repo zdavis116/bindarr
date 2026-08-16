@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { parseThirdPartyCSV } = require('../utils/csvMappers');
 const { generateExportCSV } = require('../utils/csvExporters');
 
 // Export endpoint
@@ -54,126 +53,13 @@ router.get('/export', async (req, res) => {
   }
 });
 
-// Import endpoint
-router.post('/import', async (req, res) => {
-  const { format = 'internal', data } = req.body;
-  if (!data) {
-    return res.status(400).json({ error: 'No data provided' });
-  }
-
-  try {
-    let rawItems = [];
-
-    if (format.toLowerCase() === 'json') {
-      rawItems = typeof data === 'string' ? JSON.parse(data) : data;
-    } else {
-      let lines = [];
-      if (typeof data === 'string') {
-        lines = data.split('\n').map(l => l.trim()).filter(Boolean);
-      }
-      if (lines.length <= 1) {
-        return res.status(400).json({ error: 'CSV file is empty or missing headers' });
-      }
-
-      const parseCSVLine = (line) => {
-        const result = [];
-        let current = '';
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        result.push(current.trim());
-        return result;
-      };
-
-      const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, ''));
-      const parsedRows = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        const values = parseCSVLine(lines[i]).map(v => v.replace(/^"|"$/g, ''));
-        if (values.length < headers.length) continue;
-
-        const rowObj = {};
-        headers.forEach((h, idx) => {
-          rowObj[h] = values[idx];
-        });
-        parsedRows.push(rowObj);
-      }
-
-      rawItems = parseThirdPartyCSV(parsedRows, format);
-    }
-
-    if (!Array.isArray(rawItems)) {
-      return res.status(400).json({ error: 'Invalid data payload' });
-    }
-
-    let importedCount = 0;
-
-    await db.withTransaction(async (tx) => {
-      for (const item of rawItems) {
-        let cardId = item.card_id || item.id;
-        if (!cardId && item.set_code && item.collector_number) {
-          cardId = `${item.set_code.toLowerCase()}-${item.collector_number}`;
-        }
-        if (!cardId && item.name) {
-          cardId = item.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-        }
-
-        if (!cardId) continue;
-
-        let cached = await tx.get(`SELECT id FROM card_cache WHERE id = ?`, [cardId]);
-        if (!cached) {
-          await tx.run(
-            `INSERT OR IGNORE INTO card_cache 
-             (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              cardId,
-              item.name || 'Imported Card',
-              item.supertype || (item.game === 'mtg' ? 'Card' : 'Pokémon'),
-              '[]',
-              JSON.stringify(item.types || []),
-              item.rarity || 'Common',
-              item.set_code || item.set_id || '',
-              item.set_name || item.set_code || 'Imported Set',
-              item.collector_number || item.number || '',
-              item.image_url || '',
-              item.market_price || item.purchase_price || 0
-            ]
-          );
-        }
-
-        await tx.run(
-          `INSERT INTO collection 
-           (card_id, user_id, quantity, condition, printing, language, purchase_price, game, added_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-          [
-            cardId,
-            req.user.id,
-            item.quantity || 1,
-            item.condition || 'Near Mint',
-            item.printing || 'Normal',
-            item.language || 'English',
-            item.purchase_price || 0,
-            item.game || 'pokemon'
-          ]
-        );
-        importedCount++;
-      }
-    });
-
-    return res.json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} items.` });
-  } catch (error) {
-    return res.status(500).json({ error: 'Import failed', message: error.message });
-  }
+// Import is intentionally disabled until the Oracle-aware importer can validate
+// every row against an English Scryfall printing. Trusting uploaded metadata here
+// would bypass the card-admission boundary and poison the shared cache.
+router.post('/import', (_req, res) => {
+  res.status(501).json({
+    error: 'Collection import is temporarily disabled until Scryfall validation is available.'
+  });
 });
 
 module.exports = router;

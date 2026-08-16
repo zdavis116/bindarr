@@ -70,8 +70,8 @@ async function verify(game, set, qDesc, qRows, qKp, indices, lang) {
   for (let i = 0; i < n; i++) {
     const chunk = indices.slice(i * per, i * per + per);
     if (chunk.length === 0) break;
-    // `lang` picks which language's index the worker loads — the wrong one would
-    // verify a Japanese scan against English art and match nothing.
+    // `lang` remains in the worker message contract until PR 3; setIndex
+    // canonicalizes it to English.
     jobs.push(job(workers[i], { game, set, lang, qDesc, qRows, qKp, indices: chunk }));
   }
   const results = await Promise.all(jobs);

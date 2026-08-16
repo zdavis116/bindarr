@@ -6,9 +6,8 @@ const languages = require('./utils/languages');
 const { cacheNormalizedCards } = require('./utils/cardCache');
 
 // Scryfall needs no API key but asks callers to identify themselves and accept
-// JSON. See https://scryfall.com/docs/api. IDs from Scryfall are UUIDs / set-num
-// slugs; we prefix them with "mtg-" so they never collide with Pokémon TCG ids
-// in the shared card_cache table and the game is derivable from the id.
+// JSON. Existing public/cache contracts still use the historical `mtg-` prefix;
+// the Oracle-normalization PR removes it.
 const client = axios.create({
   baseURL: 'https://api.scryfall.com',
   timeout: 6000,
@@ -188,17 +187,13 @@ function langSearch(q, lang) {
   return { q: `${q} lang:${code}`, params: '&include_multilingual=true' };
 }
 
-// Maps a raw Scryfall card onto the card_cache shape the rest of the app (and
-// the Pokémon path) already speaks. Double-faced cards carry their art/type on
+// Maps a raw Scryfall card onto the existing card_cache shape. Double-faced
+// cards carry their art/type on
 // card_faces[0] instead of the top level, so fall back to the front face.
 function normalizeCard(raw, lang) {
   const face = (!raw.image_uris && Array.isArray(raw.card_faces) && raw.card_faces.length)
     ? raw.card_faces[0]
     : raw;
-  // The response's own `lang` is authoritative — a printing only exists in one
-  // language, and trusting the requested one mislabels the English fallbacks
-  // Scryfall returns when a card was never printed in the language asked for.
-  const language = languages.toName(raw.lang || lang);
   const imgSrc = raw.image_uris || face.image_uris || {};
   const typeLine = raw.type_line || face.type_line || '';
   const colors = raw.colors || face.colors || [];
@@ -231,22 +226,18 @@ function normalizeCard(raw, lang) {
     cmc: cmc,
     color_identity: colorIdentity.map(c => COLOR_NAMES[c] || c),
     game: 'mtg',
-    // Which printing this row IS. The quick-add form defaults the copy's language
-    // to it, so adding a Japanese card no longer files it as English.
-    language,
-    // The name as actually printed on a non-English card ("稲妻"). `name` above
-    // stays English on purpose: it is what deck lists, marketplace links and the
-    // next Scryfall lookup need. Null for English printings, which have none.
+    // Retained until PR 3 removes the frontend field; this backend stores only
+    // English card data.
+    language: 'English',
+    // Retained as a temporary response/schema compatibility field.
     printed_name: raw.printed_name || face.printed_name || null,
-    // Scryfall's own marketplace links for THIS printing. Worth storing rather
-    // than rebuilding: they search the English name, which is what TCGplayer and
-    // Cardmarket actually index, so they resolve for a Japanese printing too.
+    // Preserve Scryfall's marketplace links rather than reconstructing them.
     tcgplayer_url: raw.purchase_uris?.tcgplayer || null,
     cardmarket_url: raw.purchase_uris?.cardmarket || null
   };
 }
 
-const cacheCards = (cards) => cacheNormalizedCards(cards, 'mtg');
+const cacheCards = (cards) => cacheNormalizedCards(cards);
 
 
 // Look up many known cards in as few requests as possible. Rows are matched by
@@ -254,12 +245,8 @@ const cacheCards = (cards) => cacheNormalizedCards(cards, 'mtg');
 // normalized cards plus, for each, the row it came from, so callers can write
 // back against their own ids without trusting the response to preserve order.
 //
-// The id form matters for more than precision: /cards/collection identifiers
-// have no language field, so a {set, collector_number} lookup always answers
-// with the ENGLISH printing. Every row here came from card_cache, whose id IS
-// that printing's own Scryfall id — including for a Japanese card — so asking by
-// id is the only way a non-English row gets its own prices refreshed instead of
-// silently re-fetching the English one.
+// Prefer exact Scryfall IDs when available; fall back to set/number or name for
+// compatibility rows that predate exact IDs.
 const scryfallUuid = (id) => {
   const raw = String(id || '').replace(/^mtg-/, '');
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
@@ -355,7 +342,7 @@ async function searchCards(...args) {
 }
 
 // Search MTG cards: local card_cache first (game='mtg'), then Scryfall. Mirrors
-// the Pokémon searchCards contract so the route can dispatch on `game` alone.
+// the route's existing search contract.
 // `page` is 1-based over `limit`-sized pages; the caller keeps asking for the
 // next page while a full page comes back.
 async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', scope = 'database', userId = null, lang = null, allPrints = false, page = 1, limit = 60) {
@@ -398,7 +385,7 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
       SELECT cc.*, SUM(c.quantity) AS owned_qty
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ? AND c.list_type = 'collection' AND cc.game = 'mtg'
+      WHERE c.user_id = ? AND c.list_type = 'collection'
     `;
     const params = [userId];
     // Collection scope searches what the user owns, in every language they own it
@@ -419,8 +406,8 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
   const queryLocal = async () => {
     // language is part of the identity of a cached printing, so a Japanese search
     // must not be answered with the English rows sitting next to it.
-    let sql = `SELECT * FROM card_cache WHERE game = 'mtg' AND language = ?`;
-    const params = [langName];
+    let sql = `SELECT * FROM card_cache WHERE language = 'English'`;
+    const params = [];
     if (cleanName) { sql += ` AND (name LIKE ? OR printed_name LIKE ?)`; params.push(`%${cleanName}%`, `%${cleanName}%`); }
     if (cleanNumber) { sql += ` AND (number = ? OR CAST(number AS INTEGER) = CAST(? AS INTEGER))`; params.push(cleanNumber, cleanNumber); }
     const localSetFilter = setSqlFilter(setList);
@@ -557,7 +544,7 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
 }
 
 // Fetch a set's cards from Scryfall (dev seed helper). Mirrors
-// tcgApi.getCardsBySet: one request, normalized + cached like any lookup, so
+// Full-set lookup: one request, normalized and cached like any lookup, so
 // the seed route gets a varied MTG pool (all colors/rarities). Takes the first
 // page (~175 cards) — plenty for test data, so pagination is skipped.
 async function getCardsBySet(setCode) {
@@ -573,13 +560,12 @@ async function getCardsBySet(setCode) {
   }
 }
 
-// Fetch MTG sets from Scryfall and cache them in the shared `sets` table
-// (game='mtg'). Set ids are prefixed "mtg-" so a Scryfall set code can never
-// collide with a Pokémon set id on the primary key. Skips if already populated
-// unless force=true. Matches tcgApi.fetchAndCacheSets so server.js can call both.
+// Fetch MTG sets from Scryfall and cache them in `sets`. The historical `mtg-`
+// prefix remains until the Oracle-normalization PR. Skips if already populated
+// unless force=true.
 async function fetchAndCacheSets(force = false) {
   try {
-    const existing = await db.get(`SELECT COUNT(*) as count FROM sets WHERE game = 'mtg'`);
+    const existing = await db.get(`SELECT COUNT(*) as count FROM sets`);
     if (!force && existing && existing.count > 0) {
       console.log(`MTG sets already populated (${existing.count} sets). Skipping fetch.`);
       return;
@@ -589,8 +575,8 @@ async function fetchAndCacheSets(force = false) {
     const sets = (resp.data && resp.data.data) || [];
     for (const s of sets) {
       await db.run(
-        `INSERT OR REPLACE INTO sets (id, name, series, printed_total, total, release_date, ptcgo_code, symbol_url, logo_url, game)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'mtg')`,
+        `INSERT OR REPLACE INTO sets (id, name, series, printed_total, total, release_date, ptcgo_code, symbol_url, logo_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           `mtg-${s.code}`, s.name, s.set_type || '', s.card_count || 0, s.card_count || 0,
           s.released_at || '', s.code || '', s.icon_svg_uri || '', s.icon_svg_uri || ''
@@ -604,18 +590,17 @@ async function fetchAndCacheSets(force = false) {
 }
 
 // Refresh prices for every owned/decked MTG card from Scryfall and record price
-// history. The Pokémon updater (tcgApi) skips these, so this is their only
-// periodic refresh path.
+// history.
 // `force` bypasses the once-a-day gate (used by the scheduled daily run, which
 // is already on the right cadence by construction).
 async function updateCollectionPrices(force = false) {
   try {
     const cards = await db.all(`
       SELECT DISTINCT c.card_id, cc.set_id, cc.number, cc.name FROM collection c
-      JOIN card_cache cc ON c.card_id = cc.id WHERE cc.game = 'mtg'
+      JOIN card_cache cc ON c.card_id = cc.id
       UNION
       SELECT DISTINCT d.card_id, cc.set_id, cc.number, cc.name FROM deck_cards d
-      JOIN card_cache cc ON d.card_id = cc.id WHERE cc.game = 'mtg'
+      JOIN card_cache cc ON d.card_id = cc.id
     `);
     if (cards.length === 0) return;
     if (!force && !(await shouldSweepPrices('mtg'))) {
@@ -651,14 +636,21 @@ async function getCardById(cardId) {
   try {
     const resp = await scryGet(`/cards/${rawId}`);
     if (resp.data) {
+      if ((resp.data.lang || 'en').toLowerCase() !== 'en') {
+        const error = new Error('Only English card printings are supported.');
+        error.code = 'NON_ENGLISH_PRINTING';
+        throw error;
+      }
       const norm = normalizeCard(resp.data);
       await cacheCards([norm]);
       return norm;
     }
-  } catch (e) {}
+  } catch (e) {
+    if (e.code === 'NON_ENGLISH_PRINTING') throw e;
+  }
   return null;
 }
 
 // `client` and `fetchWindow` are exported for tests (stub the axios adapter),
-// mirroring how tcgApi exposes tcgClient.
+// for isolated tests.
 module.exports = { searchCards, normalizeCard, cacheCards, getCardsBySet, fetchAndCacheSets, updateCollectionPrices, getCardById, scryGetRetried, client, fetchWindow };

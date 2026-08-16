@@ -10,10 +10,6 @@ process.env.DB_PATH = tmpDb;
 const db = require('../../src/db');
 const compartmentSort = require('../../src/utils/compartmentSort');
 
-// Setup mock fetchAndCacheSets
-const tcgApi = require('../../src/tcgApi');
-tcgApi.fetchAndCacheSets = async () => {};
-
 function cleanup() {
   try { db.dbConnection.close(); } catch {}
   for (const suffix of ['', '-wal', '-shm']) {
@@ -24,22 +20,22 @@ function cleanup() {
 async function runTests() {
   await db.initDb();
 
-  // F2-TC1: Assert that the collection table contains a game column
+  // F2-TC1: collection has no redundant game column
   try {
     const cols = await db.all(`PRAGMA table_info(collection)`);
     const hasGame = cols.some(c => c.name === 'game');
-    assert.ok(hasGame, 'collection table must have game column');
+    assert.ok(!hasGame, 'collection table must not have game column');
     console.log('PASS: F2-TC1');
   } catch (err) {
     console.error('FAIL: F2-TC1 -', err.message);
     throw err;
   }
 
-  // F2-TC2: Assert that the card_cache table contains a game column
+  // F2-TC2: card_cache has no redundant game column
   try {
     const cols = await db.all(`PRAGMA table_info(card_cache)`);
     const hasGame = cols.some(c => c.name === 'game');
-    assert.ok(hasGame, 'card_cache table must have game column');
+    assert.ok(!hasGame, 'card_cache table must not have game column');
     console.log('PASS: F2-TC2');
   } catch (err) {
     console.error('FAIL: F2-TC2 -', err.message);
@@ -78,8 +74,8 @@ async function runTests() {
     )).lastID;
 
     await db.run(
-      `INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`,
-      ['mtg-c1', 'Card 1', 'mtg']
+      `INSERT INTO card_cache (id, name) VALUES (?, ?)`,
+      ['mtg-c1', 'Card 1']
     );
 
     // Insert cards with positions out of order
@@ -131,7 +127,7 @@ async function runTests() {
     await db.initDb();
     const cols = await db.all(`PRAGMA table_info(collection)`);
     const gameCols = cols.filter(c => c.name === 'game');
-    assert.strictEqual(gameCols.length, 1, 'Should only have one game column even after running initDb twice');
+    assert.strictEqual(gameCols.length, 0, 'Should have no game column after running initDb twice');
     console.log('PASS: F2-TC6');
   } catch (err) {
     console.error('FAIL: F2-TC6 -', err.message);
@@ -187,8 +183,8 @@ async function runTests() {
 
     // Fill page 1
     await db.run(
-      `INSERT INTO card_cache (id, name, game) VALUES (?, ?, ?)`,
-      ['mtg-c2', 'Black Lotus', 'mtg']
+      `INSERT INTO card_cache (id, name) VALUES (?, ?)`,
+      ['mtg-c2', 'Black Lotus']
     );
     await db.run(
       `INSERT INTO collection (card_id, quantity, location_id, compartment_id, position, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -211,8 +207,8 @@ async function runTests() {
   // F2-TC10: Verify price history handles null/zero values safely
   try {
     await db.run(
-      `INSERT INTO card_cache (id, name, game, price_trend) VALUES (?, ?, ?, ?)`,
-      ['mtg-c3', 'Promo Lotus', 'mtg', null]
+      `INSERT INTO card_cache (id, name, price_trend) VALUES (?, ?, ?)`,
+      ['mtg-c3', 'Promo Lotus', null]
     );
     await db.run(
       `INSERT INTO price_history (card_id, price) VALUES (?, ?)`,

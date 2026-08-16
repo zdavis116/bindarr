@@ -9,22 +9,19 @@ router.use(authenticateToken);
 // 7. Get Collection Statistics & Analytics
 router.get('/stats', async (req, res) => {
   try {
-    // Optional per-game view (e.g. only Pokémon or only MTG). Absent = all games.
-    const { game } = req.query;
-    const gameFilter = game ? ` AND cc.game = ?` : '';
-    const statsParams = game ? [req.user.id, game] : [req.user.id];
+    const statsParams = [req.user.id];
 
     // Retrieve all collection items to compute statistics
     const query = `
       SELECT
         c.quantity, c.purchase_price, c.added_at, c.printing, c.condition, c.card_id,
-        cc.types, cc.subtypes, cc.supertype, cc.game, cc.rarity, cc.set_name, cc.set_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
+        cc.types, cc.subtypes, cc.supertype, cc.rarity, cc.set_name, cc.set_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
         cc.price_avg1, cc.price_avg7, cc.price_avg30,
         l.name as location_name
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?
     `;
     const rows = await db.all(query, statsParams);
 
@@ -136,11 +133,11 @@ router.get('/stats', async (req, res) => {
         (SELECT type FROM locations WHERE id = c.location_id) AS location_type,
         c.quantity, c.condition, c.printing, c.language, c.purchase_price, c.is_trade, c.favorite, c.list_type,
         cc.id as card_id, cc.name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
-        cc.game, cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity, cc.price_trend,
+        cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity, cc.price_trend,
         cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?
       ORDER BY CASE
         WHEN c.printing = 'Holofoil' AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0 THEN cc.price_holofoil
         WHEN c.printing = 'Reverse Holofoil' AND cc.price_reverse_holofoil IS NOT NULL AND cc.price_reverse_holofoil > 0 THEN cc.price_reverse_holofoil
@@ -152,6 +149,7 @@ router.get('/stats', async (req, res) => {
     const topValuableRows = await db.all(topValuableQuery, statsParams);
     const topValuable = topValuableRows.map(row => ({
       ...row,
+      game: 'mtg',
       price_trend: resolveCardPrice(row)
     }));
 
@@ -204,15 +202,15 @@ router.get('/stats', async (req, res) => {
              (SELECT type FROM locations WHERE id = c.location_id) AS location_type,
              c.quantity, c.condition, c.printing, c.language, c.added_at, c.is_trade, c.favorite, c.list_type,
              cc.id as card_id, cc.name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
-             cc.game, cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity,
+             cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity,
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?
       ORDER BY c.added_at DESC
       LIMIT 6
     `, statsParams);
-    const recentAdditions = recentRows.map(row => ({ ...row, price_trend: resolveCardPrice(row) }));
+    const recentAdditions = recentRows.map(row => ({ ...row, game: 'mtg', price_trend: resolveCardPrice(row) }));
 
     const gainAbs = totalValue - totalSpent;
     const roi = {
@@ -274,15 +272,15 @@ router.get('/stats', async (req, res) => {
 router.get('/stats/history', async (req, res) => {
   try {
     const { period = '30d', game } = req.query;
-    const gameFilter = game ? ` AND cc.game = ?` : '';
-    const params = game ? [req.user.id, game] : [req.user.id];
+    const gameFilter = game ? `` : '';
+    const params = [req.user.id];
 
     // Retrieve all collection items to compute history
     const query = `
       SELECT c.quantity, c.added_at, c.printing, cc.id as card_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      WHERE c.user_id = ?${gameFilter}
+      WHERE c.user_id = ?
     `;
     const items = await db.all(query, params);
 
@@ -295,7 +293,7 @@ router.get('/stats/history', async (req, res) => {
     if (cardIds.length > 0) {
       const placeholders = cardIds.map(() => '?').join(',');
       const historyRows = await db.all(
-        `SELECT card_id, price, recorded_at FROM price_history WHERE card_id IN (${placeholders}) ORDER BY recorded_at ASC`,
+        `SELECT card_id, price, recorded_at FROM price_history WHERE card_id IN (${placeholders}) ORDER BY recorded_at ASC, id ASC`,
         cardIds
       );
       historyRows.forEach(r => {
@@ -408,13 +406,13 @@ router.get('/cards/:id/price-history', async (req, res) => {
           SELECT price, recorded_at
           FROM price_history
           WHERE card_id = ? AND recorded_at >= datetime('now', ?)
-          ORDER BY recorded_at ASC
+          ORDER BY recorded_at ASC, id ASC
         `, [id, `-${days} days`])
       : await db.all(`
           SELECT price, recorded_at
           FROM price_history
           WHERE card_id = ?
-          ORDER BY recorded_at ASC
+          ORDER BY recorded_at ASC, id ASC
         `, [id]);
 
     const now = Date.now();

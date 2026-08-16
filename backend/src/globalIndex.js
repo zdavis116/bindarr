@@ -14,7 +14,7 @@ const embedMatch = require('./embedMatch');
 // Docker (the named volume); defaults to backend/data for local dev.
 const DATA_DIR = process.env.INDEX_DATA_DIR || path.join(__dirname, '..', 'data');
 const SCRIPTS_DIR = path.join(__dirname, '..', 'scripts');
-const GAMES = ['mtg', 'pokemon'];
+const GAMES = ['mtg'];
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // The files each build kind produces, relative to the data dir.
@@ -55,7 +55,7 @@ function getProgress() { return progress; }
 function parseLine(game, line) {
   const p = progress[game];
   if (!p) return;
-  const tot = line.match(/of (\d+) (?:mtg|pokemon) cards/);
+  const tot = line.match(/of (\d+) mtg cards/);
   if (tot) p.total = +tot[1];
   const cur = line.match(/^\s*(\d+)\/(\d+)/);
   if (cur) { p.done = +cur[1]; p.total = +cur[2]; }

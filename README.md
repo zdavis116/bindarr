@@ -215,7 +215,6 @@ Prefer containers, or want it running as a restart-on-boot background service? B
          # - HTTPS_PORT=3443             # already the image default; set to "" to serve plain HTTP only
          # - SSL_CERT_PATH=              # your own cert (e.g. /app/database/certs/fullchain.pem); omit for auto self-signed
          # - SSL_KEY_PATH=               # its private key
-         # - POKEMON_TCG_API_KEY=        # free key from dev.pokemontcg.io raises rate limits
          # - PUBLIC_BASE_URL=            # external URL behind a proxy, e.g. https://cards.example.com. Share links + auto-allowed as a CORS origin (proxied logins work with just this)
          # - DEFAULT_ADMIN_PASSWORD=     # pin the initial admin password (else it's auto-generated in the logs)
          # - ALLOW_REGISTRATION=         # "true" to allow open self-registration; default is invite-only
@@ -283,7 +282,6 @@ Prefer to build locally? Clone the repo — its [`docker-compose.yml`](docker-co
 You can configure Bindarr by passing these environment variables in your container configuration:
 - `PORT` (Default: `3001`) - The port the server runs on.
 - `DB_PATH` (Default: `/app/database/bindarr.db`) - Location of the SQLite database.
-- `POKEMON_TCG_API_KEY` (Optional) - Your free API key from the [Pokémon TCG developer portal](https://dev.pokemontcg.io/). While Bindarr works without one, a key raises the rate limit from 1,000 requests/day (and 30/minute) to 20,000/day. Note: `pokemontcg.io` now redirects to Scrydex, the team's paid successor API. The free v2 API Bindarr uses is still live and keys are still issued at `dev.pokemontcg.io`; Bindarr does not use Scrydex.
 - `DEFAULT_ADMIN_PASSWORD` (Optional) - Sets a known password for the auto-created `admin` account on first startup. If unset, a random password is generated and printed once to the server logs (see [First-Time Sign In](#first-time-sign-in)).
 - `PUBLIC_BASE_URL` (Optional) - Externally-reachable URL when running behind a reverse proxy, e.g. `https://cards.example.com`. Used to build collection share links, and its origin is automatically added to the CORS allow-list, so setting this alone is enough for logins through the proxy. Also editable from the Admin panel. (`localhost` and private-LAN origins are always allowed regardless. To whitelist *additional* public origins, set `CORS_ORIGIN` to a comma-separated list.)
 - `ALLOW_REGISTRATION` (Optional) - Set to `true` to allow open self-registration from the login screen. Default (unset) is **invite-only**: only an admin creates accounts via the Admin panel, and the Sign Up option is hidden.
@@ -306,7 +304,7 @@ Every scan runs the same pipeline server-side (`backend/src/scanMatch.js`):
 1. **Detect & rectify the card.** OpenCV (`opencv-wasm`) runs Canny edge detection + contour analysis on the frame and scores candidate regions by `size × card-aspect-fit × centrality` (a whole card is a ~0.71 portrait rectangle, which rejects internal blocks like the art window or type line). The winner is either perspective-warped flat from a clean 4-point quad (removes tilt/skew) or cropped from its bounding box. If nothing card-like is found, it falls back to a centered crop of the on-screen guide box.
 2. **Recall (CLIP).** The rectified image is embedded with a **CLIP** model (`@huggingface/transformers`, ONNX) and compared by cosine similarity against the embedding database to pull the ~250 visually-nearest candidates. This narrows tens of thousands of cards to a shortlist fast, but similar-looking cards/printings can rank close.
 3. **Verify (ORB + homography).** For each candidate, **ORB** binary descriptors are matched to the query with a brute-force Hamming matcher and Lowe's ratio test (0.75), then a **RANSAC homography** (5px reprojection threshold) is fit between the matched keypoints. The number of geometric **inliers** is the decisive score: only the true printing produces many spatially-consistent matches, so ranking by inliers resolves the exact card rather than a look-alike. If a game's ORB DB isn't built, it ranks on CLIP similarity alone.
-4. **Game auto-detection.** It verifies the game you're scanning in first; if the best match is weak (< 25 inliers) it also runs the other game and keeps whichever scores higher, so scanning in the wrong mode still works.
+4. **MTG matching.** Candidates always come from Scryfall Magic printings; no cross-game provider or fallback is involved.
 5. **Confidence gate (client).** The top result auto-fills when it clears the gate (≥ 12 ORB inliers, or ≥ 0.55 CLIP cosine similarity when ORB didn't run); below that, the candidate list is shown for a one-tap manual pick.
 
 There are two ways to supply the reference features:
@@ -317,15 +315,13 @@ There are two ways to supply the reference features:
 
 ```bash
 cd backend
-# CLIP embeddings (recall) — per game
+# CLIP embeddings (recall)
 node --max-old-space-size=2048 scripts/build-card-embeddings.mjs --game mtg
-node --max-old-space-size=2048 scripts/build-card-embeddings.mjs --game pokemon
-# ORB features (geometric verification) — per game
+# ORB features (geometric verification)
 node scripts/build-card-orb.mjs --game mtg
-node scripts/build-card-orb.mjs --game pokemon
 ```
 
-These download every card image and are **heavy**: several hours of CPU + downloads and ~1.6 GB on disk. Both scripts checkpoint and support `--resume`. A `POKEMON_TCG_API_KEY` (see below) is recommended for the Pokémon build. Without these DBs, set-scoped MTG matching still works (it builds on demand); only code-free matching and game auto-detection need the pre-built data.
+These download every Magic card image and are **heavy**: several hours of CPU and downloads. Both scripts checkpoint and support `--resume`. Without these databases, set-scoped MTG matching still works because it builds on demand; only code-free global matching needs the pre-built data.
 
 > [!NOTE]
 > The endpoints backing this are `POST /api/scan-match` (identify an uploaded card image) and `POST /api/prepare-set` (build/verify a set's index). The backend has no auto-reload — restart it after changing backend code so new routes/data load.
@@ -334,13 +330,13 @@ These download every card image and are **heavy**: several hours of CPU + downlo
 
 ## Backup, Restore & Recovery
 
-> **Renamed in v1.5.0.** The database file is now `bindarr.db`; it was `pokemon_cards.db`, left over from when the project was Pokémon-only. Upgrades migrate automatically: on first start the old file is renamed (along with its `-wal`/`-shm` sidecars) if no `bindarr.db` exists yet. Nothing to do by hand, and no data is touched if both files are present. If you pinned `DB_PATH` to the old filename it keeps working unchanged — update it when convenient. Existing `pokemon_cards.*.bak` backups still list and restore normally.
+> **This fork uses a clean database.** It does not discover, rename, or migrate `pokemon_cards.db`. Follow [docs/UPGRADE-FORK.md](docs/UPGRADE-FORK.md) to archive the old database, start with a separate fresh path, and retain a reversible rollback.
 
 **Backup.** All state lives in the single SQLite file (the `bindarr-data` volume in Docker, or `DB_PATH` locally). Two options:
 - **File-level:** copy the DB file while the container is stopped, e.g. `docker run --rm -v bindarr-data:/data -v "$PWD":/backup alpine cp /data/bindarr.db /backup/`. (The app runs in WAL mode; stop the container first so the `-wal`/`-shm` files are checkpointed.)
 - **Per-user data:** each user can also export their own collection from the app as CSV or JSON (Collection → Export). This is portable to other trackers but does not include other users or app settings.
 
-**Restore.** Stop the container, drop the backed-up `bindarr.db` into the volume, start again. Or use the in-app Import (CSV/JSON) to restore a single user's collection.
+**Restore.** Stop the container, replace `bindarr.db` with a file-level backup, then start the container. Collection import is temporarily disabled in this MTG-only transition because uploaded rows cannot yet be validated against English Scryfall printings; the Oracle-aware importer is planned for a later PR.
 
 **Lost admin password.** The initial `admin` password is printed once, on the run that first creates the database. If you lose it and did not set `DEFAULT_ADMIN_PASSWORD`, either set that variable and recreate the database, or delete the DB file so a fresh admin is generated on next startup. There is no self-service password reset.
 
@@ -354,7 +350,6 @@ These download every card image and are **heavy**: several hours of CPU + downlo
   │     ├── src/
   │     │     ├── db.js              # SQLite schema, migrations & DB connection
   │     │     ├── server.js          # Express app: middleware, routes, /api/health
-  │     │     ├── tcgApi.js          # Pokémon TCG API proxy, cache & price updates
   │     │     ├── scryfallApi.js     # Scryfall (Magic) proxy, cache & price updates
   │     │     ├── embedMatch.js      # CLIP embedding recall (image -> candidate cards)
   │     │     ├── scanMatch.js       # Auto-crop/deskew + CLIP recall + ORB verify orchestration

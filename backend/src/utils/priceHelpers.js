@@ -24,13 +24,12 @@ function resolveCardPrice(card) {
   return card.price_trend || 0;
 }
 
-// Hydrate a raw card_cache row: its array columns are stored as JSON strings,
-// so parse them back to arrays. Missing columns (e.g. color_identity on a
-// Pokémon row) become []. Returns a shallow copy; the raw row is untouched.
+// Hydrate a raw card_cache row and provide the temporary frontend game field.
 function parseCardRow(row) {
   if (!row) return row;
   return {
     ...row,
+    game: 'mtg',
     subtypes: JSON.parse(row.subtypes || '[]'),
     types: JSON.parse(row.types || '[]'),
     color_identity: JSON.parse(row.color_identity || '[]'),
@@ -57,6 +56,8 @@ const isVintageSet = (setId) => {
          id.startsWith('xy12') || id.startsWith('cel25');
 };
 
+const priceWriteQueues = new Map();
+
 // Record a price point, but only when it actually moved. The price sweep runs
 // on every boot and nodemon reboots on every code edit, so the unguarded insert
 // was writing a fresh row per card per restart — 17k rows in a single day, all
@@ -64,23 +65,33 @@ const isVintageSet = (setId) => {
 // changed; the flat stretches between them are implied by the line.
 async function recordPrice(cardId, price) {
   if (!cardId || !(price > 0)) return false;
-  const db = require('../db');
-  const last = await db.get(
-    `SELECT price FROM price_history WHERE card_id = ? ORDER BY recorded_at DESC LIMIT 1`,
-    [cardId]
-  );
-  if (last && last.price === price) return false;
-  // Millisecond resolution, not CURRENT_TIMESTAMP. recorded_at is part of the
-  // primary key, and the default is second-resolution — so two genuine price
-  // movements in the same second collided and the second one was silently
-  // dropped by OR IGNORE. %f keeps the guard while making that effectively
-  // impossible. parseSqliteUtc already reads the fractional form correctly.
-  await db.run(
-    `INSERT OR IGNORE INTO price_history (card_id, price, recorded_at)
-     VALUES (?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
-    [cardId, price]
-  );
-  return true;
+  // Preserve observation order per card. Different cards remain independent,
+  // and completed queues are removed so this map cannot grow without bound.
+  const previous = priceWriteQueues.get(cardId) || Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    const db = require('../db');
+    // One SQL statement makes the movement check and insert atomic at the
+    // database boundary. This also suppresses duplicate flat rows if another
+    // process writes the same card between our queued observations.
+    const result = await db.run(
+      `INSERT INTO price_history (card_id, price, recorded_at)
+       SELECT ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now')
+       WHERE (
+         SELECT price FROM price_history
+         WHERE card_id = ?
+         ORDER BY recorded_at DESC, id DESC
+         LIMIT 1
+       ) IS NOT ?`,
+      [cardId, price, cardId, price]
+    );
+    return result.changes === 1;
+  });
+  priceWriteQueues.set(cardId, current);
+  try {
+    return await current;
+  } finally {
+    if (priceWriteQueues.get(cardId) === current) priceWriteQueues.delete(cardId);
+  }
 }
 
 // Scryfall: "We only update prices for cards once per day. Fetching card data
@@ -88,14 +99,7 @@ async function recordPrice(cardId, price) {
 // (https://scryfall.com/docs/api/rate-limits). Sweeping more often than daily
 // is pure load for zero new data, so both providers gate on this.
 const PRICE_SWEEP_INTERVAL_MS = 1000 * 60 * 60 * 24;
-// tcgdex gets its own clock: it serves the non-English Pokémon cards that
-// pokemontcg.io has no rows for, so the two sweep different cards and letting
-// either one mark the other's gate would silently skip a whole language.
-const SWEEP_COLUMN = {
-  mtg: 'mtg_prices_swept_at',
-  pokemon: 'pokemon_prices_swept_at',
-  tcgdex: 'tcgdex_prices_swept_at',
-};
+const SWEEP_COLUMN = { mtg: 'mtg_prices_swept_at' };
 
 // Has this game's price sweep gone stale enough to be worth running again?
 async function shouldSweepPrices(game) {

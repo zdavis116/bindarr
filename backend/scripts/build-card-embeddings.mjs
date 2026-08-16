@@ -12,7 +12,6 @@
  *
  * Usage:
  *   node scripts/build-card-embeddings.mjs --game mtg
- *   node scripts/build-card-embeddings.mjs --game pokemon --resume
  *   node scripts/build-card-embeddings.mjs --game mtg --limit 20   (smoke test)
  */
 import fs from 'fs';
@@ -21,7 +20,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import sharp from 'sharp';
 import { pipeline, RawImage } from '@huggingface/transformers';
-import { makeHttp, gatherMtg, gatherPokemon, sleep } from './cardSources.js';
+import { makeHttp, gatherMtg, sleep } from './cardSources.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -55,8 +54,7 @@ async function embedImage(extractor, buf) {
 }
 
 async function main() {
-  const game = arg('--game', 'mtg');
-  if (game !== 'mtg' && game !== 'pokemon') { console.error('Use --game mtg|pokemon'); process.exit(1); }
+  const game = 'mtg';
   const limit = parseInt(arg('--limit', '0'), 10) || 0;
   const delay = parseInt(arg('--delay', '100'), 10);
   const resume = hasFlag('--resume');
@@ -66,7 +64,7 @@ async function main() {
   const metaPath = path.join(DATA_DIR, `${game}-embed-meta.json`);
 
   const http = makeHttp();
-  let cards = game === 'pokemon' ? await gatherPokemon(http, delay, limit) : await gatherMtg(http);
+  let cards = await gatherMtg(http);
   if (limit) cards = cards.slice(0, limit);
 
   // Resume: keep the rows already computed, continue from there.

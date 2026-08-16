@@ -58,9 +58,8 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts. Please try again later.' }
 });
 
-// The card search proxies to the external Pokémon TCG API. Bulk scanning fires
-// one search per card, so the ceiling is generous — it exists to stop a logged-
-// in client from hammering the upstream API, not to throttle normal use.
+// Card search proxies to Scryfall. The ceiling is generous enough for scanning
+// while preventing a logged-in client from hammering the upstream API.
 const searchLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,

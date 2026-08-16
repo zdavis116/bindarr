@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
 const db = require('./db');
-const tcgApi = require('./tcgApi');
 const scryfallApi = require('./scryfallApi');
 
 const authRoutes = require('./routes/auth');
@@ -57,7 +56,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       connectSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https://images.pokemontcg.io', 'https://cards.scryfall.io', 'https://c1.scryfall.com', 'https://img.scryfall.com', 'https://assets.tcgdex.net'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://cards.scryfall.io', 'https://c1.scryfall.com', 'https://img.scryfall.com'],
       styleSrc: ["'self'", "'unsafe-inline'"],
       fontSrc: ["'self'", 'data:'],
       objectSrc: ["'none'"],
@@ -126,8 +125,7 @@ db.initDb()
     const splitCount = await splitStackedEntries(db);
     if (splitCount > 0) console.log(`Split ${splitCount} stacked collection copies into individual rows.`);
 
-    // Sync sets on startup (both games)
-    await tcgApi.fetchAndCacheSets();
+    // Sync Scryfall sets on startup.
     await scryfallApi.fetchAndCacheSets();
 
     // Load sets into compartmentSort memory cache
@@ -140,7 +138,6 @@ db.initDb()
     // weekly is plenty — prices are on their own schedule below.
     setInterval(async () => {
       try {
-        await tcgApi.fetchAndCacheSets(true);
         await scryfallApi.fetchAndCacheSets(true);
         await loadSetsCache(db);
       } catch (err) {
@@ -152,12 +149,7 @@ db.initDb()
     // most often worth doing and the most often allowed. `force` because the
     // interval itself is already the right cadence.
     setInterval(() => {
-      tcgApi.updateCollectionPrices(true);
       scryfallApi.updateCollectionPrices(true);
-      // Non-English Pokémon cards: their ids 404 on pokemontcg.io, so tcgApi's
-      // sweep skips them and this is their only price refresh. No-op until the
-      // user actually owns one.
-      require('./tcgdexApi').updateCollectionPrices(true);
     }, 1000 * 60 * 60 * 24);
 
     // Shortly after startup, catch up if the last sweep was over a day ago.
@@ -165,9 +157,7 @@ db.initDb()
     // nodemon meant a full sweep on every code edit — for data that cannot have
     // changed since the last one.
     setTimeout(() => {
-      tcgApi.updateCollectionPrices();
       scryfallApi.updateCollectionPrices();
-      require('./tcgdexApi').updateCollectionPrices();
     }, 30000);
 
     // Periodically purge expired sessions so the table doesn't grow unbounded
