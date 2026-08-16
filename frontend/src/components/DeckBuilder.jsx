@@ -1,35 +1,25 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Zap, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText } from 'lucide-react';
+import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
-import { translateJapaneseName } from '../utils/langHelper';
+
 import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { buildDeckExport, parseDeckLine } from '../utils/deckText';
-import { defaultGame, gameOptions, showGamePicker } from '../utils/games';
 import { useT } from '../utils/i18n';
 
-// Basic Energy (Pokémon) & Basic Lands (MTG) are exempt from the "max 4 of a card" deck rule.
-const isBasicEnergyOrLand = (card, game = 'pokemon') => {
+// Basic lands are exempt from the four-copy deck rule.
+const isBasicEnergyOrLand = (card) => {
   if (!card) return false;
-  if (game === 'mtg' || card.game === 'mtg') {
-    const subs = card.subtypes || [];
-    const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
-    return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
-  }
-  return card.supertype === 'Energy' && (!card.subtypes || !card.subtypes.includes('Special'));
+  const subs = card.subtypes || [];
+  const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
+  return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
 };
 
 // Total copies of a card (matched by name) already in a deck's card list.
 const deckCountByName = (deckCards, name) =>
   (deckCards || []).filter(c => c.name === name).reduce((s, c) => s + c.quantity, 0);
 
-// What a new deck starts as for a game. Pulled out because it is now needed in
-// three places: the two Game System buttons and the initial state, which has to
-// match the game the picker opens on (MTG, when Pokémon is hidden in Settings).
-const newDeckDefaults = (game) => (game === 'mtg'
-  ? { format: 'Commander / EDH', targetSize: 100 }
-  : { format: 'Standard', targetSize: 60 });
 
 function DeckBuilder({ showToast }) {
   const { t } = useT();
@@ -43,7 +33,7 @@ function DeckBuilder({ showToast }) {
   const [previewCard, setPreviewCard] = useState(null);
 
   // Deck Creation States & Constants
-  const POKEMON_FORMATS = ['Standard', 'Expanded', 'GLC (Gym Leader Challenge)', 'Unlimited', 'Retro'];
+
   const MTG_FORMATS = ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper'];
   const DECK_CATEGORIES = ['Competitive', 'Casual', 'Tournament', 'Theorycraft', 'Proxy', 'Trade'];
   const DECK_ACCENT_COLORS = [
@@ -60,11 +50,11 @@ function DeckBuilder({ showToast }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
-  const [newDeckGame, setNewDeckGame] = useState(() => defaultGame()); // 'pokemon' | 'mtg'
-  const [newDeckFormat, setNewDeckFormat] = useState(() => newDeckDefaults(defaultGame()).format);
+  const newDeckGame = 'mtg';
+  const [newDeckFormat, setNewDeckFormat] = useState('Commander / EDH');
   const [newDeckCategory, setNewDeckCategory] = useState('Competitive');
   const [newDeckAccentColor, setNewDeckAccentColor] = useState('#eab308');
-  const [newDeckTargetSize, setNewDeckTargetSize] = useState(() => newDeckDefaults(defaultGame()).targetSize);
+  const [newDeckTargetSize, setNewDeckTargetSize] = useState(100);
   const [newDeckImportText, setNewDeckImportText] = useState('');
   const [showImportDecklistArea, setShowImportDecklistArea] = useState(false);
   
@@ -72,13 +62,10 @@ function DeckBuilder({ showToast }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [deckSearchGame, setDeckSearchGame] = useState(() => defaultGame()); // 'pokemon' | 'mtg'
+  const deckSearchGame = 'mtg';
 
   // Deck Selection Menu Controls
   const [deckSearchTerm, setDeckSearchTerm] = useState('');
-  // 'all' | 'pokemon' | 'mtg'. With one game hidden, 'all' would show its decks
-  // anyway, so open scoped to the visible game instead.
-  const [deckGameFilter, setDeckGameFilter] = useState(() => (showGamePicker() ? 'all' : defaultGame()));
   const [deckStatusFilter, setDeckStatusFilter] = useState('all'); // 'all' | 'ready' | 'in_progress' | 'in_play'
   const [deckSortBy, setDeckSortBy] = useState('created_desc'); // 'created_desc' | 'created_asc' | 'name_asc' | 'cards_desc'
   const [deckSelectionViewMode, setDeckSelectionViewMode] = useState('table'); // 'grid' | 'table'
@@ -87,7 +74,6 @@ function DeckBuilder({ showToast }) {
   const [showSimulator, setShowSimulator] = useState(false);
   const [simulatorDeck, setSimulatorDeck] = useState([]);
   const [hand, setHand] = useState([]);
-  const [prizeCards, setPrizeCards] = useState([]);
   const [mulliganCount, setMulliganCount] = useState(0);
 
   // Import / Export Modals
@@ -159,11 +145,10 @@ function DeckBuilder({ showToast }) {
         showToast(t('deck.created'));
         setNewDeckName('');
         setNewDeckDesc('');
-        setNewDeckGame(defaultGame());
-        setNewDeckFormat(newDeckDefaults(defaultGame()).format);
+        setNewDeckFormat('Commander / EDH');
         setNewDeckCategory('Competitive');
         setNewDeckAccentColor('#eab308');
-        setNewDeckTargetSize(newDeckDefaults(defaultGame()).targetSize);
+        setNewDeckTargetSize(100);
         setNewDeckImportText('');
         setShowImportDecklistArea(false);
         setShowCreateModal(false);
@@ -186,8 +171,7 @@ function DeckBuilder({ showToast }) {
         // Also get checkout status from deck list
         const deckMeta = decks.find(d => d.id === deckId);
         setActiveDeck({ ...data, checked_out: deckMeta?.checked_out || 0, checked_out_at: deckMeta?.checked_out_at || null });
-        // Default the card search to this deck's game.
-        setDeckSearchGame(data.game || 'pokemon');
+
         setViewMode('detail');
       }
     } catch (err) {
@@ -249,7 +233,7 @@ function DeckBuilder({ showToast }) {
         return;
       }
       
-      if (!isBasicEnergyOrLand(card, activeDeck.game) && deckCountByName(activeDeck.cards, card.name) >= 4) {
+      if (!isBasicEnergyOrLand(card) && deckCountByName(activeDeck.cards, card.name) >= 4) {
         showToast(t('deck.errCopyLimit', { count: 4, name: card.name }));
         return;
       }
@@ -338,7 +322,7 @@ function DeckBuilder({ showToast }) {
           setSearchResults(mapped);
         }
       } else {
-        const finalQuery = deckSearchGame === 'mtg' ? searchQuery : (translateJapaneseName(searchQuery) || searchQuery);
+        const finalQuery = searchQuery;
         const response = await fetch(`/api/search?name=${encodeURIComponent(finalQuery)}&scope=collection&game=${deckSearchGame}`);
         if (response.ok) {
           const data = await response.json();
@@ -467,11 +451,6 @@ function DeckBuilder({ showToast }) {
     const shuffled = shuffleArray(fullDeck);
     setSimulatorDeck(shuffled);
     setHand(shuffled.slice(0, 7));
-    if (activeDeck?.game !== 'mtg' && shuffled.length >= 13) {
-      setPrizeCards(shuffled.slice(7, 13));
-    } else {
-      setPrizeCards([]);
-    }
     setMulliganCount(0);
     setShowSimulator(true);
   };
@@ -482,15 +461,11 @@ function DeckBuilder({ showToast }) {
     const drawCount = Math.max(1, 7 - nextMulligan);
     setSimulatorDeck(shuffled);
     setHand(shuffled.slice(0, drawCount));
-    if (activeDeck?.game !== 'mtg' && shuffled.length >= drawCount + 6) {
-      setPrizeCards(shuffled.slice(drawCount, drawCount + 6));
-    }
     setMulliganCount(nextMulligan);
   };
 
   const handleDrawCard = () => {
-    // Deck is laid out as [hand][prizes][rest]; hand grows by drawing from rest.
-    const nextIndex = prizeCards.length + hand.length;
+    const nextIndex = hand.length;
     if (nextIndex >= simulatorDeck.length) {
       showToast(t('deck.errNoCardsLeft'));
       return;
@@ -499,7 +474,7 @@ function DeckBuilder({ showToast }) {
   };
 
   // --- EXPORT & IMPORT LOGIC ---
-  const effectiveExportFormat = exportFormat || ((activeDeck?.game === 'mtg') ? 'mtga' : 'ptcgl');
+  const effectiveExportFormat = exportFormat || 'mtga';
 
   const handleExportDeckText = () => {
     if (!activeDeck) return '';
@@ -519,9 +494,8 @@ function DeckBuilder({ showToast }) {
   const handleOpenMassEntry = () => {
     const text = buildDeckExport(activeDeck?.cards, 'buylist');
     if (!text) { showToast(t('deck.nothingToBuy')); return; }
-    const line = (activeDeck?.game === 'mtg') ? 'Magic' : 'Pokemon';
     navigator.clipboard.writeText(text).catch(() => {});
-    window.open(`https://www.tcgplayer.com/massentry?productline=${line}`, '_blank', 'noopener');
+    window.open('https://www.tcgplayer.com/massentry?productline=Magic', '_blank', 'noopener');
     showToast(t('deck.buylistCopied'));
   };
 
@@ -537,7 +511,7 @@ function DeckBuilder({ showToast }) {
       const { qty, name: rawName } = parsed;
 
       try {
-        const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'pokemon'}`);
+        const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=mtg`);
         if (res.ok) {
           const cards = await res.json();
           if (cards.length > 0) {
@@ -603,7 +577,7 @@ function DeckBuilder({ showToast }) {
         const { qty, name: rawName } = parsed;
 
         try {
-          const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=${activeDeck.game || 'pokemon'}`);
+          const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=mtg`);
           if (res.ok) {
             const cards = await res.json();
             if (cards.length > 0) {
@@ -632,8 +606,6 @@ function DeckBuilder({ showToast }) {
     }
   };
 
-  // The game the active deck is built for (legacy decks default to Pokémon).
-  const deckGame = activeDeck?.game || 'pokemon';
 
   // MTG card-type buckets, read off the parsed type line stored in subtypes.
   const MTG_MAIN_TYPES = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Battle', 'Land'];
@@ -643,16 +615,10 @@ function DeckBuilder({ showToast }) {
     return 'Other';
   };
   const cardGroup = (card) => {
-    if (deckGame === 'mtg') return mtgCardType(card);
-    let type = card.supertype || 'Pokémon';
-    if (type === 'Pokemon') type = 'Pokémon';
-    return ['Pokémon', 'Trainer', 'Energy'].includes(type) ? type : 'Pokémon';
+    return mtgCardType(card);
   };
 
-  // Groups order based on game
-  const GROUP_ORDER = deckGame === 'mtg'
-    ? ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Battle', 'Land', 'Other']
-    : ['Pokémon', 'Trainer', 'Energy', 'Other'];
+  const GROUP_ORDER = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Battle', 'Land', 'Other'];
 
   // --- CHART DATA GENERATION ---
   const getSupertypeChartData = () => {
@@ -683,36 +649,24 @@ function DeckBuilder({ showToast }) {
   const getEnergyChartData = () => {
     if (!activeDeck) return [];
     const map = {};
-    if (deckGame === 'mtg') {
-      // Color and Land type distribution
-      activeDeck.cards.forEach(c => {
-        const subs = c.subtypes || [];
-        const isLand = subs.includes('Land') || c.supertype === 'Land' || cardGroup(c) === 'Land';
-        if (isLand) {
-          const basicLandTypes = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
-          const foundType = basicLandTypes.find(t => subs.includes(t) || c.name.includes(t));
-          const label = foundType ? `Land (${foundType})` : 'Land (Nonbasic)';
-          map[label] = (map[label] || 0) + c.quantity;
-        } else {
-          const colors = c.colors || c.types || [];
-          if (colors.length === 0) {
-            map['Colorless'] = (map['Colorless'] || 0) + c.quantity;
-          } else {
-            colors.forEach(col => {
-              const colorName = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' }[col] || col;
-              map[colorName] = (map[colorName] || 0) + c.quantity;
-            });
-          }
-        }
-      });
-      return Object.keys(map).map(key => ({ name: key, value: map[key] }));
-    }
     activeDeck.cards.forEach(c => {
-      if (c.supertype === 'Energy') {
-        const name = c.name.replace(/\s*Energy/i, '').trim() || 'Special';
-        map[name] = (map[name] || 0) + c.quantity;
-      } else if (c.types && c.types.length > 0) {
-        c.types.forEach(t => { map[t] = (map[t] || 0) + c.quantity; });
+      const subs = c.subtypes || [];
+      const isLand = subs.includes('Land') || c.supertype === 'Land' || cardGroup(c) === 'Land';
+      if (isLand) {
+        const basicLandTypes = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+        const foundType = basicLandTypes.find(t => subs.includes(t) || c.name.includes(t));
+        const label = foundType ? `Land (${foundType})` : 'Land (Nonbasic)';
+        map[label] = (map[label] || 0) + c.quantity;
+      } else {
+        const colors = c.colors || c.types || [];
+        if (colors.length === 0) {
+          map.Colorless = (map.Colorless || 0) + c.quantity;
+        } else {
+          colors.forEach(col => {
+            const colorName = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' }[col] || col;
+            map[colorName] = (map[colorName] || 0) + c.quantity;
+          });
+        }
       }
     });
     return Object.keys(map).map(key => ({ name: key, value: map[key] }));
@@ -727,9 +681,6 @@ function DeckBuilder({ showToast }) {
   const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
   // --- SELECTION MENU METRICS & FILTERING ---
-  const totalDecksCount = decks.length;
-  const pokemonDecksCount = decks.filter(d => (d.game || 'pokemon') === 'pokemon').length;
-  const mtgDecksCount = decks.filter(d => d.game === 'mtg').length;
 
   const filteredDecks = decks.filter(deck => {
     const q = deckSearchTerm.trim().toLowerCase();
@@ -737,15 +688,14 @@ function DeckBuilder({ showToast }) {
       deck.name.toLowerCase().includes(q) ||
       (deck.description && deck.description.toLowerCase().includes(q));
 
-    const deckGameVal = deck.game || 'pokemon';
-    const matchesGame = deckGameFilter === 'all' || deckGameVal === deckGameFilter;
+
 
     let matchesStatus = true;
     if (deckStatusFilter === 'ready') matchesStatus = deck.total_cards === (deck.target_size || 60);
     else if (deckStatusFilter === 'in_progress') matchesStatus = (deck.total_cards || 0) < (deck.target_size || 60);
     else if (deckStatusFilter === 'in_play') matchesStatus = !!deck.checked_out;
 
-    return matchesSearch && matchesGame && matchesStatus;
+    return matchesSearch && matchesStatus;
   }).sort((a, b) => {
     if (deckSortBy === 'name_asc') return a.name.localeCompare(b.name);
     if (deckSortBy === 'cards_desc') return (b.total_cards || 0) - (a.total_cards || 0);
@@ -805,29 +755,6 @@ function DeckBuilder({ showToast }) {
                   </button>
                 )}
               </div>
-
-              {/* Game Tabs — only the games Settings is showing. */}
-              {showGamePicker() && (
-              <div className="sub-nav-tabs" style={{ margin: 0, background: 'rgba(0,0,0,0.25)', padding: '3px', borderRadius: 'var(--radius-sm)' }}>
-                {[
-                  ['all', 'All Decks', totalDecksCount],
-                  ...gameOptions().map(g => [g.value, g.short, g.value === 'mtg' ? mtgDecksCount : pokemonDecksCount]),
-                ].map(([val, label, count]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    className={`sub-nav-tab ${deckGameFilter === val ? 'active' : ''}`}
-                    onClick={() => setDeckGameFilter(val)}
-                    style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <span>{label}</span>
-                    <span style={{ fontSize: '0.65rem', background: deckGameFilter === val ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '10px' }}>
-                      {count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              )}
 
             </div>
 
@@ -900,11 +827,11 @@ function DeckBuilder({ showToast }) {
               <Layers size={36} style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', opacity: 0.5 }} />
               <h3 style={{ color: 'var(--text-strong)', fontSize: '1.05rem', marginBottom: '0.25rem' }}>{t('deck.noMatches')}</h3>
               <p style={{ fontSize: '0.85rem' }}>{t('deck.noMatchesHint')}</p>
-              {(deckSearchTerm || deckGameFilter !== 'all' || deckStatusFilter !== 'all') && (
+              {(deckSearchTerm || deckStatusFilter !== 'all') && (
                 <button
                   className="btn btn-secondary"
                   style={{ marginTop: '1rem', fontSize: '0.8rem' }}
-                  onClick={() => { setDeckSearchTerm(''); setDeckGameFilter('all'); setDeckStatusFilter('all'); }}
+                  onClick={() => { setDeckSearchTerm(''); setDeckStatusFilter('all'); }}
                 >
                   {t('deck.clearFilters')}
                 </button>
@@ -914,13 +841,11 @@ function DeckBuilder({ showToast }) {
             /* --- GRID VIEW --- */
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
               {filteredDecks.map(deck => {
-                const deckGameVal = deck.game || 'pokemon';
-                const isMtg = deckGameVal === 'mtg';
                 const targetSize = deck.target_size || 60;
                 const totalCards = deck.total_cards || 0;
                 const isComplete = totalCards >= targetSize;
                 const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
-                const accentColor = deck.accent_color || (isMtg ? '#ef4444' : '#eab308');
+                const accentColor = deck.accent_color || '#ef4444';
 
                 return (
                   <div
@@ -939,9 +864,7 @@ function DeckBuilder({ showToast }) {
                       overflow: 'hidden',
                       cursor: 'pointer',
                       transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                      background: isMtg
-                        ? 'linear-gradient(145deg, rgba(211,32,42,0.06), rgba(15,23,42,0.65))'
-                        : 'linear-gradient(145deg, rgba(234,179,8,0.06), rgba(15,23,42,0.65))'
+                      background: 'linear-gradient(145deg, rgba(211,32,42,0.06), rgba(15,23,42,0.65))'
                     }}
                     onClick={() => loadDeckDetails(deck.id)}
                     onMouseEnter={e => {
@@ -1001,15 +924,14 @@ function DeckBuilder({ showToast }) {
                               letterSpacing: '0.05em',
                               padding: '0.1rem 0.45rem',
                               borderRadius: '4px',
-                              background: isMtg ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
-                              color: isMtg ? '#f87171' : 'var(--accent-yellow)',
-                              border: isMtg ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(234,179,8,0.3)',
+                              background: 'rgba(239,68,68,0.15)',
+                              color: '#f87171',
+                              border: '1px solid rgba(239,68,68,0.3)',
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '3px'
                             }}>
-                              {isMtg ? <Swords size={10} /> : <Zap size={10} />}
-                              {isMtg ? 'MTG' : 'Pokémon'}
+                              <Swords size={10} /> MTG
                             </span>
 
                             {deck.format && (
@@ -1149,12 +1071,11 @@ function DeckBuilder({ showToast }) {
                 </thead>
                 <tbody>
                   {filteredDecks.map(deck => {
-                    const isMtg = (deck.game || 'pokemon') === 'mtg';
                     const targetSize = deck.target_size || 60;
                     const totalCards = deck.total_cards || 0;
                     const isComplete = totalCards >= targetSize;
                     const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
-                    const accentColor = deck.accent_color || (isMtg ? '#ef4444' : '#eab308');
+                    const accentColor = deck.accent_color || '#ef4444';
 
                     return (
                       <tr
@@ -1173,15 +1094,14 @@ function DeckBuilder({ showToast }) {
                                 fontWeight: 800,
                                 padding: '0.15rem 0.45rem',
                                 borderRadius: '4px',
-                                background: isMtg ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
-                                color: isMtg ? '#f87171' : 'var(--accent-yellow)',
-                                border: isMtg ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(234,179,8,0.3)',
+                                background: 'rgba(239,68,68,0.15)',
+                                color: '#f87171',
+                                border: '1px solid rgba(239,68,68,0.3)',
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '3px'
                               }}>
-                                {isMtg ? <Swords size={10} /> : <Zap size={10} />}
-                                {isMtg ? 'MTG' : 'Pokémon'}
+                                <Swords size={10} /> MTG
                               </span>
                             </div>
                             {deck.format && (
@@ -1394,21 +1314,6 @@ function DeckBuilder({ showToast }) {
                 <div className="glass-panel">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0 }}>{t('deck.addCardsTitle')}</h3>
-                    {showGamePicker() && (
-                      <div className="sub-nav-tabs" style={{ margin: 0 }}>
-                        {gameOptions().map(({ value, short }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className={`sub-nav-tab ${deckSearchGame === value ? 'active' : ''}`}
-                            style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}
-                            onClick={() => setDeckSearchGame(value)}
-                          >
-                            {short}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <form onSubmit={handleSearchCards} style={{ display: 'flex', gap: '0.5rem' }}>
                     <input
@@ -1437,7 +1342,7 @@ function DeckBuilder({ showToast }) {
                           const qtyInDeck = existingInDeck ? existingInDeck.quantity : 0;
                           const ownedQty = card.owned_qty || 0;
                           const isAtMaxOwned = qtyInDeck >= ownedQty;
-                          const isAtRuleMax = !isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck?.cards, card.name) >= 4;
+                          const isAtRuleMax = !isBasicEnergyOrLand(card) && deckCountByName(activeDeck?.cards, card.name) >= 4;
                           const disabledAdd = savingCard || isAtMaxOwned || isAtRuleMax;
 
                           return (
@@ -1535,7 +1440,7 @@ function DeckBuilder({ showToast }) {
                                       <button
                                         className="btn btn-secondary btn-icon-only"
                                         style={{ width: '22px', height: '22px', padding: 0 }}
-                                        disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck.cards, card.name) >= 4)}
+                                        disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card) && deckCountByName(activeDeck.cards, card.name) >= 4)}
                                         onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}
                                       >
                                         +
@@ -1563,7 +1468,7 @@ function DeckBuilder({ showToast }) {
                                       <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
                                         {card.quantity === 1 ? <Trash2 size={10} /> : '-'}
                                       </button>
-                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card, deckGame) && deckCountByName(activeDeck.cards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}>+</button>
+                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card) && deckCountByName(activeDeck.cards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}>+</button>
                                     </div>
                                   </div>
                                 </div>
@@ -1599,22 +1504,22 @@ function DeckBuilder({ showToast }) {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                       <span>Unique Cards:</span>
-                      <strong style={{ color: 'var(--text-strong)' }}>{activeDeck.cards.length} {deckGame === 'mtg' ? 'titles' : 'species'}</strong>
+                      <strong style={{ color: 'var(--text-strong)' }}>{activeDeck.cards.length} titles</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>{t(deckGame === 'mtg' ? 'deck.basicLands' : 'deck.basicEnergy')}</span>
+                      <span>{t('deck.basicLands')}</span>
                       <strong style={{ color: 'var(--accent-yellow)' }}>
-                        {activeDeck.cards.filter(c => isBasicEnergyOrLand(c, deckGame)).reduce((s, c) => s + c.quantity, 0)} {deckGame === 'mtg' ? 'basic lands' : 'basic energy'}
+                        {activeDeck.cards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
                       </strong>
                     </div>
                   </div>
                 </div>
 
-                {/* Bar Chart: Mana / Energy Cost Curve */}
+                {/* Mana curve */}
                 {manaCurveData.some(d => d.count > 0) && (
                   <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <BarChart2 size={14} style={{ color: '#3b82f6' }} /> Energy / Mana Cost Curve
+                      <BarChart2 size={14} style={{ color: '#3b82f6' }} /> Mana Curve
                     </h3>
                     <div style={{ width: '100%', height: '180px' }}>
                       <ResponsiveContainer width="100%" height="100%">
@@ -1667,11 +1572,11 @@ function DeckBuilder({ showToast }) {
                   </div>
                 )}
 
-                {/* Bar Chart: Energy & Types Distribution */}
+                {/* Color and land distribution */}
                 {energyData.length > 0 && (
                   <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <BarChart2 size={14} style={{ color: 'var(--accent-yellow)' }} /> {t(deckGame === 'mtg' ? 'deck.colorLandDist' : 'dash.typeDistribution')}
+                      <BarChart2 size={14} style={{ color: 'var(--accent-yellow)' }} /> {t('deck.colorLandDist')}
                     </h3>
                     <div style={{ width: '100%', height: '220px' }}>
                       <ResponsiveContainer width="100%" height="100%">
@@ -1683,8 +1588,7 @@ function DeckBuilder({ showToast }) {
                             {energyData.map((entry, idx) => {
                               const colorMap = {
                                 'White': '#fef08a', 'Blue': '#3b82f6', 'Black': '#475569', 'Red': '#ef4444', 'Green': '#10b981', 'Colorless': '#cbd5e1',
-                                'Land (Plains)': '#fef08a', 'Land (Island)': '#60a5fa', 'Land (Swamp)': '#475569', 'Land (Mountain)': '#f87171', 'Land (Forest)': '#4ade80', 'Land (Nonbasic)': '#d97706',
-                                'Grass': '#4ade80', 'Fire': '#f87171', 'Water': '#60a5fa', 'Lightning': '#facc15', 'Psychic': '#c084fc', 'Fighting': '#f97316', 'Darkness': '#475569', 'Metal': '#94a3b8', 'Dragon': '#a855f7', 'Fairy': '#f472b6'
+                                'Land (Plains)': '#fef08a', 'Land (Island)': '#60a5fa', 'Land (Swamp)': '#475569', 'Land (Mountain)': '#f87171', 'Land (Forest)': '#4ade80', 'Land (Nonbasic)': '#d97706'
                               };
                               return <Cell key={`cell-${idx}`} fill={colorMap[entry.name] || 'var(--accent-yellow)'} />;
                             })}
@@ -1721,63 +1625,6 @@ function DeckBuilder({ showToast }) {
 
             <form onSubmit={handleCreateDeck} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', maxHeight: '80vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
               
-              {/* Game System Selection — hidden when only one game is shown, in
-                  which case newDeckGame already holds it. */}
-              {showGamePicker() && (
-              <div className="form-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.gameSystem')}</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <div
-                    onClick={() => {
-                      setNewDeckGame('pokemon');
-                      setNewDeckFormat('Standard');
-                      setNewDeckTargetSize(60);
-                    }}
-                    style={{
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-sm)',
-                      border: newDeckGame === 'pokemon' ? '2px solid var(--accent-yellow)' : '1px solid var(--border-glass)',
-                      background: newDeckGame === 'pokemon' ? 'rgba(234, 179, 8, 0.12)' : 'rgba(0, 0, 0, 0.2)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '0.3rem',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <Zap size={22} style={{ color: newDeckGame === 'pokemon' ? 'var(--accent-yellow)' : 'var(--text-muted)' }} />
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: newDeckGame === 'pokemon' ? 'var(--accent-yellow)' : 'var(--text-secondary)' }}>Pokémon TCG</span>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>60 Cards Standard</span>
-                  </div>
-
-                  <div
-                    onClick={() => {
-                      setNewDeckGame('mtg');
-                      setNewDeckFormat('Commander / EDH');
-                      setNewDeckTargetSize(100);
-                    }}
-                    style={{
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-sm)',
-                      border: newDeckGame === 'mtg' ? '2px solid #ef4444' : '1px solid var(--border-glass)',
-                      background: newDeckGame === 'mtg' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(0, 0, 0, 0.2)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '0.3rem',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <Swords size={22} style={{ color: newDeckGame === 'mtg' ? '#ef4444' : 'var(--text-muted)' }} />
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: newDeckGame === 'mtg' ? '#ef4444' : 'var(--text-secondary)' }}>Magic (MTG)</span>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('deck.constructedCommander')}</span>
-                  </div>
-                </div>
-              </div>
-              )}
-
               {/* Format & Target Size Row */}
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">
@@ -1789,11 +1636,11 @@ function DeckBuilder({ showToast }) {
                       const selectedFmt = e.target.value;
                       setNewDeckFormat(selectedFmt);
                       if (selectedFmt.includes('Commander')) setNewDeckTargetSize(100);
-                      else if (selectedFmt.includes('Standard') || selectedFmt.includes('Expanded') || selectedFmt.includes('GLC') || selectedFmt.includes('Modern') || selectedFmt.includes('Pioneer')) setNewDeckTargetSize(60);
+                      else if (selectedFmt.includes('Standard') || selectedFmt.includes('Modern') || selectedFmt.includes('Pioneer')) setNewDeckTargetSize(60);
                     }}
                     style={{ fontSize: '0.85rem' }}
                   >
-                    {(newDeckGame === 'pokemon' ? POKEMON_FORMATS : MTG_FORMATS).map(fmt => (
+                    {MTG_FORMATS.map(fmt => (
                       <option key={fmt} value={fmt} style={{ background: '#1e293b', color: '#fff' }}>{fmt}</option>
                     ))}
                   </select>
@@ -1924,7 +1771,7 @@ function DeckBuilder({ showToast }) {
                     <textarea
                       className="input-control"
                       style={{ minHeight: '90px', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre' }}
-                      placeholder={`Paste decklist (e.g. \n4 Charizard ex\n2 Pidgeot ex\n1 Forest Seal Stone)`}
+                      placeholder={`Paste decklist (e.g. \n4 Lightning Bolt\n2 Counterspell\n1 Sol Ring)`}
                       value={newDeckImportText}
                       onChange={(e) => setNewDeckImportText(e.target.value)}
                     />
@@ -1993,20 +1840,6 @@ function DeckBuilder({ showToast }) {
               )}
             </div>
 
-            {/* Prize Cards Area (Pokémon decks) */}
-            {prizeCards.length > 0 && (
-              <div>
-                <h4 style={{ fontSize: '0.85rem', color: 'var(--accent-yellow)', margin: '0 0 0.5rem 0' }}>Prize Cards (6 Cards)</h4>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {prizeCards.map((pCard, pIdx) => (
-                    <div key={pIdx} style={{ width: '70px', height: '98px', borderRadius: '4px', background: 'linear-gradient(135deg, #1e293b, #0f172a)', border: '1px dashed var(--accent-yellow)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: 'var(--accent-yellow)', fontWeight: 700 }}>
-                      Prize #{pIdx + 1}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Control buttons */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
               <button className="btn btn-secondary" onClick={startSimulator} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -2059,7 +1892,7 @@ function DeckBuilder({ showToast }) {
               value={effectiveExportFormat}
               onChange={e => setExportFormat(e.target.value)}
             >
-              <option value="ptcgl">Pokémon TCG Live (grouped)</option>
+
               <option value="mtga">{t('deck.formatMtga')}</option>
               <option value="plain">Plain text (qty + name)</option>
               <option value="buylist">Buylist – cards you still need</option>
@@ -2094,7 +1927,7 @@ function DeckBuilder({ showToast }) {
               <X size={16} />
             </button>
             <h3 style={{ fontSize: '1.2rem', color: 'var(--text-strong)', marginBottom: '0.5rem' }}>{t('deck.importTitle')}</h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Paste decklist lines (e.g. <code>4 Pikachu</code> or <code>2 Lightning Energy</code>):</p>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Paste decklist lines (e.g. <code>4 Lightning Bolt</code> or <code>2 Counterspell</code>):</p>
             
             <textarea
               className="input-control"

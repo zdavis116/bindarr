@@ -3,7 +3,7 @@ import { X, BookOpen, Box, Package, Award, LayoutGrid, Layers, Archive, HelpCirc
 import { SortBuilder, FilterBuilder } from './SortFilterBuilder';
 import { isBinderType } from '../utils/cardOptions';
 import { useBackGuard } from '../utils/useBackGuard';
-import { gameOptions, showGamePicker } from '../utils/games';
+
 import { useT } from '../utils/i18n';
 
 // Container types and their default layout. Counts kept modest; the user adjusts
@@ -38,7 +38,7 @@ export default function CreateContainerModal({ onClose, onCreate, setsList = [],
   const [step, setStep] = useState(0);
   const [type, setType] = useState('Binder');
   const [name, setName] = useState('');
-  const [game, setGame] = useState('any');
+  const game = 'mtg';
   const [count, setCount] = useState(TYPE_META[0].plan.count);
   const [capacity, setCapacity] = useState(TYPE_META[0].plan.capacity);
   const [sortDraft, setSortDraft] = useState([]);
@@ -123,17 +123,7 @@ export default function CreateContainerModal({ onClose, onCreate, setsList = [],
               <label style={{ fontSize: '0.72rem' }}>{t('container.name')}</label>
               <input className="input-control" autoFocus placeholder={t('container.namePlaceholder', { type: typeLabel(TYPE_META.find(m => m.type === type) || TYPE_META[0]) })} value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            {/* With one game shown, "any game" and "that game only" file
-                identically — the choice is noise. */}
-            {showGamePicker() && (
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.72rem' }}>{t('container.acceptedGame')}</label>
-                <select className="select-control" value={game} onChange={(e) => setGame(e.target.value)}>
-                  <option value="any">{t('container.anyGame')}</option>
-                  {gameOptions().map(g => <option key={g.value} value={g.value}>{t('container.gameOnly', { game: g.short })}</option>)}
-                </select>
-              </div>
-            )}
+
             <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label style={{ fontSize: '0.72rem' }}>{t(`container.${kind}.label`)}</label>

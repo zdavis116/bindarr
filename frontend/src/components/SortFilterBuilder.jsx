@@ -2,7 +2,6 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, X, Plus } from 'lucide-react';
-import { LANGUAGE_NAMES } from '../utils/languages';
 import { useT } from '../utils/i18n';
 
 // Sortable item wrapper
@@ -36,7 +35,7 @@ function SortableItem({ id, children }) {
 // per key ("sort.by.price", "sort.dir.price.asc"), because what a direction
 // actually does differs per field and nobody should be guessing what "Asc" means
 // — cheapest-first, A-Z and common-first are all "ascending".
-const SORT_KEYS = ['favorite', 'name', 'price', 'set', 'number', 'printing', 'type', 'color', 'cmc', 'rarity', 'language', 'added_at', 'entry_id'];
+const SORT_KEYS = ['favorite', 'name', 'price', 'set', 'number', 'printing', 'type', 'color', 'cmc', 'rarity', 'added_at', 'entry_id'];
 
 export function SortBuilder({ value, onChange }) {
   const { t } = useT();
@@ -166,11 +165,7 @@ export function SortBuilder({ value, onChange }) {
 }
 
 // Stored field names; labels come from "filter.field.<name>".
-// Language is a per-copy field (like printing), so a container can be reserved for
-// one language — "Japanese only" is the whole point of a JP binder. The filing
-// engine reads rule fields generically and storage.js already stamps the entry's
-// language onto the metadata it evaluates.
-const FILTER_FIELDS = ['name', 'supertype', 'types', 'subtypes', 'color_identity', 'cmc', 'set_name', 'set_id', 'rarity', 'printing', 'language'];
+const FILTER_FIELDS = ['name', 'supertype', 'types', 'subtypes', 'color_identity', 'cmc', 'set_name', 'set_id', 'rarity', 'printing'];
 
 // `value` is what gets stored and evaluated; `key` exists because '>=' cannot be
 // part of a translation key.
@@ -185,11 +180,10 @@ const FILTER_OPERATORS = [
 ];
 
 const KNOWN_OPTIONS = {
-  supertype: ['Pokémon', 'Trainer', 'Energy', 'Basic', 'Legendary', 'Snow', 'World', 'Vanguard', 'Plane', 'Scheme', 'Phenomenon', 'Ongoing'],
-  types: ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Fairy', 'Dragon', 'Colorless', 'White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Artifact', 'Creature', 'Enchantment', 'Instant', 'Sorcery', 'Planeswalker', 'Land', 'Battle', 'Tribal'],
-  printing: ['Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo'],
-  language: LANGUAGE_NAMES,
-  rarity: ['Common', 'Uncommon', 'Rare', 'Mythic', 'Special', 'Bonus', 'Promo', 'Rare Holo', 'Rare Ultra', 'Rare Secret', 'Amazing Rare', 'Radiant Rare', 'Illustration Rare', 'Special Illustration Rare', 'Hyper Rare', 'Classic Collection'],
+  supertype: ['Basic', 'Legendary', 'Snow', 'World', 'Vanguard', 'Plane', 'Scheme', 'Phenomenon', 'Ongoing'],
+  types: ['Colorless', 'White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Artifact', 'Creature', 'Enchantment', 'Instant', 'Sorcery', 'Planeswalker', 'Land', 'Battle', 'Tribal'],
+  printing: ['Normal', 'Holofoil'],
+  rarity: ['Common', 'Uncommon', 'Rare', 'Mythic', 'Special', 'Bonus', 'Promo'],
   color_identity: ['W', 'U', 'B', 'R', 'G', 'Colorless']
 };
 

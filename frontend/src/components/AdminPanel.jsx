@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Shield, UserPlus, Key, Trash2, ToggleLeft, ToggleRight, Search, Users, Globe, Database, Play, RefreshCw, AlertTriangle, HardDriveDownload, Download, BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import { useBackGuard } from '../utils/useBackGuard';
-import { LANGUAGES, langName } from '../utils/languages';
-import { defaultGame, gameOptions, showGamePicker, gameLabel, enabledGames } from '../utils/games';
+import { gameLabel, enabledGames } from '../utils/games';
 import SetBrowserModal from './SetBrowserModal';
 import { useT } from '../utils/i18n';
 
@@ -40,10 +39,8 @@ function AdminPanel({ showToast }) {
   // Set-index build states
   const [builds, setBuilds] = useState([]);
   const [buildProgress, setBuildProgress] = useState({});
-  const [buildGame, setBuildGame] = useState(() => defaultGame());
-  // A set index is per language — the art differs, so an English index cannot
-  // match a Japanese card.
-  const [buildLang, setBuildLang] = useState('en');
+  const buildGame = 'mtg';
+  const buildLang = 'en';
   const [buildSetCode, setBuildSetCode] = useState('');
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -194,7 +191,7 @@ function AdminPanel({ showToast }) {
   };
 
   const handleBuild = async (game, set, cardCount, lang = buildLang) => {
-    const inLang = `${langName(lang)} ${game}`;
+    const inLang = `English ${game}`;
     const warn = cardCount
       ? t('admin.confirmBuild', { lang: inLang, set, count: cardCount, size: formatBytes(cardCount * 20 * 1024) })
       : t('admin.confirmRebuild', { lang: inLang, set });
@@ -246,7 +243,7 @@ function AdminPanel({ showToast }) {
   };
 
   const handleDeleteBuild = async (game, set, lang = 'en') => {
-    if (!window.confirm(t('admin.confirmRemoveIndex', { lang: langName(lang), game, set }))) return;
+    if (!window.confirm(t('admin.confirmRemoveIndex', { lang: 'English', game, set }))) return;
     try {
       const res = await fetch(`/api/admin/set-indexes/${game}/${encodeURIComponent(set)}?lang=${encodeURIComponent(lang)}`, { method: 'DELETE' });
       const data = await res.json();
@@ -636,27 +633,14 @@ function AdminPanel({ showToast }) {
           </p>
 
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            {showGamePicker() && (
-              <div className="form-group" style={{ marginBottom: 0, width: '120px' }}>
-                <label htmlFor="build-game">{t('collection.fGame')}</label>
-                <select id="build-game" className="select-control" value={buildGame} onChange={(e) => { setBuildGame(e.target.value); setPreview(null); }}>
-                  {gameOptions().map(g => <option key={g.value} value={g.value}>{g.short}</option>)}
-                </select>
-              </div>
-            )}
-            <div className="form-group" style={{ marginBottom: 0, width: '150px' }}>
-              <label htmlFor="build-lang">{t('card.language')}</label>
-              <select id="build-lang" className="select-control" value={buildLang} onChange={(e) => { setBuildLang(e.target.value); setPreview(null); }}>
-                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-              </select>
-            </div>
+
             <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '140px' }}>
               <label htmlFor="build-set">{t('admin.setCode')}</label>
               <input
                 id="build-set"
                 type="text"
                 className="input-control"
-                placeholder="mh3 / sv1"
+                placeholder="mh3"
                 value={buildSetCode}
                 onChange={(e) => { setBuildSetCode(e.target.value); setPreview(null); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handlePreview(); } }}
@@ -759,7 +743,7 @@ function AdminPanel({ showToast }) {
                                 <td style={{ fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
                                   {b.set}
                                   {lang !== 'en' && (
-                                    <span style={{ marginLeft: '0.35rem', fontFamily: 'inherit', fontWeight: 600, fontSize: '0.65rem', color: 'var(--accent-yellow)', border: '1px solid var(--border-glass)', borderRadius: '3px', padding: '0 4px' }} title={langName(lang)}>
+                                    <span style={{ marginLeft: '0.35rem', fontFamily: 'inherit', fontWeight: 600, fontSize: '0.65rem', color: 'var(--accent-yellow)', border: '1px solid var(--border-glass)', borderRadius: '3px', padding: '0 4px' }} title="English">
                                       {lang.toUpperCase()}
                                     </span>
                                   )}

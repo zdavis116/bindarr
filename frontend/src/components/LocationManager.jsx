@@ -6,7 +6,6 @@ import { getCardRarityBorder, getRarityBadgeStyle, getRarityBadgeLabel } from '.
 import CardInspectorModal from './CardInspectorModal';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import { isBinderType as computeIsBinder } from '../utils/cardOptions';
-import { displayName } from '../utils/languages';
 import CompartmentView, { FocusedCardInfo } from './CompartmentView';
 import { SortBuilder, FilterBuilder } from './SortFilterBuilder';
 import CreateContainerModal from './CreateContainerModal';
@@ -1758,7 +1757,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                             textOverflow: 'ellipsis'
                           }}
                         >
-                          {isHighlighted ? '✓ ' : ''}{displayName(card)}
+                          {isHighlighted ? '✓ ' : ''}{card.name}
                         </div>
                         <div style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.set_name || ''}</span>
@@ -1814,7 +1813,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
                       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
                         <div style={{ fontWeight: isHighlighted ? 700 : 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {isHighlighted ? '✓ ' : ''}{displayName(card)}
+                          {isHighlighted ? '✓ ' : ''}{card.name}
                         </div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.4rem', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <span>{card.set_name || 'Unset'} {card.number ? `#${card.number}` : ''}</span>

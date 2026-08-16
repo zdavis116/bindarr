@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, Share2, Clipboard, RefreshCw, KeyRound, Check, Database, Download, Upload, Eye, EyeOff, SlidersHorizontal, Info, Bug, Lightbulb, MessagesSquare, ScrollText, Github, Layers, Languages } from 'lucide-react';
-import { GAMES, enabledGames, setGameEnabled, gameOptions, defaultGame } from '../utils/games';
+import { ShieldAlert, Share2, Clipboard, RefreshCw, KeyRound, Check, Database, Download, Upload, SlidersHorizontal, Info, Bug, Lightbulb, MessagesSquare, ScrollText, Github, Languages } from 'lucide-react';
 import { LOCALES, localeName, useT } from '../utils/i18n';
 
 function Settings({ user, onUpdateUser, showToast }) {
   const { locale, setLocale, t } = useT();
-  const [showApiKey, setShowApiKey] = useState(false);
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -15,14 +14,11 @@ function Settings({ user, onUpdateUser, showToast }) {
   const [shareLocations, setShareLocations] = useState(user?.share_locations === 1);
   const [shareLoading, setShareLoading] = useState(false);
 
-  const [tcgApiKey, setTcgApiKey] = useState(user?.tcg_api_key || '');
-  const [apiKeyLoading, setApiKeyLoading] = useState(false);
 
   const [publicBaseUrl, setPublicBaseUrl] = useState('');
 
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
-  const [defaultGameValue, setDefaultGameValue] = useState(() => defaultGame());
-  const [shownGames, setShownGames] = useState(() => enabledGames());
+
   const [autoConfirm, setAutoConfirm] = useState(() => localStorage.getItem('scanner_auto_confirm') === '1');
 
   const [versionInfo, setVersionInfo] = useState(null);
@@ -172,7 +168,7 @@ function Settings({ user, onUpdateUser, showToast }) {
     if (user) {
       setShareEnabled(user.share_enabled === 1 || user.share_enabled === true);
       setShareLocations(user.share_locations === 1 || user.share_locations === true);
-      setTcgApiKey(user.tcg_api_key || '');
+
     }
   }, [user]);
 
@@ -319,31 +315,6 @@ function Settings({ user, onUpdateUser, showToast }) {
     }
   };
 
-  const handleApiKeyChange = async (e) => {
-    e.preventDefault();
-    setApiKeyLoading(true);
-    try {
-      const response = await fetch('/api/auth/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tcg_api_key: tcgApiKey })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        onUpdateUser(data.user);
-        showToast(t('settings.apiKeyUpdated'));
-      } else {
-        const data = await response.json();
-        showToast(data.error || t('settings.errApiKey'));
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('settings.errApiKeyGeneric'));
-    } finally {
-      setApiKeyLoading(false);
-    }
-  };
 
   const origin = publicBaseUrl || `${window.location.protocol}//${window.location.host}`;
   const activeTheme = theme || localStorage.getItem('theme') || 'dark';
@@ -607,63 +578,6 @@ function Settings({ user, onUpdateUser, showToast }) {
           </form>
         </div>
 
-        {/* Pokémon TCG API Key Settings */}
-        <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
-            <KeyRound size={20} style={{ color: 'var(--accent-red)' }} />
-            <h3 style={{ color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('settings.apiKeyTitle')}</h3>
-          </div>
-
-          <form onSubmit={handleApiKeyChange} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ background: 'rgba(255, 71, 71, 0.03)', border: '1px solid var(--border-glass)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              {/* The link carries a whole clause rather than sitting mid-sentence:
-                  a translator gets two complete units instead of two fragments
-                  whose order their language may not allow. */}
-              {t('settings.apiKeyIntro')}{' '}
-              <a href="https://dev.pokemontcg.io" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-yellow)', fontWeight: 600 }}>
-                {t('settings.apiKeyGetOne')}
-              </a>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="settings-tcg-api-key">{t('settings.apiKeyLabel')}</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  id="settings-tcg-api-key"
-                  type={showApiKey ? 'text' : 'password'}
-                  name="tcg-api-key"
-                  autoComplete="off"
-                  className="input-control"
-                  placeholder="e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  value={tcgApiKey}
-                  onChange={(e) => setTcgApiKey(e.target.value)}
-                  disabled={apiKeyLoading}
-                  style={{ fontFamily: 'monospace', paddingRight: '2.4rem', width: '100%' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey((v) => !v)}
-                  aria-label={t(showApiKey ? 'settings.hideApiKey' : 'settings.showApiKey')}
-                  title={t(showApiKey ? 'settings.hideApiKey' : 'settings.showApiKey')}
-                  style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 0 }}
-                >
-                  {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              className="btn btn-primary" 
-              disabled={apiKeyLoading}
-              style={{ padding: '0.6rem 1.2rem', alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              {apiKeyLoading ? (
-                <div className="spinner" style={{ width: '14px', height: '14px', margin: 0, borderWidth: '2px' }}></div>
-              ) : t('settings.saveApiKey')}
-            </button>
-          </form>
-        </div>
 
         {/* Collection Backup & Data Options Panel */}
         <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -786,74 +700,6 @@ function Settings({ user, onUpdateUser, showToast }) {
             </div>
           </div>
 
-          {/* Games shown. Hiding a game removes its tabs, filters and cards from
-              the UI; only offered while more than one game exists to hide. */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>{t('prefs.gamesShown')}</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {GAMES.map(({ value, label }) => {
-                const on = shownGames.includes(value);
-                const isLast = on && shownGames.length === 1;
-                return (
-                  <label
-                    key={value}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0,
-                      background: 'rgba(255,255,255,0.01)', padding: '0.6rem 0.8rem',
-                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
-                      cursor: isLast ? 'not-allowed' : 'pointer', opacity: isLast ? 0.7 : 1,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      disabled={isLast}
-                      onChange={(e) => {
-                        if (!setGameEnabled(value, e.target.checked)) {
-                          showToast(t('prefs.lastGameKept'));
-                          return;
-                        }
-                        const next = enabledGames();
-                        setShownGames(next);
-                        // A hidden game can't stay the default the other views open on.
-                        setDefaultGameValue(defaultGame());
-                        showToast(t(e.target.checked ? 'prefs.gameShown' : 'prefs.gameHidden', { game: label }));
-                      }}
-                      style={{ width: '16px', height: '16px', accentColor: 'var(--accent-red)' }}
-                    />
-                    <Layers size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.9rem', color: 'var(--text-strong)', fontWeight: 600 }}>{label}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
-              {t('prefs.gamesShownHint')}
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label htmlFor="settings-default-game">{t('prefs.defaultGame')}</label>
-            <select
-              id="settings-default-game"
-              className="select-control"
-              value={defaultGameValue}
-              disabled={shownGames.length === 1}
-              onChange={(e) => {
-                const val = e.target.value;
-                setDefaultGameValue(val);
-                localStorage.setItem('default_game', val);
-                // Game names are brands, so they come from GAMES rather than the
-                // locale file — nobody translates "Magic: The Gathering".
-                showToast(t('prefs.defaultGameSet', { game: GAMES.find(g => g.value === val)?.label || val }));
-              }}
-            >
-              {gameOptions().map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-            </select>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
-              {t(shownGames.length === 1 ? 'prefs.defaultGameHintSingle' : 'prefs.defaultGameHint')}
-            </div>
-          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.01)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
             <div>

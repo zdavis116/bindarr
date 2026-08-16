@@ -5,7 +5,6 @@ import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '.
 import { formatPrice } from '../utils/formatPrice';
 import { typeCategory } from '../utils/cardSort';
 import { isBinderType } from '../utils/cardOptions';
-import { displayName } from '../utils/languages';
 import { useLongPress } from '../utils/useLongPress';
 import { useT } from '../utils/i18n';
 
@@ -52,8 +51,7 @@ function categoryForField(card, field, setsList = []) {
       return card.rarity || 'Common';
     case 'printing':
       return card.printing || 'Normal';
-    case 'language':
-      return card.language || 'English';
+
     case 'price': {
       const p = card.price_trend || 0;
       if (p >= 100) return '$100+';
@@ -92,7 +90,7 @@ export function getSortCategories(card, sortOrder, setsList = []) {
     else if (sortOrder.startsWith('set')) dividerFields = [{ field: 'set', color: '#6b7280' }];
     else if (sortOrder.startsWith('type')) dividerFields = [{ field: 'type', color: '#6b7280' }];
     else if (sortOrder.startsWith('price')) dividerFields = [{ field: 'price', color: '#6b7280' }];
-    else if (sortOrder.startsWith('language')) dividerFields = [{ field: 'language', color: '#6b7280' }];
+
   }
 
   return dividerFields.map(df => ({
@@ -117,7 +115,7 @@ export function getPrimaryCategory(card, sortOrder, setsList = []) {
     else if (sortOrder.startsWith('set')) field = 'set';
     else if (sortOrder.startsWith('type')) field = 'type';
     else if (sortOrder.startsWith('price')) field = 'price';
-    else if (sortOrder.startsWith('language')) field = 'language';
+
   }
   if (!field) return null;
   return categoryForField(card, field, setsList);
@@ -153,7 +151,7 @@ export function FocusedCardInfo({ card, slotNumber, moveSelect = null }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <strong style={{ fontSize: '0.85rem' }}>
-              #{slotNumber || 1} | {isEmpty ? t('compartment.emptySlot') : isDivider ? (card.label || t('compartment.divider')) : isGhost ? t('compartment.recommendedSpot') : displayName(card)}
+              #{slotNumber || 1} | {isEmpty ? t('compartment.emptySlot') : isDivider ? (card.label || t('compartment.divider')) : isGhost ? t('compartment.recommendedSpot') : card.name}
             </strong>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
               {isEmpty ? t('compartment.emptySlotHint') : isDivider ? t('compartment.dividerHint') : isGhost ? t('compartment.ghostHint') : `${card.set_name || ''} ${card.number ? `• #${card.number}` : ''}`}
@@ -179,7 +177,7 @@ export function FocusedCardInfo({ card, slotNumber, moveSelect = null }) {
             {(card.types || []).length > 0 && <span style={infoChipStyle} title={t('compartment.types')}>{card.types.join(' / ')}</span>}
             {(card.subtypes || []).length > 0 && <span style={infoChipStyle} title={t('compartment.subtypes')}>{card.subtypes.join(' / ')}</span>}
             {card.condition && <span style={infoChipStyle}>{card.condition}</span>}
-            {card.language && card.language !== 'English' && <span style={infoChipStyle}>{card.language}</span>}
+
             {card.quantity > 1 && <span style={{ ...infoChipStyle, color: 'var(--text-strong)' }}>x{card.quantity}</span>}
             {card.price_trend > 0 && (
               <span style={{ ...infoChipStyle, color: 'var(--accent-yellow)', marginLeft: 'auto' }}>
@@ -600,7 +598,7 @@ export default function CompartmentView({
                     else setCurrentActiveId(card.entry_id);
                   }}
                 >
-                  <img src={card.image_url} alt={displayName(card)} title={displayName(card)} loading="lazy" decoding="async" />
+                  <img src={card.image_url} alt={card.name} title={card.name} loading="lazy" decoding="async" />
                   {getFoilOverlayClass(card.printing) && <div className={getFoilOverlayClass(card.printing)} style={{ borderRadius: '4px' }} />}
                   <PrintingBadge printing={card.printing} />
                   {(pullMode ? pulledSet.has(card.entry_id) : card.checked_out_qty > 0) && (

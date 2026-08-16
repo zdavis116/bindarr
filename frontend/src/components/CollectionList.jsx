@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick } from 'lucide-react';
-import { getCardDisplayName, translateJapaneseName } from '../utils/langHelper';
+
 import { formatPrice } from '../utils/formatPrice';
 import { CONDITIONS, PRINTINGS } from '../utils/cardOptions';
 import { getPrintingBadgeLabel, getPrintingBadgeStyle, getFoilOverlayClass } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '../utils/cardRarity';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { defaultGameFilter, gameOptions, isGameEnabled, showGamePicker } from '../utils/games';
+
 import { useT } from '../utils/i18n';
 import CardInspectorModal from './CardInspectorModal';
 import AddToDeckSelect from './AddToDeckSelect';
@@ -16,7 +16,7 @@ import PackPriceSplitter from './PackPriceSplitter';
 const labelStyle = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' };
 
 // Maps each Sort By option to sortCardsByOrder criteria so ordering matches the
-// storage engine (set = chronological via setsList, type = POKEMON_TYPE_ORDER).
+// storage engine (set = chronological via setsList).
 // 'qty-desc' isn't a card-order scheme, handled separately.
 const SORT_CRITERIA = {
   'added-newest': [{ by: 'added_at', dir: 'desc' }, { by: 'entry_id', dir: 'desc' }],
@@ -30,7 +30,7 @@ const SORT_CRITERIA = {
   'rarity-desc': [{ by: 'rarity', dir: 'desc' }, { by: 'name', dir: 'asc' }],
   'rarity-asc': [{ by: 'rarity', dir: 'asc' }, { by: 'name', dir: 'asc' }],
   'type-asc': [{ by: 'type', dir: 'asc' }, { by: 'name', dir: 'asc' }],
-  'language-asc': [{ by: 'language', dir: 'asc' }, { by: 'name', dir: 'asc' }],
+
   'favorite-first': [{ by: 'favorite', dir: 'desc' }, { by: 'added_at', dir: 'desc' }],
 };
 
@@ -69,9 +69,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
 
   // Search & Filter state
   const [searchFilter, setSearchFilter] = useState('');
-  // '' | 'pokemon' | 'mtg'. Falls back to a visible game if the Settings default
-  // has since been hidden.
-  const [gameFilter, setGameFilter] = useState(() => (isGameEnabled(localStorage.getItem('default_game')) ? localStorage.getItem('default_game') : defaultGameFilter()));
+
   const [locationFilter, setLocationFilter] = useState('');
   const [rarityFilter, setRarityFilter] = useState('');
   const [conditionFilter, setConditionFilter] = useState('');
@@ -80,7 +78,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [typeFilter, setTypeFilter] = useState('');
   const [supertypeFilter, setSupertypeFilter] = useState('');
   const [cmcFilter, setCmcFilter] = useState('');
-  const [languageFilter, setLanguageFilter] = useState('');
+
   const [minPriceFilter, setMinPriceFilter] = useState('');
   const [maxPriceFilter, setMaxPriceFilter] = useState('');
   const [sortBy, setSortBy] = useState('added-newest');
@@ -215,48 +213,37 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
     () => Array.from(new Set(collection.map(item => item.supertype).filter(Boolean))).sort(),
     [collection]
   );
-  const uniqueLanguages = useMemo(
-    () => Array.from(new Set(collection.map(item => item.language).filter(Boolean))).sort(),
-    [collection]
-  );
+
   const uniqueCmcs = useMemo(
     () => Array.from(new Set(collection.map(item => item.cmc).filter(v => v !== null && v !== undefined))).sort((a, b) => a - b),
     [collection]
   );
 
   const activeFilterCount = [
-    gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter,
-    setFilter, typeFilter, supertypeFilter, cmcFilter, languageFilter,
+    locationFilter, rarityFilter, conditionFilter, printingFilter,
+    setFilter, typeFilter, supertypeFilter, cmcFilter,
     minPriceFilter, maxPriceFilter
   ].filter(v => v !== '').length + (tradeOnly ? 1 : 0) + (favoriteOnly ? 1 : 0);
 
   const clearAllFilters = () => {
     setSearchFilter('');
-    setGameFilter(''); setLocationFilter(''); setRarityFilter(''); setConditionFilter('');
+    setLocationFilter(''); setRarityFilter(''); setConditionFilter('');
     setPrintingFilter(''); setSetFilter(''); setTypeFilter(''); setSupertypeFilter('');
-    setCmcFilter(''); setLanguageFilter(''); setMinPriceFilter('');
+    setCmcFilter(''); setMinPriceFilter('');
     setMaxPriceFilter(''); setTradeOnly(false); setFavoriteOnly(false);
   };
 
   // Filter + sort
   const filteredCollection = useMemo(() => {
-    const translatedSearch = searchFilter ? (translateJapaneseName(searchFilter) || searchFilter).toLowerCase() : '';
-    // The raw query is matched against the localized name as well as the
-    // translated one: a Japanese Magic card is stored under its English `name`,
-    // so typing 稲妻 only finds it via printed_name.
-    const rawSearch = searchFilter.toLowerCase();
+    const normalizedSearch = searchFilter.toLowerCase();
     const result = collection.filter(item => {
-      const matchesSearch = item.name.toLowerCase().includes(translatedSearch) ||
-                            (item.printed_name || '').toLowerCase().includes(rawSearch) ||
-                            (item.set_name || '').toLowerCase().includes(translatedSearch) ||
+      const matchesSearch = item.name.toLowerCase().includes(normalizedSearch) ||
+                            (item.set_name || '').toLowerCase().includes(normalizedSearch) ||
                             (item.number || '').includes(searchFilter);
       const matchesLocation = locationFilter === '' ? true :
                               locationFilter === 'unassigned' ? !item.location_id :
                               item.location_id == locationFilter;
-      // "All games" still means only the games the user has chosen to see: a hidden
-      // game's cards stay in the collection (and in exports) but are out of view.
-      const itemGame = item.game || 'pokemon';
-      const matchesGame = gameFilter === '' ? isGameEnabled(itemGame) : itemGame === gameFilter;
+
       const matchesRarity = rarityFilter === '' ? true : item.rarity === rarityFilter;
       const matchesCondition = conditionFilter === '' ? true : item.condition === conditionFilter;
       const matchesPrinting = printingFilter === '' ? true : item.printing === printingFilter;
@@ -264,16 +251,16 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesType = typeFilter === '' ? true : (item.types || []).includes(typeFilter);
       const matchesSupertype = supertypeFilter === '' ? true : item.supertype === supertypeFilter;
       const matchesCmc = cmcFilter === '' ? true : String(item.cmc) === cmcFilter;
-      const matchesLanguage = languageFilter === '' ? true : item.language === languageFilter;
+
       const matchesFavorite = favoriteOnly ? item.favorite === 1 : true;
 
       const price = item.price_trend || 0;
       const matchesMinPrice = minPriceFilter === '' ? true : price >= parseFloat(minPriceFilter);
       const matchesMaxPrice = maxPriceFilter === '' ? true : price <= parseFloat(maxPriceFilter);
 
-      return matchesSearch && matchesGame && matchesLocation && matchesRarity && matchesCondition &&
+      return matchesSearch && matchesLocation && matchesRarity && matchesCondition &&
              matchesPrinting && matchesSet && matchesType && matchesSupertype &&
-             matchesCmc && matchesLanguage && matchesFavorite && matchesMinPrice && matchesMaxPrice;
+             matchesCmc && matchesFavorite && matchesMinPrice && matchesMaxPrice;
     });
 
     if (sortBy === 'qty-desc') {
@@ -282,7 +269,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       sortCardsByOrder(result, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest'], undefined, setsList);
     }
     return result;
-  }, [collection, searchFilter, gameFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, supertypeFilter, cmcFilter, languageFilter, favoriteOnly, minPriceFilter, maxPriceFilter, sortBy, setsList]);
+  }, [collection, searchFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, supertypeFilter, cmcFilter, favoriteOnly, minPriceFilter, maxPriceFilter, sortBy, setsList]);
 
   // Group duplicate cards if stack option is active
   const processedCollection = useMemo(() => {
@@ -387,7 +374,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
 
           <Field label={t('collection.sortBy')}>
             <select className="select-control" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              {['added-newest', 'added-oldest', 'name-asc', 'name-desc', 'price-desc', 'price-asc', 'qty-desc', 'set-asc', 'number-asc', 'type-asc', 'rarity-desc', 'rarity-asc', 'language-asc', 'favorite-first']
+              {['added-newest', 'added-oldest', 'name-asc', 'name-desc', 'price-desc', 'price-asc', 'qty-desc', 'set-asc', 'number-asc', 'type-asc', 'rarity-desc', 'rarity-asc', 'favorite-first']
                 .map(key => <option key={key} value={key}>{t(`collection.sort.${key}`)}</option>)}
             </select>
           </Field>
@@ -411,15 +398,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)' }}>
             {/* Selector filters grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.75rem' }}>
-              {/* Nothing to filter when only one game is shown. */}
-              {showGamePicker() && (
-                <Field label={t('collection.fGame')}>
-                  <select className="select-control" value={gameFilter} onChange={(e) => setGameFilter(e.target.value)}>
-                    <option value="">{t('collection.allGames')}</option>
-                    {gameOptions().map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                  </select>
-                </Field>
-              )}
+
 
               <Field label={t('collection.fLocation')}>
                 <select className="select-control" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
@@ -484,12 +463,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                 </Field>
               )}
 
-              <Field label={t('card.language')}>
-                <select className="select-control" value={languageFilter} onChange={(e) => setLanguageFilter(e.target.value)}>
-                  <option value="">{t('collection.allLanguages')}</option>
-                  {uniqueLanguages.map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-              </Field>
+
 
               <Field label={t('collection.fMinPrice')}>
                 <input type="number" className="input-control" placeholder={t('collection.minPricePlaceholder')} value={minPriceFilter} onChange={(e) => setMinPriceFilter(e.target.value)} />
@@ -693,7 +667,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                   </div>
                 </div>
                 <div className="tcg-card-info">
-                  <div className="tcg-card-name">{getCardDisplayName(item.name, item.language, item.printed_name)}</div>
+                  <div className="tcg-card-name">{item.name}</div>
                   <div className="tcg-card-meta">
                     <span style={{ fontSize: '0.7rem' }}>{item.set_name} • #{item.number}</span>
                     <span className="tcg-card-price">${formatPrice(item.price_trend)}</span>
@@ -740,7 +714,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                           )}
                         </div>
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          <div onClick={(e) => activateCard(item, e)} {...pressHandlers(item.entry_id)} style={{ fontWeight: 700, color: 'var(--text-strong)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}>{getCardDisplayName(item.name, item.language, item.printed_name)}</div>
+                          <div onClick={(e) => activateCard(item, e)} {...pressHandlers(item.entry_id)} style={{ fontWeight: 700, color: 'var(--text-strong)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}>{item.name}</div>
                           <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <span>{item.set_name} • #{item.number}</span>
                             <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '1px 3px', borderRadius: '3px', flexShrink: 0, ...getRarityBadgeStyle(item.rarity) }}>

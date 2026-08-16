@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Search, Database, Play, CheckCircle2, Zap } from 'lucide-react';
 import { useBackGuard } from '../utils/useBackGuard';
-import { defaultGame, gameOptions, isGameEnabled, showGamePicker, gameLabel } from '../utils/games';
-import { langName } from '../utils/languages';
+
 import { useT } from '../utils/i18n';
 
 // Month name and field order both come from the locale, so a German reader gets
@@ -28,9 +27,10 @@ const isActive = (p) => p && (p.status === 'fetching' || p.status === 'indexing'
 
 // `lang` is the language whose indexes this browser is building and reporting on
 // — a set can be indexed once per language, so every key below carries it.
-export default function SetBrowserModal({ game: initialGame, lang = 'en', onClose, onStartBuild, existingKeys, progress }) {
+export default function SetBrowserModal({ onClose, onStartBuild, existingKeys, progress }) {
   const { t, locale } = useT();
-  const [game, setGame] = useState(() => (isGameEnabled(initialGame) ? initialGame : defaultGame()));
+  const game = 'mtg';
+  const lang = 'en';
   const [sets, setSets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -64,9 +64,7 @@ export default function SetBrowserModal({ game: initialGame, lang = 'en', onClos
 
   const existingSet = new Set(existingKeys || []);
 
-  // Build keys must match the backend's exactly: it norms the set code the same
-  // way for the index filename, so "sm7.5" and "sm75" are the same build. Without
-  // this the row for a dotted Pokémon set id never flipped to "Indexed".
+  // Build keys must match the backend's normalized index filename.
   const buildKey = (g, setCode) => `${g}|${String(setCode).toLowerCase().replace(/[^a-z0-9]/g, '')}|${lang}`;
 
   const handleIndex = useCallback(async (g, setCode) => {
@@ -78,7 +76,6 @@ export default function SetBrowserModal({ game: initialGame, lang = 'en', onClos
     }
     // Don't remove from buildingSet — the polling-driven existingKeys
     // will cause the row to flip to "Indexed" once the build completes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onStartBuild, lang]);
 
   const handleIndexAll = () => {
@@ -87,7 +84,7 @@ export default function SetBrowserModal({ game: initialGame, lang = 'en', onClos
       return !existingSet.has(key) && !buildingSet.has(key) && !isActive(progress[key]);
     });
     if (unbuilt.length === 0) return;
-    if (!window.confirm(t('sets.confirmIndexAll', { count: unbuilt.length, language: langName(lang), game: gameLabel(game, true) }))) return;
+    if (!window.confirm(t('sets.confirmIndexAll', { count: unbuilt.length, language: 'English', game: 'MTG' }))) return;
     for (const s of unbuilt) {
       handleIndex(game, bareSetCode(s.id, game));
     }
@@ -134,23 +131,9 @@ export default function SetBrowserModal({ game: initialGame, lang = 'en', onClos
           </div>
         </div>
 
-        {/* Game selector + search */}
+        {/* Set search */}
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {showGamePicker() && (
-            <div style={{ display: 'flex', gap: '0.35rem' }}>
-              {gameOptions().map(({ value, short }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`btn ${game === value ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                  onClick={() => setGame(value)}
-                >
-                  {short}
-                </button>
-              ))}
-            </div>
-          )}
+
           <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '180px' }}>
             <div style={{ position: 'relative' }}>
               <Search size={14} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
