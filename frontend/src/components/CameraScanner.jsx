@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { getCardDisplayName } from '../utils/langHelper';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
@@ -9,8 +8,7 @@ import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { LANGUAGES, langName, isEnglish } from '../utils/languages';
-import { defaultGame, gameOptions, showGamePicker } from '../utils/games';
+
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
 // Centered card-shaped guide box, styled in CSS (.scan-card-guide): card ratio
@@ -84,41 +82,24 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // exposureCompensation, else null (slider hidden). value = current setting.
   const [exposureCaps, setExposureCaps] = useState(null);
   const [exposure, setExposure] = useState(0);
-  const [cardLayout, setCardLayout] = useState(() => (defaultGame() === 'mtg' ? 'mtg' : 'modern'));
+
   // Per-set index prep state for MTG set-scoped matching: 'idle'|'building'|'ready'.
   const [setPrep, setSetPrep] = useState('idle');
   // Build progress while status==='building': { total, done, status } or null.
   const [setBuildProgress, setSetBuildProgress] = useState(null);
   // Why a set index could not be built, when setPrep === 'error'.
   const [setBuildError, setSetBuildError] = useState(null);
-  // Which game the current layout belongs to. 'mtg' is its own layout; every
-  // other layout value is a Pokémon sub-layout.
-  const scanGame = cardLayout === 'mtg' ? 'mtg' : 'pokemon';
-  // Which language of card is being fed in. Card art is language-specific, so
-  // this selects which set index the scan is matched against — and it becomes the
-  // language each added copy is recorded as. Remembered across sessions because
-  // people scan a language at a time.
-  const [scanLang, setScanLangState] = useState(() => localStorage.getItem('scanner_lang') || 'en');
-  const setScanLang = (code) => { setScanLangState(code); localStorage.setItem('scanner_lang', code); };
-  // Set-scoped scanning across one OR MORE sets (both games). Persisted per game
-  // as a comma-joined code list so switching Pokémon<->MTG restores that game's
-  // sets. Scanning within the chosen sets (~300 cards each) is far more accurate
-  // than a global search.
+  const scanGame = 'mtg';
+  // Set-scoped scanning across one or more MTG sets.
   const [scanSetCodes, setScanSetCodesState] = useState([]);
-  // Set codes do not carry across languages (Japan has sets the West never got),
-  // so they are remembered per game AND language. English keeps the original key
-  // so an existing scanner setup is not forgotten.
-  const setsKey = (game, lang) => (lang === 'en' ? `scanner_set_${game}` : `scanner_set_${game}_${lang}`);
-  const persistSets = (arr) => { setScanSetCodesState(arr); localStorage.setItem(setsKey(scanGame, scanLang), arr.join(',')); };
+  const persistSets = (arr) => { setScanSetCodesState(arr); localStorage.setItem('scanner_set_mtg', arr.join(',')); };
   const addSetCode = (code) => { const c = (code || '').trim(); if (c && !scanSetCodes.some(x => x.toLowerCase() === c.toLowerCase())) persistSets([...scanSetCodes, c]); };
   const removeSetCode = (code) => persistSets(scanSetCodes.filter(c => c !== code));
   const scanSetParam = scanSetCodes.join(',');
   const [setInput, setSetInput] = useState('');
   const [setList, setSetList] = useState([]);        // {id,name,...} for the active game
   const [setSearchOpen, setSetSearchOpen] = useState(false);
-  // Code fed to the scanner: pokemontcg.io set id as-is; for MTG the bare
-  // Scryfall code (sets.id is stored prefixed as "mtg-<code>").
-  const setScanCode = (s) => scanGame === 'mtg' ? (s.ptcgo_code || (s.id || '').replace(/^mtg-/, '')) : s.id;
+  const setScanCode = (s) => s.ptcgo_code || (s.id || '').replace(/^mtg-/, '');
   const setQuery = setInput.trim().toLowerCase();
   const setSuggestions = setQuery
     ? setList.filter(s => !scanSetCodes.some(c => c.toLowerCase() === (setScanCode(s) || '').toLowerCase())
@@ -270,9 +251,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
   const [printing, setPrinting] = useState('Normal');
-  // Language of the copy being added. Defaults to whatever is being scanned, so a
-  // Japanese run does not have to be corrected card by card.
-  const [language, setLanguage] = useState(() => langName(localStorage.getItem('scanner_lang') || 'en'));
+  const language = 'English';
   const [purchasePrice, setPurchasePrice] = useState(0);
 
   // Keep a ref mirroring the latest stream so the unmount cleanup below (whose
@@ -291,11 +270,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // On game switch: restore that game's remembered set and load its set list
   // (for the search autocomplete).
   useEffect(() => {
-    setScanSetCodesState((localStorage.getItem(setsKey(scanGame, scanLang)) || '').split(',').map(s => s.trim()).filter(Boolean));
+    setScanSetCodesState((localStorage.getItem('scanner_set_mtg') || '').split(',').map(s => s.trim()).filter(Boolean));
     setSetInput('');
     setSetSearchOpen(false);
-    fetch(`/api/sets?game=${scanGame}&lang=${encodeURIComponent(scanLang)}`).then(r => r.ok ? r.json() : []).then(setSetList).catch(() => setSetList([]));
-  }, [scanGame, scanLang]);
+    fetch('/api/sets?game=mtg').then(r => r.ok ? r.json() : []).then(setSetList).catch(() => setSetList([]));
+  }, []);
 
   // When a set code is set, build/verify that set's index on the server so scans
   // match within just that set (~300 cards) — accurate and fast. Polls until the
@@ -307,7 +286,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       try {
         const r = await fetch('/api/prepare-set', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ game: scanGame, set: scanSetParam, lang: scanLang }),
+          body: JSON.stringify({ game: 'mtg', set: scanSetParam, lang: 'en' }),
         });
         const d = await r.json();
         if (cancelled) return;
@@ -324,7 +303,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     };
     debounce = setTimeout(() => { setSetPrep('building'); poll(); }, 200);
     return () => { cancelled = true; clearTimeout(debounce); if (timer) clearTimeout(timer); };
-  }, [scanGame, scanSetParam, scanLang]);
+  }, [scanSetParam]);
 
   // Detect manual-exposure support on the live track. Present on most Android
   // Chrome back cameras; absent on iOS Safari and many desktop webcams (slider
@@ -538,9 +517,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       const autoPrinting = overrides?.printing || ((card.rarity || '').toLowerCase().includes('holo') ? 'Holofoil' : 'Normal');
       const autoCondition = overrides?.condition || 'Near Mint';
       // The card's own language when the provider reported one, else the language
-      // being scanned. Auto-add used to hard-code English, which quietly filed
-      // every Japanese card as an English copy.
-      const autoLanguage = card.language || langName(scanLang);
+      const autoLanguage = 'English';
       const response = await fetch('/api/collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -767,12 +744,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
             const resp = await fetch('/api/scan-match', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ game: scanGame, image: imageData, set: scanSetParam, lang: scanLang, recallK: profile.recallK, orb: profile.orb }),
+              body: JSON.stringify({ game: 'mtg', image: imageData, set: scanSetParam, lang: 'en', recallK: profile.recallK, orb: profile.orb }),
             });
             if (scanId !== currentScanId.current) return;
             if (resp.ok) {
               const { game: matchGame, verified, candidates, crop, scoped, englishOnly } = await resp.json();
-              console.log('Scan candidates:', matchGame, scanLang, scoped ? `(set-scoped ${scanSetParam})` : '(GLOBAL)', verified ? 'ORB' : 'CLIP', candidates);
+              console.log('Scan candidates:', matchGame, scoped ? `(set-scoped ${scanSetParam})` : '(GLOBAL)', verified ? 'ORB' : 'CLIP', candidates);
               if (crop) setDebugHashImg(crop); // show the server's auto-cropped card
               setDebugScoped(scoped ? scanSetParam : false);
               setDebugCandidates((candidates || []).map(c => ({ ...c, verified })));
@@ -780,7 +757,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
               // needs a set selected (its index builds on demand). Say that plainly
               // instead of leaving the user re-scanning a card that cannot match.
               if (englishOnly) {
-                setScanStatus(`${langName(scanLang)} scanning needs a set selected — pick the set you are feeding in above.`);
+                setScanStatus('Select a set before scanning this card.');
                 return;
               }
               const top = candidates && candidates[0];
@@ -810,7 +787,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // `lang` keeps the lookup on the printing that was scanned: the
                   // matched name may itself be localized (稲妻), and the English row
                   // for the same set+number is a different card.
-                  const exact = new URLSearchParams({ game: matchGame, lang: scanLang });
+                  const exact = new URLSearchParams({ game: matchGame, lang: 'en' });
                   if (top.name) exact.append('name', top.name);
                   if (top.set) exact.append('set', top.set);
                   if (top.number) exact.append('number', top.number);
@@ -820,7 +797,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // Fallback: exact set/number isn't cached/known — offer all
                   // printings by name so the user can still pick.
                   if (matches.length === 0) {
-                    const byName = new URLSearchParams({ game: matchGame, lang: scanLang, prints: '1' });
+                    const byName = new URLSearchParams({ game: matchGame, lang: 'en', prints: '1' });
                     if (top.name) byName.append('name', top.name);
                     searchResponse = await fetch(`/api/search?${byName.toString()}`);
                     if (scanId !== currentScanId.current) return;
@@ -843,7 +820,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 const fullCandidates = await Promise.all(
                   candidates.slice(0, 8).map(async cand => {
                     if (cand.card) return cand.card;
-                    const p = new URLSearchParams({ game: matchGame, lang: scanLang });
+                    const p = new URLSearchParams({ game: matchGame, lang: 'en' });
                     if (cand.set) p.append('set', cand.set);
                     if (cand.number) p.append('number', cand.number);
                     if (cand.name) p.append('name', cand.name);
@@ -898,7 +875,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     } else {
       setPrinting('Normal');
     }
-    setLanguage(card.language || langName(scanLang));
+
     setIsDrawerOpen(true);
   };
 
@@ -909,7 +886,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setQuantity(1);
     setCondition('Near Mint');
     setPrinting('Normal');
-    setLanguage(langName(scanLang));
+
     setPurchasePrice(0);
     // Restart camera on close only if stream was stopped
     if (!stream || !cameraActive) {
@@ -1116,55 +1093,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
             </div>
           </div>
 
-          {/* Settings panel (toggled by the gear in the action row): game, set,
+          {/* Settings panel (toggled by the gear in the action row): set,
               scan detail, exposure. Kept off the camera view so it stays clean. */}
           {showScanSettings && (
           <div className="glass-panel" style={{ width: '100%', padding: '1rem', background: 'rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.25rem', order: 2, position: 'relative', zIndex: setSearchOpen ? 40 : undefined }}>
-            {showGamePicker() && (
-              <div className="sub-nav-tabs" style={{ marginBottom: 0 }}>
-                {gameOptions().map(({ value, short }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`sub-nav-tab ${scanGame === value ? 'active' : ''}`}
-                    style={{ padding: '0.5rem', fontSize: '0.8rem', fontWeight: 700 }}
-                    onClick={() => setCardLayout(value === 'mtg' ? 'mtg' : 'modern')}
-                  >
-                    {short}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Scan language. Card art is language-specific, so this picks which
-                set index the scan is matched against — and the language each
-                added copy is recorded as. */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <label htmlFor="scan-language" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                {t('scan.cardLanguage')}
-              </label>
-              <select
-                id="scan-language"
-                className="select-control"
-                value={scanLang}
-                onChange={(e) => {
-                  const code = e.target.value;
-                  setScanLang(code);
-                  setLanguage(langName(code));
-                }}
-                style={{ fontSize: '0.8rem' }}
-              >
-                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-              </select>
-              {!isEnglish(scanLang) && (
-                <p style={{ fontSize: '0.7rem', color: 'var(--accent-yellow)', margin: 0, lineHeight: 1.35 }}>
-                  {langName(scanLang)} scanning needs a set selected below — the whole-game
-                  index only covers English art.
-                </p>
-              )}
-            </div>
-
-            {/* Set search (both games): pick a set to build a per-set index
+            {/* Set search: pick a set to build a per-set index
                 for accurate one-step scans. Free text also works as an
                 exact-id escape hatch for sets not yet cached. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', position: 'relative' }}>
@@ -1261,7 +1194,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     const m = setList.find(s => [s.id, s.ptcgo_code, s.name].some(v => (v || '').toLowerCase() === q));
                     if (m) { addSetCode(setScanCode(m)); setSetInput(''); }
                   }, 150)}
-                  placeholder={t(scanGame === 'mtg' ? 'scan.setSearchMtg' : 'scan.setSearchPokemon')}
+                  placeholder={t('scan.setSearchMtg')}
                   style={{ flex: 1, padding: '0.3rem 0.5rem', fontSize: '0.75rem', background: 'rgba(255,255,255,0.06)', border: `1px solid ${scanSetCodes.length ? 'var(--type-grass)' : 'var(--border-glass)'}`, borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)' }}
                 />
                 {scanSetCodes.length > 0 && (
@@ -1715,21 +1648,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   onKeyDown={async (e) => {
                     if (e.key === 'Enter' && e.target.value.trim()) {
                       const q = e.target.value.trim();
-                      const p = new URLSearchParams({ game: scanGame, lang: scanLang });
-
-                      if (scanGame === 'mtg') {
-                        // Very simple fallback: try to parse set code and number if format looks like "SET 123"
-                        const match = q.match(/^([A-Z0-9]{3,5})\s+(\d+[A-Z★]?)$/i);
-                        if (match) {
-                          p.append('set', match[1]);
-                          p.append('number', match[2]);
-                        } else {
-                          p.append('name', q);
-                        }
+                      const p = new URLSearchParams({ game: 'mtg', lang: 'en' });
+                      const match = q.match(/^([A-Z0-9]{3,5})\s+(\d+[A-Z★]?)$/i);
+                      if (match) {
+                        p.append('set', match[1]);
+                        p.append('number', match[2]);
                       } else {
-                         // Pokemon: just try name or number
-                         if (/^\d+$/.test(q)) p.append('number', q);
-                         else p.append('name', q);
+                        p.append('name', q);
                       }
                       
                       const searchResponse = await fetch(`/api/search?${p.toString()}`);
@@ -1860,7 +1785,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
               <div>
                 <h3 style={{ color: 'var(--text-strong)', fontSize: '1.25rem', margin: 0 }}>{t('scan.addScannedTitle')}</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{getCardDisplayName(selectedCard.name, language, selectedCard.printed_name)} ({selectedCard.set_name} • #{selectedCard.number})</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{selectedCard.name} ({selectedCard.set_name} • #{selectedCard.number})</p>
               </div>
               <button className="btn btn-secondary btn-icon-only" onClick={closeDrawer} style={{ borderRadius: '50%' }}>
                 <X size={18} />
@@ -1895,9 +1820,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   
                   <CardEntryFields
                     variant="stacked"
-                    game={selectedCard.game || selectedCard.supertype}
-                    quantity={quantity} purchasePrice={purchasePrice} condition={condition} printing={printing} language={language}
-                    onQuantity={setQuantity} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting} onLanguage={setLanguage}
+                    quantity={quantity} purchasePrice={purchasePrice} condition={condition} printing={printing}
+                    onQuantity={setQuantity} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting}
                   />
                 </div>
               </div>

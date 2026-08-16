@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
-import { getCardDisplayName } from '../utils/langHelper';
-import { translatedName, setCode, isEnglish } from '../utils/languages';
 import { formatPrice } from '../utils/formatPrice';
 import { tcgplayerUrl, cardmarketUrl, priceSource, noLinkReason } from '../utils/marketplaceLinks';
 import CardImageZoom from './CardImageZoom';
@@ -42,7 +40,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const [q, setQ] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
   const [printing, setPrinting] = useState('Normal');
-  const [language, setLanguage] = useState('English');
   const [purchasePrice, setPurchasePrice] = useState(0);
   const [locationId, setLocationId] = useState('');
   const [isTrade, setIsTrade] = useState(0);
@@ -70,7 +67,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.printing || 'Normal');
-    setLanguage(card.language || 'English');
     setPurchasePrice(card.purchase_price || 0);
     setLocationId(card.location_id || '');
     setIsTrade(card.is_trade ? 1 : 0);
@@ -102,7 +98,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
           quantity: parseInt(q, 10),
           condition,
           printing,
-          language,
+          language: 'English',
           purchase_price: parseFloat(purchasePrice) || 0,
           location_id: locationId ? parseInt(locationId, 10) : null,
           list_type: listType,
@@ -115,7 +111,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
         card.quantity = parseInt(q, 10);
         card.condition = condition;
         card.printing = printing;
-        card.language = language;
+        card.language = 'English';
         card.purchase_price = parseFloat(purchasePrice) || 0;
         card.location_id = locationId ? parseInt(locationId, 10) : null;
         card.list_type = listType;
@@ -149,7 +145,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       quantity: parseInt(q, 10),
       condition,
       printing,
-      language,
+      language: 'English',
       purchase_price: parseFloat(purchasePrice) || 0,
       location_id: locationId ? parseInt(locationId, 10) : null,
       list_type: nextListType,
@@ -301,29 +297,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
             </div>
 
             <h3 style={{ fontSize: '1.65rem', color: 'var(--text-strong)', fontWeight: 800, lineHeight: 1.15, marginBottom: '0.25rem' }}>
-              {getCardDisplayName(card.name, card.language, card.printed_name)}
+              {card.name}
             </h3>
-            {/* The English name when the provider gives us one for this printing
-                (Magic always does). Nothing is shown for a Japan-only Pokémon
-                card — no provider has an English name for it. */}
-            {translatedName(card) && (
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500, marginBottom: '0.25rem' }}>
-                {translatedName(card)}
-              </p>
-            )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
               {card.set_name}
-              {/* Set code alongside the native set name: it reads the same in every
-                  language, so it is the part you can search or quote. The collector
-                  number is already spelled out just after, so only the code here. */}
-              {!isEnglish(card.language) && setCode(card) && (
-                <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}> ({setCode(card)})</span>
-              )}
               {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''} • {t('inspector.owned', { count: card.quantity ?? 1 })}
             </p>
 
-            {/* MTG cards: show color pips + type line (Pokémon energy types are
-                already conveyed via the type-glow styling elsewhere). */}
+            {/* MTG color pips and type line. */}
             {card.supertype === 'MTG' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
                 {(Array.isArray(card.types) ? card.types : []).map(color => (
@@ -364,8 +345,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
 
               <CardEntryFields
                 game={card.game || card.supertype}
-                quantity={q} purchasePrice={purchasePrice} condition={condition} printing={printing} language={language}
-                onQuantity={setQ} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting} onLanguage={setLanguage}
+                quantity={q} purchasePrice={purchasePrice} condition={condition} printing={printing}
+                onQuantity={setQ} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting}
               />
 
               <div className="form-group">
@@ -420,10 +401,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 </div>
               </div>
 
-              {/* Marketplace links — where the price is sourced. A link is only
-                  rendered when it can actually resolve: a Japan-only Pokémon card
-                  has no English name and no provider URL, and a search on its
-                  localized name returns nothing on either site. */}
+              {/* Marketplace links are rendered only when they can resolve. */}
               {(tcgplayerUrl(card) || cardmarketUrl(card)) ? (
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   {tcgplayerUrl(card) && (
@@ -458,7 +436,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
                 <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specCondition')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.condition}</span></div>
                 <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specPrinting')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.printing}</span></div>
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specLanguage')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.language}</span></div>
+
                 <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specSupertype')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.supertype}</span></div>
               </div>
 

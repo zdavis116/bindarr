@@ -2,10 +2,8 @@
 // own Intl gives us plurals, number formatting and language names, which is the
 // whole feature set we need. The pure part lives in translate.js.
 //
-// NOTE: this is the *interface* language. It has nothing to do with the language a
-// card was printed in — that lives in utils/languages.js and is stored per
-// collection entry. A German-speaking user may well collect Japanese cards, so the
-// two settings never touch each other.
+// This module controls interface translation only. Physical cards in this fork
+// are English-only and do not expose a separate printed-language preference.
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import en from '../locales/en.json';
 import { pickLocale, translate } from './translate';
