@@ -23,7 +23,14 @@ jobs:
           node-version: 20
 
       - name: Install backend dependencies
-        run: npm ci
+        run: npm ci --onnxruntime-node-install=skip
+        working-directory: backend
+
+      # Known advisories are tracked separately so dependency upgrades remain
+      # reviewable. Keep the baseline visible without blocking unrelated PRs.
+      - name: Audit backend runtime dependencies (baseline)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
         working-directory: backend
 
       # Hard gate: backend tests must pass before an image is built/pushed.
@@ -35,9 +42,22 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Audit frontend runtime dependencies (baseline)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+
       # Enforcing: the frontend lints clean (0 problems). Keep it that way.
       - name: Lint frontend
         run: npm run lint
+        working-directory: frontend
+
+      - name: Check frontend locales
+        run: npm run check:locales
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
         working-directory: frontend
 
   build-and-push:
