@@ -40,7 +40,9 @@ router.get('/locations', async (req, res) => {
 });
 
 const RULE_TYPES = ['any', 'alphabetical_range', 'specific_sets', 'compound'];
-const GAME_RESTRICTIONS = ['any', 'pokemon', 'mtg'];
+// PR 3 removes the old selector. Until then, tolerate its `pokemon` value but
+// persist every non-`any` restriction as MTG (see create/update below).
+const GAME_RESTRICTIONS = ['any', 'mtg', 'pokemon'];
 
 router.post('/locations', async (req, res) => {
   const { name, type, sort_order = 'name-asc', foil_sorting = 'normals_first', rule_type = 'any', rule_config, compartmentPlan, game = 'any' } = req.body;
@@ -69,7 +71,7 @@ router.post('/locations', async (req, res) => {
     const result = await db.run(`
       INSERT INTO locations (name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [name, type, sort_order, foil_sorting || 'normals_first', rule_type, ruleConfigJson, game, req.user.id]);
+    `, [name, type, sort_order, foil_sorting || 'normals_first', rule_type, ruleConfigJson, game === 'any' ? 'any' : 'mtg', req.user.id]);
 
     const plan = compartmentPlan || defaultCompartmentPlan(type);
     await db.createCompartments(result.lastID, Math.max(1, parseInt(plan.count, 10) || 1), Math.max(1, parseInt(plan.capacity, 10) || 40));
@@ -144,14 +146,14 @@ router.put('/locations/:id', async (req, res) => {
         game = COALESCE(?, game),
         locked = COALESCE(?, locked)
       WHERE id = ? AND user_id = ?
-    `, [name, type, sort_order, foil_sorting, rule_type, ruleConfigJson, game, locked === undefined ? null : (locked ? 1 : 0), id, req.user.id]);
+    `, [name, type, sort_order, foil_sorting, rule_type, ruleConfigJson, game === undefined ? undefined : (game === 'any' ? 'any' : 'mtg'), locked === undefined ? null : (locked ? 1 : 0), id, req.user.id]);
 
     let evicted = 0;
     if (rule_type !== undefined || rule_config !== undefined || game !== undefined) {
       const updated = await db.get(`SELECT id, rule_type, rule_config, game FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
       const stored = await db.all(`
         SELECT c.id as entry_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type,
-               cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype, cc.game,
+               cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype,
                cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
@@ -329,7 +331,7 @@ router.patch('/compartments/:id', async (req, res) => {
       const compForCheck = { ruleConfig: cfg };
       const stored = await db.all(`
         SELECT c.id AS entry_id, c.printing, c.language,
-               cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype, cc.game,
+               cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype,
                cc.price_trend, cc.cmc, cc.color_identity
         FROM collection c JOIN card_cache cc ON c.card_id = cc.id
         WHERE c.compartment_id = ? AND c.user_id = ?`, [id, req.user.id]);
@@ -389,10 +391,10 @@ router.post('/locations/:id/recommend', async (req, res) => {
     const location = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!location) return res.status(404).json({ error: 'Location not found' });
 
-    const cardMetadata = await db.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, game, cmc, color_identity FROM card_cache WHERE id = ?`, [card_id]);
+    const cardMetadata = await db.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, cmc, color_identity FROM card_cache WHERE id = ?`, [card_id]);
     if (!cardMetadata) return res.status(404).json({ error: 'Card not found in cache' });
     cardMetadata.printing = printing;
-    cardMetadata.language = language;
+    cardMetadata.language = 'English';
     try { cardMetadata.types = JSON.parse(cardMetadata.types || '[]'); } catch { cardMetadata.types = []; }
 
     if (!locationAcceptsCard(location, cardMetadata)) {
@@ -422,12 +424,13 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
 
     for (const entryId of entry_ids) {
       const entry = await db.get(`
-        SELECT c.id as entry_id, c.card_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.image_url, cc.game, cc.cmc, cc.color_identity
+        SELECT c.id as entry_id, c.card_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.image_url, cc.cmc, cc.color_identity
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
         WHERE c.id = ? AND c.user_id = ?
       `, [entryId, req.user.id]);
       if (!entry) continue;
+      entry.language = 'English';
       try { entry.types = JSON.parse(entry.types || '[]'); } catch { entry.types = []; }
 
       if (!locationAcceptsCard(location, entry)) {
@@ -490,7 +493,7 @@ router.post('/locations/:id/apply-all', async (req, res) => {
 
     for (const entryId of entry_ids) {
       const entry = await db.get(`
-        SELECT c.id, c.card_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.game, cc.cmc, cc.color_identity
+        SELECT c.id, c.card_id, c.printing, c.language, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.cmc, cc.color_identity
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
         WHERE c.id = ? AND c.user_id = ?
@@ -526,7 +529,7 @@ router.post('/locations/:id/resort', async (req, res) => {
 
     const cards = await db.all(`
       SELECT c.id as entry_id, c.card_id, c.printing, c.language, c.quantity, c.favorite, c.is_trade, c.list_type,
-             cc.name, cc.set_name, cc.number, cc.types, cc.rarity, cc.supertype, cc.image_url, cc.game,
+             cc.name, cc.set_name, cc.number, cc.types, cc.rarity, cc.supertype, cc.image_url,
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id

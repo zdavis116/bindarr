@@ -151,27 +151,28 @@ axios.Axios.prototype.get = async function(url, config) {
       return { data: { object: 'list', data: [] } };
     }
 
+    const card = {
+      id,
+      name,
+      lang,
+      ...(printed_name ? { printed_name } : {}),
+      type_line,
+      rarity,
+      set,
+      set_name: 'Limited Edition Alpha',
+      collector_number: num,
+      image_uris,
+      prices,
+      colors
+    };
+    const isDirectCardLookup = /\/cards\/[^/?]+(?:\?|$)/.test(fullUrl) && !fullUrl.includes('/cards/search');
+    if (isDirectCardLookup) return { data: card };
     return {
       data: {
         object: 'list',
         total_cards: 1,
         has_more: false,
-        data: [
-          {
-            id,
-            name,
-            lang,
-            ...(printed_name ? { printed_name } : {}),
-            type_line,
-            rarity,
-            set,
-            set_name: 'Limited Edition Alpha',
-            collector_number: num,
-            image_uris,
-            prices,
-            colors
-          }
-        ]
+        data: [card]
       }
     };
   }

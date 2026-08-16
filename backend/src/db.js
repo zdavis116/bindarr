@@ -1,51 +1,17 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 
-// The app began life as "PokeKeep", a Pokémon-only tracker, so its database was
-// called pokemon_cards.db. It has handled Magic since v1.4.x, and the file name
-// is the last thing still carrying the old name.
 const DB_FILENAME = 'bindarr.db';
-const LEGACY_DB_FILENAME = 'pokemon_cards.db';
-
-// Rename an existing pokemon_cards.db to the new name, WAL sidecars included.
-// Getting this wrong loses collections: point SQLite at a name that isn't there
-// and it cheerfully creates an empty database, which looks exactly like the app
-// wiping everything. So: never overwrite, move the -wal/-shm files with the
-// main one (un-checkpointed transactions live in the WAL), and on any failure
-// keep using the old file rather than silently starting fresh.
-// Returns the path that should actually be opened.
-function resolveDbPath(target) {
-  // Only ever migrate INTO the canonical name. A custom DB_PATH is the
-  // operator's decision and must not attract someone else's old file.
-  if (path.basename(target) !== DB_FILENAME) return target;
-
-  const legacy = path.join(path.dirname(target), LEGACY_DB_FILENAME);
-  if (fs.existsSync(target) || !fs.existsSync(legacy)) return target;
-
-  try {
-    for (const suffix of ['', '-wal', '-shm']) {
-      if (fs.existsSync(legacy + suffix)) fs.renameSync(legacy + suffix, target + suffix);
-    }
-    console.log(`Renamed legacy database ${LEGACY_DB_FILENAME} -> ${DB_FILENAME}.`);
-    return target;
-  } catch (err) {
-    console.error(
-      `Could not rename ${LEGACY_DB_FILENAME} to ${DB_FILENAME} (${err.message}). ` +
-      `Continuing with ${LEGACY_DB_FILENAME} — your data is safe, but please rename it manually.`
-    );
-    return legacy;
-  }
-}
 
 // Ensure database directory exists
 const requestedDbPath = process.env.DB_PATH || path.join(__dirname, `../database/${DB_FILENAME}`);
+const fs = require('fs');
 const dbDir = path.dirname(requestedDbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
-const dbPath = resolveDbPath(requestedDbPath);
+const dbPath = requestedDbPath;
 
 console.log(`Connecting to SQLite database at: ${dbPath}`);
 const dbConnection = new sqlite3.Database(dbPath, (err) => {
@@ -146,7 +112,8 @@ async function initDb() {
   await run(`
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
-      public_base_url TEXT DEFAULT ''
+      public_base_url TEXT DEFAULT '',
+      mtg_prices_swept_at DATETIME
     )
   `);
   await run(`INSERT OR IGNORE INTO app_settings (id, public_base_url) VALUES (1, '')`);
@@ -195,8 +162,7 @@ async function initDb() {
       release_date TEXT,
       ptcgo_code TEXT,
       symbol_url TEXT,
-      logo_url TEXT,
-      game TEXT DEFAULT 'pokemon'
+      logo_url TEXT
     )
   `);
 
@@ -221,7 +187,6 @@ async function initDb() {
       price_avg30 REAL,
       cmc REAL,
       color_identity TEXT,
-      game TEXT DEFAULT 'pokemon',
       language TEXT DEFAULT 'English',
       printed_name TEXT,
       last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -243,7 +208,6 @@ async function initDb() {
       favorite INTEGER DEFAULT 0,
       is_trade INTEGER DEFAULT 0,
       list_type TEXT DEFAULT 'collection',
-      game TEXT DEFAULT 'pokemon',
       added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(location_id) REFERENCES locations(id) ON DELETE SET NULL,
       FOREIGN KEY(compartment_id) REFERENCES compartments(id) ON DELETE SET NULL,
@@ -318,7 +282,7 @@ async function initDb() {
       description TEXT,
       checked_out INTEGER DEFAULT 0,
       checked_out_at DATETIME,
-      game TEXT DEFAULT 'pokemon',
+      game TEXT DEFAULT 'mtg',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -357,18 +321,10 @@ async function initDb() {
   if (!appSettingsCols.some(c => c.name === 'mtg_prices_swept_at')) {
     await run(`ALTER TABLE app_settings ADD COLUMN mtg_prices_swept_at DATETIME`);
   }
-  if (!appSettingsCols.some(c => c.name === 'pokemon_prices_swept_at')) {
-    await run(`ALTER TABLE app_settings ADD COLUMN pokemon_prices_swept_at DATETIME`);
-  }
-  if (!appSettingsCols.some(c => c.name === 'tcgdex_prices_swept_at')) {
-    await run(`ALTER TABLE app_settings ADD COLUMN tcgdex_prices_swept_at DATETIME`);
-  }
 
-  // A non-English printing is its own card, not a display variant of the English
-  // one: it has its own provider id, its own art and its own name. `language`
-  // records which printing a cached row IS (collection.language still records
-  // what the user OWNS), and `printed_name` holds the localized name — `name`
-  // stays English so search, deck lists and marketplace links keep working.
+  // Temporary compatibility fields: the current frontend still reads language
+  // and printed_name until PR 3 removes printed-card language controls. PR 2
+  // stores English cards only; PR 4 removes these columns from the final schema.
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);
   if (!cardCacheCols.some(c => c.name === 'language')) {
     await run(`ALTER TABLE card_cache ADD COLUMN language TEXT DEFAULT 'English'`);
@@ -378,8 +334,7 @@ async function initDb() {
   }
   // Marketplace links as the PROVIDER gives them. Building them from name+set+number
   // only works for English cards: searching TCGplayer for "ヒトカゲ ポケモンカード151"
-  // returns nothing, because those sites index English names. Scryfall and
-  // pokemontcg.io both hand us a real product/search URL per card, so store it.
+  // Provider-supplied marketplace links are stored verbatim.
   for (const col of ['tcgplayer_url', 'cardmarket_url']) {
     if (!cardCacheCols.some(c => c.name === col)) {
       await run(`ALTER TABLE card_cache ADD COLUMN ${col} TEXT`);
@@ -404,9 +359,6 @@ async function initDb() {
   }
   if (!collectionCols.some(c => c.name === 'position')) {
     await run(`ALTER TABLE collection ADD COLUMN position REAL DEFAULT 0`);
-  }
-  if (!collectionCols.some(c => c.name === 'game')) {
-    await run(`ALTER TABLE collection ADD COLUMN game TEXT DEFAULT 'pokemon'`);
   }
   if (!collectionCols.some(c => c.name === 'notes')) {
     await run(`ALTER TABLE collection ADD COLUMN notes TEXT DEFAULT ''`);
@@ -534,9 +486,5 @@ module.exports = {
   initDb,
   createCompartments,
   hashPassword,
-  // Exported for tests — the rename runs at module load, so it can't be
-  // exercised through a normal require.
-  resolveDbPath,
-  DB_FILENAME,
-  LEGACY_DB_FILENAME
+  DB_FILENAME
 };

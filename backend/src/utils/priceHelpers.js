@@ -24,13 +24,12 @@ function resolveCardPrice(card) {
   return card.price_trend || 0;
 }
 
-// Hydrate a raw card_cache row: its array columns are stored as JSON strings,
-// so parse them back to arrays. Missing columns (e.g. color_identity on a
-// Pokémon row) become []. Returns a shallow copy; the raw row is untouched.
+// Hydrate a raw card_cache row and provide the temporary frontend game field.
 function parseCardRow(row) {
   if (!row) return row;
   return {
     ...row,
+    game: 'mtg',
     subtypes: JSON.parse(row.subtypes || '[]'),
     types: JSON.parse(row.types || '[]'),
     color_identity: JSON.parse(row.color_identity || '[]'),
@@ -88,14 +87,7 @@ async function recordPrice(cardId, price) {
 // (https://scryfall.com/docs/api/rate-limits). Sweeping more often than daily
 // is pure load for zero new data, so both providers gate on this.
 const PRICE_SWEEP_INTERVAL_MS = 1000 * 60 * 60 * 24;
-// tcgdex gets its own clock: it serves the non-English Pokémon cards that
-// pokemontcg.io has no rows for, so the two sweep different cards and letting
-// either one mark the other's gate would silently skip a whole language.
-const SWEEP_COLUMN = {
-  mtg: 'mtg_prices_swept_at',
-  pokemon: 'pokemon_prices_swept_at',
-  tcgdex: 'tcgdex_prices_swept_at',
-};
+const SWEEP_COLUMN = { mtg: 'mtg_prices_swept_at' };
 
 // Has this game's price sweep gone stale enough to be worth running again?
 async function shouldSweepPrices(game) {

@@ -18,7 +18,7 @@ const STRATEGIES = {
     printing: row['Printing'] || 'Normal',
     language: row['Language'] || 'English',
     purchase_price: parseFloat(row['Purchase Price'] || row['purchase_price']) || 0,
-    game: row['Game'] || row['game'] || 'pokemon'
+    game: 'mtg'
   }),
   tcgplayer: (row) => ({
     name: row['Card Name'] || row['Name'],
@@ -27,7 +27,7 @@ const STRATEGIES = {
     quantity: parseInt(row['Quantity'], 10) || 1,
     condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
     printing: (row['Printing'] === 'Foil' || row['Printing'] === 'Holofoil') ? 'Holofoil' : 'Normal',
-    game: 'pokemon'
+    game: 'mtg'
   }),
   dragonshield: (row) => ({
     name: row['Card Name'] || row['Name'],
@@ -36,7 +36,7 @@ const STRATEGIES = {
     quantity: parseInt(row['Quantity'], 10) || 1,
     condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
     printing: (row['Printing'] === 'Foil' || row['Printing'] === 'Holofoil') ? 'Holofoil' : 'Normal',
-    game: 'pokemon'
+    game: 'mtg'
   }),
   manabox: (row) => ({
     name: row['Name'] || row['Card Name'],

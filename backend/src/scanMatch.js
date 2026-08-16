@@ -403,11 +403,8 @@ function verifyGame(cardBuf, game, q, bf, recall, topK) {
 // scores higher — so scanning in the wrong mode still works. Returns
 // { game, verified, candidates:[{name,set,number,score,inliers}], crop }.
 async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = {}) {
-  // The global CLIP + ORB indexes are built from English art only (building one
-  // is hours and ~1GB per game; doing that per language is not a trade worth
-  // making). A non-English scan is therefore set-scoped or nothing — and it says
-  // so via `englishOnly` rather than silently returning English lookalikes.
-  const lang = languages.toCode(opts.lang);
+  requestedGame = 'mtg';
+  const lang = 'en';
   // Scan-detail knobs (client "Scan Detail" slider). Fewer CLIP candidates to
   // verify + fewer ORB features = faster, less accurate. Clamped to sane bounds.
   const recallK = Math.max(10, Math.min(RECALL_K, opts.recallK || RECALL_K));
@@ -438,7 +435,7 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
       return { game: requestedGame, verified: false, candidates: [], crop, lang, englishOnly: true };
     }
 
-    const order = requestedGame === 'pokemon' ? ['pokemon', 'mtg'] : ['mtg', 'pokemon'];
+    const order = ['mtg'];
     let best = null;
     for (const g of order) {
       const recall = await embedMatch.match(cardBuf, g, recallK); // CLIP recall for this game

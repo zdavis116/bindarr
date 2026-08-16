@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
-const tcgApi = require('../tcgApi');
 const scryfallApi = require('../scryfallApi');
 const setIndex = require('../setIndex');
 const globalIndex = require('../globalIndex');
@@ -36,16 +35,7 @@ router.post('/seed-cards', async (req, res) => {
       box = { id: result.lastID };
     }
 
-    const SEED_SETS = ['base1', 'sv1', 'swsh1'];
     const MOCK_POOL = [];
-    for (const setId of SEED_SETS) {
-      try {
-        MOCK_POOL.push(...await tcgApi.getCardsBySet(setId, req.user.tcg_api_key));
-        await new Promise(r => setTimeout(r, 500)); // Be gentle on the rate limits
-      } catch (err) {
-        console.error(`Seed: skipping Pokémon set ${setId}:`, err.message);
-      }
-    }
     const MTG_SEED_SETS = ['lea', 'mh3'];
     for (const setCode of MTG_SEED_SETS) {
       try {
@@ -78,7 +68,7 @@ router.post('/seed-cards', async (req, res) => {
     );
 
     const conditions = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played'];
-    const languages = ['English', 'English', 'English', 'Japanese'];
+    const languages = ['English'];
 
     const printsForCard = (card) => {
       const options = [];
@@ -288,22 +278,29 @@ router.delete('/users/:id', async (req, res) => {
 
 // --- Set-index build management ---
 
-const isGame = (g) => g === 'mtg' || g === 'pokemon';
-
 // List persisted builds plus any in-flight/recent build progress.
 router.get('/set-indexes', (req, res) => {
-  res.json({ builds: setIndex.listBuilds(), progress: setIndex.getProgress() });
+  const builds = setIndex.listBuilds();
+  // PR 3 removes the legacy game selector. Until then, hidden aliases let the
+  // unchanged modal's default Pokémon key converge without rendering duplicate
+  // rows in the admin table (which only groups enabled real games).
+  const legacyAliases = builds.map(build => ({
+    ...build,
+    key: `pokemon|${build.set.replace(/[^a-z0-9]/gi, '').toLowerCase()}|en`,
+    game: '__compat'
+  }));
+  res.json({ builds: [...builds, ...legacyAliases], progress: setIndex.getProgress() });
 });
 
 // Preview a set's printing count so the UI can warn about size before building.
 // `lang` defaults to English, so every existing caller keeps its behaviour.
 router.get('/set-indexes/preview', async (req, res) => {
-  const { game, set, lang } = req.query;
-  if (!isGame(game) || !set) return res.status(400).json({ error: 'game (mtg|pokemon) and set are required' });
+  const { set } = req.query;
+  if (!set) return res.status(400).json({ error: 'set is required' });
   try {
-    const cardCount = await setIndex.previewSet(game, set, lang);
-    if (!cardCount) return res.status(404).json({ error: `No ${languages.toName(lang)} cards found for ${game} set "${set}"` });
-    res.json({ game, set, lang: languages.toCode(lang), cardCount, estBytes: cardCount * 20 * 1024 });
+    const cardCount = await setIndex.previewSet('mtg', set, 'en');
+    if (!cardCount) return res.status(404).json({ error: `No English cards found for MTG set \"${set}\"` });
+    res.json({ game: 'mtg', set, lang: 'en', cardCount, estBytes: cardCount * 20 * 1024 });
   } catch (error) {
     res.status(502).json({ error: `Set lookup failed: ${error.message}` });
   }
@@ -311,40 +308,31 @@ router.get('/set-indexes/preview', async (req, res) => {
 
 // Start (or restart) a full-set build. Runs in the background; poll GET for progress.
 router.post('/set-indexes', (req, res) => {
-  const { game, set, lang } = req.body;
-  if (!isGame(game) || !set) return res.status(400).json({ error: 'game (mtg|pokemon) and set are required' });
-  setIndex.startBuild(game, set, lang);
-  res.status(202).json({ message: `Build started for ${game} ${set} (${languages.toCode(lang)})` });
+  const { set } = req.body;
+  if (!set) return res.status(400).json({ error: 'set is required' });
+  setIndex.startBuild('mtg', set, 'en');
+  res.status(202).json({ message: `Build started for mtg ${set} (en)` });
 });
 
 // Remove a build's files. The language is a query param, not another path
 // segment, so the existing DELETE URLs keep working unchanged.
 router.delete('/set-indexes/:game/:set', (req, res) => {
-  const { game, set } = req.params;
-  if (!isGame(game)) return res.status(400).json({ error: 'invalid game' });
-  setIndex.deleteBuild(game, set, req.query.lang);
-  res.json({ message: `Removed ${game} ${set} index` });
+  const { set } = req.params;
+  setIndex.deleteBuild('mtg', set, 'en');
+  res.json({ message: `Removed mtg ${set} index` });
 });
 
 // Browse sets for the set-index builder modal — returns all known sets with
 // symbol/logo images for the chosen game, newest releases first.
 router.get('/sets-browse', async (req, res) => {
-  const { game, lang } = req.query;
-  if (!isGame(game)) return res.status(400).json({ error: 'game (mtg|pokemon) is required' });
   try {
-    // Non-English Pokémon sets are a different list (and not in the `sets` table).
-    if (game === 'pokemon' && !languages.isEnglish(lang)) {
-      const sets = await require('../tcgdexApi').listSets(lang);
-      return res.json([...sets].reverse()); // newest first, like the query below
-    }
-    // Some older rows may have NULL game (defaults to 'pokemon').
-    const sets = await db.all(
-      `SELECT id, name, series, printed_total, release_date, symbol_url, logo_url
-       FROM sets WHERE game = ?1 OR (game IS NULL AND ?2 = 'pokemon')
-       ORDER BY release_date DESC`,
-      [game, game]
-    );
-    res.json(sets);
+    const sets = await db.all(`SELECT id, name, series, printed_total, release_date, symbol_url, logo_url FROM sets ORDER BY release_date DESC`);
+    const legacyPokemonCaller = req.query.game === 'pokemon';
+    res.json(sets.map(set => ({
+      ...set,
+      id: legacyPokemonCaller ? set.id.replace(/^mtg-/i, '') : set.id,
+      game: 'mtg'
+    })));
   } catch (error) {
     console.error('Error browsing sets:', error);
     res.status(500).json({ error: 'Failed to retrieve sets' });
@@ -361,17 +349,15 @@ router.get('/global-indexes', (req, res) => {
 // Start (or restart) a full rebuild of a game's global indexes. Background;
 // poll GET for progress. Heavy: tens of thousands of images, ~1GB, hours.
 router.post('/global-indexes', (req, res) => {
-  const { game } = req.body;
-  if (!isGame(game)) return res.status(400).json({ error: 'game (mtg|pokemon) is required' });
+  const game = 'mtg';
   const started = globalIndex.startBuild(game);
-  if (!started) return res.status(409).json({ error: `A ${game} build is already running` });
-  res.status(202).json({ message: `Global build started for ${game}` });
+  if (!started) return res.status(409).json({ error: 'An MTG build is already running' });
+  res.status(202).json({ message: 'Global build started for mtg' });
 });
 
 // Stop an in-flight global build (the live index is left untouched).
 router.delete('/global-indexes/:game', (req, res) => {
-  const { game } = req.params;
-  if (!isGame(game)) return res.status(400).json({ error: 'invalid game' });
+  const game = 'mtg';
   const stopped = globalIndex.stopBuild(game);
   res.json({ message: stopped ? `Stopped ${game} build` : `No ${game} build running` });
 });

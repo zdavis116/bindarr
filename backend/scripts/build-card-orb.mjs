@@ -12,7 +12,6 @@
  * Heavy, one-time. Checkpoints every 2000; rerun with --resume to continue.
  *
  *   node scripts/build-card-orb.mjs --game mtg
- *   node scripts/build-card-orb.mjs --game pokemon --resume
  */
 import fs from 'fs';
 import path from 'path';
@@ -20,7 +19,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import sharp from 'sharp';
 import pkg from 'opencv-wasm';
-import { makeHttp, gatherMtg, gatherPokemon, sleep } from './cardSources.js';
+import { makeHttp, gatherMtg, sleep } from './cardSources.js';
 
 const { cv } = pkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,8 +62,7 @@ function extractOrb(orb, rgbaData, w, h) {
 }
 
 async function main() {
-  const game = arg('--game', 'mtg');
-  if (game !== 'mtg' && game !== 'pokemon') { console.error('Use --game mtg|pokemon'); process.exit(1); }
+  const game = 'mtg';
   const limit = parseInt(arg('--limit', '0'), 10) || 0;
   const delay = parseInt(arg('--delay', '60'), 10);
   const resume = hasFlag('--resume');
@@ -76,7 +74,7 @@ async function main() {
   const metaPath = path.join(DATA_DIR, `${game}-orb-meta.json`);
 
   const http = makeHttp();
-  let cards = game === 'pokemon' ? await gatherPokemon(http, delay, limit) : await gatherMtg(http);
+  let cards = await gatherMtg(http);
   if (limit) cards = cards.slice(0, limit);
 
   let meta = [];

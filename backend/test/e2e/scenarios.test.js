@@ -94,21 +94,23 @@ async function runTests() {
       throw err;
     }
 
-    // F6-TC2: Mixed-game collection sorting (Pokémon type-name vs MTG WUBRG)
+    // F6-TC2: MTG collection sorting follows canonical WUBRG order
     try {
       const { sortCards } = require('../../src/utils/compartmentSort');
       const cards = [
-        { name: 'Swamp', types: ['Black'], game: 'mtg' },
-        { name: 'Charmander', types: ['Fire'], game: 'pokemon' },
-        { name: 'Plains', types: ['White'], game: 'mtg' },
-        { name: 'Bulbasaur', types: ['Grass'], game: 'pokemon' }
+        { name: 'Wastes', types: [] },
+        { name: 'Mountain', types: ['Red'] },
+        { name: 'Tundra', types: ['White', 'Blue'] },
+        { name: 'Forest', types: ['Green'] },
+        { name: 'Island', types: ['Blue'] },
+        { name: 'Plains', types: ['White'] },
+        { name: 'Swamp', types: ['Black'] }
       ];
       const sorted = sortCards(cards, 'type-name', 'normals_first');
-      // Bulbasaur (Grass) -> Charmander (Fire) -> Plains (White) -> Swamp (Black)
-      assert.strictEqual(sorted[0].name, 'Bulbasaur');
-      assert.strictEqual(sorted[1].name, 'Charmander');
-      assert.strictEqual(sorted[2].name, 'Plains');
-      assert.strictEqual(sorted[3].name, 'Swamp');
+      assert.deepStrictEqual(
+        sorted.map((card) => card.name),
+        ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Tundra', 'Wastes']
+      );
       console.log('PASS: F6-TC2');
     } catch (err) {
       console.error('FAIL: F6-TC2 -', err.message);

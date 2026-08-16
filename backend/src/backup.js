@@ -23,8 +23,7 @@ function listBackups() {
 async function createBackup() {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  // Derived from the live DB's name so it follows any rename instead of
-  // hardcoding one. Older pokemon_cards.*.bak files still list and restore.
+  // Derived from the configured live database name rather than hardcoded.
   const dest = path.join(BACKUP_DIR, `${path.basename(db.dbPath, '.db')}.${stamp}.bak`);
   await db.run(`VACUUM INTO ?`, [dest]);
 

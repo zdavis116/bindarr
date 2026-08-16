@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const tcgApi = require('../tcgApi');
+const scryfallApi = require('../scryfallApi');
 const { parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
 const { validateDeckAddition } = require('../utils/deckRules');
@@ -47,7 +47,7 @@ router.post('/', async (req, res) => {
   const { 
     name, 
     description = '', 
-    game = 'pokemon',
+    game = 'mtg',
     format = 'Standard',
     category = 'Competitive',
     accent_color = '#eab308',
@@ -58,7 +58,7 @@ router.post('/', async (req, res) => {
   if (!name) {
     return res.status(400).json({ error: 'Deck name is required' });
   }
-  const deckGame = ['pokemon', 'mtg'].includes(game) ? game : 'pokemon';
+  const deckGame = 'mtg';
   const targetSizeNum = parseInt(target_size, 10) || 60;
 
   try {
@@ -78,7 +78,7 @@ router.post('/', async (req, res) => {
         if (match) {
           const qty = parseInt(match[1], 10);
           const cardName = match[2].trim();
-          const card = await db.get(`SELECT id FROM card_cache WHERE LOWER(name) = LOWER(?) AND game = ? LIMIT 1`, [cardName, deckGame]);
+          const card = await db.get(`SELECT id FROM card_cache WHERE LOWER(name) = LOWER(?) LIMIT 1`, [cardName]);
           if (card) {
             await db.run(
               `INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?) ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = quantity + EXCLUDED.quantity`,
@@ -280,9 +280,9 @@ router.post('/:id/cards', async (req, res) => {
     let card = await db.get(`SELECT id FROM card_cache WHERE id = ?`, [card_id]);
     if (!card) {
       console.log(`Card ${card_id} not in cache. Fetching...`);
-      const apiCard = await tcgApi.getCardById(card_id, req.user.tcg_api_key);
+      const apiCard = await scryfallApi.getCardById(card_id);
       if (!apiCard) {
-        return res.status(404).json({ error: 'Card not found on Pokémon TCG API.' });
+        return res.status(404).json({ error: 'Card not found on Scryfall.' });
       }
     }
 

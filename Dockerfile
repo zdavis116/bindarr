@@ -41,8 +41,8 @@ ENV PORT=3001
 # unless SSL_CERT_PATH/SSL_KEY_PATH point at a real one. Set HTTPS_PORT="" to
 # serve plain HTTP only.
 ENV HTTPS_PORT=3443
-# Upgrades from an image that used pokemon_cards.db keep their data: the app
-# renames the old file (and its WAL sidecars) into place on first start.
+# This fork uses a fresh database. It never discovers or adopts pokemon_cards.db;
+# see docs/UPGRADE-FORK.md for the reversible clean-database cutover.
 ENV DB_PATH=/app/database/bindarr.db
 # Set indexes live on the persisted volume too, else they rebuild every redeploy
 ENV SETS_DIR=/app/database/sets

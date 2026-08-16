@@ -84,12 +84,10 @@ async function runTests() {
       throw err;
     }
 
-    // F5-TC2: Verify that adding a Scryfall-fetched MTG card to collection writes 'mtg' to game column
+    // F5-TC2: MTG-only storage omits game while the API preserves compatibility
     try {
-      // 1. Search card to populate card_cache (might return empty since M3 is not implemented)
       await fetch(`http://localhost:${port}/api/search?game=mtg&name=Lotus`, { headers: authHeaders });
-      
-      // 2. Add card to collection
+
       const addRes = await fetch(`http://localhost:${port}/api/collection`, {
         method: 'POST',
         headers: authHeaders,
@@ -104,11 +102,17 @@ async function runTests() {
         })
       });
       assert.strictEqual(addRes.status, 200);
-      
-      // 3. Query DB to verify game value is mtg
+
       const saved = await db.get(`SELECT * FROM collection WHERE card_id = ?`, ['mtg-lea-232']);
       assert.ok(saved, 'Card must be saved in collection');
-      assert.strictEqual(saved.game, 'mtg');
+      assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'game'), 'collection must not persist a game discriminator');
+
+      const collectionRes = await fetch(`http://localhost:${port}/api/collection`, { headers: authHeaders });
+      assert.strictEqual(collectionRes.status, 200);
+      const collection = await collectionRes.json();
+      const returned = collection.find((card) => card.card_id === 'mtg-lea-232');
+      assert.ok(returned, 'Saved card must be returned by the collection API');
+      assert.strictEqual(returned.game, 'mtg', 'API must synthesize MTG for the current frontend');
       console.log('PASS: F5-TC2');
     } catch (err) {
       console.error('FAIL: F5-TC2 -', err.message);
@@ -179,8 +183,8 @@ async function runTests() {
       )).lastID;
 
       // Seed card_cache so the collection FK (card_id -> card_cache.id) holds.
-      await db.run(`INSERT OR IGNORE INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-c1', 'Card 1', 'mtg']);
-      await db.run(`INSERT OR IGNORE INTO card_cache (id, name, game) VALUES (?, ?, ?)`, ['mtg-c2', 'Card 2', 'mtg']);
+      await db.run(`INSERT OR IGNORE INTO card_cache (id, name) VALUES (?, ?)`, ['mtg-c1', 'Card 1']);
+      await db.run(`INSERT OR IGNORE INTO card_cache (id, name) VALUES (?, ?)`, ['mtg-c2', 'Card 2']);
 
       // Add dummy cards with out-of-order positions
       await db.run(

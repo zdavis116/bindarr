@@ -9,16 +9,13 @@ function parseSubtypes(raw) {
   return [];
 }
 
-// Basic Energy (Pokémon) & Basic Lands (MTG) are exempt from the "max 4 of a
+// Basic Lands are exempt from the "max 4 of a
 // card" rule. Mirrors isBasicEnergyOrLand in the frontend DeckBuilder.
-function isBasicEnergyOrLand(card, game = 'pokemon') {
+function isBasicEnergyOrLand(card, game = 'mtg') {
   if (!card) return false;
   const subs = parseSubtypes(card.subtypes);
-  if (game === 'mtg' || card.game === 'mtg') {
-    const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
-    return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
-  }
-  return card.supertype === 'Energy' && !subs.includes('Special');
+  const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
+  return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
 }
 
 // Validate setting a deck's copy count of `cardId` to `newQty`.
@@ -31,7 +28,7 @@ async function validateDeckAddition({ deckId, userId, cardId, newQty, dbClient }
   if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: 'Invalid quantity' };
 
   const card = await client.get(
-    `SELECT id, name, supertype, subtypes, game FROM card_cache WHERE id = ?`, [cardId]
+    `SELECT id, name, supertype, subtypes FROM card_cache WHERE id = ?`, [cardId]
   );
   if (!card) return { ok: false, error: 'Card not found' };
 
@@ -44,8 +41,7 @@ async function validateDeckAddition({ deckId, userId, cardId, newQty, dbClient }
     return { ok: false, error: `You only own ${owned} ${owned === 1 ? 'copy' : 'copies'} of ${card.name}.` };
   }
 
-  const deck = await client.get(`SELECT game FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]);
-  const game = (deck && deck.game) || card.game || 'pokemon';
+  const game = 'mtg';
 
   if (!isBasicEnergyOrLand(card, game)) {
     // Copies of the same NAME already in the deck under a different card_id

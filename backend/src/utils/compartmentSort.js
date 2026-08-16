@@ -82,7 +82,7 @@ function compartmentAcceptsCard(compartment, cardMetadata) {
 
 function locationAcceptsCard(location, cardMetadata) {
   if (location.game && location.game !== 'any') {
-    const cardGame = cardMetadata.game || 'pokemon';
+    const cardGame = 'mtg';
     if (cardGame !== location.game) return false;
   }
 
@@ -103,7 +103,6 @@ function locationAcceptsCard(location, cardMetadata) {
 // Canonical category orderings shared with the frontend. See shared/cardOrder.json.
 const cardOrder = require('../../../shared/cardOrder.json');
 const sortSchemes = require('../../../shared/sortSchemes.json');
-const POKEMON_TYPE_ORDER = cardOrder.pokemonType;
 const PRINTING_ORDER_NORMALS_FIRST = cardOrder.printingNormalsFirst;
 const PRINTING_ORDER_FOILS_FIRST = cardOrder.printingFoilsFirst;
 const LANGUAGE_ORDER = cardOrder.language;
@@ -192,8 +191,8 @@ function sortCards(cards, sortOrder, foilSorting) {
           cmp = (printingOrder[a.printing] || 10) - (printingOrder[b.printing] || 10);
           break;
         case 'type': {
-          const orderA = POKEMON_TYPE_ORDER[typeCategory(a.types)] || 50;
-          const orderB = POKEMON_TYPE_ORDER[typeCategory(b.types)] || 50;
+          const orderA = WUBRG_ORDER[typeCategory(a.types)] || 50;
+          const orderB = WUBRG_ORDER[typeCategory(b.types)] || 50;
           cmp = orderA - orderB;
           break;
         }
