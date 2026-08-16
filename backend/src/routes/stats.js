@@ -293,7 +293,7 @@ router.get('/stats/history', async (req, res) => {
     if (cardIds.length > 0) {
       const placeholders = cardIds.map(() => '?').join(',');
       const historyRows = await db.all(
-        `SELECT card_id, price, recorded_at FROM price_history WHERE card_id IN (${placeholders}) ORDER BY recorded_at ASC`,
+        `SELECT card_id, price, recorded_at FROM price_history WHERE card_id IN (${placeholders}) ORDER BY recorded_at ASC, id ASC`,
         cardIds
       );
       historyRows.forEach(r => {
@@ -406,13 +406,13 @@ router.get('/cards/:id/price-history', async (req, res) => {
           SELECT price, recorded_at
           FROM price_history
           WHERE card_id = ? AND recorded_at >= datetime('now', ?)
-          ORDER BY recorded_at ASC
+          ORDER BY recorded_at ASC, id ASC
         `, [id, `-${days} days`])
       : await db.all(`
           SELECT price, recorded_at
           FROM price_history
           WHERE card_id = ?
-          ORDER BY recorded_at ASC
+          ORDER BY recorded_at ASC, id ASC
         `, [id]);
 
     const now = Date.now();

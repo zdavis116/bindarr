@@ -40,6 +40,27 @@ async function main() {
   assert.strictEqual(await recordPrice(null, 5), false, 'no card id, no row');
   assert.strictEqual(await count(), 3, 'junk must not reach the table');
 
+  // 6. Concurrent identical observations represent one movement, not five.
+  const identicalResults = await Promise.all(
+    Array.from({ length: 5 }, () => recordPrice(CARD, 2.25))
+  );
+  assert.strictEqual(identicalResults.filter(Boolean).length, 1, 'only one concurrent identical update should insert');
+  assert.strictEqual(await count(), 4, 'concurrent identical updates must create one row');
+
+  // 7. Per-card calls are processed in invocation order, so a rapid reversal is
+  // not lost when both observations arrive before either database callback runs.
+  const reversalResults = await Promise.all([
+    recordPrice(CARD, 3.0),
+    recordPrice(CARD, 2.25)
+  ]);
+  assert.deepStrictEqual(reversalResults, [true, true], 'both concurrent movements must be recorded');
+  assert.strictEqual(await count(), 6);
+  const latest = await db.get(
+    `SELECT price FROM price_history WHERE card_id = ? ORDER BY recorded_at DESC, id DESC LIMIT 1`,
+    [CARD]
+  );
+  assert.strictEqual(latest.price, 2.25, 'latest price must reflect the queued reversal');
+
   // --- Once-a-day sweep gate ---
   // Scryfall only moves prices once a day, so sweeping more often is pure load.
   // The boot sweep used to re-run on every restart; under nodemon that meant a

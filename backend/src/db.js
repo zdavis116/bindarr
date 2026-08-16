@@ -267,12 +267,13 @@ async function initDb() {
 
   await run(`
     CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       card_id TEXT NOT NULL,
       price REAL NOT NULL,
-      recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY(card_id, recorded_at)
+      recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_price_history_card_time ON price_history(card_id, recorded_at, id)`);
 
   await run(`
     CREATE TABLE IF NOT EXISTS decks (
