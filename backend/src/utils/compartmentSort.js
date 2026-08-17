@@ -81,11 +81,6 @@ function compartmentAcceptsCard(compartment, cardMetadata) {
 }
 
 function locationAcceptsCard(location, cardMetadata) {
-  if (location.game && location.game !== 'any') {
-    const cardGame = 'mtg';
-    if (cardGame !== location.game) return false;
-  }
-
   if (!location.rule_type || location.rule_type === 'any') return true;
 
   try {
@@ -105,7 +100,7 @@ const cardOrder = require('../../../shared/cardOrder.json');
 const sortSchemes = require('../../../shared/sortSchemes.json');
 const PRINTING_ORDER_NORMALS_FIRST = cardOrder.printingNormalsFirst;
 const PRINTING_ORDER_FOILS_FIRST = cardOrder.printingFoilsFirst;
-const LANGUAGE_ORDER = cardOrder.language;
+
 const WUBRG_ORDER = cardOrder.wubrg;
 
 function typeCategory(types) {
@@ -196,12 +191,7 @@ function sortCards(cards, sortOrder, foilSorting) {
           cmp = orderA - orderB;
           break;
         }
-        case 'language': {
-          const la = LANGUAGE_ORDER[a.language] || 99;
-          const lb = LANGUAGE_ORDER[b.language] || 99;
-          cmp = la - lb;
-          break;
-        }
+
         case 'cmc':
           cmp = (a.cmc || 0) - (b.cmc || 0);
           break;
@@ -280,8 +270,7 @@ const SORT_SCHEME_LABELS = {
   'set-number': 'set & number',
   'set-number-printing': 'set, printing & number',
   'price-desc': 'value (high to low)',
-  'type-name': 'energy type',
-  'language': 'language'
+  'type-name': 'energy type'
 };
 
 async function recommendSlot(database, location, cardMetadata, overrideCompartments = null, mockCards = []) {
@@ -298,7 +287,7 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
   }
 
   const allLocationCards = await dbClient.all(`
-    SELECT c.id as entry_id, c.card_id, c.compartment_id, c.position, c.quantity, c.condition, c.printing, c.language, c.purchase_price, c.added_at, c.is_trade, c.favorite, c.list_type,
+    SELECT c.id as entry_id, c.card_id, c.compartment_id, c.position, c.quantity, c.condition, c.printing, c.purchase_price, c.added_at, c.is_trade, c.favorite, c.list_type,
            cc.name, cc.supertype, cc.types, cc.subtypes, cc.rarity, cc.set_id, cc.set_name, cc.number, cc.image_url,
            cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
     FROM collection c
@@ -332,7 +321,7 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
 
   if (allCompartmentsFull) {
     const otherLocations = await dbClient.all(
-      `SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id FROM locations WHERE user_id = ? AND id != ? AND locked = 0 ORDER BY id ASC`,
+      `SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, user_id FROM locations WHERE user_id = ? AND id != ? AND locked = 0 ORDER BY id ASC`,
       [location.user_id, location.id]
     );
     for (const otherLoc of otherLocations) {
@@ -453,7 +442,6 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
     entry_id: -1,
     favorite: cardMetadata.favorite ? 1 : 0,
     printing: cardMetadata.printing || 'Normal',
-    language: cardMetadata.language || 'English',
     name: cardMetadata.name || '',
     supertype: cardMetadata.supertype || '',
     types: cardMetadata.types || [],

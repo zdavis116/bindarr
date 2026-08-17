@@ -24,12 +24,10 @@ function resolveCardPrice(card) {
   return card.price_trend || 0;
 }
 
-// Hydrate a raw card_cache row and provide the temporary frontend game field.
 function parseCardRow(row) {
   if (!row) return row;
   return {
     ...row,
-    game: 'mtg',
     subtypes: JSON.parse(row.subtypes || '[]'),
     types: JSON.parse(row.types || '[]'),
     color_identity: JSON.parse(row.color_identity || '[]'),

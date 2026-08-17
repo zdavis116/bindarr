@@ -140,7 +140,7 @@ async function fetchMtgSet(set, lang) {
     const r = await scryfallApi.scryGetRetried(url);
     for (const c of r.data.data || []) {
       for (const img of mtgCardImages(c)) {
-        cards.push({ name: c.printed_name || c.name || '', set: c.set || set, number: c.collector_number || '', img, raw: c });
+        cards.push({ name: c.name || '', set: c.set || set, number: c.collector_number || '', img, raw: c });
       }
     }
     url = r.data.has_more ? r.data.next_page : null;

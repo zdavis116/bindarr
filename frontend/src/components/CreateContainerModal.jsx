@@ -38,7 +38,7 @@ export default function CreateContainerModal({ onClose, onCreate, setsList = [],
   const [step, setStep] = useState(0);
   const [type, setType] = useState('Binder');
   const [name, setName] = useState('');
-  const game = 'mtg';
+
   const [count, setCount] = useState(TYPE_META[0].plan.count);
   const [capacity, setCapacity] = useState(TYPE_META[0].plan.capacity);
   const [sortDraft, setSortDraft] = useState([]);
@@ -64,7 +64,6 @@ export default function CreateContainerModal({ onClose, onCreate, setsList = [],
     const payload = {
       name: name.trim(),
       type,
-      game,
       compartmentPlan: { count: Math.max(1, parseInt(count, 10) || 1), capacity: Math.max(1, parseInt(capacity, 10) || 1) },
       sort_order: sortDraft.length > 0 ? JSON.stringify(sortDraft) : 'custom',
       rule_type: filterDraft.length > 0 ? 'compound' : 'any',

@@ -2,7 +2,6 @@
   "id": 4,
   "name": "Izzet Spells",
   "description": "Sample Magic deck for the demo",
-  "game": "mtg",
   "format": "Modern",
   "category": "Showcase",
   "accent_color": "#ef4444",
@@ -28,8 +27,7 @@
       "set_name": "Marvel Super Heroes Commander",
       "number": "806",
       "image_url": "https://cards.scryfall.io/normal/front/7/6/7673784e-db4b-43a1-8d55-1bb9fc1e284f.jpg",
-      "owned_qty": 4,
-      "game": "mtg"
+      "owned_qty": 4
     },
     {
       "quantity": 2,
@@ -45,8 +43,7 @@
       "set_name": "Jumpstart 2022",
       "number": "76",
       "image_url": "https://cards.scryfall.io/normal/front/6/8/686d43eb-ea91-4ae1-bdc4-dcd885688acd.jpg",
-      "owned_qty": 2,
-      "game": "mtg"
+      "owned_qty": 2
     }
   ]
 }

@@ -68,7 +68,6 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
     userId: uId,
     cardId: cId,
     printing,
-    language,
     excludeEntryId
   } = opts;
 
@@ -98,13 +97,13 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
     return { compartment_id: null, position: position !== undefined ? position : 0 };
   }
 
-  const location = await db.get(`SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, game, user_id FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
+  const location = await db.get(`SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, user_id FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
   if (!location) return { compartment_id: null, position: 0 };
 
   let cardMetadata = await dbClient.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, cmc, color_identity FROM card_cache WHERE id = ?`, [cId]);
   if (!cardMetadata) cardMetadata = { name: cId || '', types: [] };
   cardMetadata.printing = printing || 'Normal';
-  cardMetadata.language = language || 'English';
+
   try { cardMetadata.types = JSON.parse(cardMetadata.types || '[]'); } catch { cardMetadata.types = []; }
 
   if (!locationAcceptsCard(location, cardMetadata)) {
@@ -175,12 +174,12 @@ async function splitStackedEntries(database) {
     for (let i = 1; i < copies; i++) {
       await dbClient.run(`
         INSERT INTO collection (
-          card_id, user_id, quantity, condition, printing, language, purchase_price,
+          card_id, user_id, quantity, condition, printing, purchase_price,
           location_id, compartment_id, position, is_trade, favorite, list_type
-        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        e.card_id, e.user_id, e.condition, e.printing, 'English', e.purchase_price,
-        e.location_id, e.compartment_id, (e.position || 0) + i * 0.001, e.is_trade, e.favorite, e.list_type
+        e.card_id, e.user_id, e.condition, e.printing, e.purchase_price,
+        e.location_id, e.compartment_id, (e.position || 0) + (i * 0.001), e.is_trade, e.favorite, e.list_type
       ]);
       created++;
     }

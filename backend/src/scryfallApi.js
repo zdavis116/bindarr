@@ -190,7 +190,7 @@ function langSearch(q, lang) {
 // Maps a raw Scryfall card onto the existing card_cache shape. Double-faced
 // cards carry their art/type on
 // card_faces[0] instead of the top level, so fall back to the front face.
-function normalizeCard(raw, lang) {
+function normalizeCard(raw) {
   const face = (!raw.image_uris && Array.isArray(raw.card_faces) && raw.card_faces.length)
     ? raw.card_faces[0]
     : raw;
@@ -206,8 +206,6 @@ function normalizeCard(raw, lang) {
   return {
     id: `mtg-${raw.id}`,
     name: face.name || raw.name || '',
-    // The card game itself lives in the dedicated `game` column; `supertype`
-    // just tags these as Magic cards for UI that keys off it.
     supertype: 'MTG',
     subtypes: typeLine.split(/[^A-Za-z]+/).filter(Boolean),
     types: colors.map(c => COLOR_NAMES[c] || c),
@@ -225,12 +223,6 @@ function normalizeCard(raw, lang) {
     price_avg30: null,
     cmc: cmc,
     color_identity: colorIdentity.map(c => COLOR_NAMES[c] || c),
-    game: 'mtg',
-    // Retained until PR 3 removes the frontend field; this backend stores only
-    // English card data.
-    language: 'English',
-    // Retained as a temporary response/schema compatibility field.
-    printed_name: raw.printed_name || face.printed_name || null,
     // Preserve Scryfall's marketplace links rather than reconstructing them.
     tcgplayer_url: raw.purchase_uris?.tcgplayer || null,
     cardmarket_url: raw.purchase_uris?.cardmarket || null
@@ -372,11 +364,6 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
       // No exact-name match / error — fall through to the normal search below.
     }
   }
-  // Every cache read below is scoped to the requested language, so a cached
-  // English printing can't shadow the localized card that was asked for — and,
-  // unlike bypassing the cache outright, a repeat Japanese search still gets to
-  // answer locally.
-  const langName = languages.toName(lang);
 
   // 1. Collection-only search
   if (scope === 'collection') {
@@ -388,11 +375,7 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
       WHERE c.user_id = ? AND c.list_type = 'collection'
     `;
     const params = [userId];
-    // Collection scope searches what the user owns, in every language they own it
-    // in — filtering by the picker's language here would hide their Japanese
-    // copies from a deck search. A name typed in any language still matches:
-    // printed_name carries the localized one.
-    if (cleanName) { sql += ` AND (cc.name LIKE ? OR cc.printed_name LIKE ?)`; params.push(`%${cleanName}%`, `%${cleanName}%`); }
+    if (cleanName) { sql += ` AND cc.name LIKE ?`; params.push(`%${cleanName}%`); }
     if (cleanNumber) { sql += ` AND (cc.number = ? OR CAST(cc.number AS INTEGER) = CAST(? AS INTEGER))`; params.push(cleanNumber, cleanNumber); }
     const collSetFilter = setSqlFilter(setList, 'cc');
     if (collSetFilter) { sql += ` AND ${collSetFilter.clause}`; params.push(...collSetFilter.params); }
@@ -404,11 +387,9 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
   // 2. Local cache first. Kept as a closure because an internet-scope search
   // skips it here but still needs it as a fallback when Scryfall is unreachable.
   const queryLocal = async () => {
-    // language is part of the identity of a cached printing, so a Japanese search
-    // must not be answered with the English rows sitting next to it.
-    let sql = `SELECT * FROM card_cache WHERE language = 'English'`;
+    let sql = `SELECT * FROM card_cache WHERE 1 = 1`;
     const params = [];
-    if (cleanName) { sql += ` AND (name LIKE ? OR printed_name LIKE ?)`; params.push(`%${cleanName}%`, `%${cleanName}%`); }
+    if (cleanName) { sql += ` AND name LIKE ?`; params.push(`%${cleanName}%`); }
     if (cleanNumber) { sql += ` AND (number = ? OR CAST(number AS INTEGER) = CAST(? AS INTEGER))`; params.push(cleanNumber, cleanNumber); }
     const localSetFilter = setSqlFilter(setList);
     if (localSetFilter) { sql += ` AND ${localSetFilter.clause}`; params.push(...localSetFilter.params); }

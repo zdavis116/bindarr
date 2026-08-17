@@ -127,7 +127,6 @@ async function initDb() {
       foil_sorting TEXT DEFAULT 'normals_first',
       rule_type TEXT DEFAULT 'any',
       rule_config TEXT,
-      game TEXT DEFAULT 'any',
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
     )
   `);
@@ -187,8 +186,6 @@ async function initDb() {
       price_avg30 REAL,
       cmc REAL,
       color_identity TEXT,
-      language TEXT DEFAULT 'English',
-      printed_name TEXT,
       last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -200,7 +197,6 @@ async function initDb() {
       quantity INTEGER DEFAULT 1,
       condition TEXT CHECK(condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')) DEFAULT 'Near Mint',
       printing TEXT CHECK(printing IN ('Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo')) DEFAULT 'Normal',
-      language TEXT DEFAULT 'English',
       purchase_price REAL,
       location_id INTEGER,
       compartment_id INTEGER,
@@ -283,7 +279,6 @@ async function initDb() {
       description TEXT,
       checked_out INTEGER DEFAULT 0,
       checked_out_at DATETIME,
-      game TEXT DEFAULT 'mtg',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -323,16 +318,7 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN mtg_prices_swept_at DATETIME`);
   }
 
-  // Temporary compatibility fields: the current frontend still reads language
-  // and printed_name until PR 3 removes printed-card language controls. PR 2
-  // stores English cards only; PR 4 removes these columns from the final schema.
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);
-  if (!cardCacheCols.some(c => c.name === 'language')) {
-    await run(`ALTER TABLE card_cache ADD COLUMN language TEXT DEFAULT 'English'`);
-  }
-  if (!cardCacheCols.some(c => c.name === 'printed_name')) {
-    await run(`ALTER TABLE card_cache ADD COLUMN printed_name TEXT`);
-  }
   // Marketplace links as the PROVIDER gives them. Building them from name+set+number
   // only works for English cards: searching TCGplayer for "ヒトカゲ ポケモンカード151"
   // Provider-supplied marketplace links are stored verbatim.
@@ -375,14 +361,7 @@ async function initDb() {
   if (!locationsCols.some(c => c.name === 'foil_sorting')) {
     await run(`ALTER TABLE locations ADD COLUMN foil_sorting TEXT DEFAULT 'normals_first'`);
   }
-  if (!locationsCols.some(c => c.name === 'game')) {
-    await run(`ALTER TABLE locations ADD COLUMN game TEXT DEFAULT 'any'`);
-  }
-
   const usersCols = await all(`PRAGMA table_info(users)`);
-  if (!usersCols.some(c => c.name === 'tcg_api_key')) {
-    await run(`ALTER TABLE users ADD COLUMN tcg_api_key TEXT DEFAULT ''`);
-  }
   if (!usersCols.some(c => c.name === 'share_locations')) {
     await run(`ALTER TABLE users ADD COLUMN share_locations INTEGER DEFAULT 0`);
   }

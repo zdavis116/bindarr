@@ -49,11 +49,11 @@ async function runTests() {
     const seedCard = (id, name, types) => db.run(
       `INSERT OR REPLACE INTO card_cache (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, 'Pokémon', '[]', JSON.stringify(types || []), 'Common', 's1', 'Set One', '1', '', 1]
+      [id, name, 'MTG', '[]', JSON.stringify(types || []), 'Common', 's1', 'Set One', '1', '', 1]
     );
     const addEntry = (cardId, compId, locId, position) => db.run(
-      `INSERT INTO collection (card_id, quantity, condition, printing, language, location_id, compartment_id, position, user_id)
-       VALUES (?, 1, 'Near Mint', 'Normal', 'English', ?, ?, ?, ?)`,
+      `INSERT INTO collection (card_id, quantity, condition, printing, location_id, compartment_id, position, user_id)
+       VALUES (?, 1, 'Near Mint', 'Normal', ?, ?, ?, ?)`,
       [cardId, locId, compId, position, adminId]
     ).then(r => r.lastID);
 

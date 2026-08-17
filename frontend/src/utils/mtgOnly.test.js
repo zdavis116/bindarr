@@ -34,7 +34,7 @@ const productFiles = [
   'components/SortFilterBuilder.jsx',
   'components/SharedCollection.jsx',
 ];
-const forbidden = /pok[eé]mon|pokemontcg|tcgdex|showGamePicker|gameOptions|cardLanguage|LANGUAGE_NAMES|searchLang|languageFilter|language-asc|specLanguage|activeCard\.language|ptcgl|Reverse Holofoil|1st Edition/i;
+const forbidden = /pok[eé]mon|pokemontcg|tcgdex|showGamePicker|gameOptions|cardLanguage|LANGUAGE_NAMES|searchLang|languageFilter|language-asc|specLanguage|activeCard\.language|autoLanguage|ptcgl|Reverse Holofoil|1st Edition/i;
 for (const relative of productFiles) {
   const source = fs.readFileSync(path.join(root, relative), 'utf8');
   const match = source.match(forbidden);
@@ -44,6 +44,20 @@ for (const relative of productFiles) {
 for (const removedUtility of ['utils/languages.js', 'utils/langHelper.js']) {
   assert.equal(fs.existsSync(path.join(root, removedUtility)), false, `${removedUtility} must stay removed`);
 }
+
+// /api/sets is MTG-only and no longer returns a game field. Its prefixed IDs
+// must still line up with the bare `mtg|<code>` keys returned by set-index builds.
+const adminPanelSource = fs.readFileSync(path.join(root, 'components/AdminPanel.jsx'), 'utf8');
+assert.match(
+  adminPanelSource,
+  /const code = s\.id\.startsWith\('mtg-'\) \? s\.id\.slice\(4\) : s\.id;/,
+  'AdminPanel must strip mtg- from /api/sets IDs without requiring s.game',
+);
+assert.match(
+  adminPanelSource,
+  /map\[`mtg\|\$\{code\}`\] = s\.name;/,
+  'AdminPanel must key MTG set names like set-index builds do',
+);
 
 const interfaceLanguageHints = {
   de: 'Ändert die Sprache der Benutzeroberfläche in Bindarr.',

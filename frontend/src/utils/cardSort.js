@@ -21,7 +21,6 @@ export function getPrintingRank(printing, foilSorting) {
   return order[printing] || 10;
 }
 
-export const LANGUAGE_ORDER = cardOrder.language;
 
 // Sorts `cards` in place (and returns it) according to `sortOrder`. `foilSorting`
 // only affects the 'set-number-printing' order. Unrecognized/'custom' orders are
@@ -99,12 +98,7 @@ export function sortCardsByOrder(cards, sortOrder, foilSorting, setsList = []) {
           cmp = orderA - orderB;
           break;
         }
-        case 'language': {
-          const la = LANGUAGE_ORDER[a.language] || 99;
-          const lb = LANGUAGE_ORDER[b.language] || 99;
-          cmp = la - lb;
-          break;
-        }
+
         case 'cmc':
           cmp = (a.cmc || 0) - (b.cmc || 0);
           break;

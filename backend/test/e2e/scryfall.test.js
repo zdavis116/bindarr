@@ -118,7 +118,8 @@ async function runTests() {
       const data = await res.json();
       assert.ok(data.length > 0);
       assert.strictEqual(data[0].name, 'Black Lotus');
-      assert.strictEqual(data[0].game, 'mtg', 'search responses must preserve the temporary frontend contract');
+      assert.ok(!Object.prototype.hasOwnProperty.call(data[0], 'game'), 'search responses must not expose the removed game discriminator');
+      assert.ok(!Object.prototype.hasOwnProperty.call(data[0], 'language'), 'search responses must not expose removed printed-card language');
       console.log('PASS: F3-TC1');
     } catch (err) {
       console.error('FAIL: F3-TC1 -', err.message);
@@ -216,7 +217,8 @@ async function runTests() {
       
       assert.strictEqual(card.id, 'mtg-54321');
       assert.strictEqual(card.supertype, 'MTG');
-      assert.strictEqual(card.game, 'mtg');
+      assert.ok(!Object.prototype.hasOwnProperty.call(card, 'game'));
+      assert.ok(!Object.prototype.hasOwnProperty.call(card, 'language'));
       assert.ok(card.subtypes.includes('Instant'));
       assert.ok(card.types.includes('Red'));
       assert.strictEqual(card.rarity, 'Common');
@@ -317,7 +319,8 @@ async function runTests() {
       throw err;
     }
 
-    // F3-TC9: Legacy card-language input is tolerated but cards remain English.
+    // F3-TC9: Obsolete game/language query parameters cannot reintroduce
+    // compatibility fields or select a non-English printing.
     try {
       port = getNextPort();
       const serverLang = spawn('node', ['-r', mockScript, serverScript], {
@@ -330,11 +333,11 @@ async function runTests() {
       await waitForServer(port);
 
       const res = await fetch(`http://localhost:${port}/api/search?game=pokemon&name=Lotus&lang=ja&scope=internet`, { headers: authHeaders });
-      assert.strictEqual(res.status, 200, 'legacy game/lang parameters must not break the current frontend');
+      assert.strictEqual(res.status, 200);
       const data = await res.json();
       assert.ok(data.length > 0);
-      assert.strictEqual(data[0].game, 'mtg');
-      assert.strictEqual(data[0].language, 'English');
+      assert.ok(!Object.prototype.hasOwnProperty.call(data[0], 'game'));
+      assert.ok(!Object.prototype.hasOwnProperty.call(data[0], 'language'));
       assert.strictEqual(data[0].name, 'Black Lotus');
       assert.notStrictEqual(data[0].id, 'mtg-jp123', 'backend must not select a non-English printing');
       console.log('PASS: F3-TC9');

@@ -10,6 +10,13 @@ const stats = loadFixture('stats.json');
 assert.ok(Array.isArray(stats.topValuable), 'stats.topValuable must be an array');
 assert.ok(Array.isArray(stats.setProgress), 'stats.setProgress must be an array');
 
+const sets = loadFixture('sets.json');
+assert.ok(sets.length > 0, 'sets fixture must include MTG sets');
+for (const set of sets) {
+  assert.match(set.id, /^mtg-/, `sets fixture row ${set.id} must be MTG`);
+  assert.equal(Object.hasOwn(set, 'game'), false, `sets fixture row ${set.id} must not expose game`);
+}
+
 const collection = loadFixture('collection.json');
 const round = (value, digits = 2) => Number(value.toFixed(digits));
 const resolveCardPrice = (card) => {

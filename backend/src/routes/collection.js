@@ -3,7 +3,7 @@ const db = require('../db');
 const scryfallApi = require('../scryfallApi');
 const scanMatch = require('../scanMatch');
 const setIndex = require('../setIndex');
-const languages = require('../utils/languages');
+
 const { authenticateToken, searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
@@ -33,7 +33,7 @@ async function attachOwnedQty(cards, userId) {
   for (const c of cards) c.owned_qty = owned.get(c.id) || 0;
 }
 
-// 1. Search cards through Scryfall. Legacy game/lang inputs are tolerated but ignored.
+// 1. Search English MTG cards through Scryfall.
 router.get('/search', searchLimiter, async (req, res) => {
   const { name, number, set, scope = 'database', prints } = req.query;
   // 1-based page over `limit`-sized pages.
@@ -75,20 +75,18 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     if (buf.length < 100) return res.status(400).json({ error: 'Invalid image data' });
     const result = await scanMatch.match(buf, game, 8, set, { recallK, orb, lang });
     if (result.candidates && result.candidates.length > 0) {
-      // Scanner indexes and cached card data are canonical MTG/English.
-      const langName = languages.toName(lang);
       const hydrated = await Promise.all(result.candidates.map(async (cand) => {
         let row = null;
         if (cand.set && cand.number) {
           row = await db.get(
-            `SELECT * FROM card_cache WHERE language = ? AND (set_id = ? OR LOWER(set_name) = LOWER(?)) AND number = ? LIMIT 1`,
-            [langName, cand.set, cand.set, cand.number]
+            `SELECT * FROM card_cache WHERE (set_id = ? OR LOWER(set_name) = LOWER(?)) AND number = ? LIMIT 1`,
+            [cand.set, cand.set, cand.number]
           );
         }
         if (!row && cand.name) {
           row = await db.get(
-            `SELECT * FROM card_cache WHERE language = ? AND (LOWER(name) = LOWER(?) OR LOWER(printed_name) = LOWER(?)) LIMIT 1`,
-            [langName, cand.name, cand.name]
+            `SELECT * FROM card_cache WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+            [cand.name]
           );
         }
         return row ? { ...cand, card: parseCardRow(row) } : cand;
@@ -162,7 +160,6 @@ router.get('/collection', async (req, res) => {
         c.quantity,
         c.condition,
         c.printing,
-        c.language,
         c.purchase_price,
         c.compartment_id,
         c.position,
@@ -172,9 +169,6 @@ router.get('/collection', async (req, res) => {
         c.list_type,
         c.notes,
         cc.name,
-        -- The localized name for a non-English printing, so every view that
-        -- renders a collection card can show it as the card actually reads.
-        cc.printed_name,
         cc.supertype,
         cc.subtypes,
         cc.types,
@@ -241,7 +235,6 @@ async function addCardToCollection(user, body) {
     quantity = 1,
     condition = 'Near Mint',
     printing = 'Normal',
-    language = 'English',
     purchase_price = 0,
     location_id = null,
     list_type = 'collection',
@@ -249,7 +242,7 @@ async function addCardToCollection(user, body) {
     stackable = false
   } = body;
   const req = { user, body };
-  const canonicalLanguage = 'English';
+
 
   if (!card_id) {
     throw new AddCardError(400, 'card_id is required');
@@ -282,8 +275,7 @@ async function addCardToCollection(user, body) {
       locationId: location_id,
       userId: req.user.id,
       cardId: card_id,
-      printing,
-      language: canonicalLanguage
+      printing
     });
 
     const targetLocationId = resolved.compartment_id ? (resolved.location_id ?? location_id) : null;
@@ -294,11 +286,11 @@ async function addCardToCollection(user, body) {
     if (stackable) {
       const result = await db.run(`
         INSERT INTO collection (
-          card_id, user_id, quantity, condition, printing, language, purchase_price,
+          card_id, user_id, quantity, condition, printing, purchase_price,
           location_id, compartment_id, position, is_trade, list_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        card_id, req.user.id, count, condition, printing, canonicalLanguage, purchase_price || 0,
+        card_id, req.user.id, count, condition, printing, purchase_price || 0,
         targetLocationId, resolved.compartment_id, resolved.position, is_trade ? 1 : 0, list_type
       ]);
       lastInsertedId = result.lastID;
@@ -306,11 +298,11 @@ async function addCardToCollection(user, body) {
       for (let i = 0; i < count; i++) {
         const result = await db.run(`
           INSERT INTO collection (
-            card_id, user_id, quantity, condition, printing, language, purchase_price,
+            card_id, user_id, quantity, condition, printing, purchase_price,
             location_id, compartment_id, position, is_trade, list_type
-          ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          card_id, req.user.id, condition, printing, canonicalLanguage, purchase_price || 0,
+          card_id, req.user.id, condition, printing, purchase_price || 0,
           targetLocationId, resolved.compartment_id, resolved.position + (i * 0.001), is_trade ? 1 : 0, list_type
         ]);
         lastInsertedId = result.lastID;
@@ -389,7 +381,7 @@ router.post('/collection/bulk-add', async (req, res) => {
 router.put('/collection/:id', async (req, res) => {
   const { id } = req.params;
   const {
-    quantity, condition, printing, language, purchase_price,
+    quantity, condition, printing, purchase_price,
     location_id, compartment_id, list_type, is_trade, favorite, notes
   } = req.body;
 
@@ -414,8 +406,7 @@ router.put('/collection/:id', async (req, res) => {
           locationId: location_id,
           userId: req.user.id,
           cardId: entry.card_id,
-          printing: printing !== undefined ? printing : entry.printing,
-          language: 'English'
+          printing: printing !== undefined ? printing : entry.printing
         });
         finalCompartmentId = resolved.compartment_id;
         finalLocationId = resolved.compartment_id ? (resolved.location_id ?? location_id) : null;
@@ -437,7 +428,7 @@ router.put('/collection/:id', async (req, res) => {
     if (quantity !== undefined) { updates.push('quantity = ?'); params.push(1); }
     if (condition !== undefined) { updates.push('condition = ?'); params.push(condition); }
     if (printing !== undefined) { updates.push('printing = ?'); params.push(printing); }
-    if (isMoving || language !== undefined) { updates.push('language = ?'); params.push('English'); }
+
     if (purchase_price !== undefined) { updates.push('purchase_price = ?'); params.push(purchase_price); }
     if (isMoving || compartment_id !== undefined) {
       updates.push('location_id = ?', 'compartment_id = ?', 'position = ?');
@@ -470,11 +461,11 @@ router.put('/collection/:id', async (req, res) => {
         for (let i = 1; i < requestedQty; i++) {
           await db.run(`
             INSERT INTO collection (
-              card_id, user_id, quantity, condition, printing, language, purchase_price,
+              card_id, user_id, quantity, condition, printing, purchase_price,
               location_id, compartment_id, position, is_trade, favorite, list_type
-            ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
-            row.card_id, req.user.id, row.condition, row.printing, 'English', row.purchase_price,
+            row.card_id, req.user.id, row.condition, row.printing, row.purchase_price,
             row.location_id, row.compartment_id, (row.position || 0) + i * 0.001, row.is_trade, row.favorite, row.list_type
           ]);
         }
@@ -680,15 +671,15 @@ router.post('/collection/bulk', async (req, res) => {
       const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
       if (!entry) continue;
       if (!locationId) {
-        await db.run(`UPDATE collection SET language = 'English', location_id = NULL, compartment_id = NULL, position = 0 WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+        await db.run(`UPDATE collection SET location_id = NULL, compartment_id = NULL, position = 0 WHERE id = ? AND user_id = ?`, [id, req.user.id]);
         moved++;
         continue;
       }
       const resolved = await resolveCompartmentAndPosition({
-        locationId, userId: req.user.id, cardId: entry.card_id, printing: entry.printing, language: 'English'
+        locationId, userId: req.user.id, cardId: entry.card_id, printing: entry.printing
       });
       const finalLoc = resolved.compartment_id ? (resolved.location_id ?? locationId) : null;
-      await db.run(`UPDATE collection SET language = 'English', location_id = ?, compartment_id = ?, position = ? WHERE id = ? AND user_id = ?`, [finalLoc, resolved.compartment_id, resolved.position, id, req.user.id]);
+      await db.run(`UPDATE collection SET location_id = ?, compartment_id = ?, position = ? WHERE id = ? AND user_id = ?`, [finalLoc, resolved.compartment_id, resolved.position, id, req.user.id]);
       if (resolved.compartment_id) touched.set(resolved.compartment_id, finalLoc);
       moved++;
     }

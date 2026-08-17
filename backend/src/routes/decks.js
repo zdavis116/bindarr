@@ -18,7 +18,6 @@ router.get('/', async (req, res) => {
         d.id,
         d.name,
         d.description,
-        d.game,
         d.format,
         d.category,
         d.accent_color,
@@ -47,7 +46,7 @@ router.post('/', async (req, res) => {
   const { 
     name, 
     description = '', 
-    game = 'mtg',
+
     format = 'Standard',
     category = 'Competitive',
     accent_color = '#eab308',
@@ -58,13 +57,13 @@ router.post('/', async (req, res) => {
   if (!name) {
     return res.status(400).json({ error: 'Deck name is required' });
   }
-  const deckGame = 'mtg';
+
   const targetSizeNum = parseInt(target_size, 10) || 60;
 
   try {
     const result = await db.run(
-      `INSERT INTO decks (name, description, game, format, category, accent_color, target_size, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, description, deckGame, format, category, accent_color, targetSizeNum, req.user.id]
+      `INSERT INTO decks (name, description, format, category, accent_color, target_size, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [name, description, format, category, accent_color, targetSizeNum, req.user.id]
     );
     const newDeckId = result.lastID;
 

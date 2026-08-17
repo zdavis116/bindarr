@@ -84,8 +84,8 @@ function AdminPanel({ showToast }) {
       if (!mountedRef.current) return;
       const map = {};
       for (const s of allSets) {
-        const code = s.game === 'mtg' && s.id.startsWith('mtg-') ? s.id.slice(4) : s.id;
-        map[`${s.game}|${code}`] = s.name;
+        const code = s.id.startsWith('mtg-') ? s.id.slice(4) : s.id;
+        map[`mtg|${code}`] = s.name;
       }
       setSetNameMap(map);
     } catch { /* non-critical */ }

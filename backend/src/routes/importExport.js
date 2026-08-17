@@ -14,7 +14,6 @@ router.get('/export', async (req, res) => {
         c.quantity,
         c.condition,
         c.printing,
-        c.language,
         c.purchase_price,
         c.sub_location_1,
         c.sub_location_2,

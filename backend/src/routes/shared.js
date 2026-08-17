@@ -34,15 +34,11 @@ router.get('/:share_token', async (req, res) => {
         c.quantity,
         c.condition,
         c.printing,
-        c.language,
         c.added_at,
         c.is_trade,
         c.favorite,
         c.list_type,
         cc.name,
-        -- The name as printed on a non-English card, so a shared Japanese
-        -- collection reads the way the cards actually look.
-        cc.printed_name,
         cc.supertype,
         cc.subtypes,
         cc.types,

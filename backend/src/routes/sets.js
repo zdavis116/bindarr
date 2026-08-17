@@ -8,7 +8,7 @@ router.get('/', async (req, res) => {
       SELECT id, name, series, printed_total, total, release_date, ptcgo_code, symbol_url, logo_url
       FROM sets ORDER BY release_date ASC
     `);
-    res.json(sets.map(set => ({ ...set, game: 'mtg' })));
+    res.json(sets);
   } catch (error) {
     console.error('Error fetching sets:', error);
     res.status(500).json({ error: 'Failed to retrieve sets' });
