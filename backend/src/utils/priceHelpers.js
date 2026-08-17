@@ -31,6 +31,9 @@ function parseCardRow(row) {
     subtypes: JSON.parse(row.subtypes || '[]'),
     types: JSON.parse(row.types || '[]'),
     color_identity: JSON.parse(row.color_identity || '[]'),
+    keywords: JSON.parse(row.keywords || '[]'),
+    legalities: JSON.parse(row.legalities || '{}'),
+    finishes: JSON.parse(row.finishes || '[]'),
   };
 }
 

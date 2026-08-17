@@ -74,8 +74,8 @@ async function runTests() {
     )).lastID;
 
     await db.run(
-      `INSERT INTO card_cache (id, name) VALUES (?, ?)`,
-      ['mtg-c1', 'Card 1']
+      `INSERT INTO card_cache (id, oracle_id, name) VALUES (?, ?, ?)`,
+      ['mtg-c1', 'oracle-c1', 'Card 1']
     );
 
     // Insert cards with positions out of order
@@ -183,8 +183,8 @@ async function runTests() {
 
     // Fill page 1
     await db.run(
-      `INSERT INTO card_cache (id, name) VALUES (?, ?)`,
-      ['mtg-c2', 'Black Lotus']
+      `INSERT INTO card_cache (id, oracle_id, name) VALUES (?, ?, ?)`,
+      ['mtg-c2', 'oracle-c2', 'Black Lotus']
     );
     await db.run(
       `INSERT INTO collection (card_id, quantity, location_id, compartment_id, position, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -207,8 +207,8 @@ async function runTests() {
   // F2-TC10: Verify price history handles null/zero values safely
   try {
     await db.run(
-      `INSERT INTO card_cache (id, name, price_trend) VALUES (?, ?, ?)`,
-      ['mtg-c3', 'Promo Lotus', null]
+      `INSERT INTO card_cache (id, oracle_id, name, price_trend) VALUES (?, ?, ?, ?)`,
+      ['mtg-c3', 'oracle-c3', 'Promo Lotus', null]
     );
     await db.run(
       `INSERT INTO price_history (card_id, price) VALUES (?, ?)`,

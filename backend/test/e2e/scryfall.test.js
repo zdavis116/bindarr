@@ -128,7 +128,7 @@ async function runTests() {
 
     // F3-TC2: Verify search proxy automatically inserts/caches card in card_cache
     try {
-      const cachedCard = await db.get(`SELECT * FROM card_cache WHERE id = ?`, ['mtg-lea-232']);
+      const cachedCard = await db.get(`SELECT * FROM card_cache WHERE id = ?`, ['00000000-0000-4000-8000-000000000001']);
       assert.ok(cachedCard, 'Card must be saved in cache after search');
       assert.strictEqual(cachedCard.name, 'Black Lotus');
       assert.ok(!Object.prototype.hasOwnProperty.call(cachedCard, 'game'), 'card_cache must not persist a game discriminator');
@@ -215,7 +215,7 @@ async function runTests() {
       const data = await res.json();
       const card = data[0];
       
-      assert.strictEqual(card.id, 'mtg-54321');
+      assert.strictEqual(card.id, '00000000-0000-4000-8000-000000000002');
       assert.strictEqual(card.supertype, 'MTG');
       assert.ok(!Object.prototype.hasOwnProperty.call(card, 'game'));
       assert.ok(!Object.prototype.hasOwnProperty.call(card, 'language'));
@@ -293,8 +293,8 @@ async function runTests() {
 
       // Insert lightning bolt to cache first
       await db.run(
-        `INSERT OR REPLACE INTO card_cache (id, name, last_updated) VALUES (?, ?, ?)`,
-        ['mtg-54321', 'Lightning Bolt', new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()]
+        `INSERT OR REPLACE INTO card_cache (id, oracle_id, name, last_updated) VALUES (?, ?, ?, ?)`,
+        ['00000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000002', 'Lightning Bolt', new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()]
       );
 
       const res = await fetch(`http://localhost:${port}/api/search?game=mtg&name=Lightning`, { headers: authHeaders });
@@ -307,7 +307,7 @@ async function runTests() {
       let lastSeen = null;
       for (let i = 0; i < 25 && !fresh; i++) {
         await new Promise(resolve => setTimeout(resolve, 200));
-        const cached = await db.get(`SELECT last_updated FROM card_cache WHERE id = ?`, ['mtg-54321']);
+        const cached = await db.get(`SELECT last_updated FROM card_cache WHERE id = ?`, ['00000000-0000-4000-8000-000000000002']);
         lastSeen = cached && cached.last_updated;
         fresh = !!lastSeen && Date.now() - new Date(lastSeen).getTime() < 10000;
       }
@@ -339,7 +339,7 @@ async function runTests() {
       assert.ok(!Object.prototype.hasOwnProperty.call(data[0], 'game'));
       assert.ok(!Object.prototype.hasOwnProperty.call(data[0], 'language'));
       assert.strictEqual(data[0].name, 'Black Lotus');
-      assert.notStrictEqual(data[0].id, 'mtg-jp123', 'backend must not select a non-English printing');
+      assert.notStrictEqual(data[0].id, '00000000-0000-4000-8000-000000000003', 'backend must not select a non-English printing');
       console.log('PASS: F3-TC9');
       await stopServer(serverLang, port);
     } catch (err) {
@@ -394,7 +394,7 @@ async function runTests() {
       const bulkRes = await fetch(`http://localhost:${port}/api/collection/bulk-add`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_ids: ['mtg-lea-232', 'mtg-does-not-exist'], quantity: 2, game: 'mtg' })
+        body: JSON.stringify({ card_ids: ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-999999999999'], quantity: 2, game: 'mtg' })
       });
       assert.strictEqual(bulkRes.status, 200);
       const bulk = await bulkRes.json();

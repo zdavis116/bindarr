@@ -186,6 +186,15 @@ async function initDb() {
       price_avg30 REAL,
       cmc REAL,
       color_identity TEXT,
+      oracle_id TEXT NOT NULL,
+      oracle_name TEXT,
+      mana_cost TEXT,
+      oracle_text TEXT,
+      type_line TEXT,
+      keywords TEXT,
+      legalities TEXT,
+      finishes TEXT,
+      layout TEXT,
       last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -401,6 +410,7 @@ async function initDb() {
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_comp_user_qty ON collection(compartment_id, user_id, quantity)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_loc_pos ON collection(location_id, position)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_set_num ON card_cache(set_id, number)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_oracle ON card_cache(oracle_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_deck_cards_checkout ON deck_cards(deck_id, checked_out)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_tags_tag_id ON collection_tags(tag_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_date ON audit_logs(user_id, created_at DESC)`);

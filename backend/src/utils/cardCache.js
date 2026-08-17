@@ -8,6 +8,8 @@ const COLUMNS = [
   'number', 'image_url', 'price_trend', 'price_normal', 'price_holofoil',
   'price_reverse_holofoil', 'price_avg1', 'price_avg7', 'price_avg30', 'cmc',
   'color_identity',
+  'oracle_id', 'oracle_name', 'mana_cost', 'oracle_text', 'type_line', 'keywords',
+  'legalities', 'finishes', 'layout',
   'tcgplayer_url', 'cardmarket_url',
 ];
 
@@ -34,6 +36,10 @@ async function cacheNormalizedCards(cards, opts = {}) {
         num(c.price_holofoil), num(c.price_reverse_holofoil), num(c.price_avg1),
         num(c.price_avg7), num(c.price_avg30), num(c.cmc),
         JSON.stringify(c.color_identity || []),
+        c.oracle_id || null, c.oracle_name || '', c.mana_cost || '',
+        c.oracle_text || '', c.type_line || '', JSON.stringify(c.keywords || []),
+        JSON.stringify(c.legalities || {}), JSON.stringify(c.finishes || []),
+        c.layout || '',
         c.tcgplayer_url || null, c.cardmarket_url || null,
       );
     }
