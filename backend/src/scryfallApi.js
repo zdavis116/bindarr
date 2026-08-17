@@ -6,8 +6,8 @@ const languages = require('./utils/languages');
 const { cacheNormalizedCards } = require('./utils/cardCache');
 
 // Scryfall needs no API key but asks callers to identify themselves and accept
-// JSON. Existing public/cache contracts still use the historical `mtg-` prefix;
-// the Oracle-normalization PR removes it.
+// JSON. Card IDs are Scryfall's UUIDs directly; this MTG-only fork no longer
+// needs a provider prefix to disambiguate them.
 const client = axios.create({
   baseURL: 'https://api.scryfall.com',
   timeout: 6000,
@@ -191,6 +191,10 @@ function langSearch(q, lang) {
 // cards carry their art/type on
 // card_faces[0] instead of the top level, so fall back to the front face.
 function normalizeCard(raw) {
+  if (!raw.oracle_id) {
+    throw new Error(`Oracle identity is required to normalize card ${raw.id || raw.name || '<unknown>'}`);
+  }
+
   const face = (!raw.image_uris && Array.isArray(raw.card_faces) && raw.card_faces.length)
     ? raw.card_faces[0]
     : raw;
@@ -202,9 +206,15 @@ function normalizeCard(raw) {
   const usdFoil = prices.usd_foil != null ? parseFloat(prices.usd_foil) : null;
   const cmc = raw.cmc != null ? parseFloat(raw.cmc) : null;
   const colorIdentity = raw.color_identity || face.color_identity || [];
+  const faces = Array.isArray(raw.card_faces) ? raw.card_faces : [];
+  const hasMultipleFaces = faces.length > 1;
+  const joinedFaceValue = (key) => faces.map(cardFace => cardFace[key] || '').join(' // ');
+  const faceOracleText = hasMultipleFaces
+    ? faces.map(cardFace => `=== ${cardFace.name || ''} ===\n${cardFace.oracle_text || ''}`).join('\n\n')
+    : (face.oracle_text || '');
 
   return {
-    id: `mtg-${raw.id}`,
+    id: raw.id,
     name: face.name || raw.name || '',
     supertype: 'MTG',
     subtypes: typeLine.split(/[^A-Za-z]+/).filter(Boolean),
@@ -223,6 +233,15 @@ function normalizeCard(raw) {
     price_avg30: null,
     cmc: cmc,
     color_identity: colorIdentity.map(c => COLOR_NAMES[c] || c),
+    oracle_id: raw.oracle_id,
+    oracle_name: raw.name || (hasMultipleFaces ? joinedFaceValue('name') : face.name) || '',
+    mana_cost: hasMultipleFaces ? joinedFaceValue('mana_cost') : (raw.mana_cost || face.mana_cost || ''),
+    oracle_text: hasMultipleFaces ? faceOracleText : (raw.oracle_text || faceOracleText),
+    type_line: hasMultipleFaces ? joinedFaceValue('type_line') : (raw.type_line || face.type_line || ''),
+    keywords: raw.keywords || [],
+    legalities: raw.legalities || {},
+    finishes: raw.finishes || [],
+    layout: raw.layout || '',
     // Preserve Scryfall's marketplace links rather than reconstructing them.
     tcgplayer_url: raw.purchase_uris?.tcgplayer || null,
     cardmarket_url: raw.purchase_uris?.cardmarket || null
@@ -541,8 +560,9 @@ async function getCardsBySet(setCode) {
   }
 }
 
-// Fetch MTG sets from Scryfall and cache them in `sets`. The historical `mtg-`
-// prefix remains until the Oracle-normalization PR. Skips if already populated
+// Fetch MTG sets from Scryfall and cache them in `sets`. Set IDs retain the
+// established `mtg-` namespace used by scanner index files; only card IDs are
+// Scryfall UUIDs in the Oracle-aware cache. Skips if already populated
 // unless force=true.
 async function fetchAndCacheSets(force = false) {
   try {

@@ -92,7 +92,7 @@ async function runTests() {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({
-          card_id: 'mtg-lea-232',
+          card_id: '00000000-0000-4000-8000-000000000001',
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
@@ -102,7 +102,7 @@ async function runTests() {
       });
       assert.strictEqual(addRes.status, 200);
 
-      const saved = await db.get(`SELECT * FROM collection WHERE card_id = ?`, ['mtg-lea-232']);
+      const saved = await db.get(`SELECT * FROM collection WHERE card_id = ?`, ['00000000-0000-4000-8000-000000000001']);
       assert.ok(saved, 'Card must be saved in collection');
       assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'game'), 'collection must not persist a game discriminator');
       assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'language'), 'collection must not persist printed language');
@@ -110,7 +110,7 @@ async function runTests() {
       const collectionRes = await fetch(`http://localhost:${port}/api/collection`, { headers: authHeaders });
       assert.strictEqual(collectionRes.status, 200);
       const collection = await collectionRes.json();
-      const returned = collection.find((card) => card.card_id === 'mtg-lea-232');
+      const returned = collection.find((card) => card.card_id === '00000000-0000-4000-8000-000000000001');
       assert.ok(returned, 'Saved card must be returned by the collection API');
       assert.ok(!Object.prototype.hasOwnProperty.call(returned, 'game'), 'API must not synthesize a game discriminator');
       assert.ok(!Object.prototype.hasOwnProperty.call(returned, 'language'), 'API must not expose printed language');
@@ -141,7 +141,7 @@ async function runTests() {
       assert.ok(searchData.length > 0);
       
       const matchedCard = searchData[0];
-      assert.strictEqual(matchedCard.id, 'mtg-lea-232');
+      assert.strictEqual(matchedCard.id, '00000000-0000-4000-8000-000000000001');
 
       // 3. Simulate auto-adding matching card to the location
       const addRes = await fetch(`http://localhost:${port}/api/collection`, {
@@ -183,8 +183,8 @@ async function runTests() {
       )).lastID;
 
       // Seed card_cache so the collection FK (card_id -> card_cache.id) holds.
-      await db.run(`INSERT OR IGNORE INTO card_cache (id, name) VALUES (?, ?)`, ['mtg-c1', 'Card 1']);
-      await db.run(`INSERT OR IGNORE INTO card_cache (id, name) VALUES (?, ?)`, ['mtg-c2', 'Card 2']);
+      await db.run(`INSERT OR IGNORE INTO card_cache (id, oracle_id, name) VALUES (?, ?, ?)`, ['mtg-c1', 'oracle-c1', 'Card 1']);
+      await db.run(`INSERT OR IGNORE INTO card_cache (id, oracle_id, name) VALUES (?, ?, ?)`, ['mtg-c2', 'oracle-c2', 'Card 2']);
 
       // Add dummy cards with out-of-order positions
       await db.run(

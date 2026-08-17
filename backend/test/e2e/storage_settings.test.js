@@ -47,9 +47,9 @@ async function runTests() {
     const base = `http://localhost:${port}`;
 
     const seedCard = (id, name, types) => db.run(
-      `INSERT OR REPLACE INTO card_cache (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, 'MTG', '[]', JSON.stringify(types || []), 'Common', 's1', 'Set One', '1', '', 1]
+      `INSERT OR REPLACE INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, id, name, 'MTG', '[]', JSON.stringify(types || []), 'Common', 's1', 'Set One', '1', '', 1]
     );
     const addEntry = (cardId, compId, locId, position) => db.run(
       `INSERT INTO collection (card_id, quantity, condition, printing, location_id, compartment_id, position, user_id)

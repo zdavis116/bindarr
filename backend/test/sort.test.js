@@ -39,9 +39,9 @@ function cleanup() {
 
 async function insertCard(id, name) {
   await db.run(
-    `INSERT OR REPLACE INTO card_cache (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, name, 'Pokémon', '[]', '[]', 'Common', 's1', 'Set One', '1', '', 1]
+    `INSERT OR REPLACE INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, id, name, 'MTG', '[]', '[]', 'Common', 's1', 'Set One', '1', '', 1]
   );
 }
 

@@ -55,8 +55,8 @@ async function runTests() {
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
     const request = (url, options = {}) => fetch(`${base}${url}`, { headers, ...options });
 
-    await db.run(`INSERT INTO card_cache (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-      VALUES ('mtg-route-card', 'Alpha Card', 'MTG', '[]', '["Artifact"]', 'Rare', 'lea', 'Alpha', '1', '', 12)`);
+    await db.run(`INSERT INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
+      VALUES ('mtg-route-card', 'oracle-route-card', 'Alpha Card', 'MTG', '[]', '["Artifact"]', 'Rare', 'lea', 'Alpha', '1', '', 12)`);
     const openLocation = await db.run(`INSERT INTO locations (name, type, rule_type, user_id) VALUES ('Open', 'Box', 'any', ?)`, [adminId]);
     await db.run(`INSERT INTO compartments (location_id, idx, capacity) VALUES (?, 1, 20)`, [openLocation.lastID]);
 
@@ -135,7 +135,7 @@ async function runTests() {
 
     await check(10, async () => {
       const response = await request('/api/collection', {
-        method: 'POST', body: JSON.stringify({ card_id: 'mtg-jp123' })
+        method: 'POST', body: JSON.stringify({ card_id: '00000000-0000-4000-8000-000000000003' })
       });
       assert.strictEqual(response.status, 400, 'foreign printing must remain rejected at the English-only boundary');
     });

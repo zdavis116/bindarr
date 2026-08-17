@@ -46,9 +46,9 @@ async function testCollectionIsolation() {
   )).lastID;
 
   await db.run(
-    `INSERT OR REPLACE INTO card_cache (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ['card-x', 'Pikachu', 'Pokémon', '[]', '[]', 'Common', 's1', 'Set One', '1', '', 5]
+    `INSERT OR REPLACE INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['card-x', 'oracle-x', 'Test Card', 'MTG', '[]', '[]', 'Common', 's1', 'Set One', '1', '', 5]
   );
 
   // Alice owns 3 copies, Bob owns 1.

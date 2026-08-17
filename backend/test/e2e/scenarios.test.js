@@ -208,9 +208,8 @@ async function runTests() {
         method: 'POST',
         headers: userHeaders,
         body: JSON.stringify({
-          // Cards fetched from Scryfall are cached under the "mtg-" id prefix
-          // (see F3-TC2/F5-TC3); F6-TC4 above cached this card as mtg-eld-171.
-          card_id: 'mtg-eld-171',
+          // F6-TC4 above cached this exact Scryfall printing UUID.
+          card_id: '00000000-0000-4000-8000-000000000005',
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
@@ -237,9 +236,9 @@ async function runTests() {
     // places at an absolute pocket (no cascade) and swaps on an occupied one.
     try {
       const seedCard = (id, name) => db.run(
-        `INSERT OR REPLACE INTO card_cache (id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, name, 'Pokémon', '[]', '[]', 'Common', 's1', 'Set One', '1', '', 1]
+        `INSERT OR REPLACE INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, id, name, 'MTG', '[]', '[]', 'Common', 's1', 'Set One', '1', '', 1]
       );
       const addEntry = async (cardId, compId, locId, position) => {
         const r = await db.run(
