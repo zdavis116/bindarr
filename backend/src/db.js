@@ -1,6 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
 
 const DB_FILENAME = 'bindarr.db';
 
@@ -25,8 +26,62 @@ const dbConnection = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-// Helper wrappers for Promise-based SQL operations
-function run(sql, params = []) {
+// SQLite has one shared connection. Every operation that is not owned by the
+// currently active transaction takes a turn on this queue, so ordinary queries
+// cannot slip between BEGIN and COMMIT (or between two transaction statements).
+const transactionContext = new AsyncLocalStorage();
+let activeTransactionToken = null;
+let operationQueue = Promise.resolve();
+let poisonedError = null;
+let databaseLifecycle = 'open';
+let closePromise = null;
+let closeFailure = null;
+let rawOperationTouchCount = 0;
+let nextControlStatementFailure = null;
+let nextCloseFailure = null;
+
+function databaseUnavailableError() {
+  const error = new Error('Database state is unknown; restart the process before retrying');
+  error.code = 'DB_STATE_UNKNOWN';
+  error.cause = poisonedError;
+  return error;
+}
+
+function databaseLifecycleError() {
+  const closed = databaseLifecycle === 'closed';
+  const closeFailed = databaseLifecycle === 'close_failed';
+  const error = new Error(closed
+    ? 'Database is closed'
+    : closeFailed ? 'Database close failed; database is unavailable' : 'Database is closing');
+  error.code = closed ? 'DB_CLOSED' : 'DB_CLOSING';
+  if (closeFailed) error.cause = closeFailure;
+  return error;
+}
+
+function closeInsideTransactionError() {
+  const error = new Error('Cannot close the database from a transaction context');
+  error.code = 'DB_CLOSE_IN_TRANSACTION';
+  return error;
+}
+
+function enqueue(operation) {
+  if (poisonedError) return Promise.reject(databaseUnavailableError());
+  const result = operationQueue.then(() => {
+    if (poisonedError) throw databaseUnavailableError();
+    return operation();
+  });
+  operationQueue = result.catch(() => {});
+  return result;
+}
+
+function rawRun(sql, params = []) {
+  rawOperationTouchCount++;
+  const normalizedSql = String(sql).trim().toUpperCase();
+  if (nextControlStatementFailure?.statement === normalizedSql) {
+    const failure = nextControlStatementFailure.error;
+    nextControlStatementFailure = null;
+    return Promise.reject(failure);
+  }
   return new Promise((resolve, reject) => {
     dbConnection.run(sql, params, function (err) {
       if (err) reject(err);
@@ -35,7 +90,8 @@ function run(sql, params = []) {
   });
 }
 
-function get(sql, params = []) {
+function rawGet(sql, params = []) {
+  rawOperationTouchCount++;
   return new Promise((resolve, reject) => {
     dbConnection.get(sql, params, (err, row) => {
       if (err) reject(err);
@@ -44,7 +100,8 @@ function get(sql, params = []) {
   });
 }
 
-function all(sql, params = []) {
+function rawAll(sql, params = []) {
+  rawOperationTouchCount++;
   return new Promise((resolve, reject) => {
     dbConnection.all(sql, params, (err, rows) => {
       if (err) reject(err);
@@ -53,18 +110,184 @@ function all(sql, params = []) {
   });
 }
 
-async function withTransaction(dbOrFn, asyncFn) {
-  const fn = typeof dbOrFn === 'function' ? dbOrFn : asyncFn;
-  const tx = { run, get, all, withTransaction };
-  await run('BEGIN IMMEDIATE TRANSACTION');
-  try {
-    const result = await fn(tx);
-    await run('COMMIT');
-    return result;
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
+function currentTransactionStore() {
+  return transactionContext.getStore();
+}
+
+function ownsActiveTransaction() {
+  const token = currentTransactionStore()?.token;
+  return !!token && token.active && token === activeTransactionToken;
+}
+
+function staleTransactionError() {
+  const error = new Error('Transaction context is stale');
+  error.code = 'STALE_TRANSACTION';
+  return error;
+}
+
+function transactionTimeoutError(timeoutMs) {
+  const error = new Error(`Transaction timed out after ${timeoutMs}ms`);
+  error.code = 'TRANSACTION_TIMEOUT';
+  return error;
+}
+
+function registerOwnedPromise(token, promise) {
+  token.pending.add(promise);
+  promise.then(
+    () => token.pending.delete(promise),
+    error => {
+      token.pending.delete(promise);
+      if (!token.failure) token.failure = error;
+    }
+  );
+  return promise;
+}
+
+async function settleOwnedPromises(token) {
+  while (token.pending.size > 0) {
+    await Promise.all([...token.pending].map(promise => promise.catch(() => undefined)));
   }
+}
+
+function ownedOrQueued(rawOperation) {
+  const store = currentTransactionStore();
+  if (ownsActiveTransaction()) {
+    return registerOwnedPromise(store.token, rawOperation());
+  }
+  if (store?.token) return Promise.reject(staleTransactionError());
+  if (databaseLifecycle !== 'open') return Promise.reject(databaseLifecycleError());
+  return enqueue(rawOperation);
+}
+
+function run(sql, params = []) {
+  return ownedOrQueued(() => rawRun(sql, params));
+}
+
+function get(sql, params = []) {
+  return ownedOrQueued(() => rawGet(sql, params));
+}
+
+function all(sql, params = []) {
+  return ownedOrQueued(() => rawAll(sql, params));
+}
+
+function close(callback) {
+  if (currentTransactionStore()?.token) {
+    const rejected = Promise.reject(closeInsideTransactionError());
+    if (typeof callback === 'function') rejected.catch(error => callback(error));
+    return rejected;
+  }
+  if (!closePromise) {
+    databaseLifecycle = 'closing';
+    closePromise = operationQueue.then(() => new Promise((resolve, reject) => {
+      if (nextCloseFailure) {
+        const failure = nextCloseFailure;
+        nextCloseFailure = null;
+        reject(failure);
+        return;
+      }
+      dbConnection.close(error => error ? reject(error) : resolve());
+    })).then(result => {
+      databaseLifecycle = 'closed';
+      return result;
+    }, error => {
+      databaseLifecycle = 'close_failed';
+      closeFailure = error;
+      throw error;
+    });
+    operationQueue = closePromise.catch(() => {});
+  }
+  if (typeof callback === 'function') {
+    closePromise.then(() => callback(null), callback);
+  }
+  return closePromise;
+}
+
+const DEFAULT_TRANSACTION_TIMEOUT_MS = 30_000;
+const MAX_TRANSACTION_TIMEOUT_MS = 2_147_483_647;
+
+// Supported forms are withTransaction(fn, { timeoutMs }) and the legacy
+// withTransaction(db, fn, { timeoutMs }). The timeout covers the callback and
+// all transaction-owned promises registered before owner completion.
+function withTransaction(dbOrFn, asyncFn, maybeOptions) {
+  const store = currentTransactionStore();
+  if (store?.token && !ownsActiveTransaction()) return Promise.reject(staleTransactionError());
+  if (!ownsActiveTransaction() && databaseLifecycle !== 'open') {
+    return Promise.reject(databaseLifecycleError());
+  }
+  const fn = typeof dbOrFn === 'function' ? dbOrFn : asyncFn;
+  const options = (typeof dbOrFn === 'function' ? asyncFn : maybeOptions) || {};
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TRANSACTION_TIMEOUT_MS;
+  if (typeof fn !== 'function') return Promise.reject(new TypeError('withTransaction requires a callback'));
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    return Promise.reject(new TypeError('withTransaction timeoutMs must be a positive finite integer'));
+  }
+  if (timeoutMs > MAX_TRANSACTION_TIMEOUT_MS) {
+    return Promise.reject(new RangeError(
+      `withTransaction timeoutMs must not exceed ${MAX_TRANSACTION_TIMEOUT_MS}`
+    ));
+  }
+  const tx = { run, get, all, withTransaction };
+  if (ownsActiveTransaction()) {
+    const nested = transactionContext.run(
+      { token: store.token },
+      () => Promise.resolve().then(() => fn(tx))
+    );
+    return registerOwnedPromise(store.token, nested);
+  }
+  if (poisonedError) return Promise.reject(databaseUnavailableError());
+
+  return enqueue(async () => {
+    const token = { active: false, pending: new Set(), failure: null };
+    await rawRun('BEGIN IMMEDIATE TRANSACTION');
+    token.active = true;
+    activeTransactionToken = token;
+    let timer;
+    try {
+      const ownerWork = (async () => {
+        let result;
+        let callbackError;
+        try {
+          result = await transactionContext.run(
+            { token },
+            () => fn(tx)
+          );
+        } catch (error) {
+          callbackError = error;
+        }
+        await settleOwnedPromises(token);
+        if (callbackError) throw callbackError;
+        if (token.failure) throw token.failure;
+        return result;
+      })();
+      const timeout = new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(transactionTimeoutError(timeoutMs));
+        }, timeoutMs);
+      });
+      const result = await Promise.race([ownerWork, timeout]);
+      clearTimeout(timer);
+      token.active = false;
+      activeTransactionToken = null;
+      await rawRun('COMMIT');
+      return result;
+    } catch (error) {
+      clearTimeout(timer);
+      token.active = false;
+      activeTransactionToken = null;
+      try {
+        await rawRun('ROLLBACK');
+      } catch (rollbackError) {
+        const combined = new AggregateError(
+          [error, rollbackError],
+          'Transaction failed and rollback cleanup also failed'
+        );
+        poisonedError = combined;
+        throw combined;
+      }
+      throw error;
+    }
+  });
 }
 
 const PBKDF2_ITERATIONS = 210000;
@@ -466,15 +689,43 @@ async function createCompartments(locationId, count, capacity) {
   }
 }
 
-module.exports = {
-  dbConnection,
+const exportedDatabase = {
   dbPath,
   run,
   get,
   all,
+  close,
   withTransaction,
   initDb,
   createCompartments,
   hashPassword,
-  DB_FILENAME
+  DB_FILENAME,
+  DEFAULT_TRANSACTION_TIMEOUT_MS,
+  MAX_TRANSACTION_TIMEOUT_MS
 };
+
+if (process.env.BINDARR_DB_TEST_HOOKS === '1') {
+  exportedDatabase.testHooks = {
+    failNextClose(message) {
+      nextCloseFailure = new Error(message);
+    },
+    failNextControlStatement(statement, message) {
+      const normalizedStatement = String(statement).trim().toUpperCase();
+      if (normalizedStatement !== 'COMMIT' && normalizedStatement !== 'ROLLBACK') {
+        throw new TypeError('Test hooks can only fail COMMIT or ROLLBACK');
+      }
+      nextControlStatementFailure = {
+        statement: normalizedStatement,
+        error: new Error(message)
+      };
+    },
+    getRawOperationTouchCount() {
+      return rawOperationTouchCount;
+    },
+    resetRawOperationTouchCount() {
+      rawOperationTouchCount = 0;
+    }
+  };
+}
+
+module.exports = exportedDatabase;

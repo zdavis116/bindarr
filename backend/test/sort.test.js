@@ -30,8 +30,8 @@ function testFavoriteScheme() {
   console.log('PASS: favorite sort key floats starred cards to the front');
 }
 
-function cleanup() {
-  try { db.dbConnection.close(); } catch { /* already closed */ }
+async function cleanup() {
+  try { await db.close(); } catch { /* already closed */ }
   for (const suffix of ['', '-wal', '-shm']) {
     try { fs.unlinkSync(tmpDb + suffix); } catch { /* not present */ }
   }
@@ -165,5 +165,5 @@ async function main() {
 }
 
 main()
-  .then(() => { cleanup(); process.exit(0); })
-  .catch(err => { console.error('FAIL:', err.stack || err.message); cleanup(); process.exit(1); });
+  .then(async () => { await cleanup(); process.exit(0); })
+  .catch(async err => { console.error('FAIL:', err.stack || err.message); await cleanup(); process.exit(1); });

@@ -57,8 +57,6 @@ const isVintageSet = (setId) => {
          id.startsWith('xy12') || id.startsWith('cel25');
 };
 
-const priceWriteQueues = new Map();
-
 // Record a price point, but only when it actually moved. The price sweep runs
 // on every boot and nodemon reboots on every code edit, so the unguarded insert
 // was writing a fresh row per card per restart — 17k rows in a single day, all
@@ -66,33 +64,22 @@ const priceWriteQueues = new Map();
 // changed; the flat stretches between them are implied by the line.
 async function recordPrice(cardId, price) {
   if (!cardId || !(price > 0)) return false;
-  // Preserve observation order per card. Different cards remain independent,
-  // and completed queues are removed so this map cannot grow without bound.
-  const previous = priceWriteQueues.get(cardId) || Promise.resolve();
-  const current = previous.catch(() => {}).then(async () => {
-    const db = require('../db');
-    // One SQL statement makes the movement check and insert atomic at the
-    // database boundary. This also suppresses duplicate flat rows if another
-    // process writes the same card between our queued observations.
-    const result = await db.run(
-      `INSERT INTO price_history (card_id, price, recorded_at)
-       SELECT ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now')
-       WHERE (
-         SELECT price FROM price_history
-         WHERE card_id = ?
-         ORDER BY recorded_at DESC, id DESC
-         LIMIT 1
-       ) IS NOT ?`,
-      [cardId, price, cardId, price]
-    );
-    return result.changes === 1;
-  });
-  priceWriteQueues.set(cardId, current);
-  try {
-    return await current;
-  } finally {
-    if (priceWriteQueues.get(cardId) === current) priceWriteQueues.delete(cardId);
-  }
+  const db = require('../db');
+  // One SQL statement makes the movement check and insert atomic at the
+  // database boundary. The global DB queue preserves invocation order and
+  // suppresses duplicates without a second queue that can deadlock a tx.
+  const result = await db.run(
+    `INSERT INTO price_history (card_id, price, recorded_at)
+     SELECT ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now')
+     WHERE (
+       SELECT price FROM price_history
+       WHERE card_id = ?
+       ORDER BY recorded_at DESC, id DESC
+       LIMIT 1
+     ) IS NOT ?`,
+    [cardId, price, cardId, price]
+  );
+  return result.changes === 1;
 }
 
 // Scryfall: "We only update prices for cards once per day. Fetching card data
