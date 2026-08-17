@@ -13,24 +13,7 @@ const tmpDb = path.join(os.tmpdir(), `bindarr-test-${process.pid}.db`);
 process.env.DB_PATH = tmpDb;
 
 const db = require('../src/db');
-const { recommendSlot, sortCards, getSortCategory } = require('../src/utils/compartmentSort');
-
-// Pure test (no DB): the 'language' filing scheme orders by language rank
-// (English, Japanese, ...) then by name, and buckets cards by language.
-function testLanguageScheme() {
-  const cards = [
-    { name: 'Zebra', language: 'Japanese' },
-    { name: 'Alpha', language: 'English' },
-    { name: 'Beta', language: 'Japanese' },
-    { name: 'Gamma', language: 'German' },
-  ];
-  const sorted = sortCards(cards, 'language', 'normals_first');
-  assert.deepStrictEqual(sorted.map(c => c.name), ['Alpha', 'Beta', 'Zebra', 'Gamma'],
-    'language scheme must order English, then Japanese-by-name, then German');
-  assert.strictEqual(getSortCategory({ language: 'Japanese' }, 'language'), 'Japanese');
-  assert.strictEqual(getSortCategory({}, 'language'), 'English', 'missing language defaults to English');
-  console.log('PASS: language filing scheme orders by language then name');
-}
+const { recommendSlot, sortCards } = require('../src/utils/compartmentSort');
 
 // Pure test (no DB): favorite as primary sort key floats starred cards to the
 // front while the secondary key (name) still sub-orders within each group.
@@ -63,7 +46,6 @@ async function insertCard(id, name) {
 }
 
 async function main() {
-  testLanguageScheme();
   testFavoriteScheme();
   await db.initDb(); // creates schema + default admin (user id 1)
   const userId = 1;
@@ -87,9 +69,9 @@ async function main() {
   // Fill page 1 to capacity (2/2) with cards that sort AFTER 'Aaa'.
   for (const cid of ['c-aab', 'c-aac']) {
     await db.run(
-      `INSERT INTO collection (card_id, quantity, condition, printing, language, location_id, compartment_id, position, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cid, 1, 'Near Mint', 'Normal', 'English', locId, page1.lastID, 1000, userId]
+      `INSERT INTO collection (card_id, quantity, condition, printing, location_id, compartment_id, position, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cid, 1, 'Near Mint', 'Normal', locId, page1.lastID, 1000, userId]
     );
   }
 
@@ -134,9 +116,9 @@ async function main() {
   const sparse = { 'c-boxa': 1000, 'c-boxb': 50000, 'c-boxc': 90000 };
   for (const cid of Object.keys(sparse)) {
     await db.run(
-      `INSERT INTO collection (card_id, quantity, condition, printing, language, location_id, compartment_id, position, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [cid, 1, 'Near Mint', 'Normal', 'English', boxId, boxRow.lastID, sparse[cid], userId]
+      `INSERT INTO collection (card_id, quantity, condition, printing, location_id, compartment_id, position, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cid, 1, 'Near Mint', 'Normal', boxId, boxRow.lastID, sparse[cid], userId]
     );
   }
   const boxLoc = await db.get(`SELECT * FROM locations WHERE id = ?`, [boxId]);

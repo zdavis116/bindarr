@@ -74,7 +74,7 @@ async function runTests() {
       // Note: we can't easily assert on headers since the server handles the call in a separate process,
       // but if the feature is not implemented, the API call won't happen.
       // If we query, it should run. If it fails (due to not implemented), assert throws.
-      const searchRes = await fetch(`http://localhost:${port}/api/search?game=mtg&name=Lotus`, { headers: authHeaders });
+      const searchRes = await fetch(`http://localhost:${port}/api/search?name=Lotus`, { headers: authHeaders });
       assert.strictEqual(searchRes.status, 200);
       const data = await searchRes.json();
       assert.ok(data.length > 0, 'Should return searched cards');
@@ -84,9 +84,9 @@ async function runTests() {
       throw err;
     }
 
-    // F5-TC2: MTG-only storage omits game while the API preserves compatibility
+    // F5-TC2: final MTG-only storage and API omit compatibility discriminators
     try {
-      await fetch(`http://localhost:${port}/api/search?game=mtg&name=Lotus`, { headers: authHeaders });
+      await fetch(`http://localhost:${port}/api/search?name=Lotus`, { headers: authHeaders });
 
       const addRes = await fetch(`http://localhost:${port}/api/collection`, {
         method: 'POST',
@@ -96,7 +96,6 @@ async function runTests() {
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
-          language: 'English',
           purchase_price: 10000.0,
           location_id: null
         })
@@ -106,13 +105,15 @@ async function runTests() {
       const saved = await db.get(`SELECT * FROM collection WHERE card_id = ?`, ['mtg-lea-232']);
       assert.ok(saved, 'Card must be saved in collection');
       assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'game'), 'collection must not persist a game discriminator');
+      assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'language'), 'collection must not persist printed language');
 
       const collectionRes = await fetch(`http://localhost:${port}/api/collection`, { headers: authHeaders });
       assert.strictEqual(collectionRes.status, 200);
       const collection = await collectionRes.json();
       const returned = collection.find((card) => card.card_id === 'mtg-lea-232');
       assert.ok(returned, 'Saved card must be returned by the collection API');
-      assert.strictEqual(returned.game, 'mtg', 'API must synthesize MTG for the current frontend');
+      assert.ok(!Object.prototype.hasOwnProperty.call(returned, 'game'), 'API must not synthesize a game discriminator');
+      assert.ok(!Object.prototype.hasOwnProperty.call(returned, 'language'), 'API must not expose printed language');
       console.log('PASS: F5-TC2');
     } catch (err) {
       console.error('FAIL: F5-TC2 -', err.message);
@@ -134,7 +135,7 @@ async function runTests() {
       // 2. A parsed set and number triggering search
       const scanSet = 'LEA';
       const scanNumber = '232';
-      const searchRes = await fetch(`http://localhost:${port}/api/search?game=mtg&set=${scanSet}&number=${scanNumber}`, { headers: authHeaders });
+      const searchRes = await fetch(`http://localhost:${port}/api/search?set=${scanSet}&number=${scanNumber}`, { headers: authHeaders });
       assert.strictEqual(searchRes.status, 200);
       const searchData = await searchRes.json();
       assert.ok(searchData.length > 0);
@@ -151,7 +152,6 @@ async function runTests() {
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
-          language: 'English',
           purchase_price: 10000.0,
           location_id: locId
         })

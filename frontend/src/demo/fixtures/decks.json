@@ -3,7 +3,6 @@
     "id": 4,
     "name": "Izzet Spells",
     "description": "Sample Magic deck for the demo",
-    "game": "mtg",
     "format": "Modern",
     "category": "Showcase",
     "accent_color": "#ef4444",

@@ -14,7 +14,6 @@ const EXPORT_STRATEGIES = {
     'Quantity': item.quantity || 1,
     'Condition': item.condition || 'Near Mint',
     'Printing': item.printing || 'Normal',
-    'Language': item.language || 'English',
     'Purchase Price': item.purchase_price || 0,
     'Market Price': item.price_trend || item.market_price || 0,
     'Location Container': item.location_name || 'Unassigned',

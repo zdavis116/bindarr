@@ -68,7 +68,6 @@ router.post('/seed-cards', async (req, res) => {
     );
 
     const conditions = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played'];
-    const languages = ['English'];
 
     const printsForCard = (card) => {
       const options = [];
@@ -87,7 +86,6 @@ router.post('/seed-cards', async (req, res) => {
         card,
         print: prints[Math.floor(Math.random() * prints.length)],
         condition: conditions[Math.floor(Math.random() * conditions.length)],
-        language: languages[Math.floor(Math.random() * languages.length)],
         qty: Math.floor(Math.random() * 2) + 1,
         purchasePrice: parseFloat((Math.random() * maxPrice).toFixed(2))
       };
@@ -103,9 +101,9 @@ router.post('/seed-cards', async (req, res) => {
         for (let s = 0; s < slots; s++) {
           const e = randomEntry(maxPrice);
           await db.run(`
-            INSERT INTO collection (card_id, quantity, condition, printing, language, purchase_price, location_id, compartment_id, position, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [e.card.id, e.qty, e.condition, e.print, e.language, e.purchasePrice, locationId, comp.id, s * 1000, req.user.id]);
+            INSERT INTO collection (card_id, quantity, condition, printing, purchase_price, location_id, compartment_id, position, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [e.card.id, e.qty, e.condition, e.print, e.purchasePrice, locationId, comp.id, s * 1000, req.user.id]);
           addedCount += e.qty;
         }
       }
@@ -118,9 +116,9 @@ router.post('/seed-cards', async (req, res) => {
     for (let i = 0; i < 40; i++) {
       const e = randomEntry(5);
       await db.run(`
-        INSERT INTO collection (card_id, quantity, condition, printing, language, purchase_price, location_id, compartment_id, position, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?)
-      `, [e.card.id, e.qty, e.condition, e.print, e.language, e.purchasePrice, req.user.id]);
+        INSERT INTO collection (card_id, quantity, condition, printing, purchase_price, location_id, compartment_id, position, user_id)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?)
+      `, [e.card.id, e.qty, e.condition, e.print, e.purchasePrice, req.user.id]);
       addedCount += e.qty;
       unsortedAdded++;
     }
@@ -322,17 +320,11 @@ router.delete('/set-indexes/:game/:set', (req, res) => {
   res.json({ message: `Removed mtg ${set} index` });
 });
 
-// Browse sets for the set-index builder modal — returns all known sets with
-// symbol/logo images for the chosen game, newest releases first.
+// Browse canonical MTG sets for the set-index builder modal, newest first.
 router.get('/sets-browse', async (req, res) => {
   try {
     const sets = await db.all(`SELECT id, name, series, printed_total, release_date, symbol_url, logo_url FROM sets ORDER BY release_date DESC`);
-    const legacyPokemonCaller = req.query.game === 'pokemon';
-    res.json(sets.map(set => ({
-      ...set,
-      id: legacyPokemonCaller ? set.id.replace(/^mtg-/i, '') : set.id,
-      game: 'mtg'
-    })));
+    res.json(sets);
   } catch (error) {
     console.error('Error browsing sets:', error);
     res.status(500).json({ error: 'Failed to retrieve sets' });

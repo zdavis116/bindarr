@@ -50,7 +50,7 @@ function DeckBuilder({ showToast }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
-  const newDeckGame = 'mtg';
+
   const [newDeckFormat, setNewDeckFormat] = useState('Commander / EDH');
   const [newDeckCategory, setNewDeckCategory] = useState('Competitive');
   const [newDeckAccentColor, setNewDeckAccentColor] = useState('#eab308');
@@ -131,8 +131,7 @@ function DeckBuilder({ showToast }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           name: newDeckName, 
-          description: newDeckDesc, 
-          game: newDeckGame,
+          description: newDeckDesc,
           format: newDeckFormat,
           category: newDeckCategory,
           accent_color: newDeckAccentColor,

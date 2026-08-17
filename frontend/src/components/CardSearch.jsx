@@ -16,7 +16,7 @@ function CardSearch({ onAddSuccess, showToast }) {
   const [query, setQuery] = useState('');
   const [numberQuery, setNumberQuery] = useState('');
   const [setCodeQuery, setSetCodeQuery] = useState('');
-  const game = 'mtg';
+
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -66,7 +66,7 @@ function CardSearch({ onAddSuccess, showToast }) {
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
   const [printing, setPrinting] = useState('Normal');
-  const language = 'English';
+
   const [purchasePrice, setPurchasePrice] = useState(0);
   const [, setLocationId] = useState('');
 
@@ -78,7 +78,7 @@ function CardSearch({ onAddSuccess, showToast }) {
   // MTG set ids are stored prefixed ("mtg-ltr"); search uses the bare code.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/sets?game=mtg')
+    fetch('/api/sets')
       .then(r => (r.ok ? r.json() : []))
       .then(rows => {
         if (cancelled) return;
@@ -129,7 +129,6 @@ function CardSearch({ onAddSuccess, showToast }) {
       if (numberQuery) params.append('number', numberQuery);
       if (setCodeQuery) params.append('set', setCodeQuery);
       params.append('scope', 'internet');
-      params.append('game', game);
 
       params.append('page', pageNum);
       params.append('limit', size);
@@ -268,9 +267,7 @@ function CardSearch({ onAddSuccess, showToast }) {
           quantity: parseInt(quantity, 10) || 1,
           condition,
           printing,
-          language,
-          purchase_price: parseFloat(purchasePrice) || 0,
-          game
+          purchase_price: parseFloat(purchasePrice) || 0
         })
       });
       const data = await response.json().catch(() => ({}));
@@ -306,9 +303,7 @@ function CardSearch({ onAddSuccess, showToast }) {
         quantity: parseInt(quantity, 10) || 1,
         condition,
         printing,
-        language,
         purchase_price: parseFloat(purchasePrice) || 0,
-        game,
         location_id: null,
         stackable: true
       })
@@ -328,7 +323,7 @@ function CardSearch({ onAddSuccess, showToast }) {
     setRapidBusy(true);
     try {
       const params = new URLSearchParams({
-        number, set: setCodeQuery, scope: 'internet', game: 'mtg', page: '1', limit: '10'
+        number, set: setCodeQuery, scope: 'internet', page: '1', limit: '10'
       });
       const res = await fetch(`/api/search?${params.toString()}`);
       if (!res.ok) {
@@ -425,7 +420,6 @@ function CardSearch({ onAddSuccess, showToast }) {
           quantity: parseInt(quantity, 10),
           condition,
           printing,
-          language,
           purchase_price: parseFloat(purchasePrice) || 0,
           location_id: null
         })

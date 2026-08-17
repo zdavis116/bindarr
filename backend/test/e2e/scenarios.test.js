@@ -133,7 +133,6 @@ async function runTests() {
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
-          language: 'English',
           purchase_price: 10000.0,
           location_id: null
         })
@@ -215,7 +214,6 @@ async function runTests() {
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
-          language: 'English',
           purchase_price: 10.0,
           location_id: locId
         })
@@ -245,8 +243,8 @@ async function runTests() {
       );
       const addEntry = async (cardId, compId, locId, position) => {
         const r = await db.run(
-          `INSERT INTO collection (card_id, quantity, condition, printing, language, location_id, compartment_id, position, user_id)
-           VALUES (?, 1, 'Near Mint', 'Normal', 'English', ?, ?, ?, ?)`,
+          `INSERT INTO collection (card_id, quantity, condition, printing, location_id, compartment_id, position, user_id)
+           VALUES (?, 1, 'Near Mint', 'Normal', ?, ?, ?, ?)`,
           [cardId, locId, compId, position, adminId]
         );
         return r.lastID;

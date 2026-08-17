@@ -251,7 +251,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
   const [printing, setPrinting] = useState('Normal');
-  const language = 'English';
+
   const [purchasePrice, setPurchasePrice] = useState(0);
 
   // Keep a ref mirroring the latest stream so the unmount cleanup below (whose
@@ -516,8 +516,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
     try {
       const autoPrinting = overrides?.printing || ((card.rarity || '').toLowerCase().includes('holo') ? 'Holofoil' : 'Normal');
       const autoCondition = overrides?.condition || 'Near Mint';
-      // The card's own language when the provider reported one, else the language
-      const autoLanguage = 'English';
       const response = await fetch('/api/collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -526,7 +524,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
           quantity: qty,
           condition: autoCondition,
           printing: autoPrinting,
-          language: autoLanguage,
           // price_trend is whichever finish the TCG API returned first (usually
           // Normal), not necessarily the Holofoil finish just chosen above —
           // resolve against the printing actually being recorded.
@@ -553,7 +550,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
         setRecentScans(prev => [{
           ...card, card_id: card.id, placementLabel, entry_id: data.id,
           quantity: qty, condition: autoCondition, printing: autoPrinting,
-          language: autoLanguage, purchase_price: resolveCardPrice(card, autoPrinting), location_id: null,
+          purchase_price: resolveCardPrice(card, autoPrinting), location_id: null,
         }, ...prev].slice(0, 10));
 
         // Brief confetti blast for ultra-rares
@@ -916,7 +913,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
           quantity: parseInt(quantity, 10),
           condition,
           printing,
-          language,
           purchase_price: parseFloat(purchasePrice) || 0,
           location_id: null
         })
@@ -937,7 +933,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // strip supports tap-to-edit / long-press-delete like the auto-add path.
         setRecentScans(prev => [{
           ...selectedCard, card_id: selectedCard.id, placementLabel, entry_id: data.id,
-          quantity: parseInt(quantity, 10), condition, printing, language,
+          quantity: parseInt(quantity, 10), condition, printing,
           purchase_price: parseFloat(purchasePrice) || 0, location_id: null,
         }, ...prev].slice(0, 10));
 

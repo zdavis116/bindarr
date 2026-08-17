@@ -28,13 +28,19 @@ async function main() {
       assert.ok(!columns.includes('game'), `${table}.game must not exist in the MTG-only schema`);
     }
 
-    // These remain for one PR as explicit compatibility fields. PR 3 removes
-    // their frontend contracts before the columns can be deleted safely.
-    assert.ok((await columnNames(fixture, 'decks')).includes('game'));
-    assert.ok((await columnNames(fixture, 'locations')).includes('game'));
-    assert.ok((await columnNames(fixture, 'users')).includes('tcg_api_key'));
-    assert.ok((await columnNames(fixture, 'collection')).includes('language'));
-    assert.ok((await columnNames(fixture, 'card_cache')).includes('language'));
+    const removedCompatibilityColumns = {
+      decks: ['game'],
+      locations: ['game'],
+      users: ['tcg_api_key'],
+      collection: ['language'],
+      card_cache: ['language', 'printed_name']
+    };
+    for (const [table, removedColumns] of Object.entries(removedCompatibilityColumns)) {
+      const columns = await columnNames(fixture, table);
+      for (const column of removedColumns) {
+        assert.ok(!columns.includes(column), `${table}.${column} must not exist in the final MTG-only schema`);
+      }
+    }
 
     const settingsColumns = await columnNames(fixture, 'app_settings');
     assert.ok(settingsColumns.includes('mtg_prices_swept_at'));

@@ -98,7 +98,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
           quantity: parseInt(q, 10),
           condition,
           printing,
-          language: 'English',
           purchase_price: parseFloat(purchasePrice) || 0,
           location_id: locationId ? parseInt(locationId, 10) : null,
           list_type: listType,
@@ -111,7 +110,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
         card.quantity = parseInt(q, 10);
         card.condition = condition;
         card.printing = printing;
-        card.language = 'English';
         card.purchase_price = parseFloat(purchasePrice) || 0;
         card.location_id = locationId ? parseInt(locationId, 10) : null;
         card.list_type = listType;
@@ -145,7 +143,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       quantity: parseInt(q, 10),
       condition,
       printing,
-      language: 'English',
       purchase_price: parseFloat(purchasePrice) || 0,
       location_id: locationId ? parseInt(locationId, 10) : null,
       list_type: nextListType,
