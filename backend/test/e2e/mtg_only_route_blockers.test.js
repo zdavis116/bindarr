@@ -172,7 +172,7 @@ async function runTests() {
     if (failures.length) throw new Error(`Final-schema route failures:\n${failures.join('\n')}`);
   } finally {
     try { server.kill('SIGKILL'); } catch {}
-    try { await new Promise(resolve => db.dbConnection.close(() => resolve())); } catch {}
+    try { await db.close(); } catch {}
     for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(tmpDb + suffix); } catch {} }
     try { fs.rmSync(tmpSetsDir, { recursive: true, force: true }); } catch {}
   }

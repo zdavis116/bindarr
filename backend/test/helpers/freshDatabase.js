@@ -91,9 +91,7 @@ async function initialize(dbPath) {
   try {
     await db.initDb();
   } finally {
-    await new Promise((resolve, reject) => {
-      db.dbConnection.close((error) => error ? reject(error) : resolve());
-    });
+    await db.close();
   }
 }
 

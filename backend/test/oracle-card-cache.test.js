@@ -12,7 +12,7 @@ const { cacheNormalizedCards } = require('../src/utils/cardCache');
 const { parseCardRow } = require('../src/utils/priceHelpers');
 
 async function cleanup() {
-  await new Promise((resolve) => db.dbConnection.close(() => resolve()));
+  await db.close();
   for (const suffix of ['', '-wal', '-shm']) {
     try { fs.unlinkSync(tmpDb + suffix); } catch {}
   }

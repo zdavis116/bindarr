@@ -11,6 +11,13 @@ const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require
 const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
 const { validateDeckAddition } = require('../utils/deckRules');
 const { splitPrice } = require('../utils/splitPrice');
+const {
+  RequestBoundsError,
+  positiveInteger,
+  requireArray,
+  uniqueIntegerIds,
+  boundedProduct
+} = require('../utils/requestBounds');
 
 const router = express.Router();
 
@@ -281,7 +288,7 @@ async function addCardToCollection(user, body) {
     const targetLocationId = resolved.compartment_id ? (resolved.location_id ?? location_id) : null;
 
     let lastInsertedId = null;
-    const count = Math.max(1, parseInt(quantity, 10) || 1);
+    const count = quantity;
 
     if (stackable) {
       const result = await db.run(`
@@ -333,9 +340,11 @@ async function addCardToCollection(user, body) {
 // 3. Add Card to Collection
 router.post('/collection', async (req, res) => {
   try {
-    res.status(200).json(await addCardToCollection(req.user, req.body));
+    const body = { ...req.body };
+    body.quantity = positiveInteger(body.quantity === undefined ? 1 : body.quantity, { name: 'quantity', max: 1000 });
+    res.status(200).json(await addCardToCollection(req.user, body));
   } catch (error) {
-    if (error instanceof AddCardError) {
+    if (error instanceof AddCardError || error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });
     }
     console.error(error);
@@ -347,12 +356,19 @@ router.post('/collection', async (req, res) => {
 // set browse can be added in one action instead of one drawer per card.
 const BULK_ADD_MAX = 250;
 router.post('/collection/bulk-add', async (req, res) => {
-  const { card_ids = [], ...shared } = req.body;
-  if (!Array.isArray(card_ids) || card_ids.length === 0) {
-    return res.status(400).json({ error: 'card_ids is required' });
-  }
-  if (card_ids.length > BULK_ADD_MAX) {
-    return res.status(400).json({ error: `Cannot add more than ${BULK_ADD_MAX} cards at once.` });
+  const { card_ids, ...shared } = req.body;
+  try {
+    requireArray(card_ids, { name: 'card_ids', minLength: 1, maxLength: BULK_ADD_MAX });
+    if (card_ids.some(id => typeof id !== 'string' || !id) || new Set(card_ids).size !== card_ids.length) {
+      throw new RequestBoundsError(400, 'card_ids must contain unique non-empty card IDs');
+    }
+    shared.quantity = positiveInteger(shared.quantity === undefined ? 1 : shared.quantity, { name: 'quantity', max: 1000 });
+    boundedProduct([card_ids.length, shared.quantity], { name: 'expanded operations', max: 1000 });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    throw error;
   }
   // Sequential on purpose: placement resolves against the rows already inserted,
   // so adds must not race each other for the same compartment slot.
@@ -367,7 +383,7 @@ router.post('/collection/bulk-add', async (req, res) => {
       failed.push({ card_id, error: error instanceof AddCardError ? error.message : 'Failed to add card' });
     }
   }
-  const qty = Math.max(1, parseInt(shared.quantity, 10) || 1);
+  const qty = shared.quantity;
   res.status(failed.length && !added.length ? 500 : 200).json({
     message: failed.length
       ? `Added ${added.length} of ${card_ids.length} cards; ${failed.length} failed.`
@@ -386,6 +402,9 @@ router.put('/collection/:id', async (req, res) => {
   } = req.body;
 
   try {
+    const requestedQty = quantity !== undefined
+      ? positiveInteger(quantity, { name: 'quantity', max: 1000 })
+      : 1;
     const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!entry) return res.status(404).json({ error: 'Collection entry not found' });
 
@@ -424,7 +443,6 @@ router.put('/collection/:id', async (req, res) => {
     // One physical card = one row. The edited entry always stays quantity 1;
     // a quantity > 1 in the payload means "make this many copies" and is
     // fulfilled below by inserting extra single-card rows (auto-split).
-    const requestedQty = quantity !== undefined ? Math.max(1, parseInt(quantity, 10) || 1) : 1;
     if (quantity !== undefined) { updates.push('quantity = ?'); params.push(1); }
     if (condition !== undefined) { updates.push('condition = ?'); params.push(condition); }
     if (printing !== undefined) { updates.push('printing = ?'); params.push(printing); }
@@ -479,6 +497,9 @@ router.put('/collection/:id', async (req, res) => {
     const finalPlacement = isMoving && finalCompartmentId ? await describePlacement(db, id, req.user.id) : null;
     res.json({ message: 'Collection entry updated successfully', placement: finalPlacement, container_full: resolvedFull, rule_rejected: resolvedRejected });
   } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error(error);
     res.status(500).json({ error: 'Failed to update entry' });
   }
@@ -566,14 +587,18 @@ const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'He
 const BULK_PRINTINGS = ['Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo'];
 router.post('/collection/bulk', async (req, res) => {
   const { entry_ids = [], action, value } = req.body;
-  if (!Array.isArray(entry_ids) || entry_ids.length === 0) {
-    return res.status(400).json({ error: 'entry_ids is required' });
+  let ids;
+  try {
+    ids = uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: 1000 });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    throw error;
   }
   if (!BULK_ACTIONS.includes(action)) {
     return res.status(400).json({ error: 'Invalid action' });
   }
-  const ids = entry_ids.map(n => parseInt(n, 10)).filter(Number.isInteger);
-  if (ids.length === 0) return res.status(400).json({ error: 'No valid entry_ids' });
   const placeholders = ids.map(() => '?').join(',');
 
   try {

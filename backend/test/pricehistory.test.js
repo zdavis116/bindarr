@@ -12,6 +12,11 @@ const { recordPrice, shouldSweepPrices, markPricesSwept } = require('../src/util
 
 const CARD = 'mtg-test-card';
 const count = async () => (await db.get(`SELECT COUNT(*) n FROM price_history WHERE card_id = ?`, [CARD])).n;
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const withTimeout = (promise, label, ms = 1000) => Promise.race([
+  promise,
+  delay(ms).then(() => { throw new Error(`${label} timed out`); })
+]);
 
 async function main() {
   await db.initDb();
@@ -60,6 +65,32 @@ async function main() {
     [CARD]
   );
   assert.strictEqual(latest.price, 2.25, 'latest price must reflect the queued reversal');
+
+  // 8. A same-card observation queued outside a transaction must not hold a
+  // per-card promise lock needed by work already inside that transaction. The
+  // database queue owns ordering; a second JS queue here creates a lock cycle.
+  const TX_CARD = 'mtg-transaction-card';
+  let transactionStarted;
+  let releaseTransaction;
+  const started = new Promise(resolve => { transactionStarted = resolve; });
+  const release = new Promise(resolve => { releaseTransaction = resolve; });
+  const transaction = db.withTransaction(async () => {
+    transactionStarted();
+    await release;
+    return recordPrice(TX_CARD, 3.5);
+  });
+  await started;
+  const outside = recordPrice(TX_CARD, 4.5);
+  releaseTransaction();
+  assert.deepStrictEqual(
+    await withTimeout(Promise.all([transaction, outside]), 'transaction/nontransaction price writes'),
+    [true, true]
+  );
+  const txPrices = await db.all(
+    `SELECT price FROM price_history WHERE card_id = ? ORDER BY recorded_at, id`,
+    [TX_CARD]
+  );
+  assert.deepStrictEqual(txPrices.map(row => row.price), [3.5, 4.5]);
 
   // --- Once-a-day sweep gate ---
   // Scryfall only moves prices once a day, so sweeping more often is pure load.

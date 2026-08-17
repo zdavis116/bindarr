@@ -101,7 +101,7 @@ async function runTests() {
 
   } finally {
     try { server.kill('SIGKILL'); } catch {}
-    try { await new Promise(resolve => { db.dbConnection.close(() => resolve()); }); } catch {}
+    try { await db.close(); } catch {}
     for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(tmpDb + suffix); } catch {} }
   }
 }

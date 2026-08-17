@@ -11,6 +11,7 @@ const {
   rebalanceCompartmentByScheme
 } = require('../utils/compartmentSort');
 const { defaultCompartmentPlan, normalizeRuleConfig } = require('../utils/collectionHelpers');
+const { RequestBoundsError, positiveInteger, uniqueIntegerIds } = require('../utils/requestBounds');
 
 const router = express.Router();
 
@@ -51,6 +52,20 @@ router.post('/locations', async (req, res) => {
     return res.status(400).json({ error: 'Invalid rule_type' });
   }
 
+  const plan = compartmentPlan ?? defaultCompartmentPlan(type);
+  try {
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
+      throw new RequestBoundsError(400, 'compartmentPlan must be an object');
+    }
+    plan.count = positiveInteger(plan.count, { name: 'compartmentPlan.count', max: 1000 });
+    plan.capacity = positiveInteger(plan.capacity, { name: 'compartmentPlan.capacity', max: 1000 });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    throw error;
+  }
+
   let ruleConfigJson;
   try {
     ruleConfigJson = normalizeRuleConfig(rule_config);
@@ -68,8 +83,7 @@ router.post('/locations', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `, [name, type, sort_order, foil_sorting || 'normals_first', rule_type, ruleConfigJson, req.user.id]);
 
-    const plan = compartmentPlan || defaultCompartmentPlan(type);
-    await db.createCompartments(result.lastID, Math.max(1, parseInt(plan.count, 10) || 1), Math.max(1, parseInt(plan.capacity, 10) || 40));
+    await db.createCompartments(result.lastID, plan.count, plan.capacity);
 
     res.status(200).json({ message: 'Location created', id: result.lastID });
   } catch (error) {
@@ -406,9 +420,16 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
   const { id } = req.params;
   const { entry_ids = [] } = req.body;
   try {
+    uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: 1000 });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    throw error;
+  }
+  try {
     const location = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!location) return res.status(404).json({ error: 'Location not found' });
-    if (!Array.isArray(entry_ids) || entry_ids.length === 0) return res.status(400).json({ error: 'entry_ids is required' });
 
     let workingCompartments = await loadCompartments(db, id, req.user.id);
     const mockCards = [];
@@ -474,11 +495,16 @@ router.post('/locations/:id/apply-all', async (req, res) => {
   const { id } = req.params;
   const { entry_ids = [] } = req.body;
   try {
+    uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: 1000 });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    throw error;
+  }
+  try {
     const location = await db.get(`SELECT * FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     if (!location) return res.status(404).json({ error: 'Location not found' });
-    if (!Array.isArray(entry_ids) || entry_ids.length === 0) {
-      return res.status(400).json({ error: 'entry_ids is required' });
-    }
 
     let workingCompartments = await loadCompartments(db, id, req.user.id);
     let filed = 0;

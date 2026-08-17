@@ -10,8 +10,8 @@ process.env.DB_PATH = tmpDb;
 const db = require('../../src/db');
 const compartmentSort = require('../../src/utils/compartmentSort');
 
-function cleanup() {
-  try { db.dbConnection.close(); } catch {}
+async function cleanup() {
+  try { await db.close(); } catch {}
   for (const suffix of ['', '-wal', '-shm']) {
     try { fs.unlinkSync(tmpDb + suffix); } catch {}
   }
@@ -224,11 +224,11 @@ async function runTests() {
 }
 
 runTests()
-  .then(() => {
-    cleanup();
+  .then(async () => {
+    await cleanup();
     process.exit(0);
   })
-  .catch(err => {
-    cleanup();
+  .catch(async err => {
+    await cleanup();
     process.exit(1);
   });
