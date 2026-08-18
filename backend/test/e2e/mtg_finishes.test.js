@@ -193,9 +193,15 @@ test('F12-TC7', 'T7 a foil deck requirement is not satisfied by the nonfoil of t
   });
   assert.strictEqual(nonfoil.status, 200, `nonfoil setup add must succeed: ${JSON.stringify(nonfoil.body)}`);
 
+  // Explicitly a non-Commander deck. PR 6F makes a commander REQUIRED for the
+  // Commander format, and the create route defaults `format` to
+  // 'Commander / EDH' -- so a deck created with no format at all is now a
+  // Commander deck and is correctly refused without one. This case is about
+  // finish identity and has nothing to say about commanders, so it states the
+  // format it actually wants rather than relying on the default.
   const deck = await api(user.token, '/api/decks', {
     method: 'POST',
-    body: { name: `Foil Identity Deck ${process.pid}` }
+    body: { name: `Foil Identity Deck ${process.pid}`, format: 'Modern' }
   });
   assert.strictEqual(deck.status, 201, `deck create must succeed: ${JSON.stringify(deck.body)}`);
   const deckId = deck.body.id ?? deck.body.deck_id;

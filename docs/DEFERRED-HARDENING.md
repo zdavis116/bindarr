@@ -270,3 +270,65 @@ merge-blocking pass, per the project's proportionality rule.
       fails when it is removed. Note that the PR 6D copy-conservation guard
       added in this pass DOES have that property — T31 and T35 were captured
       RED against the unfixed code before the fix landed.
+
+## Deferred: PR 6F
+
+- [ ] **`swapCommander` add-then-remove can leave a visible second commander if
+      the DELETE fails.**
+      The order is deliberately correct and stays as it is: adding the new
+      commander before removing the old one means the worst case is a deck
+      showing two commanders, never a Commander deck showing zero. The failure
+      is also visible — the user gets a toast and can see the extra row — so
+      this is not a silent state change, which is the class of defect Bindarr
+      actually blocks on. Fix shape: make the pair atomic behind a single
+      server-side swap route so the client cannot be interrupted between the
+      two calls.
+
+- [ ] **The deck grid `+` button enforces only the 4-copy client guard and is
+      unaware of singleton.**
+      Clicking `+` on a card already in a Commander deck lets the request go to
+      the server, which refuses it correctly with a message naming the card and
+      the rule. The user therefore gets a truthful error rather than a wrong
+      deck; what they do not get is the button being disabled before they click
+      it. UX polish, not correctness. Fix shape: reuse the format check the
+      create modal already does and disable/annotate the control for
+      non-exempt cards already present by name.
+
+- [ ] **Locale keys added to `en.json` only; 22 strings fall back to English in
+      other locales.**
+      Consistent with existing practice in this repo — every prior PR has added
+      English keys and let the other locale files fall back — so this is a
+      backlog item for a translation pass rather than something PR 6F
+      introduced. Fix shape: one sweep across all locale files when the string
+      set has settled.
+
+- [ ] **The override list reuses `/api/audit-logs`, which caps at 100 rows of
+      all event types with no pagination or filter.**
+      Recorded commander overrides share that endpoint with every other audit
+      event, so a busy period of unrelated activity could push older overrides
+      out of view. This matters because the override list is meant to be the
+      to-do list for improving partner detection — an override that scrolls off
+      is a bug report that was collected and then lost. Fine at single-user
+      scale: Bindarr is one user on a tailnet, overrides are rare by
+      construction (each one is a mechanic the parser did not recognise), and
+      100 rows is a long way from that volume. Nothing is corrupted or
+      mis-stated in the meantime; the record still exists in `audit_logs`, it
+      is only the default view that truncates. Fix shape: add an
+      `action_type` filter and paging to the audit-logs endpoint, then point
+      the override surface at `action_type=COMMANDER_PAIR_OVERRIDE`.
+
+- [ ] **Import cannot override a refused commander pairing — by design, not by
+      omission.**
+      The override is an explicit, per-pairing confirmation with a typed
+      reason, and a bulk paste is the wrong place to collect one: the user is
+      not looking at the pair when they press Import, so any justification
+      gathered there would be a reflexive click rather than the considered
+      report the reason field exists to capture. A refused import therefore
+      rolls back whole and states why, and the user sets the commander from the
+      picker where the confirmation actually lives. This is recorded here as a
+      deliberate constraint so a future reader does not "fix" it by threading
+      an override through the import body. Fix shape: none wanted. If it ever
+      becomes a real friction point, the answer is to surface the refused pair
+      in the import compare screen and route the user to the picker — not to
+      accept a reason typed blind.
+

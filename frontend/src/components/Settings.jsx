@@ -19,6 +19,18 @@ function Settings({ user, onUpdateUser, showToast }) {
 
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
 
+  // RECORDED COMMANDER-PAIRING OVERRIDES.
+  //
+  // Every time Bindarr refused a commander pairing and the user overrode it
+  // with a reason, that is a concrete report that the oracle-text parser did
+  // not recognise a real mechanic -- with a worked example attached. This list
+  // is therefore the to-do list for improving partner detection, which is why
+  // it is surfaced at all rather than merely stored.
+  //
+  // It reuses the EXISTING /api/audit-logs endpoint and is rendered as one
+  // more panel on this existing screen. No new store, no new screen.
+  const [commanderOverrides, setCommanderOverrides] = useState([]);
+
   const [autoConfirm, setAutoConfirm] = useState(() => localStorage.getItem('scanner_auto_confirm') === '1');
 
   const [versionInfo, setVersionInfo] = useState(null);
@@ -30,6 +42,33 @@ function Settings({ user, onUpdateUser, showToast }) {
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data) setPublicBaseUrl(data.public_base_url || '');
+      })
+      .catch(() => {});
+  }, []);
+
+  // Pull the recorded commander-pairing overrides out of the general audit
+  // log. Filtered by action_type here rather than server-side because the
+  // endpoint already exists and already returns the user's recent events --
+  // adding a query parameter would be a new API surface for a list that is
+  // capped at 100 rows anyway.
+  //
+  // Failure is silent: this panel is a diagnostic aid, and a settings screen
+  // that errors because an optional list did not load would be worse than one
+  // that simply does not show it.
+  useEffect(() => {
+    fetch('/api/audit-logs')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!data || !Array.isArray(data.logs)) return;
+        const overrides = data.logs
+          .filter(log => log.action_type === 'COMMANDER_PAIR_OVERRIDE')
+          .map(log => {
+            let detail = null;
+            try { detail = JSON.parse(log.after_state); } catch { detail = null; }
+            return detail ? { id: log.id, created_at: log.created_at, ...detail } : null;
+          })
+          .filter(Boolean);
+        setCommanderOverrides(overrides);
       })
       .catch(() => {});
   }, []);
@@ -625,6 +664,45 @@ function Settings({ user, onUpdateUser, showToast }) {
             </label>
           </div>
         </div>
+
+        {/* RECORDED COMMANDER-PAIRING OVERRIDES.
+            Shown only when there are some -- an empty panel would be noise on
+            a screen most users never need this on. Each row is a worked
+            example of a pairing Bindarr refused and the user vouched for, so
+            the list doubles as the to-do list for improving the detection. */}
+        {commanderOverrides.length > 0 && (
+          <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
+              <ShieldAlert size={20} style={{ color: 'var(--accent-yellow)' }} />
+              <h3 style={{ color: 'var(--text-strong)', fontSize: '1.1rem' }}>{t('settings.commanderOverridesTitle')}</h3>
+            </div>
+
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+              {t('settings.commanderOverridesHint')}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {commanderOverrides.map(entry => (
+                <div key={entry.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.6rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  {/* Both card NAMES, because an id is not something a human
+                      can act on six months later. */}
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-strong)' }}>
+                    {(entry.cards || []).map(c => c.name).join('  +  ')}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                    {(entry.cards || []).map(c => c.id).join('  ·  ')}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    “{entry.reason}”
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    {entry.created_at}{entry.rule ? ` · ${entry.rule}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Preferences Panel */}
         <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

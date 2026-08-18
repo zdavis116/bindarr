@@ -8,6 +8,7 @@ import { useBackGuard } from '../utils/useBackGuard';
 import { buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { useT } from '../utils/i18n';
 import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
+import CardTile, { FinishBadge } from './CardTile';
 
 // Basic lands are exempt from the four-copy deck rule.
 const isBasicEnergyOrLand = (card) => {
@@ -132,6 +133,60 @@ function DeckBuilder({ showToast }) {
   const [newDeckTargetSize, setNewDeckTargetSize] = useState(100);
   const [newDeckImportText, setNewDeckImportText] = useState('');
   const [showImportDecklistArea, setShowImportDecklistArea] = useState(false);
+
+  // COMMANDER SELECTION, for the Commander format only.
+  //
+  // `newDeckCommanders` holds up to two chosen commanders, each an EXACT
+  // identity ({ desired_card_id, desired_finish, name, set_name, number,
+  // image_url }) -- the same shape every other deck entry has. A commander is
+  // a physical card in a deck box like any other, and the card the user is
+  // most likely to care about the exact printing of, so it is never stored as
+  // a bare name.
+  //
+  // Two slots rather than one is not future-proofing: partner pairs and
+  // Backgrounds are ordinary, and The Prismatic Piper is never a legal solo
+  // commander, so a single slot would have been wrong on day one.
+  const [newDeckCommanders, setNewDeckCommanders] = useState([]);
+  const [commanderQuery, setCommanderQuery] = useState('');
+  const [commanderResults, setCommanderResults] = useState([]);
+  const [commanderSearching, setCommanderSearching] = useState(false);
+
+  // THE COMMANDER REFUSAL AND ITS OVERRIDE.
+  //
+  // An illegal commander is REFUSED by the server, not warned about, because
+  // it is the deck's foundation rather than its contents: the user cannot fix
+  // it by continuing to work, and every other card would be validated against
+  // a colour identity that can never be legal.
+  //
+  // But the refusal is OVERRIDABLE, and only this one is. Pairing legality is
+  // detected by parsing oracle text, and Wizards prints new pairing mechanics
+  // regularly -- so the app can be wrong here in a way it can never be wrong
+  // about singleton. Without a way through, an unrecognised new mechanic would
+  // permanently block a legal deck.
+  //
+  // `commanderRefusal` holds the server's refusal so the user can read WHAT
+  // was refused and WHY before deciding. It is null until the server refuses:
+  // there is no pre-armed override, no ticked checkbox, and no default path
+  // through. Silence is not consent -- the user must type a reason and press
+  // the override button, and the reason is recorded so the parser can learn
+  // the mechanic it failed to recognise.
+  const [commanderRefusal, setCommanderRefusal] = useState(null);
+  const [commanderOverrideReason, setCommanderOverrideReason] = useState('');
+  // The swap that was refused, held so an override can RE-SEND EXACTLY the
+  // same write. Re-deriving it from the search results at confirm time would
+  // risk overriding a different card than the one the refusal describes.
+  const [commanderRefusedSwap, setCommanderRefusedSwap] = useState(null);
+
+  // Whether the deck being created is a Commander deck. Every commander
+  // control on the modal is gated on this, so other formats show no extra
+  // field, run no extra validation, and look exactly as they did.
+  const isCommanderFormat = (format) => /commander|edh/i.test(String(format || ''));
+  const newDeckIsCommander = isCommanderFormat(newDeckFormat);
+
+  // Swap the commander of an EXISTING deck. Held here so the deck view can
+  // open the same search panel the create modal uses rather than growing a
+  // second one.
+  const [commanderSwap, setCommanderSwap] = useState(null); // { replacing } | null
   
   // Card Search States inside editor
   const [searchQuery, setSearchQuery] = useState('');
@@ -253,9 +308,117 @@ function DeckBuilder({ showToast }) {
     }
   };
 
-  const handleCreateDeck = async (e) => {
+  // Search for a commander, across the whole card database rather than only
+  // the collection.
+  //
+  // Scope is deliberate and differs from the Add Cards search. A commander is
+  // chosen when the deck is created -- often before the card has been bought --
+  // so restricting the search to owned cards would make it impossible to start
+  // building a deck around a commander you are about to acquire. Ownership is
+  // still reported afterwards by the deck's ordinary Missing badge, which is
+  // where every other unowned card in the app is reported.
+  const searchCommanders = async (query) => {
+    if (!query.trim()) { setCommanderResults([]); return; }
+    setCommanderSearching(true);
+    try {
+      const res = await fetch(`/api/search?name=${encodeURIComponent(query)}&game=mtg`);
+      if (res.ok) setCommanderResults(await res.json());
+      else showToast(t('deck.errSearch'));
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errSearch'));
+    } finally {
+      setCommanderSearching(false);
+    }
+  };
+
+  // Turn a search result into a commander choice.
+  //
+  // A finish is required, and it comes from the printing's own finish list --
+  // its only finish when it has exactly one, otherwise nonfoil as that
+  // printing's ordinary default. This is the same rule the import path uses
+  // for an explicitly-named printing, so the app never invents a finish a
+  // printing does not offer.
+  const commanderChoiceFromCard = (card) => {
+    const finishes = Array.isArray(card.finishes) ? card.finishes : [];
+    const finish = finishes.length === 1
+      ? finishes[0]
+      : (finishes.includes('nonfoil') ? 'nonfoil' : (finishes[0] || 'nonfoil'));
+    return {
+      desired_card_id: card.id,
+      desired_finish: finish,
+      name: card.name,
+      set_name: card.set_name,
+      number: card.number,
+      image_url: card.image_url,
+      oracle_id: card.oracle_id
+    };
+  };
+
+  const addCommanderChoice = (card) => {
+    // Changing the commanders INVALIDATES any refusal on screen. Without this
+    // the user could read a refusal about one pair, swap a card, and then
+    // "override" a complaint that no longer describes what they have chosen --
+    // and the recorded reason would name the wrong mechanic, poisoning the
+    // very feedback loop the reason exists to feed.
+    setCommanderRefusal(null);
+    setCommanderOverrideReason('');
+    const choice = commanderChoiceFromCard(card);
+    setNewDeckCommanders(prev => {
+      if (prev.length >= 2) return prev;
+      // The same card twice is not a partner pair. Refused here as well as on
+      // the server, so the user finds out at the moment they click rather than
+      // when the create fails.
+      if (prev.some(c => c.desired_card_id === choice.desired_card_id
+        && c.desired_finish === choice.desired_finish)) return prev;
+      return [...prev, choice];
+    });
+    setCommanderQuery('');
+    setCommanderResults([]);
+  };
+
+  const removeCommanderChoice = (index) => {
+    // Same reason as addCommanderChoice: a refusal describes a specific pair,
+    // so changing the pair must retire it.
+    setCommanderRefusal(null);
+    setCommanderOverrideReason('');
+    setNewDeckCommanders(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Reset every field the create modal owns. One function rather than a list
+  // of setters repeated at each exit, because a field forgotten in one of
+  // those lists leaks into the next deck the user creates.
+  const resetCreateForm = () => {
+    setNewDeckName('');
+    setNewDeckDesc('');
+    setNewDeckFormat('Commander / EDH');
+    setNewDeckCategory('Competitive');
+    setNewDeckAccentColor('#eab308');
+    setNewDeckTargetSize(100);
+    setNewDeckImportText('');
+    setShowImportDecklistArea(false);
+    setNewDeckCommanders([]);
+    setCommanderQuery('');
+    setCommanderResults([]);
+    setCommanderRefusal(null);
+    setCommanderOverrideReason('');
+  };
+
+  // `override` is passed ONLY when the user has explicitly confirmed a refusal
+  // and typed a reason. It is a parameter rather than component state read at
+  // send time so there is no path where a stale confirmation from an earlier
+  // attempt silently applies to a different pair of commanders.
+  const handleCreateDeck = async (e, override = null) => {
     e.preventDefault();
     if (!newDeckName.trim()) return;
+
+    // A Commander deck without a commander is refused here as well as on the
+    // server. The client check exists so the user is told before the round
+    // trip; the server check exists because the client is not the authority.
+    if (newDeckIsCommander && newDeckCommanders.length === 0) {
+      showToast(t('deck.commanderRequired'));
+      return;
+    }
 
     try {
       const response = await fetch('/api/decks', {
@@ -267,7 +430,19 @@ function DeckBuilder({ showToast }) {
           format: newDeckFormat,
           category: newDeckCategory,
           accent_color: newDeckAccentColor,
-          target_size: newDeckTargetSize
+          target_size: newDeckTargetSize,
+          // Sent only for Commander. Other formats post exactly the body they
+          // posted before this change.
+          ...(newDeckIsCommander ? {
+            commanders: newDeckCommanders.map(c => ({
+              desired_card_id: c.desired_card_id,
+              desired_finish: c.desired_finish
+            })),
+            // Present ONLY on an explicitly confirmed retry. Its absence is
+            // what makes the server refuse, which is the point: there must be
+            // no request shape where the override happens by default.
+            ...(override ? { commander_override: override } : {})
+          } : {})
         })
       });
 
@@ -303,18 +478,37 @@ function DeckBuilder({ showToast }) {
           }
         }
 
-        setNewDeckName('');
-        setNewDeckDesc('');
-        setNewDeckFormat('Commander / EDH');
-        setNewDeckCategory('Competitive');
-        setNewDeckAccentColor('#eab308');
-        setNewDeckTargetSize(100);
-        setNewDeckImportText('');
-        setShowImportDecklistArea(false);
         setShowCreateModal(false);
+        resetCreateForm();
         fetchDecks();
       } else {
-        showToast(t('deck.errCreate'));
+        // The server states WHY a create was refused (no commander, too many,
+        // a duplicated partner). Showing its message rather than a generic
+        // failure is the difference between the user fixing it and the user
+        // clicking the same button again.
+        const data = await response.json().catch(() => ({}));
+
+        // A refusal the server marks OVERRIDABLE is held on the form rather
+        // than thrown away in a toast, so the user can read what was refused
+        // and decide. A toast would vanish before they could act on it, and
+        // acting on it is the entire point.
+        //
+        // Only `overridable` refusals get this treatment. Singleton and the
+        // other fixed rules do NOT set it, so they fall through to the plain
+        // toast and stay un-overridable -- the app cannot be wrong about them,
+        // so there is nothing for the user to confirm.
+        if (data.overridable) {
+          setCommanderRefusal(data);
+          // The reason box starts EMPTY on every new refusal. Carrying a
+          // previous reason forward would be the app pre-filling the user's
+          // justification, which is exactly the "pre-ticked checkbox" the
+          // spec rules out.
+          setCommanderOverrideReason('');
+          return;
+        }
+
+        setCommanderRefusal(null);
+        showToast(data.error || t('deck.errCreate'));
       }
     } catch (err) {
       console.error(err);
@@ -411,15 +605,34 @@ function DeckBuilder({ showToast }) {
   // user's behalf, who then finds the wrong version when they walk to the
   // binder. `quantity` is the ABSOLUTE new count, not a delta, so a retried or
   // double-tapped request cannot double the requirement.
-  const writeRequirement = async ({ desired_card_id, desired_finish, board = 'mainboard', quantity }) => {
+  const writeRequirement = async ({ desired_card_id, desired_finish, board = 'mainboard', quantity, commander_override = null, replacing_deck_card_id = null }) => {
     if (!activeDeck) return false;
     const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ desired_card_id, desired_finish, board, quantity })
+      body: JSON.stringify({
+        desired_card_id, desired_finish, board, quantity,
+        // Sent only on an explicitly confirmed retry, exactly as on create.
+        ...(commander_override ? { commander_override } : {}),
+        // Sent only when this write EDITS an existing row -- a re-pin, a finish
+        // change, a commander re-printing. It tells the server which row the
+        // user is changing, so the singleton rule excludes that row instead of
+        // counting it as a duplicate of itself, and so the replace lands as one
+        // atomic write rather than an add followed by a delete.
+        ...(replacing_deck_card_id ? { replacing_deck_card_id } : {})
+      })
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      // An overridable commander refusal is handed back to the caller instead
+      // of being flattened into a toast, so the swap flow can offer the same
+      // explicit confirmation the create modal does. Everything else keeps
+      // the existing behaviour untouched.
+      if (data.overridable) {
+        setCommanderRefusal(data);
+        setCommanderOverrideReason('');
+        return false;
+      }
       showToast(data.error || 'Failed to save card.');
       return false;
     }
@@ -434,17 +647,39 @@ function DeckBuilder({ showToast }) {
     return res.json();
   };
 
-  // "Add this card" from the search results.
+  // "Add this card" from the results list.
   //
-  // The gesture the user makes is still one click on the card they searched
-  // for. What changed is what happens when that click is AMBIGUOUS. If they own
-  // exactly one printing+finish of the card there is nothing to ask and it is
-  // added immediately, exactly as before. If they own several, we open the
-  // variant picker inline in this same list rather than picking for them --
-  // choosing silently is the specific failure exact-only identity exists to
-  // prevent.
+  // THE RULE, stated once: NEVER RE-ASK A QUESTION THE USER JUST ANSWERED.
+  //
+  // A Browse Collection row is already ONE exact printing and finish -- "Sol
+  // Ring (Commander Masters · #410)" and "Sol Ring (Commander 2021 · #263)"
+  // are separate rows. Clicking + on one of them IS the answer to "which
+  // physical card". Opening a picker that lists both printings again asks the
+  // user to repeat the click they just made, on a panel that cannot tell them
+  // anything the row did not already say.
+  //
+  // So a row that carries its own exact identity (`exact`, set by
+  // groupOwnedByVariant) is added straight away. The picker survives for the
+  // case it was actually built for: a NAME-scoped search result, which names a
+  // printing but no finish, or nothing owned at all -- there the app genuinely
+  // does not know which physical object is meant, and guessing would put the
+  // wrong card in the deck.
   const handleAddCardToDeck = async (card, board = 'mainboard') => {
     if (!activeDeck || savingCard) return;
+
+    // The row already IS an exact (printing, finish). Nothing to ask.
+    if (card.exact && card.finish) {
+      await addExactVariant({
+        desired_card_id: card.desired_card_id || card.id,
+        name: card.name,
+        set_name: card.set_name,
+        number: card.number,
+        image_url: card.image_url,
+        finish: card.finish,
+        owned_qty: card.owned_qty
+      }, board);
+      return;
+    }
 
     setLoadingVariants(true);
     try {
@@ -538,17 +773,19 @@ function DeckBuilder({ showToast }) {
 
   // Repin an existing entry to a chosen printing+finish.
   //
-  // Implemented as add-then-remove rather than an UPDATE, because the entry's
-  // identity IS (printing, finish): changing them makes it a different
-  // requirement, and the server's upsert is keyed on them.
+  // Implemented as ONE atomic server-side replace, because the entry's identity
+  // IS (printing, finish): changing them makes it a different requirement, and
+  // the server needs to be told WHICH ROW is changing.
   //
-  // The ORDER is load-bearing. Removing first and then adding would, if the add
-  // failed (dropped connection, server restart between the two calls), leave
-  // the card gone from the deck entirely -- a silent loss of a requirement the
-  // user never asked to delete, on an app whose whole job is tracking physical
-  // objects. Adding first means the worst case is a visible duplicate row the
-  // user can see and remove, not a disappearance they will not notice until
-  // they are standing at the binder.
+  // This used to be an add followed by a delete -- two requests -- and the
+  // ordering was chosen to make the failure mode a visible duplicate rather
+  // than a silent disappearance. That was the right call for two requests, but
+  // the better answer is not to have two: between them the deck really does
+  // hold two copies of one card name, which in a Commander deck is a state the
+  // server itself calls illegal, and if the delete never lands (dropped
+  // connection, server restart) it holds them permanently. Naming the row lets
+  // the server do both halves in one transaction, so there is no window at all
+  // and a refusal rolls the whole edit back.
   //
   // The quantity carried over is the requirement's own quantity, unchanged. The
   // user asked to change WHICH card, not HOW MANY -- and if the new printing
@@ -564,6 +801,8 @@ function DeckBuilder({ showToast }) {
 
     setSavingCard(true);
     try {
+      // An existing row for the printing being moved TO is merged into, so the
+      // re-pin does not lose the copies already required against it.
       const existing = activeDeck.cards.find(c =>
         c.desired_card_id === variant.desired_card_id &&
         c.desired_finish === variant.finish &&
@@ -574,12 +813,10 @@ function DeckBuilder({ showToast }) {
         desired_card_id: variant.desired_card_id,
         desired_finish: variant.finish,
         board: entry.board,
-        quantity: (existing ? existing.quantity : 0) + entry.quantity
+        quantity: (existing ? existing.quantity : 0) + entry.quantity,
+        replacing_deck_card_id: entry.id
       });
       if (!ok) return;
-
-      const removed = await fetch(`/api/decks/${activeDeck.id}/cards/${entry.id}`, { method: 'DELETE' });
-      if (!removed.ok) showToast(t('deck.errQuantity'));
 
       setPrintingEditor(null);
       await loadDeckDetails(activeDeck.id);
@@ -643,10 +880,14 @@ function DeckBuilder({ showToast }) {
   //
   // This is the ONLY way "considering" is expressed. A DECK is never in a
   // considering state; a single card is. Board is part of the requirement's
-  // uniqueness key, so a move is a delete of the old row plus a write of the
-  // new one rather than an in-place update. The delete happens second: if the
-  // write fails the user still has their card, which is the safe way round for
-  // software tracking physical objects.
+  // uniqueness key, so a move is a rewrite of the row rather than an in-place
+  // update -- and it goes through the same atomic server-side replace the
+  // re-pin and the commander swap use.
+  //
+  // It used to be a write followed by a separate delete. Between those two
+  // requests the card sat on BOTH boards at once, and if the delete never
+  // landed it stayed on both -- so the deck's own arithmetic would count a card
+  // the user owns one of, twice. Naming the row being moved closes the window.
   const handleMoveBoard = async (entry, board) => {
     if (!activeDeck || savingCard || entry.board === board) return;
     setSavingCard(true);
@@ -660,14 +901,11 @@ function DeckBuilder({ showToast }) {
         desired_card_id: entry.desired_card_id,
         desired_finish: entry.desired_finish,
         board,
-        quantity: (existing ? existing.quantity : 0) + entry.quantity
+        quantity: (existing ? existing.quantity : 0) + entry.quantity,
+        replacing_deck_card_id: entry.id
       });
       if (!ok) return;
 
-      const res = await fetch(`/api/decks/${activeDeck.id}/cards/${entry.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        showToast(t('loc.errRemoveCard'));
-      }
       await loadDeckDetails(activeDeck.id);
     } catch (err) {
       console.error(err);
@@ -717,31 +955,77 @@ function DeckBuilder({ showToast }) {
     }
   };
 
+  // Browse the collection: one row per EXACT (printing, finish) the user owns.
+  //
+  // GET /api/collection returns one row per PHYSICAL CARD -- three copies of a
+  // Swamp are three rows, deliberately, because checkout allocates specific
+  // copies (server.js splitStackedEntries). Showing that raw here would give
+  // the user three identical-looking Swamp rows to choose between with no way
+  // to tell them apart.
+  //
+  // So the rows are grouped for DISPLAY only, keyed on (card_id, finish) --
+  // which is exactly the app's deck identity. Nothing is merged in the
+  // database and splitStackedEntries is untouched; this is a `reduce` over a
+  // read.
+  //
+  // The key includes the FINISH. A foil Sol Ring and a nonfoil Sol Ring of the
+  // same printing are two different physical objects that do not substitute
+  // for each other, so they are two rows -- and the row carries its finish so
+  // the FOIL badge can distinguish them on screen.
+  //
+  // The consequence that matters for requirement 1: every row in this list is
+  // now ONE exact printing and finish, so clicking + on it is already a
+  // complete instruction. Nothing has to be asked.
+  const groupOwnedByVariant = (rows) => {
+    const byVariant = new Map();
+    for (const item of rows) {
+      const finish = item.finish || 'nonfoil';
+      const key = `${item.card_id}|${finish}`;
+      const existing = byVariant.get(key);
+      if (existing) {
+        existing.owned_qty += (item.quantity || 1);
+        continue;
+      }
+      byVariant.set(key, {
+        id: item.card_id,
+        oracle_id: item.oracle_id,
+        name: item.name,
+        set_name: item.set_name,
+        number: item.number || item.collector_number || item.card_number || '',
+        image_url: item.image_url,
+        rarity: item.rarity,
+        price_trend: item.price_trend,
+        owned_qty: item.quantity || 1,
+        // The exact identity this row IS. Carried explicitly so the add path
+        // can send it straight to the server rather than re-deriving it from
+        // a search result that has no finish.
+        finish,
+        desired_card_id: item.card_id,
+        exact: true,
+        supertype: item.supertype,
+        subtypes: item.subtypes,
+        types: item.types,
+        type_line: item.type_line,
+        finishes: item.finishes,
+        colors: item.colors,
+        cmc: item.cmc
+      });
+    }
+    return [...byVariant.values()];
+  };
+
   const handleSearchCards = async (e, forceBrowse = false) => {
     if (e) e.preventDefault();
     try {
       setSearching(true);
+      // Any new result list invalidates an open picker: it was asking about a
+      // card that may no longer be on screen.
+      setVariantPicker(null);
       if (forceBrowse || !searchQuery.trim()) {
         const res = await fetch(`/api/collection?game=${deckSearchGame}`);
         if (res.ok) {
           const data = await res.json();
-          const mapped = data.map(item => ({
-            id: item.card_id,
-            oracle_id: item.oracle_id,
-            name: item.name,
-            set_name: item.set_name,
-            number: item.number || item.collector_number || item.card_number || '',
-            image_url: item.image_url,
-            owned_qty: item.quantity || 1,
-            supertype: item.supertype,
-            subtypes: item.subtypes,
-            types: item.types,
-            type_line: item.type_line,
-            finishes: item.finishes,
-            colors: item.colors,
-            cmc: item.cmc
-          }));
-          setSearchResults(mapped);
+          setSearchResults(groupOwnedByVariant(data));
         }
       } else {
         const finalQuery = searchQuery;
@@ -1013,8 +1297,18 @@ function DeckBuilder({ showToast }) {
 
     // Copies the app could not place are reported alongside, never absorbed.
     // Leaving a card out is recoverable only if the user is told about it.
-    if (summary.unresolved_copies > 0) {
-      showToast(t('deck.importUnresolvedCopies', { count: summary.unresolved_copies }));
+    //
+    // Refusals are reported SEPARATELY from unresolved copies. They are a
+    // different problem with a different fix -- an unresolved copy needs a
+    // printing chosen, a refused copy cannot go in this deck at all -- and one
+    // combined number would tell the user to do something that will not work.
+    if (summary.refused_copies > 0) {
+      showToast(t('deck.importRefusedToast', { count: summary.refused_copies }));
+    }
+    if (summary.unresolved_copies > summary.refused_copies) {
+      showToast(t('deck.importUnresolvedCopies', {
+        count: summary.unresolved_copies - summary.refused_copies
+      }));
     }
 
     await loadDeckDetails(activeDeck.id);
@@ -1026,6 +1320,68 @@ function DeckBuilder({ showToast }) {
     setShowImportModal(false);
   };
 
+
+  // Swap a commander on an EXISTING deck.
+  //
+  // ONE atomic server-side replace, for exactly the reason repinEntryPrinting
+  // is. This was an add-then-remove pair of requests, ordered so a failure left
+  // a visible extra commander rather than a deck with none. But the window
+  // between the two requests is a command zone holding two commanders, and the
+  // server now refuses a zone it judges illegal -- so swapping to a different
+  // printing of the SAME commander could not succeed at all, because the add
+  // half was a second copy by name. Naming the row being replaced makes it one
+  // write: the zone never transiently holds both, and a refusal rolls the whole
+  // swap back with the commander the user already had left in place.
+  const swapCommander = async (replacing, card, override = null) => {
+    if (!activeDeck || savingCard) return;
+    const choice = commanderChoiceFromCard(card);
+
+    if (replacing
+      && replacing.desired_card_id === choice.desired_card_id
+      && replacing.desired_finish === choice.desired_finish) {
+      setCommanderSwap(null);
+      return;
+    }
+
+    setSavingCard(true);
+    try {
+      const ok = await writeRequirement({
+        desired_card_id: choice.desired_card_id,
+        desired_finish: choice.desired_finish,
+        board: 'commander',
+        quantity: 1,
+        commander_override: override,
+        // Only when REPLACING one. Adding a second commander to a deck that
+        // has one is not an edit, and must still be judged as a new entry.
+        replacing_deck_card_id: replacing ? replacing.id : null
+      });
+      // A refused write leaves the command zone untouched, so there is nothing
+      // to undo -- and the old commander is still in place, because the
+      // replace is one transaction on the server rather than two requests here.
+      if (!ok) {
+        // A refused swap remembers WHAT was attempted, so the override
+        // re-sends the identical write rather than whatever is selected by
+        // the time the user finishes typing their reason.
+        setCommanderRefusedSwap({ replacing, card });
+        return;
+      }
+
+      // The swap succeeded, so any refusal panel on screen is stale.
+      setCommanderRefusal(null);
+      setCommanderOverrideReason('');
+      setCommanderRefusedSwap(null);
+
+      setCommanderSwap(null);
+      setCommanderQuery('');
+      setCommanderResults([]);
+      await loadDeckDetails(activeDeck.id);
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errQuantity'));
+    } finally {
+      setSavingCard(false);
+    }
+  };
 
   // The cards that are actually IN the deck.
   //
@@ -1775,15 +2131,39 @@ function DeckBuilder({ showToast }) {
                           // you have not finished buying is the normal case;
                           // the row's badge reports the shortfall instead.
                           const disabledAdd = savingCard || isAtRuleMax;
-                          const isPicking = variantPicker && variantPicker.card.oracle_id === card.oracle_id;
+                          // Keyed on the exact variant, not the Oracle card.
+                          // Browse rows are per (printing, finish), so several
+                          // rows share an oracle_id -- matching on it would
+                          // open the picker under every printing of the card at
+                          // once. Exact rows never open a picker at all; this
+                          // only fires for a name-scoped search result.
+                          const rowKey = `${card.id}|${card.finish || ''}`;
+                          const isPicking = variantPicker
+                            && `${variantPicker.card.id}|${variantPicker.card.finish || ''}` === rowKey;
 
                           return (
-                            <div key={card.id} style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: `1px solid ${isPicking ? 'rgba(234,179,8,0.4)' : 'var(--border-glass)'}` }}>
+                            <div key={rowKey} style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: `1px solid ${isPicking ? 'rgba(234,179,8,0.4)' : 'var(--border-glass)'}` }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.5rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
                                   <img src={card.image_url} alt={card.name} style={{ width: '24px', height: '33px', objectFit: 'cover', borderRadius: '2px' }} />
                                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)' }}>{card.name} ({card.set_name} • #{card.number})</span>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                      {card.name} ({card.set_name} • #{card.number})
+                                      {/* THE FOIL INDICATOR.
+                                          Rows are separated by finish, so a
+                                          foil and a nonfoil of one printing are
+                                          two rows -- but without this badge
+                                          they read identically and the user
+                                          cannot tell which row is which.
+
+                                          This is the Collection screen's own
+                                          yellow FOIL badge, imported rather
+                                          than re-styled: a foil has to look
+                                          like a foil everywhere in the app,
+                                          and a second amber pill defined here
+                                          would drift from the first one. */}
+                                      <FinishBadge card={card} />
+                                    </span>
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Owned: {ownedQty} | In Deck: {qtyInDeck}</span>
                                   </div>
                                 </div>
@@ -1893,6 +2273,7 @@ function DeckBuilder({ showToast }) {
                     groupDeckCards(activeDeck.cards).map(section => {
                       const collapsed = collapsedSections.has(section.key);
                       const isConsidering = section.kind === 'considering';
+                      const isCommanderSection = section.kind === 'commander';
                       const sum = sectionCount(section.cards);
 
                       return (
@@ -1932,6 +2313,156 @@ function DeckBuilder({ showToast }) {
                             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0 }}>
                               {t('deck.consideringHint')}
                             </p>
+                          )}
+
+                          {/* CHANGE OR ADD A COMMANDER, from inside the deck.
+                              Lives in the existing Commander section from PR 6D
+                              rather than on a new screen or a separate modal:
+                              the commander is a card in the deck list, and this
+                              is the row it already occupies.
+
+                              Only for Commander decks. `groupDeckCards` only
+                              emits a commander section for entries on the
+                              commander board, so a Modern deck never reaches
+                              this branch. The "add a partner" affordance
+                              appears while fewer than two are assigned. */}
+                          {isCommanderSection && !collapsed && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                {section.cards.map(commander => (
+                                  <button
+                                    key={`swap-${commander.id}`}
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    disabled={savingCard}
+                                    onClick={() => {
+                                      setCommanderResults([]);
+                                      setCommanderQuery('');
+                                      setCommanderSwap(
+                                        commanderSwap?.replacing?.id === commander.id
+                                          ? null
+                                          : { replacing: commander }
+                                      );
+                                    }}
+                                    style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}
+                                  >
+                                    {t('deck.commanderChange', { name: commander.name })}
+                                  </button>
+                                ))}
+                                {section.cards.length < 2 && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    disabled={savingCard}
+                                    onClick={() => {
+                                      setCommanderResults([]);
+                                      setCommanderQuery('');
+                                      setCommanderSwap(
+                                        commanderSwap && !commanderSwap.replacing ? null : { replacing: null }
+                                      );
+                                    }}
+                                    style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}
+                                  >
+                                    {t('deck.commanderAddPartner')}
+                                  </button>
+                                )}
+                              </div>
+
+                              {commanderSwap && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.5rem' }}>
+                                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    <input
+                                      type="text"
+                                      className="input-control"
+                                      placeholder={t('deck.commanderSearchPlaceholder')}
+                                      value={commanderQuery}
+                                      onChange={(e) => setCommanderQuery(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          searchCommanders(commanderQuery);
+                                        }
+                                      }}
+                                      style={{ flex: 1, fontSize: '0.8rem' }}
+                                    />
+                                    <button type="button" className="btn btn-secondary" onClick={() => searchCommanders(commanderQuery)} style={{ padding: '0.4rem 0.7rem' }}>
+                                      <Search size={13} />
+                                    </button>
+                                    <button type="button" className="btn btn-secondary btn-icon-only" style={{ padding: '0.2rem' }} onClick={() => setCommanderSwap(null)}>
+                                      <X size={12} />
+                                    </button>
+                                  </div>
+                                  {commanderSearching ? (
+                                    <div className="spinner" style={{ margin: '0.5rem auto' }}></div>
+                                  ) : commanderResults.map(card => (
+                                    <button
+                                      key={card.id}
+                                      type="button"
+                                      className="btn btn-secondary"
+                                      disabled={savingCard}
+                                      onClick={() => swapCommander(commanderSwap.replacing, card)}
+                                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0.4rem', fontSize: '0.72rem', textAlign: 'left' }}
+                                    >
+                                      <img src={card.image_url} alt={card.name} style={{ width: '20px', height: '28px', objectFit: 'cover', borderRadius: '2px' }} />
+                                      <span style={{ color: 'var(--text-strong)' }}>
+                                        {card.name} <span style={{ color: 'var(--text-secondary)' }}>({card.set_name} • #{card.number})</span>
+                                      </span>
+                                    </button>
+                                  ))}
+
+                                  {/* THE SAME REFUSAL + OVERRIDE, inside the
+                                      existing swap panel. Not a new screen and
+                                      not a second design -- the user has
+                                      already learned this control on the
+                                      create modal. */}
+                                  {commanderRefusal && commanderRefusedSwap && (
+                                    <div style={{ padding: '0.5rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.35rem' }}>
+                                        <AlertTriangle size={13} style={{ color: 'var(--accent-red)', flexShrink: 0, marginTop: '1px' }} />
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-strong)', fontWeight: 600, lineHeight: 1.35 }}>
+                                          {commanderRefusal.error}
+                                        </div>
+                                      </div>
+                                      <div style={{ fontSize: '0.63rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                        {t('deck.commanderOverrideHint')}
+                                      </div>
+                                      <input
+                                        type="text"
+                                        className="input-control"
+                                        placeholder={t('deck.commanderOverrideReasonPlaceholder')}
+                                        value={commanderOverrideReason}
+                                        onChange={(e) => setCommanderOverrideReason(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                                        style={{ fontSize: '0.76rem' }}
+                                      />
+                                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary"
+                                          disabled={savingCard || !commanderOverrideReason.trim()}
+                                          onClick={() => swapCommander(
+                                            commanderRefusedSwap.replacing,
+                                            commanderRefusedSwap.card,
+                                            { reason: commanderOverrideReason.trim() }
+                                          )}
+                                          style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem', opacity: commanderOverrideReason.trim() ? 1 : 0.5 }}
+                                        >
+                                          {t('deck.commanderOverrideConfirm')}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary"
+                                          onClick={() => { setCommanderRefusal(null); setCommanderOverrideReason(''); setCommanderRefusedSwap(null); }}
+                                          style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}
+                                        >
+                                          {t('deck.commanderOverrideCancel')}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           )}
 
                           {/* 1. COMPACT LIST VIEW */}
@@ -2067,33 +2598,45 @@ function DeckBuilder({ showToast }) {
                             </div>
                           )}
 
-                          {/* 2. VISUAL CARD GRID VIEW */}
+                          {/* 2. VISUAL CARD GRID VIEW.
+                              Renders through the SAME CardTile the Collection
+                              gallery uses, so a card looks like itself on both
+                              screens: rarity chip top-left, quantity badge
+                              top-right, FOIL badge and foil shine on foils,
+                              name / set · number below.
+
+                              Deck-specific information is passed IN rather than
+                              replacing the tile: the reservation StatusBadge and
+                              the quantity/considering controls sit in the tile's
+                              footer, and the card's printing badge joins the
+                              overlay strip. That keeps one implementation of the
+                              card while still saying everything a deck row has
+                              to say. */}
                           {!collapsed && cardDisplayMode === 'grid' && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.75rem' }}>
+                            <div className="card-grid">
                               {section.cards.map(card => (
-                                <div key={card.id} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', transition: 'transform 0.15s' }}>
-                                  <div style={{ position: 'relative', width: '100%', aspectRatio: 0.718, cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
-                                    <img src={card.image_url} alt={card.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    <span style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.85)', color: 'var(--accent-yellow)', fontSize: '0.75rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', border: '1px solid var(--accent-yellow)' }}>
-                                      x{card.quantity}
-                                    </span>
-                                    <span style={{ position: 'absolute', bottom: '4px', left: '4px' }}>
-                                      <PrintingBadge card={card} />
-                                    </span>
-                                  </div>
-                                  <div style={{ padding: '4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', background: 'rgba(0,0,0,0.5)' }}>
-                                    <StatusBadge card={card} />
-                                    <div style={{ display: 'flex', gap: '2px' }}>
-                                      <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
-                                        {card.quantity === 1 ? <Trash2 size={10} /> : '-'}
-                                      </button>
-                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || (!isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card, card.quantity + 1)}>+</button>
-                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, color: isConsidering ? 'var(--accent-yellow)' : undefined }} disabled={savingCard} onClick={() => handleMoveBoard(card, isConsidering ? 'mainboard' : 'considering')} title={t(isConsidering ? 'deck.moveToDeck' : 'deck.moveToConsidering')}>
-                                        <Lightbulb size={10} />
-                                      </button>
+                                <CardTile
+                                  key={card.id}
+                                  card={card}
+                                  quantity={card.quantity}
+                                  onImageClick={() => setPreviewCard(card)}
+                                  badges={<PrintingBadge card={card} />}
+                                  meta={null}
+                                  footer={(
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                      <StatusBadge card={card} />
+                                      <div style={{ display: 'flex', gap: '2px' }}>
+                                        <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
+                                          {card.quantity === 1 ? <Trash2 size={10} /> : '-'}
+                                        </button>
+                                        <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || (!isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card, card.quantity + 1)}>+</button>
+                                        <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, color: isConsidering ? 'var(--accent-yellow)' : undefined }} disabled={savingCard} onClick={() => handleMoveBoard(card, isConsidering ? 'mainboard' : 'considering')} title={t(isConsidering ? 'deck.moveToDeck' : 'deck.moveToConsidering')}>
+                                          <Lightbulb size={10} />
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
-                                </div>
+                                  )}
+                                />
                               ))}
                             </div>
                           )}
@@ -2320,6 +2863,166 @@ function DeckBuilder({ showToast }) {
                   autoFocus
                 />
               </div>
+
+              {/* COMMANDER SELECTION.
+                  Rendered ONLY for the Commander format. Every other format
+                  sees this modal exactly as it was: no field, no validation,
+                  no layout change.
+
+                  One or two slots. A single slot would be wrong on day one --
+                  partner pairs and Backgrounds are ordinary, and The Prismatic
+                  Piper is never a legal commander by itself. */}
+              {newDeckIsCommander && (
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.3rem', display: 'block' }}>
+                    {t('deck.commanderLabel')} <span style={{ color: 'var(--accent-red)' }}>*</span>
+                  </label>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.4rem' }}>
+                    {t('deck.commanderHint')}
+                  </span>
+
+                  {/* The chosen commanders. Each shows its exact printing,
+                      because that is its identity -- the same thing every
+                      other card in the deck shows. */}
+                  {newDeckCommanders.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                      {newDeckCommanders.map((commander, index) => (
+                        <div key={`${commander.desired_card_id}-${commander.desired_finish}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.3rem 0.5rem', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 'var(--radius-sm)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                            <img src={commander.image_url} alt={commander.name} style={{ width: '24px', height: '33px', objectFit: 'cover', borderRadius: '2px' }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-strong)' }}>{commander.name}</div>
+                              <div style={{ fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
+                                {commander.set_name} • #{commander.number} · {finishLabel(commander.desired_finish)}
+                              </div>
+                            </div>
+                          </div>
+                          <button type="button" className="btn btn-secondary btn-icon-only" style={{ padding: '0.2rem' }} onClick={() => removeCommanderChoice(index)} title={t('deck.commanderRemove')}>
+                            <X size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* The search. Hidden once two commanders are chosen, since
+                      there is nothing left to fill. */}
+                  {newDeckCommanders.length < 2 && (
+                    <>
+                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <input
+                          type="text"
+                          className="input-control"
+                          placeholder={t('deck.commanderSearchPlaceholder')}
+                          value={commanderQuery}
+                          onChange={(e) => setCommanderQuery(e.target.value)}
+                          // Enter must not submit the create form while the
+                          // user is searching for a commander -- it would
+                          // create the deck with whatever is chosen so far.
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              searchCommanders(commanderQuery);
+                            }
+                          }}
+                          style={{ flex: 1, fontSize: '0.85rem' }}
+                        />
+                        <button type="button" className="btn btn-secondary" onClick={() => searchCommanders(commanderQuery)} style={{ padding: '0.5rem 0.8rem' }}>
+                          <Search size={14} />
+                        </button>
+                      </div>
+
+                      {commanderSearching ? (
+                        <div className="spinner" style={{ margin: '0.6rem auto' }}></div>
+                      ) : commanderResults.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.5rem', maxHeight: '160px', overflowY: 'auto', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.4rem' }}>
+                          {commanderResults.map(card => (
+                            <button
+                              key={card.id}
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => addCommanderChoice(card)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0.4rem', fontSize: '0.72rem', textAlign: 'left' }}
+                            >
+                              <img src={card.image_url} alt={card.name} style={{ width: '20px', height: '28px', objectFit: 'cover', borderRadius: '2px' }} />
+                              <span style={{ color: 'var(--text-strong)' }}>
+                                {card.name} <span style={{ color: 'var(--text-secondary)' }}>({card.set_name} • #{card.number})</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {/* THE REFUSAL AND ITS OVERRIDE.
+                      Rendered INSIDE the existing commander field, not as a
+                      new screen or a separate modal -- it is about the
+                      commanders chosen just above it, and it belongs next to
+                      them.
+
+                      It appears only after the server has actually refused.
+                      There is no pre-armed checkbox and no default path
+                      through: the user must read the refusal, type a reason,
+                      and press a button that is disabled until they do.
+                      Silence is not consent. */}
+                  {commanderRefusal && (
+                    <div style={{ marginTop: '0.6rem', padding: '0.6rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
+                        <AlertTriangle size={14} style={{ color: 'var(--accent-red)', flexShrink: 0, marginTop: '1px' }} />
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-strong)', fontWeight: 600, lineHeight: 1.35 }}>
+                          {commanderRefusal.error}
+                        </div>
+                      </div>
+
+                      {/* Why an override exists at all, said plainly. The user
+                          needs to know this is "the app might not know that
+                          mechanic yet", not "the rules are optional". */}
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                        {t('deck.commanderOverrideHint')}
+                      </div>
+
+                      <input
+                        type="text"
+                        className="input-control"
+                        placeholder={t('deck.commanderOverrideReasonPlaceholder')}
+                        value={commanderOverrideReason}
+                        onChange={(e) => setCommanderOverrideReason(e.target.value)}
+                        // Enter must not submit the form from inside the
+                        // reason box: that would let a stray keypress perform
+                        // the override, which is the opposite of an explicit
+                        // confirmation.
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                        style={{ fontSize: '0.78rem' }}
+                      />
+
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          // DISABLED until a reason is typed. The reason is
+                          // what turns a bypass into a bug report the parser
+                          // can be improved from, so an override without one
+                          // is not an override -- and the server rejects it
+                          // too, because the client is not the authority.
+                          disabled={!commanderOverrideReason.trim()}
+                          onClick={(e) => handleCreateDeck(e, { reason: commanderOverrideReason.trim() })}
+                          style={{ fontSize: '0.72rem', padding: '0.35rem 0.7rem', opacity: commanderOverrideReason.trim() ? 1 : 0.5 }}
+                        >
+                          {t('deck.commanderOverrideConfirm')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => { setCommanderRefusal(null); setCommanderOverrideReason(''); }}
+                          style={{ fontSize: '0.72rem', padding: '0.35rem 0.7rem' }}
+                        >
+                          {t('deck.commanderOverrideCancel')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Category Pills */}
               <div className="form-group">
@@ -2620,6 +3323,32 @@ function DeckBuilder({ showToast }) {
                     )}
                   </div>
                 )}
+
+                {/* REFUSED LINES, STATED BEFORE THE IMPORT COMMITS.
+                    A refusal is not a warning and it is not a shortfall: the
+                    card cannot go in this deck at all, and no amount of
+                    choosing a printing will change that. So it gets its own
+                    red block above the line list rather than being folded into
+                    the yellow "needs a printing" count -- which would send the
+                    user hunting for a picker that is not there.
+
+                    Every refused line is NAMED with its reason. That is the
+                    whole promise of pre-flight validation: the user sees what
+                    will happen before it happens, and nothing is dropped
+                    quietly. */}
+                {importSummary && importSummary.lines_refused > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.35)', borderRadius: 'var(--radius-sm)', padding: '0.5rem' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f87171', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <AlertTriangle size={12} />
+                      {t('deck.importRefusedHeading', { count: importSummary.refused_copies })}
+                    </span>
+                    {(importSummary.refusals || []).map((refusal, i) => (
+                      <span key={i} style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                        {refusal.reason}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
                   {importComparison.map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px' }}>
@@ -2642,10 +3371,22 @@ function DeckBuilder({ showToast }) {
                             {item.status === 'full' ? `Owned (${item.allocated})`
                               : item.status === 'partial' ? `Partial (${item.allocated}/${item.requested})`
                                 : item.status === 'missing' ? `Missing (${item.shortfall})`
-                                  : 'Not found'}
+                                  : item.status === 'refused' ? t('deck.importRefusedBadge')
+                                    : 'Not found'}
                           </span>
                         </div>
                       </div>
+
+                      {/* The reason this line will not import, on the line
+                          itself as well as in the summary above. The summary
+                          answers "what is wrong with this paste"; this answers
+                          "why is THIS line red", which is the question the user
+                          has while looking at it. */}
+                      {item.refused && item.refusal_reason && (
+                        <span style={{ fontSize: '0.68rem', color: '#f87171' }}>
+                          {item.refusal_reason}
+                        </span>
+                      )}
                       {/* Which physical printings this line will actually
                           spend. Shown before the import commits, because a
                           mixed-printing allocation is a decision about the

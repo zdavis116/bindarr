@@ -225,6 +225,34 @@ for (const pattern of [/quantity_owned\s*-/, /owned_qty\s*-\s*/, /quantity_requi
   );
 }
 
+// EVERY EDIT OF AN EXISTING ENTRY NAMES THE ROW IT IS EDITING.
+//
+// The three in-place rewrite paths -- re-pin a printing, swap a commander, move
+// between boards -- all used to be an add followed by a separate DELETE. Two
+// requests have a window between them in which the deck holds the card twice,
+// and the server's own singleton rule calls that state illegal; if the delete
+// never lands (dropped connection, restart) the deck holds it permanently.
+//
+// It also made re-pinning impossible in a Commander deck: the add half looked
+// exactly like a request for a second copy by name, because nothing in it said
+// "this is an edit". Singleton has no override by design, so the refusal was a
+// dead end on a feature that is supposed to work.
+//
+// Both are fixed by naming the row: the server excludes exactly that row from
+// the singleton count and does the replace in ONE transaction.
+for (const fn of ['repinEntryPrinting', 'swapCommander', 'handleMoveBoard']) {
+  const body = builder.slice(builder.indexOf(`const ${fn} = async`));
+  const scoped = body.slice(0, body.indexOf('\n  };'));
+  assert.ok(
+    /replacing_deck_card_id/.test(scoped),
+    `${fn} must tell the server which row it is editing`
+  );
+  assert.ok(
+    !/method:\s*'DELETE'/.test(scoped),
+    `${fn} must not follow its write with a separate DELETE -- the replace is atomic server-side`
+  );
+}
+
 // The restored screens are all still present. This is the regression that
 // prompted PR 6D: the previous attempt replaced them with a minimal panel.
 for (const marker of [
@@ -255,6 +283,53 @@ assert.ok(
 assert.ok(
   !/chosen\.quantity/.test(builder),
   'a stored printing choice carries no per-line quantity any more'
+);
+
+// ---------------------------------------------------------------------------
+// PR 6F source contracts.
+// ---------------------------------------------------------------------------
+
+// The deck grid and the Collection grid must render through the SAME tile.
+// Two implementations of one card is the drift PR 6F removed: the deck grid
+// had grown its own yellow x1 pill and green Reserved bar while the Collection
+// grid showed a rarity chip, a quantity badge and a FOIL badge.
+const collection = fs.readFileSync(path.join(here, 'CollectionList.jsx'), 'utf8');
+for (const [file, source] of [['DeckBuilder.jsx', builder], ['CollectionList.jsx', collection]]) {
+  assert.ok(
+    /from '\.\/CardTile'/.test(source),
+    `${file} must render cards through the shared CardTile`
+  );
+}
+
+// The deck grid's own bespoke badges must be gone, not merely unused. Leaving
+// them behind is how the two implementations reappear.
+assert.ok(
+  !/x\{card\.quantity\}\s*\n\s*<\/span>/.test(builder),
+  'the deck grid must not draw its own quantity pill'
+);
+
+// A Browse Collection row is one exact (printing, finish), so clicking + is
+// already a complete instruction. The add path must short-circuit on that
+// rather than opening the printing picker again.
+assert.ok(
+  /card\.exact\s*&&\s*card\.finish/.test(builder),
+  'an exact browse row must add directly, with no intermediate picker'
+);
+
+// ...but the picker itself must SURVIVE, for the case it was built for: a
+// genuinely ambiguous line with no printing the app can infer. Deleting it
+// would trade one wrong behaviour for another.
+assert.ok(
+  /setVariantPicker\(\{/.test(builder),
+  'the printing picker must still exist for genuinely ambiguous adds'
+);
+
+// Commander controls are gated on the FORMAT. The spec is explicit that other
+// formats see no extra field, no extra validation and no visual change, so an
+// ungated commander input would be a bug even if it worked.
+assert.ok(
+  /newDeckIsCommander\s*&&/.test(builder),
+  'commander inputs must be gated on the Commander format'
 );
 
 console.log('deckSections + DeckBuilder exact-identity self-check passed');
