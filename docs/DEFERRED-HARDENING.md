@@ -222,3 +222,51 @@ reader has not seen the PR.
       give the bound violation a `code` (and decide deliberately whether 413 or
       400 is the intended status for a too-large scalar field, rather than
       inheriting it).
+
+## Deferred: PR 6D
+
+Raised by independent review of PR 6D. None of these is a data-loss or
+correctness defect: each is a narrow robustness or explainability gap on a
+single-user, tailnet-only deployment. Recorded here rather than fixed in the
+merge-blocking pass, per the project's proportionality rule.
+
+- [ ] **`printingChoicesForOracle` floors an empty finishes list to
+      `['nonfoil']`.**
+      Correct for paper Magic — every paper printing has a nonfoil — and the
+      floor exists so a thin cache row cannot make a card unpickable entirely.
+      The gap: a thin cache row could therefore OFFER a finish that the real
+      printing does not have. The user would pick it, and the requirement would
+      name a physical object that does not exist. Bounded by cache quality, not
+      by user input. Fix shape: distinguish "this printing has no finish data"
+      from "this printing is nonfoil-only", and mark the floored option in the
+      picker rather than presenting it as known-good.
+
+- [ ] **`parseJsonColumn` swallows malformed JSON per column.**
+      Deliberate and documented: a corrupted cache row should degrade one
+      card's display rather than fail the whole deck read, which is the right
+      trade. The gap is that it degrades SILENTLY — nothing is surfaced
+      anywhere, so a card quietly rendering with no types or no colour identity
+      looks like a card that genuinely has none. Commander colour-identity
+      validation reads that field. Fix shape: keep the tolerant parse, but
+      count the failures and surface them as a deck-level warning so a
+      corrupted cache row is visible rather than merely survivable.
+
+- [ ] **`deckSections.js` 'Other' bucket has no UI affordance explaining why a
+      card landed there.**
+      A card whose `type_line` is missing or unrecognised falls into 'Other'
+      with no explanation. Not a correctness problem — the card is present and
+      counted — but the user cannot tell whether the app misread the card or
+      the card is genuinely unusual. Fix shape: a hint on the section header
+      naming the cause (no cached type line).
+
+- [ ] **`deckSections.test.js` and the T17-T30 import tests assert on real DB
+      state but lack load-bearing proofs.**
+      The tests are the right SHAPE — they read `deck_cards` rows and the
+      numbers shown to the user, not HTTP status codes. What they do not do is
+      prove each guard is load-bearing: deleting an individual guard should
+      turn a specific test red, and that has not been demonstrated per guard.
+      Fix shape: mutation-verify the import guards (see the
+      `mutation-verified-guards` approach) so each one has a named test that
+      fails when it is removed. Note that the PR 6D copy-conservation guard
+      added in this pass DOES have that property — T31 and T35 were captured
+      RED against the unfixed code before the fix landed.
