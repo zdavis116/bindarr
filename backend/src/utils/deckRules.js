@@ -1,6 +1,18 @@
-// Deck construction rules, enforced server-side so every path that writes
-// deck_cards (deck builder POST, the collection "add to deck" bulk action)
-// obeys them — the frontend checks were advisory and easy to bypass.
+// Deck construction rules.
+//
+// The important change in PR 6C is a change of KIND, not of content: these
+// rules used to BLOCK a save, and now they WARN.
+//
+// Why. The old `validateDeckAddition` refused to add a card the user did not
+// own. That makes the deck builder useless for the thing people actually use a
+// deck builder for -- planning a deck you have not finished buying. It also put
+// two unrelated concerns behind one gate: "is this a legal Magic deck" (a rules
+// question, answerable while you shop) and "can I physically assemble this
+// right now" (an inventory question, only relevant at checkout). Checkout still
+// enforces the inventory question hard; everything before it advises.
+//
+// Legality warnings are advisory in a second sense too: Commander validation
+// here is intentionally shallow (PR 8 owns the real thing).
 const db = require('../db');
 
 function parseSubtypes(raw) {
@@ -9,56 +21,91 @@ function parseSubtypes(raw) {
   return [];
 }
 
-// Basic Lands are exempt from the "max 4 of a
-// card" rule. Mirrors isBasicEnergyOrLand in the frontend DeckBuilder.
-function isBasicEnergyOrLand(card, game = 'mtg') {
+// Basic lands are exempt from the "max 4 copies" rule.
+function isBasicEnergyOrLand(card) {
   if (!card) return false;
   const subs = parseSubtypes(card.subtypes);
   const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
-  return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
+  return (subs.includes('Land') || card.supertype === 'Land')
+    && basicTypes.some(t => subs.includes(t) || card.name === t);
 }
 
-// Validate setting a deck's copy count of `cardId` to `newQty`.
-// Returns { ok: true } or { ok: false, error }. Enforces:
-//   1. can't exceed the copies actually owned in the collection;
-//   2. at most 4 copies per card name (basic energy/land exempt).
-async function validateDeckAddition({ deckId, userId, cardId, newQty, dbClient }) {
-  const client = dbClient || db;
-  const qty = parseInt(newQty, 10);
-  if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: 'Invalid quantity' };
+function client(database) {
+  return database || db;
+}
 
-  const card = await client.get(
-    `SELECT id, name, supertype, subtypes FROM card_cache WHERE id = ?`, [cardId]
-  );
-  if (!card) return { ok: false, error: 'Card not found' };
+// Build the advisory warning list for a deck.
+//
+// `entries` are the availability-annotated requirements from
+// deckIdentity.availabilityForDeck, so this function never re-derives ownership
+// -- there is exactly one definition of "owned" in the codebase and it lives in
+// deckIdentity.js.
+//
+// Every warning carries a machine-readable `code` alongside its human message.
+// The message is a display string and will be reworded and translated; anything
+// that branches on warning type must branch on the code.
+async function buildDeckWarnings(database, deck, entries) {
+  const warnings = [];
 
-  const ownedRow = await client.get(
-    `SELECT COALESCE(SUM(quantity), 0) AS owned FROM collection
-     WHERE card_id = ? AND user_id = ? AND list_type = 'collection'`, [cardId, userId]
-  );
-  const owned = ownedRow ? ownedRow.owned : 0;
-  if (qty > owned) {
-    return { ok: false, error: `You only own ${owned} ${owned === 1 ? 'copy' : 'copies'} of ${card.name}.` };
-  }
-
-  const game = 'mtg';
-
-  if (!isBasicEnergyOrLand(card, game)) {
-    // Copies of the same NAME already in the deck under a different card_id
-    // (alt arts / reprints) count toward the 4-card limit.
-    const otherRow = await client.get(
-      `SELECT COALESCE(SUM(dc.quantity), 0) AS other
-       FROM deck_cards dc JOIN card_cache cc ON dc.card_id = cc.id
-       WHERE dc.deck_id = ? AND cc.name = ? AND dc.card_id != ?`,
-      [deckId, card.name, cardId]
-    );
-    const other = otherRow ? otherRow.other : 0;
-    if (other + qty > 4) {
-      return { ok: false, error: `Cannot have more than 4 copies of ${card.name}.` };
+  for (const entry of entries) {
+    // Ownership shortfall. Reported for reserving requirements only: a
+    // considering entry is a shopping note, not a gap in the deck.
+    if (entry.reserves && entry.quantity_missing > 0) {
+      const label = `${entry.name} (${entry.set_name} #${entry.number}, ${entry.desired_finish})`;
+      warnings.push({
+        code: 'MISSING_COPIES',
+        deck_card_id: entry.id,
+        message: entry.quantity_owned === 0
+          ? `You do not own ${label}. Missing ${entry.quantity_missing} of ${entry.quantity_required}.`
+          : `You own ${entry.quantity_owned} of ${label}, but ${entry.quantity_allocated_elsewhere} `
+            + `${entry.quantity_allocated_elsewhere === 1 ? 'is' : 'are'} reserved by another deck. `
+            + `Missing ${entry.quantity_missing}.`
+      });
     }
   }
 
-  return { ok: true };
+  // Copy limit, counted across PRINTINGS of the same card name.
+  //
+  // Magic's four-copy rule is about the card NAME, so four different printings
+  // of Lightning Bolt is still four Lightning Bolts. Grouping by name rather
+  // than by oracle_id or desired_card_id is what makes that come out right.
+  const byName = new Map();
+  for (const entry of entries) {
+    // The considering board is explicitly a maybeboard and does not count
+    // toward deck legality.
+    if (entry.board === 'considering') continue;
+    const key = entry.name;
+    byName.set(key, (byName.get(key) || 0) + entry.quantity);
+  }
+  for (const [name, total] of byName) {
+    if (total <= 4) continue;
+    const sample = entries.find(e => e.name === name);
+    const card = await client(database).get(
+      `SELECT name, supertype, subtypes FROM card_cache WHERE id = ?`,
+      [sample.desired_card_id]
+    );
+    if (isBasicEnergyOrLand(card)) continue;
+    warnings.push({
+      code: 'COPY_LIMIT',
+      message: `${name}: ${total} copies across all printings exceeds the 4-copy limit.`
+    });
+  }
+
+  // Commander sanity, warning-only per requirement 5 and plan Task D3.
+  if (deck && /commander|edh/i.test(deck.format || '')) {
+    const commanders = entries.filter(e => e.board === 'commander');
+    const commanderCount = commanders.reduce((sum, e) => sum + e.quantity, 0);
+    if (commanderCount === 0) {
+      warnings.push({ code: 'COMMANDER_MISSING', message: 'This Commander deck has no commander assigned.' });
+    } else if (commanderCount > 2) {
+      warnings.push({
+        code: 'COMMANDER_TOO_MANY',
+        message: `This Commander deck has ${commanderCount} commanders; at most two (partners) are allowed.`
+      });
+    }
+  }
+
+  return warnings;
 }
 
-module.exports = { isBasicEnergyOrLand, validateDeckAddition };
+module.exports = { isBasicEnergyOrLand, buildDeckWarnings };

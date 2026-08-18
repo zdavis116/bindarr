@@ -2553,3 +2553,22 @@ button, input, select, textarea {
   color: var(--text-strong) !important;
 }
 
+/* Exact-finish deck status tones (PR 6C).
+ *
+ * 'unavailable' is the only red state in this table, and it is narrow: a card
+ * the user is CONSIDERING has no free copy right now because a real deck holds
+ * them all. The row stays fully visible -- the entry is not removed or dimmed,
+ * because the user is still considering the card. Only the answer to "can I
+ * fill this?" turns red. */
+.exact-deck-status.tone-unavailable {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.exact-deck-status.tone-warn {
+  color: #fbbf24;
+}
+
+.exact-deck-status.tone-muted {
+  color: var(--text-muted);
+}

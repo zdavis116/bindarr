@@ -19,36 +19,30 @@ function defaultCompartmentPlan(type) {
   return { count: 1, capacity: 500 };
 }
 
-// How many copies of each collection entry are physically pulled for a
-// checked-out deck. Sums required quantity per card across all of the user's
-// checked-out decks, then allocates greedily onto their owned entries using the
-// same ordering the checkout locator uses (located copies first, newest first),
-// so storage greys out the same copies the wizard told them to grab.
-async function checkedOutAllocation(userId) {
-  const required = await db.all(`
-    SELECT dc.card_id, SUM(dc.quantity) AS req
-    FROM deck_cards dc
+// Which collection rows are physically pulled for a checked-out deck.
+//
+// PR 6C changed this from DERIVED to STORED, and that is the whole point. It
+// used to re-run a greedy allocation on every collection page load, which meant
+// the "in a deck" badge could move from one copy to another because an
+// unrelated card was added. Storage and the checkout wizard would then disagree
+// about which physical card was in the deck box, and the user had no way to
+// tell which one was lying.
+//
+// Now both read the same recorded rows, so they cannot disagree by
+// construction.
+async function checkedOutAllocation(userId, database) {
+  const client = database || db;
+  const rows = await client.all(`
+    SELECT a.collection_entry_id AS entry_id, SUM(a.quantity) AS taken
+    FROM deck_card_allocations a
+    JOIN deck_cards dc ON a.deck_card_id = dc.id
     JOIN decks d ON dc.deck_id = d.id
     WHERE d.user_id = ? AND d.checked_out = 1
-    GROUP BY dc.card_id
+    GROUP BY a.collection_entry_id
   `, [userId]);
-  const alloc = new Map();
-  for (const { card_id, req } of required) {
-    let need = req;
-    const entries = await db.all(`
-      SELECT id AS entry_id, quantity FROM collection
-      WHERE user_id = ? AND list_type = 'collection' AND card_id = ?
-      ORDER BY (location_id IS NOT NULL) DESC, added_at DESC
-    `, [userId, card_id]);
-    for (const e of entries) {
-      if (need <= 0) break;
-      const take = Math.min(e.quantity, need);
-      need -= take;
-      alloc.set(e.entry_id, take);
-    }
-  }
-  return alloc;
+  return new Map(rows.map(r => [r.entry_id, r.taken]));
 }
+
 
 // Resolves where a card should actually land. Supports both object destructuring signature
 // and positional (database, locationId, cardId, userId) signature for backwards compatibility.

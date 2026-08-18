@@ -9,7 +9,6 @@ const { resolveCardPrice, parseCardRow, recordPrice } = require('../utils/priceH
 const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
 const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
-const { validateDeckAddition } = require('../utils/deckRules');
 const { splitPrice } = require('../utils/splitPrice');
 const {
   InvariantError,
@@ -717,32 +716,59 @@ router.post('/collection/bulk', async (req, res) => {
       const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, req.user.id]);
       if (!deck) return res.status(404).json({ error: 'Deck not found' });
 
+      // Group by the EXACT variant, not by card_id.
+      //
+      // This path is "add these cards I am looking at to a deck", and under
+      // exact-only identity the selected collection rows already state their
+      // own printing and finish -- so the requirement can be created without
+      // ever guessing. Grouping by card_id alone would merge a nonfoil and a
+      // foil copy into one requirement and silently drop one of the two
+      // finishes the user actually selected.
       const rows = await db.all(
-        `SELECT card_id, SUM(quantity) as total_qty FROM collection WHERE id IN (${placeholders}) AND user_id = ? GROUP BY card_id`,
+        `SELECT c.card_id, c.finish, cc.oracle_id, SUM(c.quantity) AS total_qty
+         FROM collection c
+         JOIN card_cache cc ON c.card_id = cc.id
+         WHERE c.id IN (${placeholders}) AND c.user_id = ?
+         GROUP BY c.card_id, c.finish, cc.oracle_id`,
         [...ids, req.user.id]
       );
 
       let added = 0;
-      const rejected = [];
-      for (const row of rows) {
-        const existing = await db.get(`SELECT quantity FROM deck_cards WHERE deck_id = ? AND card_id = ?`, [deckId, row.card_id]);
-        const current = existing ? existing.quantity : 0;
-        const newQty = current + row.total_qty;
-        // Enforce deck rules (owned cap + max 4 per name) so this path can't
-        // bypass the limits the deck builder enforces.
-        const check = await validateDeckAddition({ deckId, userId: req.user.id, cardId: row.card_id, newQty });
-        if (!check.ok) { rejected.push(check.error); continue; }
-        await db.run(
-          `INSERT INTO deck_cards (deck_id, card_id, quantity) VALUES (?, ?, ?)
-           ON CONFLICT(deck_id, card_id) DO UPDATE SET quantity = excluded.quantity`,
-          [deckId, row.card_id, newQty]
-        );
-        added += row.total_qty;
-      }
-      const msg = rejected.length
-        ? (added ? `Added ${added} card(s). ${rejected[0]}` : rejected[0])
+      const skipped = [];
+      // One transaction for the whole batch: a partial add leaves the deck in a
+      // state the user never asked for and cannot tell apart from success.
+      await db.withTransaction(async (tx) => {
+        for (const row of rows) {
+          if (!row.oracle_id) {
+            skipped.push(`${row.card_id} is missing Oracle identity`);
+            continue;
+          }
+          const existing = await tx.get(
+            `SELECT quantity FROM deck_cards
+             WHERE deck_id = ? AND desired_card_id = ? AND desired_finish = ? AND board = 'mainboard'`,
+            [deckId, row.card_id, row.finish]
+          );
+          const newQty = (existing ? existing.quantity : 0) + row.total_qty;
+          await tx.run(
+            `INSERT INTO deck_cards (deck_id, oracle_id, desired_card_id, desired_finish, board, quantity)
+             VALUES (?, ?, ?, ?, 'mainboard', ?)
+             ON CONFLICT(deck_id, oracle_id, desired_card_id, desired_finish, board)
+             DO UPDATE SET quantity = excluded.quantity`,
+            [deckId, row.oracle_id, row.card_id, row.finish, newQty]
+          );
+          added += row.total_qty;
+        }
+      });
+
+      // Ownership is no longer a gate here (PR 6C requirement 5): adding a card
+      // to a deck is a planning action and never fails on inventory. Shortfalls
+      // surface as warnings on the deck view, and checkout is where physical
+      // availability is actually enforced.
+      const msg = skipped.length
+        ? `Added ${added} card(s). ${skipped[0]}`
         : `Added ${added} card(s) to deck`;
-      return res.json({ message: msg, affected: added, rejected: rejected.length });
+      return res.json({ message: msg, affected: added, rejected: skipped.length });
+
     }
 
     if (action === 'delete') {

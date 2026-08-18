@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node test/oracle-card-cache.test.js && node test/mtg-only-boundary.test.js && node test/setindex-canonical.test.js && node test/fresh-database.test.js && node test/sort.test.js && node test/split.test.js && node test/deckrules.test.js && node test/auth.test.js && node test/db-transaction-queue.test.js && node test/requestBounds.test.js && node test/pricehistory.test.js && node test/scryfallpaging.test.js && node test/crop.test.js && node test/tls.test.js && node test/e2e/run.js",
+    "test": "node test/oracle-card-cache.test.js && node test/mtg-only-boundary.test.js && node test/setindex-canonical.test.js && node test/fresh-database.test.js && node test/sort.test.js && node test/split.test.js && node test/deckrules.test.js && node test/deckIdentity.test.js && node test/auth.test.js && node test/db-transaction-queue.test.js && node test/requestBounds.test.js && node test/pricehistory.test.js && node test/scryfallpaging.test.js && node test/crop.test.js && node test/tls.test.js && node test/e2e/run.js",
     "test:e2e": "node test/e2e/run.js"
   },
   "dependencies": {
