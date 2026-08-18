@@ -1821,15 +1821,21 @@ test('F11-TC41', 'T41 add_to_deck authorizes both the deck and the source rows',
   );
 
   // Guard 2: the source rows must belong to the caller. The attacker owns one
-  // copy, so feeding in the victim's row as well must not inflate the total
-  // past what the deck rules allow them to hold.
+  // copy, so feeding in the victim's row as well must not let the victim's card
+  // become a requirement in the attacker's deck.
+  //
+  // PR 6C note: the assertion moved from `card_id` to `desired_card_id` and the
+  // quantity meaning changed with it -- requirements are now per exact
+  // printing+finish. The AUTHORIZATION property under test is unchanged: only
+  // rows the caller owns may contribute.
   const foreignRows = await api(attacker.token, '/api/collection/bulk', {
     method: 'POST',
     body: { entry_ids: [attackerEntry, victimEntry], action: 'add_to_deck', value: attackerDeck.lastID }
   });
   assert.strictEqual(foreignRows.status, 200, `own-deck add should respond 200: ${JSON.stringify(foreignRows.body)}`);
   const deckRow = await db.get(
-    `SELECT quantity FROM deck_cards WHERE deck_id = ? AND card_id = ?`, [attackerDeck.lastID, cardId]
+    `SELECT quantity FROM deck_cards WHERE deck_id = ? AND desired_card_id = ?`,
+    [attackerDeck.lastID, cardId]
   );
   assert.strictEqual(
     deckRow ? deckRow.quantity : 0, 1,

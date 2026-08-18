@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "check:locales": "node scripts/check-locales.mjs",
-    "test": "node src/utils/translate.test.js && node src/utils/deckText.test.js && node src/utils/games.test.js && node src/utils/mtgOnly.test.js && node src/demo/fixtures/fixtures.test.js",
+    "test": "node src/utils/translate.test.js && node src/utils/deckText.test.js && node src/utils/games.test.js && node src/utils/mtgOnly.test.js && node src/components/exactDeck.test.js && node src/demo/fixtures/fixtures.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

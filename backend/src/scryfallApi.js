@@ -600,8 +600,8 @@ async function updateCollectionPrices(force = false) {
       SELECT DISTINCT c.card_id, cc.set_id, cc.number, cc.name FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       UNION
-      SELECT DISTINCT d.card_id, cc.set_id, cc.number, cc.name FROM deck_cards d
-      JOIN card_cache cc ON d.card_id = cc.id
+      SELECT DISTINCT d.desired_card_id AS card_id, cc.set_id, cc.number, cc.name FROM deck_cards d
+      JOIN card_cache cc ON d.desired_card_id = cc.id
     `);
     if (cards.length === 0) return;
     if (!force && !(await shouldSweepPrices('mtg'))) {

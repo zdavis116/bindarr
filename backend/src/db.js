@@ -503,12 +503,25 @@ async function initDb() {
   `);
   await run(`CREATE INDEX IF NOT EXISTS idx_price_history_card_time ON price_history(card_id, recorded_at, id)`);
 
+  // A deck's STATUS decides whether its REAL entries compete for physical
+  // cards.
+  //
+  // 'active' means "this deck exists in the real world and its cards are
+  // spoken for". 'considering' means "I am thinking about this list" -- it is
+  // planning only and reserves nothing. This is deck-level intent, distinct
+  // from the per-entry `board` column below.
+  //
+  // The two are not symmetric. A considering ENTRY is a note that the user is
+  // thinking about a card which is not physically in the deck, so it never
+  // reserves at any level and the deck's status is irrelevant to it. Deck
+  // status only decides anything for entries on a real board.
   await run(`
     CREATE TABLE IF NOT EXISTS decks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'considering')),
       checked_out INTEGER DEFAULT 0,
       checked_out_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -516,16 +529,62 @@ async function initDb() {
     )
   `);
 
+  // Exact-only deck identity.
+  //
+  // The old table keyed on (deck_id, card_id) with no finish at all, which made
+  // "four Lightning Bolts" a statement about a NAME rather than about four
+  // physical objects. Every column here is NOT NULL by design: a nullable
+  // desired printing is a flexible-matching backdoor, and the only way to keep
+  // that door shut across every future code path is to let the database refuse
+  // the row.
+  //
+  // oracle_id is carried for rules/grouping display only. It NEVER widens
+  // inventory matching -- two printings of one Oracle card are two unrelated
+  // piles of cardboard as far as reservation and checkout are concerned.
+  //
+  // The surrogate `id` primary key matters beyond convenience: reservation
+  // priority is defined as deck_cards.id ASC, so requirements need a stable,
+  // monotonic, insertion-ordered identity. A composite key gives no such order.
   await run(`
     CREATE TABLE IF NOT EXISTS deck_cards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       deck_id INTEGER NOT NULL,
-      card_id TEXT NOT NULL,
-      quantity INTEGER DEFAULT 1,
-      checked_out INTEGER DEFAULT 0,
-      PRIMARY KEY(deck_id, card_id),
-      FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE
+      oracle_id TEXT NOT NULL,
+      desired_card_id TEXT NOT NULL,
+      desired_finish TEXT NOT NULL CHECK(desired_finish IN ('nonfoil', 'foil', 'etched')),
+      board TEXT NOT NULL DEFAULT 'mainboard'
+        CHECK(board IN ('commander', 'mainboard', 'sideboard', 'considering')),
+      quantity INTEGER NOT NULL CHECK(quantity > 0),
+      checked_out INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(deck_id, oracle_id, desired_card_id, desired_finish, board),
+      FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE,
+      FOREIGN KEY(desired_card_id) REFERENCES card_cache(id)
     )
   `);
+
+  // Which PHYSICAL collection row was pulled for a checked-out deck.
+  //
+  // Reservation is derived on every read (see deckIdentity.js) precisely so it
+  // can never drift out of sync with the requirements. Physical allocation is
+  // the opposite case and must be STORED: once the user has walked to the
+  // binder, pulled a specific sleeve, and put it in a deck box, the app is no
+  // longer free to recompute a different answer. A derived allocation would
+  // silently point at a different copy the moment any unrelated collection row
+  // was added or removed, and the user would have no way to reconcile the app
+  // against the cards physically in their hand.
+  await run(`
+    CREATE TABLE IF NOT EXISTS deck_card_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deck_card_id INTEGER NOT NULL,
+      collection_entry_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL CHECK(quantity > 0),
+      allocated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(deck_card_id, collection_entry_id),
+      FOREIGN KEY(deck_card_id) REFERENCES deck_cards(id) ON DELETE CASCADE,
+      FOREIGN KEY(collection_entry_id) REFERENCES collection(id) ON DELETE CASCADE
+    )
+  `);
+
 
   await run(`
     CREATE TABLE IF NOT EXISTS notes (
@@ -582,6 +641,24 @@ async function initDb() {
   if (!collectionCols.some(c => c.name === 'notes')) {
     await run(`ALTER TABLE collection ADD COLUMN notes TEXT DEFAULT ''`);
   }
+  // Canonical MTG finish on the PHYSICAL row.
+  //
+  // Deck requirements match on (desired_card_id, desired_finish). That match is
+  // only meaningful if the collection row states its finish in the SAME
+  // vocabulary. The legacy `printing` column carries Pokemon-era values
+  // ('Normal', 'Holofoil', ...) and cannot be compared to 'nonfoil'/'foil'
+  // without a translation at every call site -- and a translation at every call
+  // site is exactly the kind of duplicated rule that drifts.
+  //
+  // Scope note: this is the minimum needed to make exact matching enforceable.
+  // Full finish handling (scanner confirmation, per-printing finish options in
+  // the add/import UI) remains PR 9 per the plan.
+  if (!collectionCols.some(c => c.name === 'finish')) {
+    await run(
+      `ALTER TABLE collection ADD COLUMN finish TEXT NOT NULL DEFAULT 'nonfoil'
+       CHECK(finish IN ('nonfoil', 'foil', 'etched'))`
+    );
+  }
 
   const locationsCols = await all(`PRAGMA table_info(locations)`);
   if (!locationsCols.some(c => c.name === 'user_id')) {
@@ -598,12 +675,13 @@ async function initDb() {
     await run(`ALTER TABLE users ADD COLUMN share_locations INTEGER DEFAULT 0`);
   }
 
-  const deckCardsCols = await all(`PRAGMA table_info(deck_cards)`);
-  if (!deckCardsCols.some(c => c.name === 'checked_out')) {
-    await run(`ALTER TABLE deck_cards ADD COLUMN checked_out INTEGER DEFAULT 0`);
-  }
-
+  // No deck_cards/decks column migrations here. PR 6C rebuilt both tables in
+  // their final exact-only shape above, and this fork starts from a fresh v2
+  // database (plan section 7), so there is no legacy deck row to upgrade. An
+  // ALTER guard here would be worse than useless: it would quietly re-add a
+  // column to a table that no longer has the shape the guard assumes.
   const decksCols = await all(`PRAGMA table_info(decks)`);
+
   if (!decksCols.some(c => c.name === 'format')) {
     await run(`ALTER TABLE decks ADD COLUMN format TEXT DEFAULT 'Standard'`);
   }
@@ -635,6 +713,13 @@ async function initDb() {
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_set_num ON card_cache(set_id, number)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_oracle ON card_cache(oracle_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_deck_cards_checkout ON deck_cards(deck_id, checked_out)`);
+  // Reservation scans every requirement for one exact variant across all of a
+  // user's decks, ordered by deck_cards.id. Without this index that is a full
+  // table scan per requirement rendered, i.e. quadratic in deck size.
+  await run(`CREATE INDEX IF NOT EXISTS idx_deck_cards_variant ON deck_cards(desired_card_id, desired_finish, id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_collection_variant ON collection(user_id, card_id, finish, list_type)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_deck_allocations_entry ON deck_card_allocations(collection_entry_id)`);
+
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_tags_tag_id ON collection_tags(tag_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_date ON audit_logs(user_id, created_at DESC)`);
 
