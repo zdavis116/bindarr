@@ -3,6 +3,7 @@
 // to import each other.
 const db = require('../db');
 const { recommendSlot, compartmentLabel, locationAcceptsCard } = require('./compartmentSort');
+const { InvariantError } = require('./storageInvariants');
 
 // Default compartment plan by container type — used when a caller doesn't
 // specify one at creation time (see POST /locations).
@@ -56,6 +57,14 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
   let opts = {};
   if (typeof arg1 === 'object' && arg1 !== null && !(arg1.all || arg1.get || arg1.run)) {
     opts = arg1;
+    // The object form is what every transactional route uses. Without a way to
+    // hand it the active handle, all of its reads -- ownership, occupancy,
+    // planner projection -- ran on the module-level `db` and therefore observed
+    // a snapshot the caller's transaction never took. The route then reserved
+    // capacity inside the transaction against a slot chosen outside it.
+    if (opts.dbClient && (opts.dbClient.all || opts.dbClient.get || opts.dbClient.run)) {
+      dbClient = opts.dbClient;
+    }
   } else {
     if (arg1 && (arg1.all || arg1.get || arg1.run)) dbClient = arg1;
     opts = { locationId, cardId, userId };
@@ -72,21 +81,37 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
   } = opts;
 
   if (compartmentId !== undefined && compartmentId !== null) {
-    const compartment = await db.get(`
+    // Read through the caller's handle. When this runs inside
+    // db.withTransaction(tx => ...) the module-level `db` would read a snapshot
+    // the transaction never took, so the placement decision would be made
+    // against state the surrounding write was not serialized with.
+    const compartment = await dbClient.get(`
       SELECT c.id, c.idx, c.label, c.capacity, l.id as loc_id, l.type as loc_type, l.name as loc_name FROM compartments c JOIN locations l ON c.location_id = l.id
       WHERE c.id = ? AND l.user_id = ?
     `, [compartmentId, uId]);
     if (!compartment) return { compartment_id: null, position: position !== undefined ? position : 0 };
 
-    let countQuery = `SELECT COUNT(*) as cnt FROM collection WHERE compartment_id = ? AND user_id = ?`;
+    // Occupancy is SUM(quantity), not COUNT(*) -- the same definition
+    // storageInvariants.compartmentOccupancy uses. COUNT(*) treats a stacked
+    // row (import/legacy data) as a single card, so this planner would report
+    // room that does not physically exist and hand out a slot the capacity
+    // guard then has to refuse. Two disagreeing definitions of "how full" is
+    // precisely the split this PR exists to close.
+    let countQuery = `SELECT COALESCE(SUM(quantity), 0) as cnt FROM collection WHERE compartment_id = ? AND user_id = ?`;
     let countParams = [compartmentId, uId];
     if (excludeEntryId) {
       countQuery += ` AND id != ?`;
       countParams.push(excludeEntryId);
     }
-    const countRow = await db.get(countQuery, countParams);
+    const countRow = await dbClient.get(countQuery, countParams);
     if (countRow.cnt >= compartment.capacity) {
-      throw new Error('COMPARTMENT_FULL');
+      // Typed at the boundary where the condition is detected. This used to be a
+      // bare `new Error('COMPARTMENT_FULL')`, which forced four route handlers to
+      // compare `error.message` against a string literal to tell a legitimate
+      // refusal from a genuine 500. A message is a human-facing field: rewording
+      // it to something friendlier would silently turn every one of those
+      // refusals into a 500. The code is the contract; the message is not.
+      throw new InvariantError(400, 'COMPARTMENT_FULL', 'COMPARTMENT_FULL');
     }
 
     const label = `${compartmentLabel(compartment, compartment.loc_type)} (in ${compartment.loc_name})`;
@@ -97,7 +122,9 @@ async function resolveCompartmentAndPosition(arg1, locationId, cardId, userId) {
     return { compartment_id: null, position: position !== undefined ? position : 0 };
   }
 
-  const location = await db.get(`SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, user_id FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
+  // Also through the caller's handle, for the same reason as the compartment
+  // read above: this is the ownership check that authorizes the destination.
+  const location = await dbClient.get(`SELECT id, name, type, sort_order, foil_sorting, rule_type, rule_config, user_id FROM locations WHERE id = ? AND user_id = ?`, [locId, uId]);
   if (!location) return { compartment_id: null, position: 0 };
 
   let cardMetadata = await dbClient.get(`SELECT name, set_name, number, types, subtypes, price_trend, price_normal, price_holofoil, price_reverse_holofoil, supertype, rarity, cmc, color_identity FROM card_cache WHERE id = ?`, [cId]);
