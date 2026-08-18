@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText } from 'lucide-react';
+import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
 
@@ -7,6 +7,7 @@ import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { useT } from '../utils/i18n';
+import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
 
 // Basic lands are exempt from the four-copy deck rule.
 const isBasicEnergyOrLand = (card) => {
@@ -17,8 +18,82 @@ const isBasicEnergyOrLand = (card) => {
 };
 
 // Total copies of a card (matched by name) already in a deck's card list.
+//
+// Matched by NAME on purpose, and this is the one place name-matching is
+// correct: Magic's four-copy rule is about the card name, so four different
+// printings of Lightning Bolt is still four Lightning Bolts. Everywhere else in
+// this file identity means (printing, finish).
 const deckCountByName = (deckCards, name) =>
   (deckCards || []).filter(c => c.name === name).reduce((s, c) => s + c.quantity, 0);
+
+// The badge that carries a row's reservation/ownership state, in the same
+// pill styling the rest of the app uses for status.
+const TONE_STYLES = {
+  ok: { background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' },
+  warn: { background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', border: '1px solid rgba(234, 179, 8, 0.3)' },
+  unavailable: { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.35)' },
+  muted: { background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }
+};
+
+// The identity of an import LINE, for matching a user's printing choice back to
+// the line it was made on.
+//
+// Keyed on the lowercased card name, which is what a bare (Case C) line is: a
+// name with no printing. Explicit lines never need a key because they never ask
+// a question.
+function importLineKey(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+function StatusBadge({ card }) {
+  const status = requirementStatus(card);
+  if (!status.label) return null;
+  const tone = TONE_STYLES[status.tone] || TONE_STYLES.muted;
+  return (
+    <span style={{
+      fontSize: '0.62rem',
+      fontWeight: 800,
+      padding: '2px 7px',
+      borderRadius: '10px',
+      whiteSpace: 'nowrap',
+      ...tone
+    }}>
+      {status.label}
+    </span>
+  );
+}
+
+// The printing + finish a row is pinned to. Under exact-only identity this is
+// not decoration -- it is the card's identity, so it is always visible rather
+// than hidden behind a hover or a detail view. The user has to be able to match
+// it against the physical card in their hand.
+//
+// On a deck row it is also the control that REPINS the entry to a different
+// printing, which is why it can take an onClick. Text import fills a line from
+// whatever printings the user has free, so a mixed-printing result is normal;
+// this is how they make it uniform afterwards if they want to.
+function PrintingBadge({ card, onClick }) {
+  const interactive = typeof onClick === 'function';
+  return (
+    <span
+      onClick={interactive ? (e) => { e.stopPropagation(); onClick(); } : undefined}
+      title={interactive ? 'Change printing' : undefined}
+      style={{
+        fontSize: '0.6rem',
+        fontWeight: 700,
+        padding: '1px 6px',
+        borderRadius: '4px',
+        background: 'rgba(255,255,255,0.06)',
+        color: 'var(--text-secondary)',
+        border: '1px solid var(--border-glass)',
+        whiteSpace: 'nowrap',
+        cursor: interactive ? 'pointer' : undefined
+      }}
+    >
+      {finishLabel(card.desired_finish)}
+    </span>
+  );
+}
 
 
 function DeckBuilder({ showToast }) {
@@ -82,6 +157,10 @@ function DeckBuilder({ showToast }) {
   const [exportFormat, setExportFormat] = useState(null); // null = auto by deck game
   const [importText, setImportText] = useState('');
   const [importComparison, setImportComparison] = useState(null);
+  // The server's copy-level accounting for the previewed paste. Kept beside the
+  // per-line plan rather than recomputed from it: "how many cards will this
+  // actually add" must have exactly one definition, and the server owns it.
+  const [importSummary, setImportSummary] = useState(null);
   const [comparingImport, setComparingImport] = useState(false);
 
   // Checkout States
@@ -95,6 +174,59 @@ function DeckBuilder({ showToast }) {
   // would otherwise each compute a new quantity from the same stale render and
   // clobber one another (last-writer-wins on the server upsert).
   const [savingCard, setSavingCard] = useState(false);
+
+  // Exact printing + finish picker state.
+  //
+  // Under exact-only identity, "add Lightning Bolt" is not a complete
+  // instruction -- the server needs to know WHICH Lightning Bolt. When the user
+  // owns exactly one (printing, finish) variant there is nothing to ask, so we
+  // add it straight away. When they own several, this holds the search result
+  // we are asking about and the variants they can choose from. It is a small
+  // inline panel inside the existing Add Cards list, not a separate screen.
+  const [variantPicker, setVariantPicker] = useState(null); // { card, variants, board }
+  const [loadingVariants, setLoadingVariants] = useState(false);
+
+  // Repin an EXISTING deck entry to a different printing.
+  //
+  // Holds { entryId, variants } for the one row being edited. The picker it
+  // opens is the same inline panel the Add Cards list uses, rendered inside the
+  // deck row itself rather than on a new screen, and it lists only printings
+  // the user OWNS -- with the count that is actually FREE, not the raw owned
+  // count. Those differ whenever another deck holds copies, and the free number
+  // is the one that answers "if I switch to this printing, will my deck
+  // actually be filled".
+  const [printingEditor, setPrintingEditor] = useState(null);
+
+  // Printing choices made on the IMPORT preview, for lines the user owns no
+  // free copies of (Case C).
+  //
+  // Keyed by line name -> { variant }. Held here, unwritten, until the user
+  // confirms the import: a choice made in a preview is an intention, and
+  // writing it before they press the button would make the preview itself
+  // mutate the deck.
+  //
+  // No per-choice quantity is stored, because a choice always covers the whole
+  // line: the server only asks when it owns nothing free of that card, so there
+  // is never an owned part of the line to carve out.
+  const [importChoices, setImportChoices] = useState({});
+
+  // Which import preview line currently has its picker open. One at a time,
+  // same as the deck-row picker above -- the list is long and several open
+  // pickers turn it into a wall.
+  const [importPicker, setImportPicker] = useState(null);
+
+  // Which card-type sections are collapsed. Collapsed is the exception, so the
+  // set holds the collapsed ones and an unknown section renders open -- a new
+  // section type can never appear hidden.
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+
+  const toggleSection = (key) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   useBackGuard(showCreateModal, () => setShowCreateModal(false));
   useBackGuard(showSimulator, () => setShowSimulator(false));
@@ -135,13 +267,42 @@ function DeckBuilder({ showToast }) {
           format: newDeckFormat,
           category: newDeckCategory,
           accent_color: newDeckAccentColor,
-          target_size: newDeckTargetSize,
-          decklist_text: newDeckImportText
+          target_size: newDeckTargetSize
         })
       });
 
       if (response.ok) {
+        const created = await response.json().catch(() => ({}));
         showToast(t('deck.created'));
+
+        // Quick import runs AFTER the deck exists, through the server's import
+        // endpoint. It allocates from printings the user actually owns and has
+        // free, and honours any printing a line explicitly names, so an
+        // ordinary decklist paste just works.
+        //
+        // What it CANNOT do here is ask. There is no preview on the create
+        // modal, so lines the app has no basis to decide (bare name, nothing
+        // owned) are left out of the deck rather than pinned to a guess, and
+        // the user is told how many so they can finish them from the deck's own
+        // Import screen where the picker lives. Leaving a card out is visible
+        // and recoverable; putting in the wrong physical card is neither.
+        if (newDeckImportText.trim() && created.id) {
+          const result = await postImport(created.id, newDeckImportText, { apply: true });
+          if (result) {
+            // Same rule as the deck Import screen: report COPIES, using the
+            // server's own accounting, so the message cannot overstate what
+            // reached the deck. Counting lines here previously called a line
+            // that allocated nothing a success.
+            const summary = result.summary || {};
+            if (summary.written_copies > 0) {
+              showToast(t('deck.importedCopies', { count: summary.written_copies }));
+            }
+            if (summary.unresolved_copies > 0) {
+              showToast(t('deck.importUnresolvedCopies', { count: summary.unresolved_copies }));
+            }
+          }
+        }
+
         setNewDeckName('');
         setNewDeckDesc('');
         setNewDeckFormat('Commander / EDH');
@@ -160,6 +321,67 @@ function DeckBuilder({ showToast }) {
       showToast(t('deck.errCreateGeneric'));
     }
   };
+
+  // Send parsed decklist lines to the server's import endpoint.
+  //
+  // Parsing stays here (it is a text-format concern); resolution and allocation
+  // are the server's. `apply: false` previews, `apply: true` commits, and both
+  // go through the SAME server code, so the preview cannot promise an
+  // allocation the import then does differently.
+  //
+  // `choices` maps a line key to { variant, quantity }: a printing the user
+  // picked in the preview, and how many copies that choice covers. Applying a
+  // choice rewrites that line to CARRY the printing -- exactly the shape a
+  // decklist line that named a printing in the first place has -- so the chosen
+  // copies go down the server's Case A path. One mechanism, not two: the user
+  // picking a printing and the text stating one are the same fact arriving by
+  // different routes.
+  //
+  // A choice only ever exists for a line the user owns NO free copies of (the
+  // server asks in that case and only that case), so the choice always covers
+  // the WHOLE line. There is no owned remainder to keep separate: a partial
+  // line is resolved server-side by extending the printing he already owns, and
+  // never reaches the picker at all.
+  const postImport = async (deckId, text, { apply, choices = {} }) => {
+    const lines = [];
+    for (const raw of text.split('\n')) {
+      const p = parseDeckLine(raw.trim());
+      if (!p) continue;
+
+      const line = { name: p.name, quantity: p.qty };
+      if (p.set) line.set = p.set;
+      if (p.number) line.number = p.number;
+      if (p.finish) line.finish = p.finish;
+
+      const chosen = !p.set ? choices[importLineKey(p.name)] : null;
+      if (!chosen) {
+        lines.push(line);
+        continue;
+      }
+
+      lines.push({
+        name: p.name,
+        quantity: p.qty,
+        set: chosen.variant.set_id,
+        number: chosen.variant.number,
+        finish: chosen.variant.finish
+      });
+    }
+    if (lines.length === 0) return null;
+
+    const response = await fetch(`/api/decks/${deckId}/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines, board: 'mainboard', apply })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showToast(data.error || t('deck.errNoMatches'));
+      return null;
+    }
+    return response.json();
+  };
+
 
   const loadDeckDetails = async (deckId) => {
     try {
@@ -181,28 +403,110 @@ function DeckBuilder({ showToast }) {
     }
   };
 
-  const handleAddCardToDeck = async (card) => {
+  // Write ONE exact requirement.
+  //
+  // The single choke point for every deck write in this file. Both
+  // desired_card_id and desired_finish are always sent and never defaulted: a
+  // defaulted finish is the app silently choosing a physical object on the
+  // user's behalf, who then finds the wrong version when they walk to the
+  // binder. `quantity` is the ABSOLUTE new count, not a delta, so a retried or
+  // double-tapped request cannot double the requirement.
+  const writeRequirement = async ({ desired_card_id, desired_finish, board = 'mainboard', quantity }) => {
+    if (!activeDeck) return false;
+    const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ desired_card_id, desired_finish, board, quantity })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      showToast(data.error || 'Failed to save card.');
+      return false;
+    }
+    return true;
+  };
+
+  // Fetch the exact (printing, finish) variants of a card the user owns.
+  const fetchVariants = async (oracleId) => {
+    if (!oracleId) return [];
+    const res = await fetch(`/api/decks/printings/${encodeURIComponent(oracleId)}`);
+    if (!res.ok) return [];
+    return res.json();
+  };
+
+  // "Add this card" from the search results.
+  //
+  // The gesture the user makes is still one click on the card they searched
+  // for. What changed is what happens when that click is AMBIGUOUS. If they own
+  // exactly one printing+finish of the card there is nothing to ask and it is
+  // added immediately, exactly as before. If they own several, we open the
+  // variant picker inline in this same list rather than picking for them --
+  // choosing silently is the specific failure exact-only identity exists to
+  // prevent.
+  const handleAddCardToDeck = async (card, board = 'mainboard') => {
     if (!activeDeck || savingCard) return;
 
-    // Find if card already exists in deck
-    const existing = activeDeck.cards.find(c => c.id === card.id);
+    setLoadingVariants(true);
+    try {
+      const variants = await fetchVariants(card.oracle_id);
+
+      if (variants.length === 0) {
+        // Nothing owned in any printing. The search result itself still names
+        // an exact printing, but we do not know a finish for it, so we ask
+        // rather than assume. Finishes come from the printing's own list.
+        setVariantPicker({
+          card,
+          board,
+          variants: (card.finishes || ['nonfoil']).map(finish => ({
+            desired_card_id: card.id,
+            name: card.name,
+            set_name: card.set_name,
+            number: card.number,
+            image_url: card.image_url,
+            finish,
+            owned_qty: 0
+          }))
+        });
+        return;
+      }
+
+      if (variants.length === 1) {
+        await addExactVariant(variants[0], board);
+        return;
+      }
+
+      setVariantPicker({ card, board, variants });
+    } catch (err) {
+      console.error(err);
+      showToast(t('search.errAddCard'));
+    } finally {
+      setLoadingVariants(false);
+    }
+  };
+
+  // Commit a chosen exact variant, incrementing whatever is already there.
+  const addExactVariant = async (variant, board = 'mainboard') => {
+    if (!activeDeck || savingCard) return;
+
+    const existing = activeDeck.cards.find(c =>
+      c.desired_card_id === variant.desired_card_id &&
+      c.desired_finish === variant.finish &&
+      c.board === board
+    );
     const newQty = existing ? existing.quantity + 1 : 1;
 
     setSavingCard(true);
     try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: card.id, quantity: newQty })
+      const ok = await writeRequirement({
+        desired_card_id: variant.desired_card_id,
+        desired_finish: variant.finish,
+        board,
+        quantity: newQty
       });
-
-      if (response.ok) {
-        showToast(t('deck.addedCard', { name: card.name }));
-        // Refresh details locally
+      if (ok) {
+        showToast(t('deck.addedCard', { name: variant.name }));
+        setVariantPicker(null);
         await loadDeckDetails(activeDeck.id);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        showToast(data.error || 'Failed to add card.');
       }
     } catch (err) {
       console.error(err);
@@ -212,45 +516,73 @@ function DeckBuilder({ showToast }) {
     }
   };
 
-  const handleUpdateCardQty = async (cardId, newQty) => {
-    if (!activeDeck || savingCard) return;
-
-    // Guard against NaN/garbage from a manual quantity input before it reaches
-    // the server as an invalid quantity.
-    if (!Number.isFinite(newQty)) return;
-
-    if (newQty <= 0) {
-      handleRemoveCard(cardId);
-      return;
+  // Open the repin picker for one deck row.
+  //
+  // Loads the printings the user owns of this Oracle card, each with the count
+  // that is actually free. Loaded on demand rather than with the deck, because
+  // availability is a fact about the whole collection at this instant and a
+  // copy fetched with the deck would be stale by the time the user clicked.
+  const openPrintingEditor = async (entry) => {
+    if (!entry?.oracle_id) return;
+    setLoadingVariants(true);
+    try {
+      const variants = await fetchVariants(entry.oracle_id);
+      setPrintingEditor({ entryId: entry.id, variants });
+    } catch (err) {
+      console.error(err);
+      showToast(t('search.errAddCard'));
+    } finally {
+      setLoadingVariants(false);
     }
+  };
 
-    // Check limits on increment
-    const card = activeDeck.cards.find(c => c.id === cardId);
-    if (card && newQty > card.quantity) {
-      if (newQty > (card.owned_qty || 0)) {
-        showToast(t('deck.errOwnedLimit', { count: card.owned_qty, name: card.name }));
-        return;
-      }
-      
-      if (!isBasicEnergyOrLand(card) && deckCountByName(activeDeck.cards, card.name) >= 4) {
-        showToast(t('deck.errCopyLimit', { count: 4, name: card.name }));
-        return;
-      }
+  // Repin an existing entry to a chosen printing+finish.
+  //
+  // Implemented as add-then-remove rather than an UPDATE, because the entry's
+  // identity IS (printing, finish): changing them makes it a different
+  // requirement, and the server's upsert is keyed on them.
+  //
+  // The ORDER is load-bearing. Removing first and then adding would, if the add
+  // failed (dropped connection, server restart between the two calls), leave
+  // the card gone from the deck entirely -- a silent loss of a requirement the
+  // user never asked to delete, on an app whose whole job is tracking physical
+  // objects. Adding first means the worst case is a visible duplicate row the
+  // user can see and remove, not a disappearance they will not notice until
+  // they are standing at the binder.
+  //
+  // The quantity carried over is the requirement's own quantity, unchanged. The
+  // user asked to change WHICH card, not HOW MANY -- and if the new printing
+  // has fewer free copies, the row's existing Missing badge says so rather than
+  // the app silently shrinking the deck.
+  const repinEntryPrinting = async (entry, variant) => {
+    if (!activeDeck || savingCard) return;
+    if (entry.desired_card_id === variant.desired_card_id
+      && entry.desired_finish === variant.finish) {
+      setPrintingEditor(null);
+      return;
     }
 
     setSavingCard(true);
     try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: cardId, quantity: newQty })
+      const existing = activeDeck.cards.find(c =>
+        c.desired_card_id === variant.desired_card_id &&
+        c.desired_finish === variant.finish &&
+        c.board === entry.board &&
+        c.id !== entry.id
+      );
+      const ok = await writeRequirement({
+        desired_card_id: variant.desired_card_id,
+        desired_finish: variant.finish,
+        board: entry.board,
+        quantity: (existing ? existing.quantity : 0) + entry.quantity
       });
+      if (!ok) return;
 
-      if (response.ok) {
-        await loadDeckDetails(activeDeck.id);
-      } else {
-        showToast(t('deck.errQuantity'));
-      }
+      const removed = await fetch(`/api/decks/${activeDeck.id}/cards/${entry.id}`, { method: 'DELETE' });
+      if (!removed.ok) showToast(t('deck.errQuantity'));
+
+      setPrintingEditor(null);
+      await loadDeckDetails(activeDeck.id);
     } catch (err) {
       console.error(err);
       showToast(t('deck.errQuantity'));
@@ -259,11 +591,99 @@ function DeckBuilder({ showToast }) {
     }
   };
 
-  const handleRemoveCard = async (cardId) => {
+  // Change the quantity of an EXISTING requirement.
+  //
+  // Takes the whole entry rather than a card id, because a card id is no longer
+  // unique within a deck: the same printing can legitimately sit on the
+  // mainboard and the sideboard, in nonfoil and in foil. The entry carries the
+  // exact identity to re-send.
+  const handleUpdateCardQty = async (entry, newQty) => {
+    if (!activeDeck || savingCard) return;
+
+    // Guard against NaN/garbage from a manual quantity input before it reaches
+    // the server as an invalid quantity.
+    if (!Number.isFinite(newQty)) return;
+
+    if (newQty <= 0) {
+      handleRemoveCard(entry.id);
+      return;
+    }
+
+    // The four-copy rule is a legality warning, and the server also reports it,
+    // but blocking the increment here keeps the user from making a change the
+    // deck health panel will immediately scold them for. Ownership is NOT
+    // checked: planning a deck you have not finished buying is the normal case,
+    // and the row's own badge already reports the shortfall.
+    if (newQty > entry.quantity
+      && !isBasicEnergyOrLand(entry)
+      && deckCountByName(activeDeck.cards, entry.name) >= 4) {
+      showToast(t('deck.errCopyLimit', { count: 4, name: entry.name }));
+      return;
+    }
+
+    setSavingCard(true);
+    try {
+      const ok = await writeRequirement({
+        desired_card_id: entry.desired_card_id,
+        desired_finish: entry.desired_finish,
+        board: entry.board,
+        quantity: newQty
+      });
+      if (ok) await loadDeckDetails(activeDeck.id);
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errQuantity'));
+    } finally {
+      setSavingCard(false);
+    }
+  };
+
+  // Move an entry between boards -- in practice, toggling a card in and out of
+  // 'considering'.
+  //
+  // This is the ONLY way "considering" is expressed. A DECK is never in a
+  // considering state; a single card is. Board is part of the requirement's
+  // uniqueness key, so a move is a delete of the old row plus a write of the
+  // new one rather than an in-place update. The delete happens second: if the
+  // write fails the user still has their card, which is the safe way round for
+  // software tracking physical objects.
+  const handleMoveBoard = async (entry, board) => {
+    if (!activeDeck || savingCard || entry.board === board) return;
+    setSavingCard(true);
+    try {
+      const existing = activeDeck.cards.find(c =>
+        c.desired_card_id === entry.desired_card_id &&
+        c.desired_finish === entry.desired_finish &&
+        c.board === board
+      );
+      const ok = await writeRequirement({
+        desired_card_id: entry.desired_card_id,
+        desired_finish: entry.desired_finish,
+        board,
+        quantity: (existing ? existing.quantity : 0) + entry.quantity
+      });
+      if (!ok) return;
+
+      const res = await fetch(`/api/decks/${activeDeck.id}/cards/${entry.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        showToast(t('loc.errRemoveCard'));
+      }
+      await loadDeckDetails(activeDeck.id);
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errQuantity'));
+    } finally {
+      setSavingCard(false);
+    }
+  };
+
+  // Remove a requirement by its deck_cards.id, for the same reason quantity
+  // edits take the whole entry: card id alone no longer identifies one row.
+  const handleRemoveCard = async (deckCardId) => {
     if (!activeDeck) return;
 
     try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards/${cardId}`, {
+      const response = await fetch(`/api/decks/${activeDeck.id}/cards/${deckCardId}`, {
         method: 'DELETE'
       });
 
@@ -307,6 +727,7 @@ function DeckBuilder({ showToast }) {
           const data = await res.json();
           const mapped = data.map(item => ({
             id: item.card_id,
+            oracle_id: item.oracle_id,
             name: item.name,
             set_name: item.set_name,
             number: item.number || item.collector_number || item.card_number || '',
@@ -315,6 +736,8 @@ function DeckBuilder({ showToast }) {
             supertype: item.supertype,
             subtypes: item.subtypes,
             types: item.types,
+            type_line: item.type_line,
+            finishes: item.finishes,
             colors: item.colors,
             cmc: item.cmc
           }));
@@ -434,14 +857,15 @@ function DeckBuilder({ showToast }) {
 
   // --- DRAW SIMULATOR LOGIC ---
   const startSimulator = () => {
-    if (!activeDeck || activeDeck.cards.length === 0) {
+    if (!activeDeck || deckCards.length === 0) {
       showToast(t('deck.errEmptyDeck'));
       return;
     }
 
-    // Expand cards into full array based on quantities
+    // Expand cards into full array based on quantities. Considering entries are
+    // excluded: you cannot draw a card you have not put in the deck.
     const fullDeck = [];
-    activeDeck.cards.forEach(c => {
+    deckCards.forEach(c => {
       for (let i = 0; i < c.quantity; i++) {
         fullDeck.push({ ...c });
       }
@@ -477,7 +901,7 @@ function DeckBuilder({ showToast }) {
 
   const handleExportDeckText = () => {
     if (!activeDeck) return '';
-    return buildDeckExport(activeDeck.cards, effectiveExportFormat);
+    return buildDeckExport(deckCards, effectiveExportFormat);
   };
 
   const handleCopyExportText = () => {
@@ -491,152 +915,153 @@ function DeckBuilder({ showToast }) {
   // entry page has no documented prefill URL param, so clipboard + open is the
   // reliable path).
   const handleOpenMassEntry = () => {
-    const text = buildDeckExport(activeDeck?.cards, 'buylist');
+    const text = buildDeckExport(deckCards, 'buylist');
     if (!text) { showToast(t('deck.nothingToBuy')); return; }
     navigator.clipboard.writeText(text).catch(() => {});
     window.open('https://www.tcgplayer.com/massentry?productline=Magic', '_blank', 'noopener');
     showToast(t('deck.buylistCopied'));
   };
 
-  const handleCompareImport = async () => {
+  // Discard everything about the current import attempt.
+  //
+  // The preview, the pending printing choices and the open picker are one unit
+  // of state: keeping choices alive after the text changed would apply a
+  // printing the user picked for a line that no longer exists.
+  const resetImportState = () => {
+    setImportComparison(null);
+    setImportSummary(null);
+    setImportChoices({});
+    setImportPicker(null);
+  };
+
+  // Preview what the import WILL do, without doing it.
+  //
+  // The server returns a per-line plan: which owned printings it would spend,
+  // how many copies came from the collection, what is short, and -- for lines
+  // it has no basis to decide (Case C) -- the printing choices to offer.
+  // Nothing is recomputed here: the numbers on this screen are the same numbers
+  // the import will act on, because they came out of the same call.
+  //
+  // Re-previewing after a choice is deliberate. A choice turns a bare line into
+  // an explicit one, which changes what the line will do, and the preview must
+  // keep telling the truth about that rather than showing a stale plan.
+  const handleCompareImport = async (choices = importChoices) => {
     if (!importText.trim() || !activeDeck) return;
     setComparingImport(true);
-    const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
-    const results = [];
-
-    for (const line of lines) {
-      const parsed = parseDeckLine(line);
-      if (!parsed) continue;
-      const { qty, name: rawName } = parsed;
-
-      try {
-        const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=mtg`);
-        if (res.ok) {
-          const cards = await res.json();
-          if (cards.length > 0) {
-            const card = cards[0];
-            const owned = card.owned_qty || 0;
-            const inDeck = activeDeck.cards.find(c => c.id === card.id)?.quantity || 0;
-            results.push({
-              rawName,
-              requestedQty: qty,
-              ownedQty: owned,
-              inDeckQty: inDeck,
-              card: card,
-              status: owned >= qty ? 'full' : owned > 0 ? 'partial' : 'missing'
-            });
-          } else {
-            results.push({
-              rawName,
-              requestedQty: qty,
-              ownedQty: 0,
-              inDeckQty: 0,
-              card: null,
-              status: 'missing'
-            });
-          }
-        }
-      } catch (err) {
-        console.error(err);
-      }
+    try {
+      const result = await postImport(activeDeck.id, importText, { apply: false, choices });
+      setImportComparison(result ? result.lines : []);
+      setImportSummary(result ? result.summary : null);
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errNoMatches'));
+    } finally {
+      setComparingImport(false);
     }
-    setImportComparison(results);
-    setComparingImport(false);
   };
 
+  // Record the printing the user picked for one import line, then re-preview.
+  //
+  // The choice is remembered against the line, not written to the deck: this is
+  // still the preview, and the user has not pressed Import yet.
+  const chooseImportPrinting = async (item, variant) => {
+    const next = {
+      ...importChoices,
+      [importLineKey(item.name)]: { variant }
+    };
+    setImportChoices(next);
+    setImportPicker(null);
+    await handleCompareImport(next);
+  };
+
+  // Commit the import.
+  //
+  // Lines still AWAITING a printing choice are refused rather than imported.
+  // The alternative -- import them against something -- is precisely the
+  // auto-pinning this feature exists to remove: the app would be choosing a
+  // physical card the user never named. Refusing costs one extra click; the
+  // silent version costs a trip to the binder for a card that is not there.
   const handleImportDeck = async () => {
     if (!activeDeck) return;
-    const itemsToImport = importComparison
-      ? importComparison.filter(item => item.card && item.ownedQty > 0)
-      : [];
 
-    if (itemsToImport.length === 0 && !importText.trim()) return;
-
-    let addedCount = 0;
-    
-    if (importComparison) {
-      for (const item of itemsToImport) {
-        try {
-          const addQty = Math.min(item.requestedQty, item.ownedQty);
-          await fetch(`/api/decks/${activeDeck.id}/cards`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ card_id: item.card.id, quantity: addQty })
-          });
-          addedCount++;
-        } catch (err) {
-          console.error(err);
-        }
-      }
-    } else {
-      const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
-      for (const line of lines) {
-        const parsed = parseDeckLine(line);
-        if (!parsed) continue;
-        const { qty, name: rawName } = parsed;
-
-        try {
-          const res = await fetch(`/api/search?name=${encodeURIComponent(rawName)}&scope=collection&game=mtg`);
-          if (res.ok) {
-            const cards = await res.json();
-            if (cards.length > 0) {
-              await fetch(`/api/decks/${activeDeck.id}/cards`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ card_id: cards[0].id, quantity: qty })
-              });
-              addedCount++;
-            }
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      }
+    const undecided = (importComparison || []).filter(l => l.needs_choice);
+    if (undecided.length > 0) {
+      showToast(t('deck.importNeedsChoices', { count: undecided.length }));
+      return;
     }
 
-    if (addedCount > 0) {
-      showToast(t('deck.imported', { count: addedCount }));
-      await loadDeckDetails(activeDeck.id);
-      setImportText('');
-      setImportComparison(null);
-      setShowImportModal(false);
-    } else {
+    const result = await postImport(activeDeck.id, importText, { apply: true, choices: importChoices });
+    if (!result) return;
+
+    // THE COMPLETION MESSAGE USES THE SERVER'S NUMBERS, NOT RE-DERIVED ONES.
+    //
+    // This used to count LINES whose status was not 'unresolved' and call them
+    // imported, which counted a line still awaiting a printing choice as a
+    // success. Combined with the guard above reading the PREVIEW, a paste could
+    // report "imported" for copies that were never written -- the user read a
+    // clean preview, read a clean toast, and got a short deck.
+    //
+    // The server states copies written and copies unresolved as one fact, so
+    // the toast can only say what actually happened.
+    const summary = result.summary || {};
+    if (!summary.written_copies) {
       showToast(t('deck.errNoMatches'));
+      return;
     }
+
+    showToast(t('deck.importedCopies', { count: summary.written_copies }));
+
+    // Copies the app could not place are reported alongside, never absorbed.
+    // Leaving a card out is recoverable only if the user is told about it.
+    if (summary.unresolved_copies > 0) {
+      showToast(t('deck.importUnresolvedCopies', { count: summary.unresolved_copies }));
+    }
+
+    await loadDeckDetails(activeDeck.id);
+    setImportText('');
+    setImportComparison(null);
+    setImportSummary(null);
+    setImportChoices({});
+    setImportPicker(null);
+    setShowImportModal(false);
   };
 
 
-  // MTG card-type buckets, read off the parsed type line stored in subtypes.
-  const MTG_MAIN_TYPES = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Battle', 'Land'];
-  const mtgCardType = (card) => {
-    const subs = card.subtypes || [];
-    for (const t of MTG_MAIN_TYPES) if (subs.includes(t)) return t;
-    return 'Other';
-  };
-  const cardGroup = (card) => {
-    return mtgCardType(card);
-  };
+  // The cards that are actually IN the deck.
+  //
+  // Considering entries are excluded from every count, chart and total on this
+  // screen. They are cards the user is thinking about, not cards in the deck;
+  // counting them would make a finished 100-card Commander deck report 107 and
+  // read as illegal. They still render, in their own section, with live
+  // availability -- they are just not part of the deck's arithmetic.
+  const deckCards = activeDeck ? activeDeck.cards.filter(c => c.board !== 'considering') : [];
+  const consideringCards = activeDeck ? activeDeck.cards.filter(c => c.board === 'considering') : [];
 
-  const GROUP_ORDER = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Battle', 'Land', 'Other'];
+  // Card type read off the cached Scryfall type_line, which is the same source
+  // the deck list sections use. One definition of "what type is this card"
+  // rather than one per screen.
+  const cardGroup = (card) => sectionForTypeLine(card.type_line);
+
+  const GROUP_ORDER = ['Creatures', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Lands', 'Other'];
 
   // --- CHART DATA GENERATION ---
   const getSupertypeChartData = () => {
     if (!activeDeck) return [];
     const counts = {};
-    activeDeck.cards.forEach(c => {
+    deckCards.forEach(c => {
       const g = cardGroup(c);
       counts[g] = (counts[g] || 0) + c.quantity;
     });
-    return Object.keys(counts).map(key => ({ name: key, value: counts[key] })).filter(d => d.value > 0);
+    return GROUP_ORDER
+      .filter(key => counts[key] > 0)
+      .map(key => ({ name: key, value: counts[key] }));
   };
 
   const getManaCurveData = () => {
     if (!activeDeck) return [];
     const counts = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7+': 0 };
-    activeDeck.cards.forEach(c => {
-      const val = c.cmc !== undefined && c.cmc !== null
-        ? c.cmc
-        : (c.convertedEnergyCost !== undefined && c.convertedEnergyCost !== null ? c.convertedEnergyCost : null);
+    deckCards.forEach(c => {
+      const val = c.cmc !== undefined && c.cmc !== null ? c.cmc : null;
       if (val !== null) {
         const bucket = val >= 7 ? '7+' : String(Math.floor(val));
         if (counts[bucket] !== undefined) counts[bucket] += c.quantity;
@@ -648,16 +1073,16 @@ function DeckBuilder({ showToast }) {
   const getEnergyChartData = () => {
     if (!activeDeck) return [];
     const map = {};
-    activeDeck.cards.forEach(c => {
+    deckCards.forEach(c => {
       const subs = c.subtypes || [];
-      const isLand = subs.includes('Land') || c.supertype === 'Land' || cardGroup(c) === 'Land';
+      const isLand = cardGroup(c) === 'Lands';
       if (isLand) {
         const basicLandTypes = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
         const foundType = basicLandTypes.find(t => subs.includes(t) || c.name.includes(t));
         const label = foundType ? `Land (${foundType})` : 'Land (Nonbasic)';
         map[label] = (map[label] || 0) + c.quantity;
       } else {
-        const colors = c.colors || c.types || [];
+        const colors = c.color_identity || [];
         if (colors.length === 0) {
           map.Colorless = (map.Colorless || 0) + c.quantity;
         } else {
@@ -671,7 +1096,7 @@ function DeckBuilder({ showToast }) {
     return Object.keys(map).map(key => ({ name: key, value: map[key] }));
   };
 
-  const totalDeckCardsCount = activeDeck ? activeDeck.cards.reduce((sum, c) => sum + c.quantity, 0) : 0;
+  const totalDeckCardsCount = deckCards.reduce((sum, c) => sum + c.quantity, 0);
   const targetDeckCardsCount = activeDeck?.target_size || 60;
   const supertypeData = getSupertypeChartData();
   const energyData = getEnergyChartData();
@@ -1332,35 +1757,99 @@ function DeckBuilder({ showToast }) {
                   </form>
 
                   {/* Search Results list */}
-                  {searching ? (
+                  {searching || loadingVariants ? (
                     <div className="spinner" style={{ margin: '1rem auto' }}></div>
                   ) : searchResults.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '1rem', maxHeight: '240px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
                       {searchResults.map(card => {
-                          const existingInDeck = activeDeck?.cards.find(c => c.id === card.id);
-                          const qtyInDeck = existingInDeck ? existingInDeck.quantity : 0;
+                          // "In deck" is counted across every printing and
+                          // finish of this Oracle card, because that is the
+                          // question the user is asking when they look at a
+                          // search row: have I already put this card in?
+                          const qtyInDeck = deckCards
+                            .filter(c => c.oracle_id === card.oracle_id)
+                            .reduce((s, c) => s + c.quantity, 0);
                           const ownedQty = card.owned_qty || 0;
-                          const isAtMaxOwned = qtyInDeck >= ownedQty;
-                          const isAtRuleMax = !isBasicEnergyOrLand(card) && deckCountByName(activeDeck?.cards, card.name) >= 4;
-                          const disabledAdd = savingCard || isAtMaxOwned || isAtRuleMax;
+                          const isAtRuleMax = !isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4;
+                          // Ownership does NOT disable the add. Planning a deck
+                          // you have not finished buying is the normal case;
+                          // the row's badge reports the shortfall instead.
+                          const disabledAdd = savingCard || isAtRuleMax;
+                          const isPicking = variantPicker && variantPicker.card.oracle_id === card.oracle_id;
 
                           return (
-                            <div key={card.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
-                                <img src={card.image_url} alt={card.name} style={{ width: '24px', height: '33px', objectFit: 'cover', borderRadius: '2px' }} />
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)' }}>{card.name} ({card.set_name} • #{card.number})</span>
-                                  <span style={{ fontSize: '0.65rem', color: isAtMaxOwned ? 'var(--accent-red)' : 'var(--text-secondary)' }}>Owned: {ownedQty} | In Deck: {qtyInDeck}</span>
+                            <div key={card.id} style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: `1px solid ${isPicking ? 'rgba(234,179,8,0.4)' : 'var(--border-glass)'}` }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.5rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
+                                  <img src={card.image_url} alt={card.name} style={{ width: '24px', height: '33px', objectFit: 'cover', borderRadius: '2px' }} />
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-strong)' }}>{card.name} ({card.set_name} • #{card.number})</span>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Owned: {ownedQty} | In Deck: {qtyInDeck}</span>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.2rem' }} onClick={() => setPreviewCard(card)} title={t('deck.previewArt')}>
+                                    <Eye size={12} />
+                                  </button>
+                                  <button
+                                    className="btn btn-secondary btn-icon-only"
+                                    style={{ padding: '0.2rem' }}
+                                    disabled={savingCard}
+                                    onClick={() => handleAddCardToDeck(card, 'considering')}
+                                    title={t('deck.addConsidering')}
+                                  >
+                                    <Lightbulb size={12} />
+                                  </button>
+                                  <button className="btn btn-primary btn-icon-only" style={{ padding: '0.2rem' }} disabled={disabledAdd} onClick={() => handleAddCardToDeck(card)} title={isAtRuleMax ? '4-copy limit reached' : t('deck.addToDeck')}>
+                                    <Plus size={12} />
+                                  </button>
                                 </div>
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.2rem' }} onClick={() => setPreviewCard(card)} title={t('deck.previewArt')}>
-                                  <Eye size={12} />
-                                </button>
-                                <button className="btn btn-primary btn-icon-only" style={{ padding: '0.2rem' }} disabled={disabledAdd} onClick={() => handleAddCardToDeck(card)} title={isAtRuleMax ? "4-copy limit reached" : isAtMaxOwned ? "Not enough owned copies" : "Add to deck"}>
-                                  <Plus size={12} />
-                                </button>
-                              </div>
+
+                              {/* Exact printing + finish picker.
+                                  Appears inline, in this same list, only when
+                                  the click was ambiguous -- i.e. the user owns
+                                  more than one printing or finish of this card.
+                                  Choosing for them is the single thing
+                                  exact-only identity forbids, so we ask here
+                                  rather than guess, and we ask in place rather
+                                  than on a new screen. */}
+                              {isPicking && (
+                                <div style={{ borderTop: '1px solid var(--border-glass)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'rgba(0,0,0,0.25)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--accent-yellow)' }}>
+                                      {t('deck.choosePrinting')}
+                                    </span>
+                                    <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.15rem' }} onClick={() => setVariantPicker(null)}>
+                                      <X size={11} />
+                                    </button>
+                                  </div>
+                                  {variantPicker.variants.map(variant => (
+                                    <button
+                                      key={`${variant.desired_card_id}-${variant.finish}`}
+                                      type="button"
+                                      className="btn btn-secondary"
+                                      disabled={savingCard}
+                                      onClick={() => addExactVariant(variant, variantPicker.board)}
+                                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.3rem 0.5rem', fontSize: '0.72rem', textAlign: 'left' }}
+                                    >
+                                      <span style={{ color: 'var(--text-strong)' }}>
+                                        {variant.set_name} • #{variant.number}
+                                      </span>
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                        <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
+                                          {finishLabel(variant.finish)}
+                                        </span>
+                                        <span style={{ color: 'var(--text-muted)' }}>
+                                          {variant.available_qty !== undefined
+                                            ? `${variant.available_qty} free`
+                                            : `x${variant.owned_qty}`}
+                                        </span>
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           );
                       })}
@@ -1397,40 +1886,107 @@ function DeckBuilder({ showToast }) {
                   {activeDeck.cards.length === 0 ? (
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem 0' }}>{t('deck.emptyDeck')}</p>
                   ) : (
-                    GROUP_ORDER.map(supertype => {
-                      const list = activeDeck.cards.filter(c => {
-                        return cardGroup(c).toLowerCase() === supertype.toLowerCase();
-                      });
-                      if (list.length === 0) return null;
-                      const sum = list.reduce((total, c) => total + c.quantity, 0);
+                    /* Moxfield-style sections INSIDE this one list: Commander,
+                       then each card type, then Considering. They are headers
+                       in the same list, not tabs or separate screens, so the
+                       whole deck still reads top to bottom in one pass. */
+                    groupDeckCards(activeDeck.cards).map(section => {
+                      const collapsed = collapsedSections.has(section.key);
+                      const isConsidering = section.kind === 'considering';
+                      const sum = sectionCount(section.cards);
 
                       return (
-                        <div key={supertype} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.25rem', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>{supertype}s</span>
-                            <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{sum}</span>
-                          </h4>
+                        <div key={section.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => toggleSection(section.key)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              borderBottom: '1px solid var(--border-glass)',
+                              padding: '0 0 0.25rem 0',
+                              margin: 0,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              width: '100%',
+                              fontSize: '0.85rem',
+                              fontWeight: 600,
+                              color: isConsidering ? 'var(--accent-yellow)' : 'var(--text-secondary)'
+                            }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                              {isConsidering && <Lightbulb size={12} />}
+                              {section.title} ({sum})
+                            </span>
+                          </button>
+
+                          {/* The considering section says what it is, once, at
+                              the top. These cards are NOT in the deck and hold
+                              no inventory -- without saying so the red
+                              "Unavailable" badges below look like errors in the
+                              deck rather than notes about a shopping list. */}
+                          {isConsidering && !collapsed && (
+                            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0 }}>
+                              {t('deck.consideringHint')}
+                            </p>
+                          )}
 
                           {/* 1. COMPACT LIST VIEW */}
-                          {cardDisplayMode === 'list' && (
+                          {!collapsed && cardDisplayMode === 'list' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                              {list.map(card => (
-                                <div key={card.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.01)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
+                              {section.cards.map(card => (
+                                <div key={card.id} style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.01)', borderRadius: 'var(--radius-sm)', border: `1px solid ${printingEditor?.entryId === card.id ? 'rgba(234,179,8,0.4)' : 'var(--border-glass)'}` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', minWidth: 0 }} onClick={() => setPreviewCard(card)}>
                                     <img src={card.image_url} alt={card.name} style={{ width: '32px', height: '44px', objectFit: 'cover', borderRadius: '2px' }} />
-                                    <div>
+                                    <div style={{ minWidth: 0 }}>
                                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-strong)' }}>{card.name}</div>
-                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{card.set_name} • #{card.number}</div>
+                                      {/* Set, collector number and finish are
+                                          shown always rather than on hover:
+                                          under exact-only identity the printing
+                                          IS the identity, so hiding it hides
+                                          the thing the user must match against
+                                          the card in their hand. */}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '2px' }}>
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{card.set_name} • #{card.number}</span>
+                                        <PrintingBadge card={card} onClick={() => (
+                                          printingEditor?.entryId === card.id
+                                            ? setPrintingEditor(null)
+                                            : openPrintingEditor(card)
+                                        )} />
+                                        <StatusBadge card={card} />
+                                        {!!card.checked_out && (
+                                          <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                            <Gamepad2 size={9} /> In Play
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    {/* Move in or out of Considering. This is
+                                        the only control that sets it, and it
+                                        acts on ONE card -- there is no
+                                        deck-level considering state. */}
+                                    <button
+                                      className="btn btn-secondary btn-icon-only"
+                                      style={{ width: '22px', height: '22px', padding: 0, color: isConsidering ? 'var(--accent-yellow)' : undefined }}
+                                      disabled={savingCard}
+                                      onClick={() => handleMoveBoard(card, isConsidering ? 'mainboard' : 'considering')}
+                                      title={t(isConsidering ? 'deck.moveToDeck' : 'deck.moveToConsidering')}
+                                    >
+                                      <Lightbulb size={11} />
+                                    </button>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
                                       <button
                                         className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`}
                                         style={{ width: '22px', height: '22px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         disabled={savingCard}
-                                        onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)}
+                                        onClick={() => handleUpdateCardQty(card, card.quantity - 1)}
                                         title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}
                                       >
                                         {card.quantity === 1 ? <Trash2 size={11} /> : '-'}
@@ -1439,35 +1995,102 @@ function DeckBuilder({ showToast }) {
                                       <button
                                         className="btn btn-secondary btn-icon-only"
                                         style={{ width: '22px', height: '22px', padding: 0 }}
-                                        disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card) && deckCountByName(activeDeck.cards, card.name) >= 4)}
-                                        onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}
+                                        disabled={savingCard || (!isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4)}
+                                        onClick={() => handleUpdateCardQty(card, card.quantity + 1)}
                                       >
                                         +
                                       </button>
                                     </div>
                                   </div>
                                 </div>
+
+                                {/* Repin this entry to a different printing.
+                                    Same inline panel the Add Cards list uses,
+                                    rendered inside this row rather than on a
+                                    new screen. Each option shows the count that
+                                    is actually FREE of that printing, which is
+                                    the number that decides whether switching
+                                    leaves the deck filled -- a printing with
+                                    copies committed to another deck is offered
+                                    and honestly labelled "0 free", never
+                                    hidden. */}
+                                {printingEditor?.entryId === card.id && (
+                                  <div style={{ borderTop: '1px solid var(--border-glass)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'rgba(0,0,0,0.25)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--accent-yellow)' }}>
+                                        {t('deck.choosePrinting')}
+                                      </span>
+                                      <button className="btn btn-secondary btn-icon-only" style={{ padding: '0.15rem' }} onClick={() => setPrintingEditor(null)}>
+                                        <X size={11} />
+                                      </button>
+                                    </div>
+                                    {printingEditor.variants.length === 0 ? (
+                                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                        {t('deck.noOwnedPrintings')}
+                                      </span>
+                                    ) : printingEditor.variants.map(variant => {
+                                      const isCurrent = variant.desired_card_id === card.desired_card_id
+                                        && variant.finish === card.desired_finish;
+                                      return (
+                                        <button
+                                          key={`${variant.desired_card_id}-${variant.finish}`}
+                                          type="button"
+                                          className="btn btn-secondary"
+                                          disabled={savingCard}
+                                          onClick={() => repinEntryPrinting(card, variant)}
+                                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.3rem 0.5rem', fontSize: '0.72rem', textAlign: 'left', borderColor: isCurrent ? 'rgba(234,179,8,0.4)' : undefined }}
+                                        >
+                                          <span style={{ color: 'var(--text-strong)' }}>
+                                            {variant.set_name} • #{variant.number}
+                                          </span>
+                                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
+                                              {finishLabel(variant.finish)}
+                                            </span>
+                                            {/* AVAILABLE, not owned. Switching
+                                                to a printing whose copies are
+                                                all in another deck would leave
+                                                this row Missing, and the user
+                                                must be able to see that before
+                                                they choose, not after. */}
+                                            <span style={{ color: 'var(--text-muted)' }}>
+                                              {variant.available_qty} free
+                                            </span>
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                </div>
                               ))}
                             </div>
                           )}
 
                           {/* 2. VISUAL CARD GRID VIEW */}
-                          {cardDisplayMode === 'grid' && (
+                          {!collapsed && cardDisplayMode === 'grid' && (
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.75rem' }}>
-                              {list.map(card => (
+                              {section.cards.map(card => (
                                 <div key={card.id} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', transition: 'transform 0.15s' }}>
                                   <div style={{ position: 'relative', width: '100%', aspectRatio: 0.718, cursor: 'pointer' }} onClick={() => setPreviewCard(card)}>
                                     <img src={card.image_url} alt={card.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     <span style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.85)', color: 'var(--accent-yellow)', fontSize: '0.75rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', border: '1px solid var(--accent-yellow)' }}>
                                       x{card.quantity}
                                     </span>
+                                    <span style={{ position: 'absolute', bottom: '4px', left: '4px' }}>
+                                      <PrintingBadge card={card} />
+                                    </span>
                                   </div>
-                                  <div style={{ padding: '4px', display: 'flex', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+                                  <div style={{ padding: '4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', background: 'rgba(0,0,0,0.5)' }}>
+                                    <StatusBadge card={card} />
                                     <div style={{ display: 'flex', gap: '2px' }}>
-                                      <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card.id, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
+                                      <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
                                         {card.quantity === 1 ? <Trash2 size={10} /> : '-'}
                                       </button>
-                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || card.quantity >= (card.owned_qty || 0) || (!isBasicEnergyOrLand(card) && deckCountByName(activeDeck.cards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card.id, card.quantity + 1)}>+</button>
+                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || (!isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card, card.quantity + 1)}>+</button>
+                                      <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, color: isConsidering ? 'var(--accent-yellow)' : undefined }} disabled={savingCard} onClick={() => handleMoveBoard(card, isConsidering ? 'mainboard' : 'considering')} title={t(isConsidering ? 'deck.moveToDeck' : 'deck.moveToConsidering')}>
+                                        <Lightbulb size={10} />
+                                      </button>
                                     </div>
                                   </div>
                                 </div>
@@ -1503,15 +2126,40 @@ function DeckBuilder({ showToast }) {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                       <span>Unique Cards:</span>
-                      <strong style={{ color: 'var(--text-strong)' }}>{activeDeck.cards.length} titles</strong>
+                      <strong style={{ color: 'var(--text-strong)' }}>{deckCards.length} titles</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                       <span>{t('deck.basicLands')}</span>
                       <strong style={{ color: 'var(--accent-yellow)' }}>
-                        {activeDeck.cards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
+                        {deckCards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
                       </strong>
                     </div>
+                    {consideringCards.length > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                        <span>{t('deck.consideringLabel')}</span>
+                        <strong style={{ color: 'var(--accent-yellow)' }}>
+                          {sectionCount(consideringCards)}
+                        </strong>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Server-computed rules and ownership warnings.
+                      Advisory, never a blocked save: not owning a card you plan
+                      to buy is a normal state of a deck under construction, so
+                      these are listed as information rather than styled as
+                      errors. They come from the server so the screen and the
+                      database cannot disagree about them. */}
+                  {(activeDeck.warnings || []).length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
+                      {activeDeck.warnings.map((warning, index) => (
+                        <div key={`${warning.code}-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          <AlertTriangle size={12} style={{ color: 'var(--accent-yellow)', flexShrink: 0, marginTop: '2px' }} />
+                          <span>{warning.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Mana curve */}
@@ -1922,7 +2570,7 @@ function DeckBuilder({ showToast }) {
       {showImportModal && (
         <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
           <div className="glass-panel" style={{ maxWidth: '600px', width: '100%', padding: '1.75rem', position: 'relative', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-            <button className="btn btn-secondary btn-icon-only" onClick={() => { setShowImportModal(false); setImportComparison(null); }} style={{ position: 'absolute', top: '1rem', right: '1rem', borderRadius: '50%' }}>
+            <button className="btn btn-secondary btn-icon-only" onClick={() => { setShowImportModal(false); resetImportState(); }} style={{ position: 'absolute', top: '1rem', right: '1rem', borderRadius: '50%' }}>
               <X size={16} />
             </button>
             <h3 style={{ fontSize: '1.2rem', color: 'var(--text-strong)', marginBottom: '0.5rem' }}>{t('deck.importTitle')}</h3>
@@ -1933,7 +2581,7 @@ function DeckBuilder({ showToast }) {
               style={{ width: '100%', minHeight: '120px', maxHeight: '180px', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical' }}
               placeholder={`4 Pikachu\n2 Ultra Ball\n1 Boss's Orders`}
               value={importText}
-              onChange={e => { setImportText(e.target.value); setImportComparison(null); }}
+              onChange={e => { setImportText(e.target.value); resetImportState(); }}
             />
 
             {/* Comparison results table */}
@@ -1947,27 +2595,150 @@ function DeckBuilder({ showToast }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   <span>Collection Availability Breakdown:</span>
                   <span style={{ color: 'var(--accent-yellow)', fontWeight: 700 }}>
-                    {importComparison.filter(i => i.status === 'full').length}/{importComparison.length} species fully owned
+                    {importComparison.filter(i => i.status === 'full').length}/{importComparison.length} lines fully owned
                   </span>
                 </div>
+                {/* THE COPY-LEVEL TOTAL.
+                    The line counts above answer "how many of my lines are
+                    fine", which is not the question the user actually has. The
+                    question is "how many cards will this put in my deck", and
+                    a paste can have every line look fine while copies go
+                    unplaced -- two lines naming one card in two different ways
+                    each ask the collection separately.
+                    So the copies are stated plainly, from the server's own
+                    accounting, and any copy that cannot be placed is named here
+                    BEFORE the user commits rather than discovered afterwards. */}
+                {importSummary && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <span>
+                      {importSummary.planned_copies} of {importSummary.requested_copies} requested cards will be added
+                    </span>
+                    {importSummary.unresolved_copies > 0 && (
+                      <span style={{ color: 'var(--accent-yellow)', fontWeight: 700 }}>
+                        {importSummary.unresolved_copies} still need a printing
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
                   {importComparison.map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px' }}>
-                      <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{item.rawName}</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Req: {item.requestedQty}</span>
-                        <span style={{
-                          padding: '2px 6px',
-                          borderRadius: '10px',
-                          fontWeight: 700,
-                          fontSize: '0.65rem',
-                          background: item.status === 'full' ? 'rgba(74, 222, 128, 0.15)' : item.status === 'partial' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          color: item.status === 'full' ? 'var(--type-grass)' : item.status === 'partial' ? 'var(--accent-yellow)' : 'var(--accent-red)',
-                          border: item.status === 'full' ? '1px solid rgba(74, 222, 128, 0.3)' : item.status === 'partial' ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)'
-                        }}>
-                          {item.status === 'full' ? `Owned (${item.ownedQty})` : item.status === 'partial' ? `Partial (${item.ownedQty}/${item.requestedQty})` : `Missing (0)`}
-                        </span>
+                    <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{item.name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Req: {item.requested}</span>
+                          <span style={{
+                            padding: '2px 6px',
+                            borderRadius: '10px',
+                            fontWeight: 700,
+                            fontSize: '0.65rem',
+                            ...(TONE_STYLES[
+                              item.status === 'full' ? 'ok'
+                                : item.status === 'partial' ? 'warn'
+                                  : item.status === 'missing' ? 'warn'
+                                    : 'unavailable'
+                            ])
+                          }}>
+                            {item.status === 'full' ? `Owned (${item.allocated})`
+                              : item.status === 'partial' ? `Partial (${item.allocated}/${item.requested})`
+                                : item.status === 'missing' ? `Missing (${item.shortfall})`
+                                  : 'Not found'}
+                          </span>
+                        </div>
                       </div>
+                      {/* Which physical printings this line will actually
+                          spend. Shown before the import commits, because a
+                          mixed-printing allocation is a decision about the
+                          user's physical cards and they should see it rather
+                          than discover it in the deck afterwards.
+
+                          Every badge here names a printing that is either
+                          OWNED or was EXPLICITLY STATED by the line. Nothing
+                          the app chose on its own can appear -- when it has no
+                          basis to choose it asks below instead. */}
+                      {(item.allocations || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                          {item.allocations.map((allocation, i) => (
+                            <span key={i} style={{
+                              fontSize: '0.6rem',
+                              fontWeight: 700,
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(255,255,255,0.06)',
+                              color: allocation.owned ? 'var(--text-secondary)' : '#fbbf24',
+                              border: '1px solid var(--border-glass)',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {allocation.quantity}x {allocation.set_name} • #{allocation.number} · {finishLabel(allocation.desired_finish)}
+                              {allocation.owned ? '' : ` · ${t('deck.importNotOwned')}`}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* CASE C: the line named a card but not a printing, and
+                          the user owns NO free copies to infer one from. That
+                          is the only situation the app has nothing to go on, so
+                          it is the only one that asks -- using the same
+                          printing picker as the Add Cards flow and the deck
+                          rows, in place, rather than a new screen.
+
+                          A line he owns SOME of never reaches here: the server
+                          extends the printing he already owns to cover the rest
+                          and the extra copies show up as an unowned allocation
+                          badge above, exactly like a card he has not bought.
+
+                          Left unanswered the line is not imported; it is also
+                          not dropped, because it is sitting right here waiting.
+                          A chosen line collapses back into an ordinary
+                          allocation badge above on the next preview. */}
+                      {item.needs_choice && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => setImportPicker(
+                              importPicker === importLineKey(item.name) ? null : importLineKey(item.name)
+                            )}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.25rem 0.5rem', fontSize: '0.68rem', textAlign: 'left' }}
+                          >
+                            <span style={{ color: 'var(--accent-yellow)', fontWeight: 700 }}>
+                              {t('deck.choosePrinting')} ({item.choice_quantity})
+                            </span>
+                            <ChevronDown size={11} />
+                          </button>
+
+                          {importPicker === importLineKey(item.name) && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.4rem', maxHeight: '150px', overflowY: 'auto' }}>
+                              {(item.choices || []).length === 0 ? (
+                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                  {t('deck.noPrintingsKnown')}
+                                </span>
+                              ) : item.choices.map(variant => (
+                                <button
+                                  key={`${variant.desired_card_id}-${variant.finish}`}
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  onClick={() => chooseImportPrinting(item, variant)}
+                                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.3rem 0.5rem', fontSize: '0.72rem', textAlign: 'left' }}
+                                >
+                                  <span style={{ color: 'var(--text-strong)' }}>
+                                    {variant.set_name} • #{variant.number}
+                                  </span>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
+                                      {finishLabel(variant.finish)}
+                                    </span>
+                                    <span style={{ color: 'var(--text-muted)' }}>
+                                      {`${variant.available_qty} free`}
+                                    </span>
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1975,9 +2746,9 @@ function DeckBuilder({ showToast }) {
             )}
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowImportModal(false); setImportComparison(null); }}>{t('common.cancel')}</button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowImportModal(false); resetImportState(); }}>{t('common.cancel')}</button>
               {!importComparison ? (
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleCompareImport} disabled={!importText.trim()}>{t('deck.compare')}</button>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleCompareImport()} disabled={!importText.trim()}>{t('deck.compare')}</button>
               ) : (
                 <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleImportDeck}>{t('deck.importMatched')}</button>
               )}

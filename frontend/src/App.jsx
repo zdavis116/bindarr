@@ -14,7 +14,7 @@ const LocationManager = lazy(() => import('./components/LocationManager'));
 const Settings = lazy(() => import('./components/Settings'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const SharedCollection = lazy(() => import('./components/SharedCollection'));
-const ExactDeckPanel = lazy(() => import('./components/ExactDeckPanel'));
+const DeckBuilder = lazy(() => import('./components/DeckBuilder'));
 
 const Notes = lazy(() => import('./components/Notes'));
 
@@ -250,16 +250,7 @@ function App() {
           />
         );
       case 'deckbuilder':
-        // PR 6C: the deck builder is served by the minimal exact-finish panel.
-        //
-        // The legacy DeckBuilder is intentionally NOT routed here. It is built
-        // on name/card_id deck entries with no finish, and every one of its
-        // write paths (add card, change quantity, remove card) targets request
-        // shapes the exact-only API no longer accepts. Leaving it wired up
-        // would present a fully populated UI whose buttons silently fail --
-        // worse than a small UI that works. PR 7 rebuilds the full experience
-        // (catalog search, import review, buylist) on the exact-only contract.
-        return <ExactDeckPanel showToast={showToast} />;
+        return <DeckBuilder showToast={showToast} />;
 
       case 'notes':
         return <Notes showToast={showToast} />;

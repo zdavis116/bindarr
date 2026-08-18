@@ -52,20 +52,22 @@ function isBoard(value) {
 // THE reservation rule, stated once:
 //
 //   An entry reserves inventory if and only if it is a real (non-considering)
-//   entry on an ACTIVE deck.
+//   entry.
 //
-// Both halves are load-bearing, but they are not symmetric. A considering
-// entry never reserves at any level -- being on the considering board is by
-// itself sufficient, and the deck's status is irrelevant to it. Deck status
-// only decides anything for entries that are on a real board.
+// PR 6C wrote this as `deckStatus === 'active' && RESERVING_BOARDS.includes(
+// board)`. PR 6D removes the deck-level status entirely (see db.js): a DECK is
+// never 'considering', only a CARD is. So the second half of that conjunction
+// is the whole rule, and the first half described a state that can no longer
+// exist.
 //
-// This lives in one function because it previously did not: the deck read path
-// computed `status === 'active' && boardReserves(board)` while
-// availabilityForRequirement fell back to `boardReserves(board)` alone. Two
-// spellings of one rule is two answers to "must I buy this card", and which
-// one the user saw depended on which function their screen happened to call.
-function entryReserves(deckStatus, board) {
-  return deckStatus === 'active' && RESERVING_BOARDS.includes(board);
+// This still lives in one function rather than being inlined at each call
+// site, because it previously did not: the deck read path and
+// availabilityForRequirement each spelled the rule out separately and had
+// already drifted apart. Two spellings of one rule is two answers to "must I
+// buy this card", and which one the user saw depended on which function their
+// screen happened to call.
+function entryReserves(board) {
+  return RESERVING_BOARDS.includes(board);
 }
 
 // Derive the deck identity of a card_cache row plus a chosen finish.
@@ -133,7 +135,6 @@ async function requirementsForVariant(database, userId, identity, { excludeDeckI
     WHERE d.user_id = ?
       AND dc.desired_card_id = ?
       AND dc.desired_finish = ?
-      AND d.status = 'active'
       AND dc.board IN (${RESERVING_BOARDS.map(() => '?').join(',')})
   `;
   params.push(...RESERVING_BOARDS);
@@ -231,10 +232,37 @@ async function availabilityForRequirement(database, userId, requirement) {
   };
 }
 
+// Deck entries carry the cached Scryfall display fields the deck UI renders
+// from: type_line for card-type sectioning, cmc for the mana curve, subtypes
+// for the basic-land exemption, finishes for the finish picker.
+//
+// Those columns are stored as JSON TEXT in card_cache, so they are parsed HERE,
+// once, at the boundary. Handing raw JSON strings to callers means each screen
+// remembers to parse them and one that forgets renders "[\"Land\"]" or silently
+// treats a string as an empty array. A tolerant parse (bad JSON -> default)
+// rather than a throw: a malformed cache row should degrade one card's display,
+// not fail the whole deck read.
+function parseJsonColumn(raw, fallback) {
+  if (Array.isArray(raw) || (raw && typeof raw === 'object')) return raw;
+  if (typeof raw !== 'string' || raw === '') return fallback;
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
+
+function withParsedCardFields(row) {
+  return {
+    ...row,
+    subtypes: parseJsonColumn(row.subtypes, []),
+    types: parseJsonColumn(row.types, []),
+    color_identity: parseJsonColumn(row.color_identity, []),
+    legalities: parseJsonColumn(row.legalities, {}),
+    finishes: parseJsonColumn(row.finishes, [])
+  };
+}
+
 // Every requirement in one deck, each annotated with its reservation position.
 async function availabilityForDeck(database, deckId, userId) {
   const deck = await client(database).get(
-    `SELECT id, status FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]
+    `SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]
   );
   if (!deck) {
     throw new DeckIdentityError(404, 'Deck not found', 'DECK_NOT_FOUND');
@@ -242,8 +270,9 @@ async function availabilityForDeck(database, deckId, userId) {
   const rows = await client(database).all(
     `SELECT dc.id, dc.deck_id, dc.oracle_id, dc.desired_card_id, dc.desired_finish,
             dc.board, dc.quantity, dc.checked_out,
-            cc.name, cc.set_name, cc.number, cc.image_url, cc.color_identity,
-            cc.legalities, cc.type_line, cc.mana_cost
+            cc.name, cc.set_id, cc.set_name, cc.number, cc.image_url, cc.color_identity,
+            cc.legalities, cc.type_line, cc.mana_cost, cc.cmc, cc.supertype,
+            cc.subtypes, cc.types, cc.rarity, cc.finishes
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
      WHERE dc.deck_id = ?
@@ -253,9 +282,9 @@ async function availabilityForDeck(database, deckId, userId) {
 
   const entries = [];
   for (const row of rows) {
-    const reserves = entryReserves(deck.status, row.board);
+    const reserves = entryReserves(row.board);
     const availability = await availabilityForRequirement(database, userId, { ...row, reserves });
-    entries.push({ ...row, ...availability });
+    entries.push({ ...withParsedCardFields(row), ...availability });
   }
   return { deck, entries };
 }
@@ -337,6 +366,152 @@ async function selectPhysicalCopies(database, userId, requirement, { claimedCopi
   return { picks, shortfall: needed };
 }
 
+// Every exact variant of one Oracle card the user OWNS, with how many copies of
+// each are free right now.
+//
+// `owned_qty` is what is physically in the binder. `available_qty` is what is
+// left after every reserving requirement on every deck has taken its share --
+// it is the number that answers "can I actually put this in a deck today".
+// Both are returned because they answer different questions and the UI needs
+// both: a printing the user owns 4 of but has all 4 committed elsewhere must
+// read as "4 owned, 0 free", not vanish from the list as if they never had it.
+//
+// Availability is asked for with deckCardId = null, meaning "a hypothetical NEW
+// requirement". A new requirement sorts last (AUTOINCREMENT id), so every
+// existing requirement outranks it and its available count already excludes
+// this deck's own existing entries. That is what makes importing the same line
+// twice not double-count the first import's copies.
+async function ownedVariantsForOracle(database, userId, oracleId) {
+  const rows = await client(database).all(
+    `SELECT cc.id AS desired_card_id, cc.name, cc.set_id, cc.set_name, cc.number,
+            cc.image_url, cc.rarity, cc.oracle_id, c.finish,
+            COALESCE(SUM(c.quantity), 0) AS owned_qty
+     FROM collection c
+     JOIN card_cache cc ON c.card_id = cc.id
+     WHERE c.user_id = ? AND cc.oracle_id = ? AND c.list_type = 'collection'
+     GROUP BY cc.id, c.finish
+     ORDER BY cc.set_name ASC, cc.number ASC, c.finish ASC`,
+    [userId, oracleId]
+  );
+
+  const variants = [];
+  for (const row of rows) {
+    const identity = { desired_card_id: row.desired_card_id, desired_finish: row.finish };
+    const reserved = await reservedByHigherPriority(database, userId, identity, null);
+    variants.push({ ...row, available_qty: Math.max(0, row.owned_qty - reserved) });
+  }
+  return variants;
+}
+
+// Every cached printing+finish of one Oracle card, owned or not, as CHOICES to
+// offer the user.
+//
+// This exists for exactly one job: text import lines that name a card but not a
+// printing, where the user owns nothing to allocate. The app must not pick in
+// that situation (see resolveImportLine), so it has to show a list and let the
+// user pick. Showing the catalogue as OPTIONS is not the same thing as the app
+// choosing one of them, and the distinction is the whole rule: the user may
+// pick a printing they do not own; the app may not pick one for them.
+//
+// Owned variants keep their real owned_qty/available_qty. Unowned printings are
+// appended with zeroes so the picker can show "0 free" honestly rather than
+// hiding them. Ordering puts what the user actually has first, because that is
+// almost always what they meant.
+async function printingChoicesForOracle(database, userId, oracleId) {
+  const owned = await ownedVariantsForOracle(database, userId, oracleId);
+  const ownedKeys = new Set(owned.map(v => `${v.desired_card_id}|${v.finish}`));
+
+  const printings = await client(database).all(
+    `SELECT id AS desired_card_id, name, set_id, set_name, number, image_url,
+            rarity, oracle_id, finishes
+     FROM card_cache
+     WHERE oracle_id = ?
+     ORDER BY set_name ASC, number ASC`,
+    [oracleId]
+  );
+
+  const unowned = [];
+  for (const printing of printings) {
+    // A cache row with no usable finishes list still has to be offerable, or a
+    // thin cache entry would make the card unpickable entirely. 'nonfoil' is
+    // the safe floor: every paper printing has one.
+    const finishes = parseJsonColumn(printing.finishes, []);
+    const usable = (Array.isArray(finishes) ? finishes : []).filter(isFinish);
+    for (const finish of (usable.length ? usable : ['nonfoil'])) {
+      if (ownedKeys.has(`${printing.desired_card_id}|${finish}`)) continue;
+      unowned.push({
+        desired_card_id: printing.desired_card_id,
+        name: printing.name,
+        set_id: printing.set_id,
+        set_name: printing.set_name,
+        number: printing.number,
+        image_url: printing.image_url,
+        rarity: printing.rarity,
+        oracle_id: printing.oracle_id,
+        finish,
+        owned_qty: 0,
+        available_qty: 0
+      });
+    }
+  }
+
+  return [...owned, ...unowned];
+}
+
+// THE ALLOCATION ORDERING RULE for name-only text import, stated once.
+//
+// A decklist line says "4 Lightning Bolt". It does not say WHICH Lightning
+// Bolt. Rather than refuse the line or invent a printing, we spend the copies
+// the user demonstrably owns and that are demonstrably free. Mixed printings
+// are an acceptable and expected result -- four Bolts are four Bolts.
+//
+// The order is, in strict priority:
+//
+//   1. Most AVAILABLE copies first. Filling from the deepest free stack means a
+//      line that CAN be satisfied out of a single printing is, so a uniform
+//      result happens naturally without a special case for it. Mixing only
+//      begins once no single printing can cover the rest.
+//   2. Ties broken by desired_card_id ascending. The id is immutable, so the
+//      same collection produces the same allocation on every run -- reordering
+//      or renaming anything cannot silently move which physical card the user
+//      is told to pull.
+//   3. Ties broken by finish in FINISHES order (nonfoil, foil, etched). Between
+//      two otherwise identical options, spend the ordinary copy before the
+//      collectible one.
+//
+// Nothing here consults printings the user does not own: the caller passes only
+// owned variants, and a variant with zero available copies is skipped rather
+// than allocated at zero. `shortfall` is what is left over, and it is the
+// caller's job to surface it -- never to fill it by guessing.
+function allocateFromOwnedVariants(variants, requested) {
+  const ordered = [...(variants || [])].sort((a, b) => {
+    if (b.available_qty !== a.available_qty) return b.available_qty - a.available_qty;
+    if (a.desired_card_id !== b.desired_card_id) {
+      return String(a.desired_card_id) < String(b.desired_card_id) ? -1 : 1;
+    }
+    return FINISHES.indexOf(a.finish) - FINISHES.indexOf(b.finish);
+  });
+
+  const picks = [];
+  let remaining = Math.max(0, requested);
+  for (const variant of ordered) {
+    if (remaining <= 0) break;
+    const free = Math.max(0, variant.available_qty);
+    if (free <= 0) continue;
+    const take = Math.min(free, remaining);
+    remaining -= take;
+    picks.push({
+      desired_card_id: variant.desired_card_id,
+      desired_finish: variant.finish,
+      set_name: variant.set_name,
+      number: variant.number,
+      name: variant.name,
+      take
+    });
+  }
+  return { picks, shortfall: remaining };
+}
+
 module.exports = {
   FINISHES,
   BOARDS,
@@ -351,5 +526,8 @@ module.exports = {
   reservedByHigherPriority,
   availabilityForRequirement,
   availabilityForDeck,
-  selectPhysicalCopies
+  selectPhysicalCopies,
+  ownedVariantsForOracle,
+  printingChoicesForOracle,
+  allocateFromOwnedVariants
 };

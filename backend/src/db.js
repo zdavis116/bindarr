@@ -503,25 +503,27 @@ async function initDb() {
   `);
   await run(`CREATE INDEX IF NOT EXISTS idx_price_history_card_time ON price_history(card_id, recorded_at, id)`);
 
-  // A deck's STATUS decides whether its REAL entries compete for physical
-  // cards.
+  // A deck has NO 'considering' status.
   //
-  // 'active' means "this deck exists in the real world and its cards are
-  // spoken for". 'considering' means "I am thinking about this list" -- it is
-  // planning only and reserves nothing. This is deck-level intent, distinct
-  // from the per-entry `board` column below.
+  // PR 6C briefly gave decks a status column with 'active' and 'considering'
+  // values. That was a modelling mistake and PR 6D removes it. "Considering"
+  // is a statement about ONE CARD -- "I am thinking about putting this in" --
+  // and it is expressed by the per-entry `board` column below. A whole deck is
+  // never in a considering state: the user either has a deck or they do not,
+  // and the deck-level statuses the app actually shows (Building, Ready, In
+  // Play) are DERIVED at read time from card count vs target_size and the
+  // checked_out flag. Deriving them is the point -- a stored duplicate of a
+  // count would go stale the moment a card was added.
   //
-  // The two are not symmetric. A considering ENTRY is a note that the user is
-  // thinking about a card which is not physically in the deck, so it never
-  // reserves at any level and the deck's status is irrelevant to it. Deck
-  // status only decides anything for entries on a real board.
+  // The consequence for reservation is a simplification: whether an entry
+  // reserves inventory now depends on its board and nothing else. See
+  // utils/deckIdentity.js.
   await run(`
     CREATE TABLE IF NOT EXISTS decks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'considering')),
       checked_out INTEGER DEFAULT 0,
       checked_out_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
