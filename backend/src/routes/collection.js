@@ -12,6 +12,12 @@ const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement }
 const { validateDeckAddition } = require('../utils/deckRules');
 const { splitPrice } = require('../utils/splitPrice');
 const {
+  InvariantError,
+  requireOwnedCompartment,
+  requireOwnedLocation,
+  assertCapacityFor
+} = require('../utils/storageInvariants');
+const {
   RequestBoundsError,
   positiveInteger,
   requireArray,
@@ -255,43 +261,64 @@ async function addCardToCollection(user, body) {
     throw new AddCardError(400, 'card_id is required');
   }
 
-  {
-    let card = await db.get(`SELECT * FROM card_cache WHERE id = ?`, [card_id]);
+  // The card_cache lookup and any Scryfall fallback happen BEFORE the
+  // transaction. A network call inside a transaction would hold SQLite's write
+  // lock for the duration of an upstream request, stalling every other writer
+  // behind an external dependency's latency.
+  let card = await db.get(`SELECT * FROM card_cache WHERE id = ?`, [card_id]);
+  if (!card) {
+    try {
+      card = await scryfallApi.getCardById(card_id);
+    } catch (error) {
+      if (error.code === 'NON_ENGLISH_PRINTING') {
+        throw new AddCardError(400, 'Only English card printings are supported.');
+      }
+      throw error;
+    }
     if (!card) {
-      try {
-        card = await scryfallApi.getCardById(card_id);
-      } catch (error) {
-        if (error.code === 'NON_ENGLISH_PRINTING') {
-          throw new AddCardError(400, 'Only English card printings are supported.');
-        }
-        throw error;
-      }
-      if (!card) {
-        throw new AddCardError(404, `Card ID ${card_id} not found.`);
-      }
+      throw new AddCardError(404, `Card ID ${card_id} not found.`);
     }
+  }
 
+  const count = quantity;
+
+  // Placement resolution, the capacity reservation and every insert run in one
+  // transaction. Resolving a slot outside the transaction and inserting inside
+  // it is the race T5 covers: two callers resolve the same free slot before
+  // either writes.
+  const result = await db.withTransaction(async (tx) => {
     if (location_id) {
-      const loc = await db.get(`SELECT id FROM locations WHERE id = ? AND user_id = ?`, [location_id, req.user.id]);
-      if (!loc) {
-        throw new AddCardError(400, 'Invalid location ID');
-      }
+      await requireOwnedLocation(tx, location_id, req.user.id);
     }
 
-    const resolved = await resolveCompartmentAndPosition({
+    // Normalize the helper's "nowhere to put this" signal. It returns null when
+    // every compartment (including overflow locations) is full, but an object
+    // with a null compartment_id in other no-placement cases. Collapsing both
+    // into one shape here keeps the rest of this function free of null guards.
+    const resolved = (await resolveCompartmentAndPosition({
+      dbClient: tx,
       locationId: location_id,
       userId: req.user.id,
       cardId: card_id,
       printing
-    });
+    })) || { compartment_id: null, position: 0, full: true };
 
     const targetLocationId = resolved.compartment_id ? (resolved.location_id ?? location_id) : null;
 
+    // Reserve all `count` copies against the destination before writing any of
+    // them, so a partially-fitting add is refused outright instead of filing
+    // some copies and overflowing on the rest.
+    if (resolved.compartment_id) {
+      const compartment = await requireOwnedCompartment(tx, resolved.compartment_id, req.user.id);
+      // `count` slots either way: a stackable row of N occupies N physical
+      // slots, and N unstacked rows occupy N.
+      await assertCapacityFor(tx, compartment, count);
+    }
+
     let lastInsertedId = null;
-    const count = quantity;
 
     if (stackable) {
-      const result = await db.run(`
+      const inserted = await tx.run(`
         INSERT INTO collection (
           card_id, user_id, quantity, condition, printing, purchase_price,
           location_id, compartment_id, position, is_trade, list_type
@@ -300,10 +327,10 @@ async function addCardToCollection(user, body) {
         card_id, req.user.id, count, condition, printing, purchase_price || 0,
         targetLocationId, resolved.compartment_id, resolved.position, is_trade ? 1 : 0, list_type
       ]);
-      lastInsertedId = result.lastID;
+      lastInsertedId = inserted.lastID;
     } else {
       for (let i = 0; i < count; i++) {
-        const result = await db.run(`
+        const inserted = await tx.run(`
           INSERT INTO collection (
             card_id, user_id, quantity, condition, printing, purchase_price,
             location_id, compartment_id, position, is_trade, list_type
@@ -312,29 +339,41 @@ async function addCardToCollection(user, body) {
           card_id, req.user.id, condition, printing, purchase_price || 0,
           targetLocationId, resolved.compartment_id, resolved.position + (i * 0.001), is_trade ? 1 : 0, list_type
         ]);
-        lastInsertedId = result.lastID;
+        lastInsertedId = inserted.lastID;
       }
     }
 
     if (resolved.compartment_id && targetLocationId) {
-      const loc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [targetLocationId, req.user.id]);
+      const loc = await tx.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [targetLocationId, req.user.id]);
       if (loc) {
-        await rebalanceCompartmentByScheme(db, resolved.compartment_id, loc.sort_order, loc.foil_sorting);
+        // Pass `tx`, not the module-level `db`. Both happen to work today --
+        // `db.run` inside a transaction is routed onto the active transaction
+        // via AsyncLocalStorage -- but relying on that ambient behavior means
+        // the correctness of this call depends on an invisible context rather
+        // than on what the code says. Any future refactor that moves this off
+        // the ALS-tracked call path (a queue hop, a worker, a .then boundary)
+        // would silently turn it into an out-of-transaction write.
+        await rebalanceCompartmentByScheme(tx, resolved.compartment_id, loc.sort_order, loc.foil_sorting);
       }
     }
-
-    await recordPrice(card_id, card.price_trend);
 
     return {
       message: 'Card added to collection',
       id: lastInsertedId,
       placement: resolved.compartment_id
-        ? await describePlacement(db, lastInsertedId, req.user.id)
+        ? await describePlacement(tx, lastInsertedId, req.user.id)
         : null,
       container_full: !!resolved.full,
       rule_rejected: !!resolved.rejected
     };
-  }
+  });
+
+  // Price history is deliberately outside the transaction: it is derived
+  // telemetry, not part of the collection invariant, and a price-write failure
+  // must not roll back a legitimate add.
+  await recordPrice(card_id, card.price_trend);
+
+  return result;
 }
 
 // 3. Add Card to Collection
@@ -344,7 +383,7 @@ router.post('/collection', async (req, res) => {
     body.quantity = positiveInteger(body.quantity === undefined ? 1 : body.quantity, { name: 'quantity', max: 1000 });
     res.status(200).json(await addCardToCollection(req.user, body));
   } catch (error) {
-    if (error instanceof AddCardError || error instanceof RequestBoundsError) {
+    if (error instanceof AddCardError || error instanceof RequestBoundsError || error instanceof InvariantError) {
       return res.status(error.status).json({ error: error.message });
     }
     console.error(error);
@@ -405,99 +444,140 @@ router.put('/collection/:id', async (req, res) => {
     const requestedQty = quantity !== undefined
       ? positiveInteger(quantity, { name: 'quantity', max: 1000 })
       : 1;
-    const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-    if (!entry) return res.status(404).json({ error: 'Collection entry not found' });
 
-    const isMoving = location_id !== undefined && location_id !== entry.location_id;
-    let finalCompartmentId = entry.compartment_id;
-    let finalLocationId = entry.location_id;
-    let finalPosition = entry.position;
-    let resolvedFull = false;
-    let resolvedRejected = false;
+    // The whole edit is one transaction. Placement resolution, the column
+    // update, both rebalances and the auto-split inserts are steps of a single
+    // logical mutation; running them as independent statements meant a failure
+    // in any later step left the earlier ones committed. Capacity is also read
+    // inside the transaction, which is what makes the check-then-write pair
+    // atomic against a concurrent request (PR 6A uses BEGIN IMMEDIATE, so
+    // transactions serialize and the loser observes the winner's rows).
+    const outcome = await db.withTransaction(async (tx) => {
+      const entry = await tx.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+      if (!entry) throw new InvariantError(404, 'Collection entry not found', 'ENTRY_NOT_FOUND');
 
-    if (isMoving) {
-      if (location_id === null || location_id === '') {
-        finalLocationId = null;
-        finalCompartmentId = null;
-        finalPosition = 0;
-      } else {
-        const resolved = await resolveCompartmentAndPosition({
-          locationId: location_id,
-          userId: req.user.id,
-          cardId: entry.card_id,
-          printing: printing !== undefined ? printing : entry.printing
-        });
-        finalCompartmentId = resolved.compartment_id;
-        finalLocationId = resolved.compartment_id ? (resolved.location_id ?? location_id) : null;
-        finalPosition = resolved.position;
-        resolvedFull = !!resolved.full;
-        resolvedRejected = !!resolved.rejected;
-      }
-    } else if (compartment_id !== undefined) {
-      finalCompartmentId = compartment_id;
-    }
+      const isMoving = location_id !== undefined && location_id !== entry.location_id;
+      let finalCompartmentId = entry.compartment_id;
+      let finalLocationId = entry.location_id;
+      let finalPosition = entry.position;
+      let resolvedFull = false;
+      let resolvedRejected = false;
+      let targetCompartment = null;
 
-    const updates = [];
-    const params = [];
-
-    // One physical card = one row. The edited entry always stays quantity 1;
-    // a quantity > 1 in the payload means "make this many copies" and is
-    // fulfilled below by inserting extra single-card rows (auto-split).
-    if (quantity !== undefined) { updates.push('quantity = ?'); params.push(1); }
-    if (condition !== undefined) { updates.push('condition = ?'); params.push(condition); }
-    if (printing !== undefined) { updates.push('printing = ?'); params.push(printing); }
-
-    if (purchase_price !== undefined) { updates.push('purchase_price = ?'); params.push(purchase_price); }
-    if (isMoving || compartment_id !== undefined) {
-      updates.push('location_id = ?', 'compartment_id = ?', 'position = ?');
-      params.push(finalLocationId, finalCompartmentId, finalPosition);
-    }
-    if (list_type !== undefined) { updates.push('list_type = ?'); params.push(list_type); }
-    if (is_trade !== undefined) { updates.push('is_trade = ?'); params.push(is_trade ? 1 : 0); }
-    if (favorite !== undefined) { updates.push('favorite = ?'); params.push(favorite ? 1 : 0); }
-    if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
-
-    if (updates.length > 0) {
-      params.push(id, req.user.id);
-      await db.run(`UPDATE collection SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, params);
-    }
-
-    if (isMoving && finalCompartmentId && finalLocationId) {
-      const loc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [finalLocationId, req.user.id]);
-      if (loc) await rebalanceCompartmentByScheme(db, finalCompartmentId, loc.sort_order, loc.foil_sorting);
-    }
-    if (isMoving && entry.compartment_id && entry.compartment_id !== finalCompartmentId) {
-      const oldLoc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [entry.location_id, req.user.id]);
-      if (oldLoc) await rebalanceCompartmentByScheme(db, entry.compartment_id, oldLoc.sort_order, oldLoc.foil_sorting);
-    }
-
-    // Auto-split: create the extra copies as their own single-card rows, mirroring
-    // the edited entry's final placement so each copy occupies its own slot.
-    if (requestedQty > 1) {
-      const row = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-      if (row) {
-        for (let i = 1; i < requestedQty; i++) {
-          await db.run(`
-            INSERT INTO collection (
-              card_id, user_id, quantity, condition, printing, purchase_price,
-              location_id, compartment_id, position, is_trade, favorite, list_type
-            ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            row.card_id, req.user.id, row.condition, row.printing, row.purchase_price,
-            row.location_id, row.compartment_id, (row.position || 0) + i * 0.001, row.is_trade, row.favorite, row.list_type
-          ]);
+      if (isMoving) {
+        if (location_id === null || location_id === '') {
+          finalLocationId = null;
+          finalCompartmentId = null;
+          finalPosition = 0;
+        } else {
+          // Authorize the destination before asking the placement engine to
+          // find a slot in it.
+          await requireOwnedLocation(tx, location_id, req.user.id);
+          const resolved = (await resolveCompartmentAndPosition({
+            dbClient: tx,
+            locationId: location_id,
+            userId: req.user.id,
+            cardId: entry.card_id,
+            printing: printing !== undefined ? printing : entry.printing
+          })) || { compartment_id: null, position: 0, full: true };
+          finalCompartmentId = resolved.compartment_id;
+          finalLocationId = resolved.compartment_id ? (resolved.location_id ?? location_id) : null;
+          finalPosition = resolved.position;
+          resolvedFull = !!resolved.full;
+          resolvedRejected = !!resolved.rejected;
+          if (finalCompartmentId) {
+            targetCompartment = await requireOwnedCompartment(tx, finalCompartmentId, req.user.id);
+          }
         }
-        if (row.compartment_id && row.location_id) {
-          const loc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [row.location_id, req.user.id]);
-          if (loc) await rebalanceCompartmentByScheme(db, row.compartment_id, loc.sort_order, loc.foil_sorting);
+      } else if (compartment_id !== undefined) {
+        // A bare compartment_id from the body is attacker-controlled. Resolve it
+        // through the ownership check and adopt its true parent location rather
+        // than trusting the pair the client sent.
+        if (compartment_id === null || compartment_id === '') {
+          finalCompartmentId = null;
+          finalLocationId = null;
+          finalPosition = 0;
+        } else {
+          targetCompartment = await requireOwnedCompartment(tx, compartment_id, req.user.id);
+          finalCompartmentId = targetCompartment.id;
+          finalLocationId = targetCompartment.location_id;
+        }
+      } else if (finalCompartmentId) {
+        targetCompartment = await requireOwnedCompartment(tx, finalCompartmentId, req.user.id);
+      }
+
+      // Reserve every slot this request will consume, up front, before any
+      // write. `requestedQty` copies land in the destination; the edited row
+      // itself is excluded from the occupancy count when it already sits there,
+      // otherwise moving a card into its own compartment would count it twice.
+      if (targetCompartment) {
+        await assertCapacityFor(tx, targetCompartment, requestedQty, { excludeEntryId: entry.id });
+      }
+
+      const updates = [];
+      const params = [];
+
+      // One physical card = one row. The edited entry always stays quantity 1;
+      // a quantity > 1 in the payload means "make this many copies" and is
+      // fulfilled below by inserting extra single-card rows (auto-split).
+      if (quantity !== undefined) { updates.push('quantity = ?'); params.push(1); }
+      if (condition !== undefined) { updates.push('condition = ?'); params.push(condition); }
+      if (printing !== undefined) { updates.push('printing = ?'); params.push(printing); }
+
+      if (purchase_price !== undefined) { updates.push('purchase_price = ?'); params.push(purchase_price); }
+      if (isMoving || compartment_id !== undefined) {
+        updates.push('location_id = ?', 'compartment_id = ?', 'position = ?');
+        params.push(finalLocationId, finalCompartmentId, finalPosition);
+      }
+      if (list_type !== undefined) { updates.push('list_type = ?'); params.push(list_type); }
+      if (is_trade !== undefined) { updates.push('is_trade = ?'); params.push(is_trade ? 1 : 0); }
+      if (favorite !== undefined) { updates.push('favorite = ?'); params.push(favorite ? 1 : 0); }
+      if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
+
+      if (updates.length > 0) {
+        params.push(id, req.user.id);
+        await tx.run(`UPDATE collection SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, params);
+      }
+
+      if (isMoving && finalCompartmentId && finalLocationId) {
+        const loc = await tx.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [finalLocationId, req.user.id]);
+        if (loc) await rebalanceCompartmentByScheme(tx, finalCompartmentId, loc.sort_order, loc.foil_sorting);
+      }
+      if (isMoving && entry.compartment_id && entry.compartment_id !== finalCompartmentId) {
+        const oldLoc = await tx.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [entry.location_id, req.user.id]);
+        if (oldLoc) await rebalanceCompartmentByScheme(tx, entry.compartment_id, oldLoc.sort_order, oldLoc.foil_sorting);
+      }
+
+      // Auto-split: create the extra copies as their own single-card rows, mirroring
+      // the edited entry's final placement so each copy occupies its own slot.
+      if (requestedQty > 1) {
+        const row = await tx.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+        if (row) {
+          for (let i = 1; i < requestedQty; i++) {
+            await tx.run(`
+              INSERT INTO collection (
+                card_id, user_id, quantity, condition, printing, purchase_price,
+                location_id, compartment_id, position, is_trade, favorite, list_type
+              ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              row.card_id, req.user.id, row.condition, row.printing, row.purchase_price,
+              row.location_id, row.compartment_id, (row.position || 0) + i * 0.001, row.is_trade, row.favorite, row.list_type
+            ]);
+          }
+          if (row.compartment_id && row.location_id) {
+            const loc = await tx.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [row.location_id, req.user.id]);
+            if (loc) await rebalanceCompartmentByScheme(tx, row.compartment_id, loc.sort_order, loc.foil_sorting);
+          }
         }
       }
-    }
 
-    const finalPlacement = isMoving && finalCompartmentId ? await describePlacement(db, id, req.user.id) : null;
-    res.json({ message: 'Collection entry updated successfully', placement: finalPlacement, container_full: resolvedFull, rule_rejected: resolvedRejected });
+      const finalPlacement = isMoving && finalCompartmentId ? await describePlacement(tx, id, req.user.id) : null;
+      return { placement: finalPlacement, container_full: resolvedFull, rule_rejected: resolvedRejected };
+    });
+
+    res.json({ message: 'Collection entry updated successfully', ...outcome });
   } catch (error) {
-    if (error instanceof RequestBoundsError) {
+    if (error instanceof RequestBoundsError || error instanceof InvariantError) {
       return res.status(error.status).json({ error: error.message });
     }
     console.error(error);
@@ -510,56 +590,85 @@ router.post('/collection/:id/place', async (req, res) => {
   const { id } = req.params;
   const { compartment_id, slot, swap_with } = req.body;
   try {
-    const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-    if (!entry) return res.status(404).json({ error: 'Collection entry not found' });
+    // Manual placement moves one or two physical cards between slots. Both the
+    // swap and the single-place branch are multi-statement, so the whole handler
+    // runs in one transaction: a swap that updated one card and then failed left
+    // two cards occupying the same slot.
+    const result = await db.withTransaction(async (tx) => {
+      const entry = await tx.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+      if (!entry) throw new InvariantError(404, 'Collection entry not found', 'ENTRY_NOT_FOUND');
 
-    const comp = await db.get(`
-      SELECT c.id, c.capacity, l.id AS loc_id, l.type AS loc_type, l.sort_order
-      FROM compartments c JOIN locations l ON c.location_id = l.id
-      WHERE c.id = ? AND l.user_id = ?`, [compartment_id, req.user.id]);
-    if (!comp) return res.status(400).json({ error: 'Invalid compartment' });
-    if (comp.sort_order !== 'custom') return res.status(400).json({ error: 'Manual placement is only available in Custom order' });
-
-    const isBinder = isBinderType(comp.loc_type);
-
-    if (swap_with) {
-      const other = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [swap_with, req.user.id]);
-      if (!other) return res.status(400).json({ error: 'Swap target not found' });
-      await db.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
-        [other.compartment_id, other.location_id, other.position, id, req.user.id]);
-      await db.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
-        [entry.compartment_id, entry.location_id, entry.position, swap_with, req.user.id]);
-      const placement = await describePlacement(db, id, req.user.id);
-      return res.json({ message: 'Cards swapped', placement });
-    }
-
-    if (!Number.isInteger(slot) || slot < 1) return res.status(400).json({ error: 'Invalid slot' });
-
-    if (entry.compartment_id !== compartment_id) {
-      const cnt = await db.get(`SELECT COUNT(*) AS n FROM collection WHERE compartment_id = ? AND user_id = ?`, [compartment_id, req.user.id]);
-      if (cnt.n >= comp.capacity) return res.status(400).json({ error: 'COMPARTMENT_FULL' });
-    }
-
-    const sourceComp = entry.compartment_id;
-    if (isBinder) {
-      await db.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
-        [compartment_id, comp.loc_id, slot * 1000, id, req.user.id]);
-    } else {
-      await db.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
-        [compartment_id, comp.loc_id, slot * 1000 - 500, id, req.user.id]);
-      await rebalanceCompartmentByScheme(db, compartment_id, req.user.id, { sort_order: 'custom' });
-    }
-
-    if (sourceComp && sourceComp !== compartment_id) {
-      const src = await db.get(`SELECT l.type AS loc_type FROM compartments c JOIN locations l ON c.location_id = l.id WHERE c.id = ?`, [sourceComp]);
-      if (src && !isBinderType(src.loc_type)) {
-        await rebalanceCompartmentByScheme(db, sourceComp, req.user.id, { sort_order: 'custom' });
+      const comp = await requireOwnedCompartment(tx, compartment_id, req.user.id);
+      if (comp.sort_order !== 'custom') {
+        throw new InvariantError(400, 'Manual placement is only available in Custom order', 'NOT_CUSTOM_ORDER');
       }
-    }
 
-    const placement = await describePlacement(db, id, req.user.id);
-    res.json({ message: 'Card placed', placement });
+      const isBinder = isBinderType(comp.loc_type);
+
+      if (swap_with) {
+        const other = await tx.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [swap_with, req.user.id]);
+        if (!other) throw new InvariantError(400, 'Swap target not found', 'SWAP_TARGET_NOT_FOUND');
+        // A swap exchanges two existing placements, so it is capacity-neutral
+        // and needs no reservation -- but the target's compartment must still
+        // belong to the caller, or a swap becomes a way to write an arbitrary
+        // compartment_id onto one's own row.
+        if (other.compartment_id) {
+          await requireOwnedCompartment(tx, other.compartment_id, req.user.id);
+        }
+        await tx.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
+          [other.compartment_id, other.location_id, other.position, id, req.user.id]);
+        await tx.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
+          [entry.compartment_id, entry.location_id, entry.position, swap_with, req.user.id]);
+        return { message: 'Cards swapped', placement: await describePlacement(tx, id, req.user.id) };
+      }
+
+      if (!Number.isInteger(slot) || slot < 1) {
+        throw new InvariantError(400, 'Invalid slot', 'INVALID_SLOT');
+      }
+
+      // Only an incoming card consumes a slot; repositioning within the same
+      // compartment does not. Capacity is read inside the transaction so a
+      // concurrent add cannot claim the same last slot.
+      //
+      // Reserve the row's ACTUAL quantity, not a hardcoded 1. Occupancy is
+      // defined as SUM(quantity) (see compartmentOccupancy), but this call site
+      // reserved a single slot regardless of how many copies the row carried.
+      // The UPDATE below moves the WHOLE row, so a stacked entry of quantity 3
+      // consumed three slots while reserving one -- the compartment ends up
+      // holding more cards than its capacity permits, and every later guard
+      // then compares against a capacity the database has already violated.
+      // Bindarr's normal path keeps one card per row, which is exactly why no
+      // test caught this: stacked rows arrive from legacy data and imports, so
+      // the defect is invisible until it hits precisely the data it corrupts.
+      if (entry.compartment_id !== comp.id) {
+        await assertCapacityFor(tx, comp, entry.quantity || 1, { excludeEntryId: entry.id });
+      }
+
+      const sourceComp = entry.compartment_id;
+      if (isBinder) {
+        await tx.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
+          [comp.id, comp.loc_id, slot * 1000, id, req.user.id]);
+      } else {
+        await tx.run(`UPDATE collection SET compartment_id = ?, location_id = ?, position = ? WHERE id = ? AND user_id = ?`,
+          [comp.id, comp.loc_id, slot * 1000 - 500, id, req.user.id]);
+        await rebalanceCompartmentByScheme(tx, comp.id, 'custom', null);
+      }
+
+      if (sourceComp && sourceComp !== comp.id) {
+        const src = await tx.get(`SELECT l.type AS loc_type FROM compartments c JOIN locations l ON c.location_id = l.id WHERE c.id = ?`, [sourceComp]);
+        if (src && !isBinderType(src.loc_type)) {
+          await rebalanceCompartmentByScheme(tx, sourceComp, 'custom', null);
+        }
+      }
+
+      return { message: 'Card placed', placement: await describePlacement(tx, id, req.user.id) };
+    });
+
+    res.json(result);
   } catch (error) {
+    if (error instanceof RequestBoundsError || error instanceof InvariantError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error(error);
     res.status(500).json({ error: 'Failed to place card' });
   }
@@ -686,34 +795,56 @@ router.post('/collection/bulk', async (req, res) => {
     }
 
     const locationId = value ? parseInt(value, 10) : null;
-    if (locationId) {
-      const loc = await db.get(`SELECT id FROM locations WHERE id = ? AND user_id = ?`, [locationId, req.user.id]);
-      if (!loc) return res.status(400).json({ error: 'Invalid location ID' });
-    }
-    let moved = 0;
-    const touched = new Map();
-    for (const id of ids) {
-      const entry = await db.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-      if (!entry) continue;
-      if (!locationId) {
-        await db.run(`UPDATE collection SET location_id = NULL, compartment_id = NULL, position = 0 WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-        moved++;
-        continue;
+    // The whole batch is one transaction: a bulk move either relocates every
+    // selected entry or none of them. The previous per-entry loop could report
+    // "Moved 3 card(s)" after failing on the fourth, leaving the user with a
+    // split selection they could not identify or undo.
+    const moved = await db.withTransaction(async (tx) => {
+      if (locationId) {
+        await requireOwnedLocation(tx, locationId, req.user.id);
       }
-      const resolved = await resolveCompartmentAndPosition({
-        locationId, userId: req.user.id, cardId: entry.card_id, printing: entry.printing
-      });
-      const finalLoc = resolved.compartment_id ? (resolved.location_id ?? locationId) : null;
-      await db.run(`UPDATE collection SET location_id = ?, compartment_id = ?, position = ? WHERE id = ? AND user_id = ?`, [finalLoc, resolved.compartment_id, resolved.position, id, req.user.id]);
-      if (resolved.compartment_id) touched.set(resolved.compartment_id, finalLoc);
-      moved++;
-    }
-    for (const [compId, locId] of touched) {
-      const rbLoc = await db.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [locId, req.user.id]);
-      if (rbLoc) await rebalanceCompartmentByScheme(db, compId, rbLoc.sort_order, rbLoc.foil_sorting);
-    }
+      let count = 0;
+      const touched = new Map();
+      for (const id of ids) {
+        const entry = await tx.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+        if (!entry) continue;
+        if (!locationId) {
+          await tx.run(`UPDATE collection SET location_id = NULL, compartment_id = NULL, position = 0 WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+          count++;
+          continue;
+        }
+        const resolved = (await resolveCompartmentAndPosition({
+          dbClient: tx, locationId, userId: req.user.id, cardId: entry.card_id, printing: entry.printing
+        })) || { compartment_id: null, position: 0, full: true };
+        const finalLoc = resolved.compartment_id ? (resolved.location_id ?? locationId) : null;
+        // Each entry claims its slot against the state produced by the earlier
+        // entries in this same batch, because the reads run inside the
+        // transaction. Exceeding capacity aborts the whole batch.
+        if (resolved.compartment_id) {
+          const compartment = await requireOwnedCompartment(tx, resolved.compartment_id, req.user.id);
+          // Reserve the row's real quantity: the UPDATE below relocates the
+          // whole row, so a stacked entry consumes that many slots.
+          await assertCapacityFor(tx, compartment, entry.quantity || 1, { excludeEntryId: entry.id });
+        } else {
+          // No slot could be found for this entry. Refusing here is what makes
+          // the operation all-or-nothing rather than silently partial.
+          throw new InvariantError(400, 'COMPARTMENT_FULL', 'COMPARTMENT_FULL');
+        }
+        await tx.run(`UPDATE collection SET location_id = ?, compartment_id = ?, position = ? WHERE id = ? AND user_id = ?`, [finalLoc, resolved.compartment_id, resolved.position, id, req.user.id]);
+        touched.set(resolved.compartment_id, finalLoc);
+        count++;
+      }
+      for (const [compId, locId] of touched) {
+        const rbLoc = await tx.get(`SELECT sort_order, foil_sorting FROM locations WHERE id = ? AND user_id = ?`, [locId, req.user.id]);
+        if (rbLoc) await rebalanceCompartmentByScheme(tx, compId, rbLoc.sort_order, rbLoc.foil_sorting);
+      }
+      return count;
+    });
     return res.json({ message: `Moved ${moved} card(s)`, affected: moved });
   } catch (error) {
+    if (error instanceof RequestBoundsError || error instanceof InvariantError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error(error);
     res.status(500).json({ error: 'Bulk action failed' });
   }

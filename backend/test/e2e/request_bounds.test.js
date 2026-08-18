@@ -117,7 +117,7 @@ async function main() {
       ['bounded-card']
     );
     assert.deepStrictEqual(defaultedRows.map(row => row.quantity), [1, 1]);
-    console.log('PASS: omitted quantity defaults');
+    console.log('PASS: F10-TC6 omitted quantity defaults');
   } finally {
     await new Promise(resolve => server.close(resolve));
     for (const suffix of ['', '-wal', '-shm']) {

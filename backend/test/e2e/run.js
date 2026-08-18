@@ -27,7 +27,11 @@ async function runTestFile(file) {
       const output = data.toString();
       process.stdout.write(output);
       
-      const passMatches = output.match(/PASS: F\d-TC\d+/g);
+      // `F\d+` not `F\d`: the single-digit class silently stopped matching at
+      // feature 10, so every F10+ suite reported zero test cases while still
+      // reporting its suite-level pass/fail. The runner's exit code was right
+      // and its case counts were quietly wrong.
+      const passMatches = output.match(/PASS: F\d+-TC\d+/g);
       if (passMatches) {
         filePassed += passMatches.length;
       }
@@ -37,7 +41,7 @@ async function runTestFile(file) {
       const output = data.toString();
       process.stderr.write(output);
       
-      const failMatches = output.match(/FAIL: F\d-TC\d+/g);
+      const failMatches = output.match(/FAIL: F\d+-TC\d+/g);
       if (failMatches) {
         fileFailed += failMatches.length;
       }
