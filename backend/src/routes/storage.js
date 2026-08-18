@@ -196,7 +196,7 @@ router.put('/locations/:id', async (req, res) => {
       if (rule_type !== undefined || rule_config !== undefined) {
         const updated = await tx.get(`SELECT id, rule_type, rule_config FROM locations WHERE id = ? AND user_id = ?`, [id, req.user.id]);
         const stored = await tx.all(`
-          SELECT c.id as entry_id, c.printing, c.favorite, c.is_trade, c.list_type,
+          SELECT c.id as entry_id, c.printing, c.finish, c.favorite, c.is_trade, c.list_type,
                  cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype,
                  cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
           FROM collection c
@@ -477,7 +477,7 @@ router.patch('/compartments/:id', async (req, res) => {
         const cfg = ruleConfigJson ? JSON.parse(ruleConfigJson) : null;
         const compForCheck = { ruleConfig: cfg };
         const stored = await tx.all(`
-          SELECT c.id AS entry_id, c.printing,
+          SELECT c.id AS entry_id, c.printing, c.finish,
                  cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.rarity, cc.supertype,
                  cc.price_trend, cc.cmc, cc.color_identity
           FROM collection c JOIN card_cache cc ON c.card_id = cc.id
@@ -593,7 +593,7 @@ router.post('/locations/:id/recommend-batch', async (req, res) => {
 
     for (const entryId of entry_ids) {
       const entry = await db.get(`
-        SELECT c.id as entry_id, c.card_id, c.printing, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.image_url, cc.cmc, cc.color_identity
+        SELECT c.id as entry_id, c.card_id, c.printing, c.finish, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.image_url, cc.cmc, cc.color_identity
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
         WHERE c.id = ? AND c.user_id = ?
@@ -671,7 +671,7 @@ router.post('/locations/:id/apply-all', async (req, res) => {
 
       for (const entryId of entry_ids) {
         const entry = await tx.get(`
-          SELECT c.id, c.card_id, c.printing, c.quantity, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.cmc, cc.color_identity
+          SELECT c.id, c.card_id, c.printing, c.finish, c.quantity, c.favorite, c.is_trade, c.list_type, cc.name, cc.set_name, cc.number, cc.types, cc.subtypes, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.supertype, cc.rarity, cc.cmc, cc.color_identity
           FROM collection c
           JOIN card_cache cc ON c.card_id = cc.id
           WHERE c.id = ? AND c.user_id = ?
@@ -738,7 +738,7 @@ router.post('/locations/:id/resort', async (req, res) => {
     // atomic, so a mid-loop failure restores every original placement.
     const results = await db.withTransaction(async (tx) => {
       const cards = await tx.all(`
-        SELECT c.id as entry_id, c.card_id, c.printing, c.quantity, c.favorite, c.is_trade, c.list_type,
+        SELECT c.id as entry_id, c.card_id, c.printing, c.finish, c.quantity, c.favorite, c.is_trade, c.list_type,
                cc.name, cc.set_name, cc.number, cc.types, cc.rarity, cc.supertype, cc.image_url,
                cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
         FROM collection c

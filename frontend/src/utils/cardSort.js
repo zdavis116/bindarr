@@ -7,7 +7,16 @@ import sortSchemes from '../../../shared/sortSchemes.json';
 // queue, and the unsorted list view in LocationManager.jsx.
 // Category orderings come from shared/cardOrder.json so display order matches
 // the backend filing engine (compartmentSort.js) exactly.
-export const POKEMON_TYPE_ORDER = cardOrder.pokemonType;
+// WUBRG, the universal Magic colour order -- the SAME table the backend filing
+// engine uses (compartmentSort.js reads cardOrder.wubrg).
+//
+// This previously read a pre-fork energy-type ordering table (now deleted from
+// shared/cardOrder.json).
+// Since the backend files by WUBRG and the frontend displayed by that other
+// table, the order cards appeared in did not match the order they were
+// physically filed in -- the user would open a binder page and find the cards
+// in a different sequence from the one on screen.
+export const COLOR_TYPE_ORDER = cardOrder.wubrg;
 
 // Mirrors typeCategory in the backend: multi-color MTG cards bucket together.
 export function typeCategory(types) {
@@ -87,14 +96,15 @@ export function sortCardsByOrder(cards, sortOrder, foilSorting, setsList = []) {
           break;
         }
         case 'printing': {
-          const printA = getPrintingRank(a.printing, foilSorting);
-          const printB = getPrintingRank(b.printing, foilSorting);
+          // Canonical finish, matching shared/cardOrder.json's keys.
+          const printA = getPrintingRank(a.finish, foilSorting);
+          const printB = getPrintingRank(b.finish, foilSorting);
           cmp = printA - printB;
           break;
         }
         case 'type': {
-          const orderA = POKEMON_TYPE_ORDER[typeCategory(a.types)] || 50;
-          const orderB = POKEMON_TYPE_ORDER[typeCategory(b.types)] || 50;
+          const orderA = COLOR_TYPE_ORDER[typeCategory(a.types)] || 50;
+          const orderB = COLOR_TYPE_ORDER[typeCategory(b.types)] || 50;
           cmp = orderA - orderB;
           break;
         }

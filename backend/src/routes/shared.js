@@ -33,7 +33,7 @@ router.get('/:share_token', async (req, res) => {
         c.card_id,
         c.quantity,
         c.condition,
-        c.printing,
+        c.printing, c.finish,
         c.added_at,
         c.is_trade,
         c.favorite,

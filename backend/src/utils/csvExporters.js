@@ -3,6 +3,20 @@ const REVERSE_CONDITION_MAP = {
   manabox: { 'Near Mint': 'near_mint', 'Lightly Played': 'lightly_played', 'Moderately Played': 'moderately_played', 'Heavily Played': 'heavily_played', 'Damaged': 'damaged' }
 };
 
+const { displayPrinting } = require('./finishes');
+
+// Exporters read the CANONICAL `finish`, never the display mirror.
+//
+// These used to test `item.printing === 'Holofoil'`, a Pokemon value that MTG
+// rows can no longer hold -- so after the finish correction every foil would
+// have exported as 'Normal'. That is the worst kind of failure for this app: a
+// clean-looking CSV that quietly misdescribes the user's binder, which they
+// would only discover after importing it somewhere else.
+const isFoil = (item) => {
+  const finish = item.finish || (item.printing === 'Foil' || item.printing === 'Etched' ? 'foil' : 'nonfoil');
+  return finish === 'foil' || finish === 'etched';
+};
+
 const EXPORT_STRATEGIES = {
   internal: (item) => ({
     'Card ID': item.card_id,
@@ -13,12 +27,14 @@ const EXPORT_STRATEGIES = {
     'Rarity': item.rarity || 'Common',
     'Quantity': item.quantity || 1,
     'Condition': item.condition || 'Near Mint',
-    'Printing': item.printing || 'Normal',
+    // The display form, derived from the canonical finish so a Bindarr export
+    // re-imported into Bindarr round-trips etched as etched rather than
+    // collapsing it to a generic foil.
+    'Printing': displayPrinting(item.finish || 'nonfoil'),
     'Purchase Price': item.purchase_price || 0,
     'Market Price': item.price_trend || item.market_price || 0,
     'Location Container': item.location_name || 'Unassigned',
-    'Sub-Location Page/Row': item.sub_location_1 || '',
-    'Sub-Location Slot/Section': item.sub_location_2 || '',
+    'Compartment': item.compartment_label || (item.compartment_idx != null ? `#${item.compartment_idx}` : ''),
     'Added At': item.added_at || ''
   }),
   tcgplayer: (item) => ({
@@ -27,7 +43,7 @@ const EXPORT_STRATEGIES = {
     'Number': item.collector_number || item.number || item.card_number || '',
     'Quantity': item.quantity || 1,
     'Condition': item.condition || 'Near Mint',
-    'Printing': item.printing === 'Holofoil' ? 'Foil' : 'Normal'
+    'Printing': isFoil(item) ? 'Foil' : 'Normal'
   }),
   dragonshield: (item) => ({
     'Card Name': item.name || item.card_name || '',
@@ -35,7 +51,7 @@ const EXPORT_STRATEGIES = {
     'Card Number': item.collector_number || item.number || item.card_number || '',
     'Quantity': item.quantity || 1,
     'Condition': (REVERSE_CONDITION_MAP.dragonshield && REVERSE_CONDITION_MAP.dragonshield[item.condition]) || 'NM',
-    'Printing': item.printing === 'Holofoil' ? 'Foil' : 'Normal'
+    'Printing': isFoil(item) ? 'Foil' : 'Normal'
   }),
   manabox: (item) => ({
     'Name': item.name || item.card_name || '',
@@ -43,7 +59,7 @@ const EXPORT_STRATEGIES = {
     'Card number': item.collector_number || item.number || item.card_number || '',
     'Quantity': item.quantity || 1,
     'Condition': (REVERSE_CONDITION_MAP.manabox && REVERSE_CONDITION_MAP.manabox[item.condition]) || 'near_mint',
-    'Foil': item.printing === 'Holofoil' ? 'true' : 'false'
+    'Foil': isFoil(item) ? 'true' : 'false'
   })
 };
 

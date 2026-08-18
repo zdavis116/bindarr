@@ -39,7 +39,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const [locations, setLocations] = useState([]);
   const [q, setQ] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
-  const [printing, setPrinting] = useState('Normal');
+  const [printing, setPrinting] = useState('nonfoil');
   const [purchasePrice, setPurchasePrice] = useState(0);
   const [locationId, setLocationId] = useState('');
   const [isTrade, setIsTrade] = useState(0);
@@ -66,7 +66,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setMode(startInEdit ? 'edit' : 'view');
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
-    setPrinting(card.printing || 'Normal');
+    setPrinting(card.finish || 'nonfoil');
     setPurchasePrice(card.purchase_price || 0);
     setLocationId(card.location_id || '');
     setIsTrade(card.is_trade ? 1 : 0);

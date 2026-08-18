@@ -1712,14 +1712,19 @@ test('F11-TC38', 'T38 bulk delete cannot destroy another user rows', async ({ at
 test('F11-TC39', 'T39 every bulk mutate branch is tenant-scoped and whitelisted', async ({ attacker, victim, cardId }) => {
   const victimEntry = await addEntry(victim.id, cardId);
   const before = await db.get(
-    `SELECT is_trade, list_type, condition, printing FROM collection WHERE id = ?`, [victimEntry]
+    `SELECT is_trade, list_type, condition, printing, finish FROM collection WHERE id = ?`, [victimEntry]
   );
 
   for (const [action, value] of [
     ['trade', undefined],
     ['list_type', 'wishlist'],
     ['condition', 'Damaged'],
-    ['printing', 'Promo']
+    // 'Foil', not the old 'Promo'. PR 6E replaced the Pokemon finish
+    // vocabulary with MTG's, so 'Promo' is now rejected at validation and the
+    // request never reaches the tenant-scoping this case exists to prove. The
+    // probe must be a LEGAL value, or a passing test only shows that a bad
+    // value was refused -- which is a different property.
+    ['printing', 'Foil']
   ]) {
     const response = await api(attacker.token, '/api/collection/bulk', {
       method: 'POST',
@@ -1730,7 +1735,7 @@ test('F11-TC39', 'T39 every bulk mutate branch is tenant-scoped and whitelisted'
   }
 
   const after = await db.get(
-    `SELECT is_trade, list_type, condition, printing FROM collection WHERE id = ?`, [victimEntry]
+    `SELECT is_trade, list_type, condition, printing, finish FROM collection WHERE id = ?`, [victimEntry]
   );
   assert.deepStrictEqual(after, before, "no bulk branch may mutate another user's row");
 

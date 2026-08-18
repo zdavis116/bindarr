@@ -183,7 +183,11 @@ function sortCards(cards, sortOrder, foilSorting) {
           break;
         }
         case 'printing':
-          cmp = (printingOrder[a.printing] || 10) - (printingOrder[b.printing] || 10);
+          // Sort on the CANONICAL finish. The order table is keyed by
+          // 'nonfoil'/'foil'/'etched'; reading the display mirror here would
+          // miss every key and rank every card equally, silently disabling
+          // foil-aware filing.
+          cmp = (printingOrder[a.finish] || 10) - (printingOrder[b.finish] || 10);
           break;
         case 'type': {
           const orderA = WUBRG_ORDER[typeCategory(a.types)] || 50;
@@ -270,7 +274,11 @@ const SORT_SCHEME_LABELS = {
   'set-number': 'set & number',
   'set-number-printing': 'set, printing & number',
   'price-desc': 'value (high to low)',
-  'type-name': 'energy type'
+  // 'type-name' sorts by WUBRG colour (see typeCategory/WUBRG_ORDER above), so
+  // the user-facing label says colour. It previously read 'energy type', a
+  // pre-fork concept -- the label described a different sort from the one the
+  // code performs, so the user could not predict where a card would be filed.
+  'type-name': 'color & name'
 };
 
 async function recommendSlot(database, location, cardMetadata, overrideCompartments = null, mockCards = []) {
@@ -287,7 +295,7 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
   }
 
   const allLocationCards = await dbClient.all(`
-    SELECT c.id as entry_id, c.card_id, c.compartment_id, c.position, c.quantity, c.condition, c.printing, c.purchase_price, c.added_at, c.is_trade, c.favorite, c.list_type,
+    SELECT c.id as entry_id, c.card_id, c.compartment_id, c.position, c.quantity, c.condition, c.printing, c.finish, c.purchase_price, c.added_at, c.is_trade, c.favorite, c.list_type,
            cc.name, cc.supertype, cc.types, cc.subtypes, cc.rarity, cc.set_id, cc.set_name, cc.number, cc.image_url,
            cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil, cc.cmc, cc.color_identity
     FROM collection c
@@ -442,6 +450,7 @@ async function recommendSlot(database, location, cardMetadata, overrideCompartme
     entry_id: -1,
     favorite: cardMetadata.favorite ? 1 : 0,
     printing: cardMetadata.printing || 'Normal',
+    finish: cardMetadata.finish || 'nonfoil',
     name: cardMetadata.name || '',
     supertype: cardMetadata.supertype || '',
     types: cardMetadata.types || [],

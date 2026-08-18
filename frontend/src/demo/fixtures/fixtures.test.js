@@ -19,12 +19,11 @@ for (const set of sets) {
 
 const collection = loadFixture('collection.json');
 const round = (value, digits = 2) => Number(value.toFixed(digits));
-const resolveCardPrice = (card) => {
-  if (card.printing === 'Holofoil' && card.price_holofoil > 0) return card.price_holofoil;
-  if (card.printing === 'Reverse Holofoil' && card.price_reverse_holofoil > 0) return card.price_reverse_holofoil;
-  if (card.printing === 'Normal' && card.price_normal > 0) return card.price_normal;
-  return card.price_trend || 0;
-};
+// Imported, not re-implemented. This helper used to be a hand-copied clone of
+// resolveCardPrice, which meant the fixture test kept passing against Pokemon
+// finish values long after the real function had to change -- a test that
+// asserts its own copy of the logic cannot detect the logic being wrong.
+const { resolveCardPrice } = await import('../../utils/resolveCardPrice.js');
 
 const totalCards = collection.reduce((sum, card) => sum + (card.quantity || 1), 0);
 const totalValue = round(collection.reduce(

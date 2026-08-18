@@ -139,9 +139,8 @@ router.get('/stats', async (req, res) => {
       JOIN card_cache cc ON c.card_id = cc.id
       WHERE c.user_id = ?
       ORDER BY CASE
-        WHEN c.printing = 'Holofoil' AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0 THEN cc.price_holofoil
-        WHEN c.printing = 'Reverse Holofoil' AND cc.price_reverse_holofoil IS NOT NULL AND cc.price_reverse_holofoil > 0 THEN cc.price_reverse_holofoil
-        WHEN c.printing = 'Normal' AND cc.price_normal IS NOT NULL AND cc.price_normal > 0 THEN cc.price_normal
+        WHEN c.finish IN ('foil', 'etched') AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0 THEN cc.price_holofoil
+        WHEN c.finish = 'nonfoil' AND cc.price_normal IS NOT NULL AND cc.price_normal > 0 THEN cc.price_normal
         ELSE cc.price_trend
       END DESC
       LIMIT 6

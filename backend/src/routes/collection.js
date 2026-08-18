@@ -10,6 +10,7 @@ const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
 const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
 const { splitPrice } = require('../utils/splitPrice');
+const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
 const {
   InvariantError,
   requireOwnedCompartment,
@@ -249,7 +250,6 @@ async function addCardToCollection(user, body) {
     card_id,
     quantity = 1,
     condition = 'Near Mint',
-    printing = 'Normal',
     purchase_price = 0,
     location_id = null,
     list_type = 'collection',
@@ -258,6 +258,16 @@ async function addCardToCollection(user, body) {
   } = body;
   const req = { user, body };
 
+  // Resolve the finish ONCE, at the boundary, into the two columns to write.
+  //
+  // `finish` is authoritative (deck identity matches on it); `printing` is its
+  // display mirror. Deriving both here rather than at each INSERT is what keeps
+  // them from drifting -- and writing `finish` at all is what was missing:
+  // every add previously left it on the column default, so a foil that DID get
+  // stored still claimed to be nonfoil. An unrecognised value throws rather
+  // than defaulting, so a finish the app cannot represent is refused instead of
+  // silently recorded as something the card is not.
+  const { finish, printing } = finishColumnsFromBody(body);
 
   if (!card_id) {
     throw new AddCardError(400, 'card_id is required');
@@ -322,11 +332,11 @@ async function addCardToCollection(user, body) {
     if (stackable) {
       const inserted = await tx.run(`
         INSERT INTO collection (
-          card_id, user_id, quantity, condition, printing, purchase_price,
+          card_id, user_id, quantity, condition, printing, finish, purchase_price,
           location_id, compartment_id, position, is_trade, list_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        card_id, req.user.id, count, condition, printing, purchase_price || 0,
+        card_id, req.user.id, count, condition, printing, finish, purchase_price || 0,
         targetLocationId, resolved.compartment_id, resolved.position, is_trade ? 1 : 0, list_type
       ]);
       lastInsertedId = inserted.lastID;
@@ -334,11 +344,11 @@ async function addCardToCollection(user, body) {
       for (let i = 0; i < count; i++) {
         const inserted = await tx.run(`
           INSERT INTO collection (
-            card_id, user_id, quantity, condition, printing, purchase_price,
+            card_id, user_id, quantity, condition, printing, finish, purchase_price,
             location_id, compartment_id, position, is_trade, list_type
-          ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          card_id, req.user.id, condition, printing, purchase_price || 0,
+          card_id, req.user.id, condition, printing, finish, purchase_price || 0,
           targetLocationId, resolved.compartment_id, resolved.position + (i * 0.001), is_trade ? 1 : 0, list_type
         ]);
         lastInsertedId = inserted.lastID;
@@ -385,7 +395,7 @@ router.post('/collection', async (req, res) => {
     body.quantity = positiveInteger(body.quantity === undefined ? 1 : body.quantity, { name: 'quantity', max: 1000 });
     res.status(200).json(await addCardToCollection(req.user, body));
   } catch (error) {
-    if (error instanceof AddCardError || error instanceof RequestBoundsError || error instanceof InvariantError) {
+    if (error instanceof AddCardError || error instanceof RequestBoundsError || error instanceof InvariantError || error instanceof FinishError) {
       return res.status(error.status).json({ error: error.message });
     }
     console.error(error);
@@ -420,8 +430,13 @@ router.post('/collection/bulk-add', async (req, res) => {
       const result = await addCardToCollection(req.user, { ...shared, card_id });
       added.push({ card_id, id: result.id });
     } catch (error) {
-      if (!(error instanceof AddCardError)) console.error(error);
-      failed.push({ card_id, error: error instanceof AddCardError ? error.message : 'Failed to add card' });
+      if (!(error instanceof AddCardError) && !(error instanceof FinishError)) console.error(error);
+      failed.push({
+        card_id,
+        error: (error instanceof AddCardError || error instanceof FinishError)
+          ? error.message
+          : 'Failed to add card'
+      });
     }
   }
   const qty = shared.quantity;
@@ -524,7 +539,14 @@ router.put('/collection/:id', async (req, res) => {
       // fulfilled below by inserting extra single-card rows (auto-split).
       if (quantity !== undefined) { updates.push('quantity = ?'); params.push(1); }
       if (condition !== undefined) { updates.push('condition = ?'); params.push(condition); }
-      if (printing !== undefined) { updates.push('printing = ?'); params.push(printing); }
+      // Both finish columns move together or neither does. Writing only the
+      // display mirror here would leave `finish` -- the value deck identity
+      // matches on -- describing the card the user just said it is not.
+      if (printing !== undefined || req.body.finish !== undefined) {
+        const columns = finishColumnsFromBody({ printing, finish: req.body.finish });
+        updates.push('printing = ?', 'finish = ?');
+        params.push(columns.printing, columns.finish);
+      }
 
       if (purchase_price !== undefined) { updates.push('purchase_price = ?'); params.push(purchase_price); }
       if (isMoving || compartment_id !== undefined) {
@@ -558,11 +580,11 @@ router.put('/collection/:id', async (req, res) => {
           for (let i = 1; i < requestedQty; i++) {
             await tx.run(`
               INSERT INTO collection (
-                card_id, user_id, quantity, condition, printing, purchase_price,
+                card_id, user_id, quantity, condition, printing, finish, purchase_price,
                 location_id, compartment_id, position, is_trade, favorite, list_type
-              ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
-              row.card_id, req.user.id, row.condition, row.printing, row.purchase_price,
+              row.card_id, req.user.id, row.condition, row.printing, row.finish, row.purchase_price,
               row.location_id, row.compartment_id, (row.position || 0) + i * 0.001, row.is_trade, row.favorite, row.list_type
             ]);
           }
@@ -579,7 +601,7 @@ router.put('/collection/:id', async (req, res) => {
 
     res.json({ message: 'Collection entry updated successfully', ...outcome });
   } catch (error) {
-    if (error instanceof RequestBoundsError || error instanceof InvariantError) {
+    if (error instanceof RequestBoundsError || error instanceof InvariantError || error instanceof FinishError) {
       return res.status(error.status).json({ error: error.message });
     }
     console.error(error);
@@ -694,8 +716,10 @@ router.delete('/collection/:id', async (req, res) => {
 // 5b. Bulk actions
 const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condition', 'printing', 'purchase_split', 'add_to_deck'];
 // Allowed field values mirror the collection table CHECK constraints in db.js.
+// Finish values are NOT listed here: utils/finishes.js owns that vocabulary, so
+// there is one place to change when Magic gains a finish rather than a list per
+// route that silently goes stale.
 const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
-const BULK_PRINTINGS = ['Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo'];
 router.post('/collection/bulk', async (req, res) => {
   const { entry_ids = [], action, value } = req.body;
   let ids;
@@ -791,12 +815,36 @@ router.post('/collection/bulk', async (req, res) => {
     }
 
     if (action === 'condition' || action === 'printing') {
-      const allowed = action === 'condition' ? BULK_CONDITIONS : BULK_PRINTINGS;
-      if (!allowed.includes(value)) return res.status(400).json({ error: `Invalid ${action}` });
-      // Column name is action, drawn from the BULK_ACTIONS whitelist (not user
-      // input), so it is safe to interpolate.
-      const result = await db.run(`UPDATE collection SET ${action} = ? WHERE id IN (${placeholders}) AND user_id = ?`, [value, ...ids, req.user.id]);
-      return res.json({ message: `Set ${action} on ${result.changes} card(s)`, affected: result.changes });
+      if (action === 'condition') {
+        if (!BULK_CONDITIONS.includes(value)) return res.status(400).json({ error: 'Invalid condition' });
+        const result = await db.run(
+          `UPDATE collection SET condition = ? WHERE id IN (${placeholders}) AND user_id = ?`,
+          [value, ...ids, req.user.id]
+        );
+        return res.json({ message: `Set condition on ${result.changes} card(s)`, affected: result.changes });
+      }
+
+      // Changing the finish in bulk must move BOTH columns together.
+      //
+      // This previously wrote only `printing`, the display mirror, leaving
+      // `finish` untouched. Since deck identity matches on `finish`, a user who
+      // bulk-marked a stack as Foil would see foil badges in the collection
+      // while every deck still treated those cards as nonfoil -- two screens,
+      // two answers, and no error anywhere. The whitelist is gone with it: the
+      // finish module is the one place that decides what a finish may be.
+      let finish;
+      let printing;
+      try {
+        ({ finish, printing } = finishColumnsFromBody({ printing: value }));
+      } catch (error) {
+        if (error instanceof FinishError) return res.status(400).json({ error: error.message });
+        throw error;
+      }
+      const result = await db.run(
+        `UPDATE collection SET printing = ?, finish = ? WHERE id IN (${placeholders}) AND user_id = ?`,
+        [printing, finish, ...ids, req.user.id]
+      );
+      return res.json({ message: `Set printing on ${result.changes} card(s)`, affected: result.changes });
     }
 
     // Distribute a total price paid (a pack/deck) across the selected entries,

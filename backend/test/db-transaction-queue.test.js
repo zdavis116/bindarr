@@ -28,7 +28,17 @@ async function testRawConnectionIsEncapsulatedBehindNarrowTestHooks() {
   assert.strictEqual(Object.hasOwn(db, rawConnectionKey), false);
   assert.deepStrictEqual(
     Object.keys(db.testHooks).sort(),
-    ['failNextClose', 'failNextControlStatement', 'getRawOperationTouchCount', 'resetRawOperationTouchCount'].sort()
+    [
+      'failNextClose',
+      'failNextControlStatement',
+      'getRawOperationTouchCount',
+      'resetRawOperationTouchCount',
+      // Added for the PR 6E migration suite: forces the collection rebuild's
+      // copy to come out short so the row/quantity verification and its
+      // rollback can be observed rather than assumed. Listed explicitly, like
+      // every other hook, so widening this surface stays a deliberate act.
+      'corruptNextCollectionMigrationCopy'
+    ].sort()
   );
 }
 

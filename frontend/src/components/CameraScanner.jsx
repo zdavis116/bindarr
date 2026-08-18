@@ -237,7 +237,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // (slower tiers only — Turbo adds instantly with no overlay).
   const [autoAddEditing, setAutoAddEditing] = useState(false);
   const [autoAddCond, setAutoAddCond] = useState('Near Mint');
-  const [autoAddPrint, setAutoAddPrint] = useState('Normal');
+  const [autoAddPrint, setAutoAddPrint] = useState('nonfoil');
   // Duplicate-scan confirm: set to the repeat-matched card; dupQty = copies to add.
   const [dupConfirmCard, setDupConfirmCard] = useState(null);
   const [dupQty, setDupQty] = useState(1);
@@ -250,7 +250,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // Form states
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
-  const [printing, setPrinting] = useState('Normal');
+  const [printing, setPrinting] = useState('nonfoil');
 
   const [purchasePrice, setPurchasePrice] = useState(0);
 
@@ -514,7 +514,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // the duplicate path instead of auto-adding a second time.
     lastAddedIdRef.current = card.id;
     try {
-      const autoPrinting = overrides?.printing || ((card.rarity || '').toLowerCase().includes('holo') ? 'Holofoil' : 'Normal');
+      const autoPrinting = overrides?.printing || 'nonfoil';
       const autoCondition = overrides?.condition || 'Near Mint';
       const response = await fetch('/api/collection', {
         method: 'POST',
@@ -525,7 +525,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
           condition: autoCondition,
           printing: autoPrinting,
           // price_trend is whichever finish the TCG API returned first (usually
-          // Normal), not necessarily the Holofoil finish just chosen above —
+          // nonfoil), not necessarily the foil finish just chosen above -
           // resolve against the printing actually being recorded.
           purchase_price: resolveCardPrice(card, autoPrinting),
           location_id: null
@@ -866,12 +866,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setScanMatches([]);
     setSelectedCard(card);
     setPurchasePrice(0);
-    const rarity = (card.rarity || '').toLowerCase();
-    if (rarity.includes('holo') || rarity.includes('secret') || rarity.includes('ultra') || rarity.includes('shining')) {
-      setPrinting('Holofoil');
-    } else {
-      setPrinting('Normal');
-    }
+    // Nonfoil default; no rarity-based guessing. See CardSearch.jsx for why:
+    // MTG rarity carries no finish information, so the old holo/secret/ultra
+    // heuristic mislabeled physical cards at random.
+    setPrinting('nonfoil');
 
     setIsDrawerOpen(true);
   };
@@ -882,7 +880,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setScanMatches([]);
     setQuantity(1);
     setCondition('Near Mint');
-    setPrinting('Normal');
+    setPrinting('nonfoil');
 
     setPurchasePrice(0);
     // Restart camera on close only if stream was stopped
@@ -1393,7 +1391,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 if (autoAddEditing) return;
                 // Pause and open the editor with sensible defaults.
                 setAutoAddCond('Near Mint');
-                setAutoAddPrint((autoAddTargetCard.rarity || '').toLowerCase().includes('holo') ? 'Holofoil' : 'Normal');
+                setAutoAddPrint('nonfoil');
                 setAutoAddEditing(true);
               }}
               style={{ position: 'relative', width: '115px', aspectRatio: 0.718, margin: '0.5rem 0', cursor: autoAddEditing ? 'default' : 'pointer' }}
