@@ -182,7 +182,7 @@ const FILTER_OPERATORS = [
 const KNOWN_OPTIONS = {
   supertype: ['Basic', 'Legendary', 'Snow', 'World', 'Vanguard', 'Plane', 'Scheme', 'Phenomenon', 'Ongoing'],
   types: ['Colorless', 'White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Artifact', 'Creature', 'Enchantment', 'Instant', 'Sorcery', 'Planeswalker', 'Land', 'Battle', 'Tribal'],
-  printing: ['Normal', 'Holofoil'],
+  printing: ['nonfoil', 'foil', 'etched'],
   rarity: ['Common', 'Uncommon', 'Rare', 'Mythic', 'Special', 'Bonus', 'Promo'],
   color_identity: ['W', 'U', 'B', 'R', 'G', 'Colorless']
 };

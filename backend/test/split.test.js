@@ -9,8 +9,8 @@ const { splitStackedEntries } = require('../src/utils/collectionHelpers');
 function makeFakeDb() {
   let nextId = 100;
   const rows = [
-    { id: 1, card_id: 'c-A', user_id: 7, quantity: 3, condition: 'Near Mint', printing: 'Normal', purchase_price: 2, location_id: 5, compartment_id: 9, position: 4000, is_trade: 0, favorite: 0, list_type: 'collection' },
-    { id: 2, card_id: 'c-B', user_id: 7, quantity: 1, condition: 'Near Mint', printing: 'Normal', purchase_price: 0, location_id: null, compartment_id: null, position: 0, is_trade: 0, favorite: 0, list_type: 'collection' },
+    { id: 1, card_id: 'c-A', user_id: 7, quantity: 3, condition: 'Near Mint', printing: 'Foil', finish: 'foil', purchase_price: 2, location_id: 5, compartment_id: 9, position: 4000, is_trade: 0, favorite: 0, list_type: 'collection' },
+    { id: 2, card_id: 'c-B', user_id: 7, quantity: 1, condition: 'Near Mint', printing: 'Normal', finish: 'nonfoil', purchase_price: 0, location_id: null, compartment_id: null, position: 0, is_trade: 0, favorite: 0, list_type: 'collection' },
   ];
   return {
     rows,
@@ -19,9 +19,11 @@ function makeFakeDb() {
       if (/UPDATE collection SET quantity = 1/.test(sql)) {
         rows.find(r => r.id === params[0]).quantity = 1;
       } else if (/INSERT INTO collection/.test(sql)) {
-        const [card_id, user_id, condition, printing, purchase_price,
+        // Positional, so it must track the real column list. PR 6E added
+        // `finish` between `printing` and `purchase_price`.
+        const [card_id, user_id, condition, printing, finish, purchase_price,
           location_id, compartment_id, position, is_trade, favorite, list_type] = params;
-        rows.push({ id: ++nextId, card_id, user_id, quantity: 1, condition, printing, purchase_price, location_id, compartment_id, position, is_trade, favorite, list_type });
+        rows.push({ id: ++nextId, card_id, user_id, quantity: 1, condition, printing, finish, purchase_price, location_id, compartment_id, position, is_trade, favorite, list_type });
       }
     },
   };
@@ -37,6 +39,10 @@ async function main() {
   assert.ok(copiesOfA.every(r => r.quantity === 1), 'every copy is quantity 1');
   // Placement/metadata preserved, positions distinct so each takes its own slot.
   assert.ok(copiesOfA.every(r => r.compartment_id === 9 && r.condition === 'Near Mint'), 'metadata carried to copies');
+  // Finish must survive the split. Splitting a stack of three foils into three
+  // rows and having two of them come out nonfoil would silently invent cards
+  // the user does not own -- and break every foil deck requirement they match.
+  assert.ok(copiesOfA.every(r => r.finish === 'foil'), 'finish carried to copies');
   assert.strictEqual(new Set(copiesOfA.map(r => r.position)).size, 3, 'copies have distinct positions');
   assert.strictEqual(dbFake.rows.filter(r => r.card_id === 'c-B').length, 1, 'quantity-1 rows untouched');
 

@@ -50,7 +50,7 @@ function categoryForField(card, field, setsList = []) {
     case 'rarity':
       return card.rarity || 'Common';
     case 'printing':
-      return card.printing || 'Normal';
+      return card.finish || 'nonfoil';
 
     case 'price': {
       const p = card.price_trend || 0;
@@ -122,7 +122,7 @@ export function getPrimaryCategory(card, sortOrder, setsList = []) {
 }
 
 function PrintingBadge({ printing }) {
-  if (!printing || printing === 'Normal') return null;
+  if (!printing || printing === 'nonfoil') return null;
   return (
     <div style={{
       position: 'absolute', top: '-4px', right: '-4px',
@@ -167,12 +167,12 @@ export function FocusedCardInfo({ card, slotNumber, moveSelect = null }) {
                 {getRarityBadgeLabel(card.rarity)}
               </span>
             )}
-            {card.printing && card.printing !== 'Normal' && (
+            {card.finish && card.finish !== 'nonfoil' && (
               <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', ...getPrintingBadgeStyle(card.printing) }}>
                 {getPrintingBadgeLabel(card.printing)}
               </span>
             )}
-            {card.printing === 'Normal' && <span style={infoChipStyle}>{t('compartment.printingNormal')}</span>}
+            {(card.finish || 'nonfoil') === 'nonfoil' && <span style={infoChipStyle}>{t('compartment.printingNormal')}</span>}
             {card.supertype && <span style={{ ...infoChipStyle, color: 'var(--text-strong)' }} title={t('compartment.supertype')}>{card.supertype}</span>}
             {(card.types || []).length > 0 && <span style={infoChipStyle} title={t('compartment.types')}>{card.types.join(' / ')}</span>}
             {(card.subtypes || []).length > 0 && <span style={infoChipStyle} title={t('compartment.subtypes')}>{card.subtypes.join(' / ')}</span>}

@@ -423,7 +423,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                       <span>{card.set_name} • {card.rarity}</span>
-                      {card.printing && card.printing !== 'Normal' && (
+                      {card.finish && card.finish !== 'nonfoil' && (
                         <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', flexShrink: 0, ...getPrintingBadgeStyle(card.printing) }}>
                           {getPrintingBadgeLabel(card.printing)}
                         </span>
@@ -463,7 +463,7 @@ function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEn
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                         <span>{card.set_name} • #{card.number}</span>
-                        {card.printing && card.printing !== 'Normal' && (
+                        {card.finish && card.finish !== 'nonfoil' && (
                           <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', flexShrink: 0, ...getPrintingBadgeStyle(card.printing) }}>
                             {getPrintingBadgeLabel(card.printing)}
                           </span>

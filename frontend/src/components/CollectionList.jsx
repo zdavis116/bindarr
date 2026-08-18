@@ -652,7 +652,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                        item.condition === 'Moderately Played' ? 'MP' :
                        item.condition === 'Heavily Played' ? 'HP' : 'DMG'}
                     </span>
-                    {item.printing !== 'Normal' && (
+                    {(item.finish || 'nonfoil') !== 'nonfoil' && (
                       <span style={{
                         fontSize: '0.6rem',
                         fontWeight: 800,

@@ -14,9 +14,8 @@ router.get('/export', async (req, res) => {
         c.quantity,
         c.condition,
         c.printing,
+        c.finish,
         c.purchase_price,
-        c.sub_location_1,
-        c.sub_location_2,
         c.added_at,
         cc.id as card_id,
         cc.name as name,
@@ -28,24 +27,27 @@ router.get('/export', async (req, res) => {
         cc.number as collector_number,
         cc.image_url,
         cc.price_trend as market_price,
-        l.name as location_name
+        l.name as location_name,
+        cp.idx as compartment_idx,
+        cp.label as compartment_label
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
+      LEFT JOIN compartments cp ON c.compartment_id = cp.id
       WHERE c.user_id = ?
     `;
     const rows = await db.all(query, [req.user.id]);
 
     if (format.toLowerCase() === 'json') {
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename=pokedexrr_collection_${targetFormat}.json`);
+      res.setHeader('Content-Disposition', `attachment; filename=bindarr_collection_${targetFormat}.json`);
       return res.json(rows);
     }
 
     const csvContent = generateExportCSV(rows, targetFormat);
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=pokedexrr_collection_${targetFormat}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=bindarr_collection_${targetFormat}.csv`);
     res.send(csvContent);
   } catch (error) {
     res.status(500).json({ error: 'Export failed', message: error.message });

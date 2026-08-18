@@ -30,17 +30,21 @@ async function revertAuditEvent(req, res) {
 
     await db.withTransaction(async (tx) => {
       if (log.action_type === 'DELETE') {
+        // `finish` is restored alongside `printing`. Omitting it made an undo
+        // silently resurrect every foil as a nonfoil (the column default) --
+        // the row came back looking right on screen while no longer matching
+        // the deck requirements it used to satisfy.
         await tx.run(
-          `INSERT INTO collection (id, card_id, user_id, quantity, condition, printing, purchase_price, location_id, compartment_id, position, is_trade, list_type)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [snapshot.id, snapshot.card_id, snapshot.user_id, snapshot.quantity, snapshot.condition, snapshot.printing, snapshot.purchase_price || 0, snapshot.location_id || null, snapshot.compartment_id || null, snapshot.position || null, snapshot.is_trade || 0, snapshot.list_type || 'collection']
+          `INSERT INTO collection (id, card_id, user_id, quantity, condition, printing, finish, purchase_price, location_id, compartment_id, position, is_trade, list_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [snapshot.id, snapshot.card_id, snapshot.user_id, snapshot.quantity, snapshot.condition, snapshot.printing, snapshot.finish || 'nonfoil', snapshot.purchase_price || 0, snapshot.location_id || null, snapshot.compartment_id || null, snapshot.position || null, snapshot.is_trade || 0, snapshot.list_type || 'collection']
         );
       } else if (log.action_type === 'UPDATE' || log.action_type === 'BULK_MOVE') {
         await tx.run(
           `UPDATE collection 
-           SET location_id = ?, compartment_id = ?, position = ?, quantity = ?, condition = ?, printing = ?, is_trade = ?, list_type = ? 
+           SET location_id = ?, compartment_id = ?, position = ?, quantity = ?, condition = ?, printing = ?, finish = ?, is_trade = ?, list_type = ? 
            WHERE id = ? AND user_id = ?`,
-          [snapshot.location_id, snapshot.compartment_id, snapshot.position, snapshot.quantity, snapshot.condition, snapshot.printing, snapshot.is_trade || 0, snapshot.list_type || 'collection', snapshot.id, userId]
+          [snapshot.location_id, snapshot.compartment_id, snapshot.position, snapshot.quantity, snapshot.condition, snapshot.printing, snapshot.finish || 'nonfoil', snapshot.is_trade || 0, snapshot.list_type || 'collection', snapshot.id, userId]
         );
       }
 

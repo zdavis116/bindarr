@@ -7,6 +7,7 @@ const scryfallApi = require('../scryfallApi');
 const setIndex = require('../setIndex');
 const globalIndex = require('../globalIndex');
 const { parseCardRow } = require('../utils/priceHelpers');
+const { displayPrinting } = require('../utils/finishes');
 const languages = require('../utils/languages');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { BACKUP_DIR, listBackups, createBackup } = require('../backup');
@@ -69,12 +70,16 @@ router.post('/seed-cards', async (req, res) => {
 
     const conditions = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played'];
 
+    // Which finishes this card is plausibly available in, as CANONICAL MTG
+    // finishes. This previously produced Pokemon values ('Holofoil', 'Reverse
+    // Holofoil') which the corrected CHECK constraint now refuses outright --
+    // seeding would have failed with SQLITE_CONSTRAINT on the first foil card.
+    // price_holofoil is Scryfall's usd_foil (see scryfallApi.js), so a positive
+    // value means the printing exists in foil.
     const printsForCard = (card) => {
-      const options = [];
-      if (card.price_normal > 0) options.push('Normal');
-      if (card.price_holofoil > 0) options.push('Holofoil');
-      if (card.price_reverse_holofoil > 0) options.push('Reverse Holofoil');
-      return options.length > 0 ? options : ['Normal'];
+      const options = ['nonfoil'];
+      if (card.price_holofoil > 0) options.push('foil');
+      return options;
     };
 
     let addedCount = 0;
@@ -101,9 +106,9 @@ router.post('/seed-cards', async (req, res) => {
         for (let s = 0; s < slots; s++) {
           const e = randomEntry(maxPrice);
           await db.run(`
-            INSERT INTO collection (card_id, quantity, condition, printing, purchase_price, location_id, compartment_id, position, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [e.card.id, e.qty, e.condition, e.print, e.purchasePrice, locationId, comp.id, s * 1000, req.user.id]);
+            INSERT INTO collection (card_id, quantity, condition, printing, finish, purchase_price, location_id, compartment_id, position, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [e.card.id, e.qty, e.condition, displayPrinting(e.print), e.print, e.purchasePrice, locationId, comp.id, s * 1000, req.user.id]);
           addedCount += e.qty;
         }
       }
@@ -116,9 +121,9 @@ router.post('/seed-cards', async (req, res) => {
     for (let i = 0; i < 40; i++) {
       const e = randomEntry(5);
       await db.run(`
-        INSERT INTO collection (card_id, quantity, condition, printing, purchase_price, location_id, compartment_id, position, user_id)
-        VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?)
-      `, [e.card.id, e.qty, e.condition, e.print, e.purchasePrice, req.user.id]);
+        INSERT INTO collection (card_id, quantity, condition, printing, finish, purchase_price, location_id, compartment_id, position, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?)
+      `, [e.card.id, e.qty, e.condition, displayPrinting(e.print), e.print, e.purchasePrice, req.user.id]);
       addedCount += e.qty;
       unsortedAdded++;
     }
@@ -145,9 +150,8 @@ router.get('/users', async (req, res) => {
       const stats = await db.get(`
         SELECT COUNT(c.id) as unique_cards, SUM(c.quantity) as total_cards,
           SUM(c.quantity * CASE
-            WHEN c.printing = 'Holofoil' AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0 THEN cc.price_holofoil
-            WHEN c.printing = 'Reverse Holofoil' AND cc.price_reverse_holofoil IS NOT NULL AND cc.price_reverse_holofoil > 0 THEN cc.price_reverse_holofoil
-            WHEN c.printing = 'Normal' AND cc.price_normal IS NOT NULL AND cc.price_normal > 0 THEN cc.price_normal
+            WHEN c.finish IN ('foil', 'etched') AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0 THEN cc.price_holofoil
+            WHEN c.finish = 'nonfoil' AND cc.price_normal IS NOT NULL AND cc.price_normal > 0 THEN cc.price_normal
             ELSE cc.price_trend
           END) as total_value
         FROM collection c
@@ -277,17 +281,15 @@ router.delete('/users/:id', async (req, res) => {
 // --- Set-index build management ---
 
 // List persisted builds plus any in-flight/recent build progress.
+//
+// The legacy compatibility aliases are gone (PR 6E). They existed to let the
+// pre-MTG-only admin modal's default game key converge while the game selector
+// still existed; that selector was removed in PR 3, and a repository-wide
+// search finds no remaining consumer of the alias rows or their '__compat'
+// marker. Every response was carrying a duplicate set of build entries keyed by
+// a game this fork does not support.
 router.get('/set-indexes', (req, res) => {
-  const builds = setIndex.listBuilds();
-  // PR 3 removes the legacy game selector. Until then, hidden aliases let the
-  // unchanged modal's default Pokémon key converge without rendering duplicate
-  // rows in the admin table (which only groups enabled real games).
-  const legacyAliases = builds.map(build => ({
-    ...build,
-    key: `pokemon|${build.set.replace(/[^a-z0-9]/gi, '').toLowerCase()}|en`,
-    game: '__compat'
-  }));
-  res.json({ builds: [...builds, ...legacyAliases], progress: setIndex.getProgress() });
+  res.json({ builds: setIndex.listBuilds(), progress: setIndex.getProgress() });
 });
 
 // Preview a set's printing count so the UI can warn about size before building.

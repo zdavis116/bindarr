@@ -38,6 +38,14 @@ let closePromise = null;
 let closeFailure = null;
 let rawOperationTouchCount = 0;
 let nextControlStatementFailure = null;
+// Test-only fault injection for the collection rebuild's copy verification.
+//
+// The verification exists to refuse a partial migration, and a guard that has
+// never been observed failing is only a guess that it works. SQLite will not
+// silently drop rows from an INSERT..SELECT -- it raises -- so the only honest
+// way to exercise the mismatch branch is to corrupt the copy deliberately.
+// Gated behind BINDARR_DB_TEST_HOOKS so it cannot exist in a running server.
+let corruptNextCollectionCopy = false;
 let nextCloseFailure = null;
 
 function databaseUnavailableError() {
@@ -428,7 +436,7 @@ async function initDb() {
       card_id TEXT NOT NULL,
       quantity INTEGER DEFAULT 1,
       condition TEXT CHECK(condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')) DEFAULT 'Near Mint',
-      printing TEXT CHECK(printing IN ('Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo')) DEFAULT 'Normal',
+      printing TEXT CHECK(printing IN ('Normal', 'Foil', 'Etched')) DEFAULT 'Normal',
       purchase_price REAL,
       location_id INTEGER,
       compartment_id INTEGER,
@@ -662,6 +670,196 @@ async function initDb() {
     );
   }
 
+  // MTG finishes on the display column (PR 6E).
+  //
+  // The `printing` CHECK above used to permit only Pokemon finishes
+  // ('Normal', 'Holofoil', 'Reverse Holofoil', '1st Edition', 'Promo'), left
+  // over from before this fork went MTG-only. Magic has three finishes, and the
+  // API sends the display form 'Foil' -- which that constraint forbade. The
+  // result was that EVERY foil add failed with SQLITE_CONSTRAINT and returned
+  // HTTP 500. Since PR 6C made finish part of card identity, that made
+  // exact-only deck matching unusable for every foil card the user owns.
+  //
+  // `finish` is now the source of truth and `printing` is its display mirror
+  // (see utils/finishes.js). A fresh database gets the corrected CHECK from the
+  // CREATE TABLE above; an existing dev database needs this rebuild, because
+  // SQLite cannot alter a CHECK constraint in place.
+  //
+  // Data is MIGRATED, not dropped. The mapping is the only one that preserves
+  // what the row physically means: Holofoil was the only value this fork's
+  // MTG-only UI could produce for a foil card, so it becomes 'Foil'; every
+  // other legacy value described a Pokemon-only concept that an MTG card cannot
+  // have, so it becomes 'Normal'. Rows are then made self-consistent by
+  // deriving `finish` from the migrated display value, so the authoritative
+  // column agrees with the mirror on every pre-existing row.
+  const collectionSchema = await get(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'collection'`
+  );
+  if (collectionSchema && collectionSchema.sql && collectionSchema.sql.includes("'Holofoil'")) {
+    console.log('Migrating collection.printing from Pokemon finishes to MTG finishes...');
+    await run(`PRAGMA foreign_keys = OFF`);
+    try {
+      await run(`BEGIN`);
+
+      // The translation happens DURING the copy, never as an in-place UPDATE.
+      //
+      // The obvious-looking version of this migration normalised the data first
+      // ("UPDATE collection SET printing = 'Foil' WHERE printing = 'Holofoil'")
+      // and rebuilt the table afterwards. That cannot work, and it is worth
+      // spelling out why so nobody reintroduces it: the UPDATE runs while the
+      // OLD CHECK is still attached to the table, and the old CHECK is exactly
+      // the thing that forbids 'Foil'. The step whose job is to escape the
+      // constraint is rejected BY the constraint. initDb() threw, and because
+      // server.js awaits initDb(), an existing database simply did not boot.
+      //
+      // Writing every row straight into the new table with the mapping applied
+      // inline means no row is ever written while a constraint that forbids its
+      // value is in force. There is no intermediate state to be rejected.
+      //
+      // The mapping is the only one that preserves what the row physically
+      // means: 'Holofoil' was the only value this fork's MTG-only UI could
+      // produce for a foil card, so it becomes 'Foil'; every other legacy value
+      // ('Reverse Holofoil', '1st Edition', 'Promo', NULL) describes a
+      // Pokemon-only concept that an MTG card cannot have, so it becomes
+      // 'Normal'. Values that are already valid MTG display forms pass through.
+      const printingExpr = `
+        CASE
+          WHEN printing = 'Holofoil' THEN 'Foil'
+          WHEN printing IN ('Normal', 'Foil', 'Etched') THEN printing
+          ELSE 'Normal'
+        END`;
+
+      // `finish` is the source of truth and `printing` its display mirror, so
+      // the canonical column is derived from the MIGRATED display value in the
+      // same copy -- the two cannot come out of this disagreeing. A row whose
+      // finish was already set deliberately (anything other than the column
+      // default) is trusted and left alone.
+      const finishExpr = `
+        CASE
+          WHEN finish IS NOT NULL AND finish <> 'nonfoil' THEN finish
+          WHEN printing = 'Holofoil' THEN 'foil'
+          WHEN printing = 'Foil' THEN 'foil'
+          WHEN printing = 'Etched' THEN 'etched'
+          ELSE 'nonfoil'
+        END`;
+
+      // Copy every column the live table actually has, so a column added by an
+      // earlier ALTER above is carried over without this block having to be
+      // kept in sync with that list by hand.
+      const cols = (await all(`PRAGMA table_info(collection)`)).map(c => c.name);
+      const colList = cols.join(', ');
+      const selectList = cols
+        .map(c => (c === 'printing' ? `${printingExpr} AS printing`
+          : c === 'finish' ? `${finishExpr} AS finish`
+            : c))
+        .join(', ');
+
+      // Build the replacement ALONGSIDE the original rather than renaming the
+      // original out of the way first.
+      //
+      // This ordering is load-bearing, not stylistic. SQLite rewrites foreign
+      // key clauses in OTHER tables to follow a renamed table, and it does so
+      // even with `PRAGMA foreign_keys = OFF` (that pragma governs enforcement,
+      // not schema rewriting). collection_tags and deck_card_allocations both
+      // reference collection(id); renaming collection to a scratch name would
+      // silently repoint their FKs at the scratch table, and dropping the
+      // scratch table afterwards would leave both pointing at a table that no
+      // longer exists. Creating collection_new, dropping collection, then
+      // renaming collection_new into place leaves those clauses untouched --
+      // verified below before we commit.
+      await run(`
+        CREATE TABLE collection_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          card_id TEXT NOT NULL,
+          quantity INTEGER DEFAULT 1,
+          condition TEXT CHECK(condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')) DEFAULT 'Near Mint',
+          printing TEXT CHECK(printing IN ('Normal', 'Foil', 'Etched')) DEFAULT 'Normal',
+          purchase_price REAL,
+          location_id INTEGER,
+          compartment_id INTEGER,
+          position REAL DEFAULT 0,
+          favorite INTEGER DEFAULT 0,
+          is_trade INTEGER DEFAULT 0,
+          list_type TEXT DEFAULT 'collection',
+          added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          notes TEXT DEFAULT '',
+          finish TEXT NOT NULL DEFAULT 'nonfoil' CHECK(finish IN ('nonfoil', 'foil', 'etched')),
+          FOREIGN KEY(location_id) REFERENCES locations(id) ON DELETE SET NULL,
+          FOREIGN KEY(compartment_id) REFERENCES compartments(id) ON DELETE SET NULL,
+          FOREIGN KEY(card_id) REFERENCES card_cache(id)
+        )
+      `);
+      await run(`INSERT INTO collection_new (${colList}) SELECT ${selectList} FROM collection`);
+
+      // Deliberately damage the copy when a test asks for it, so the guard
+      // below is proven to fire rather than assumed to.
+      if (corruptNextCollectionCopy) {
+        corruptNextCollectionCopy = false;
+        await run(`DELETE FROM collection_new WHERE id = (SELECT MIN(id) FROM collection_new)`);
+      }
+
+      // Prove the copy before dropping the source.
+      //
+      // Row count alone is not enough for software that tracks physical
+      // objects: the same seven rows can be copied while a quantity is
+      // mangled, and the user would have no way to notice that their playset
+      // quietly became a single. Both the number of rows AND the number of
+      // physical copies must match, or the whole thing rolls back and the
+      // original table stays exactly where it was. A migration that cannot
+      // complete correctly must leave the database as it found it rather than
+      // commit a collection that is quietly short some cards.
+      const oldTotals = await get(`SELECT COUNT(*) AS rows, COALESCE(SUM(quantity), 0) AS copies FROM collection`);
+      const newTotals = await get(`SELECT COUNT(*) AS rows, COALESCE(SUM(quantity), 0) AS copies FROM collection_new`);
+      if (oldTotals.rows !== newTotals.rows) {
+        throw new Error(`collection migration lost rows: ${oldTotals.rows} -> ${newTotals.rows}`);
+      }
+      if (oldTotals.copies !== newTotals.copies) {
+        throw new Error(`collection migration lost copies: ${oldTotals.copies} -> ${newTotals.copies}`);
+      }
+      // No row may survive the copy still speaking the old vocabulary. If the
+      // CASE above ever misses a value, that is a bug in this migration and it
+      // must surface here rather than as a constraint failure at some later
+      // write.
+      const unmapped = await get(
+        `SELECT COUNT(*) AS n FROM collection_new WHERE printing NOT IN ('Normal', 'Foil', 'Etched')`
+      );
+      if (unmapped.n > 0) {
+        throw new Error(`collection migration left ${unmapped.n} row(s) on a non-MTG printing value`);
+      }
+
+      await run(`DROP TABLE collection`);
+      await run(`ALTER TABLE collection_new RENAME TO collection`);
+
+      // Confirm the swap did not repoint anybody's foreign key.
+      //
+      // Deliberately NOT `PRAGMA foreign_key_check`: that scans the whole
+      // database and would fail the boot over a pre-existing orphan row this
+      // migration neither created nor touched. Refusing to start over damage
+      // we did not cause is not conservatism, it is a self-inflicted outage.
+      // What must be verified is the specific hazard of a table rebuild --
+      // that every table referencing collection still names `collection`.
+      const referrers = await all(
+        `SELECT name, sql FROM sqlite_master
+         WHERE type = 'table' AND sql LIKE '%REFERENCES%collection%' AND name <> 'collection'`
+      );
+      const stranded = referrers.filter(t => /REFERENCES\s+"?collection_(new|legacy_printing)"?/i.test(t.sql));
+      if (stranded.length > 0) {
+        throw new Error(
+          `collection migration stranded foreign key(s) on: ${stranded.map(t => t.name).join(', ')}`
+        );
+      }
+
+      await run(`COMMIT`);
+      console.log(`Migrated ${newTotals.rows} collection row(s) to MTG finishes.`);
+    } catch (error) {
+      await run(`ROLLBACK`).catch(() => {});
+      throw error;
+    } finally {
+      await run(`PRAGMA foreign_keys = ON`);
+    }
+  }
+
   const locationsCols = await all(`PRAGMA table_info(locations)`);
   if (!locationsCols.some(c => c.name === 'user_id')) {
     await run(`ALTER TABLE locations ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
@@ -811,6 +1009,11 @@ if (process.env.BINDARR_DB_TEST_HOOKS === '1') {
     },
     resetRawOperationTouchCount() {
       rawOperationTouchCount = 0;
+    },
+    // Make the next collection rebuild produce a short copy, so the migration's
+    // row/quantity verification and its rollback can be observed for real.
+    corruptNextCollectionMigrationCopy() {
+      corruptNextCollectionCopy = true;
     }
   };
 }

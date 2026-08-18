@@ -10,15 +10,24 @@ function parseSqliteUtc(str) {
   return /Z$|[+-]\d\d:\d\d$/.test(str) ? new Date(str) : new Date(str.replace(' ', 'T') + 'Z');
 }
 
+// Market price for one collection row, chosen by its FINISH.
+//
+// Reads the canonical `finish` column, falling back to the display mirror only
+// for callers that pass a bare card object without one. It previously matched
+// Pokemon values ('Holofoil', 'Reverse Holofoil') that MTG rows can no longer
+// hold, so every foil silently fell through to the generic price_trend and the
+// collection was valued as if the user owned no foils at all.
+//
+// price_holofoil is Scryfall's usd_foil. Etched has no separate price field, so
+// it uses the foil price -- closer to the truth than the nonfoil price, and the
+// alternative (price_trend) is a blend that is wrong for both.
 function resolveCardPrice(card) {
   if (!card) return 0;
-  if (card.printing === 'Holofoil' && card.price_holofoil !== null && card.price_holofoil > 0) {
+  const finish = card.finish || (card.printing === 'Foil' ? 'foil' : card.printing === 'Etched' ? 'etched' : 'nonfoil');
+  if ((finish === 'foil' || finish === 'etched') && card.price_holofoil !== null && card.price_holofoil > 0) {
     return card.price_holofoil;
   }
-  if (card.printing === 'Reverse Holofoil' && card.price_reverse_holofoil !== null && card.price_reverse_holofoil > 0) {
-    return card.price_reverse_holofoil;
-  }
-  if (card.printing === 'Normal' && card.price_normal !== null && card.price_normal > 0) {
+  if (finish === 'nonfoil' && card.price_normal !== null && card.price_normal > 0) {
     return card.price_normal;
   }
   return card.price_trend || 0;

@@ -65,7 +65,7 @@ function CardSearch({ onAddSuccess, showToast }) {
   // Form states
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
-  const [printing, setPrinting] = useState('Normal');
+  const [printing, setPrinting] = useState('nonfoil');
 
   const [purchasePrice, setPurchasePrice] = useState(0);
   const [, setLocationId] = useState('');
@@ -385,13 +385,15 @@ function CardSearch({ onAddSuccess, showToast }) {
     setSelectedCard(card);
     setPurchasePrice(0); // Default to 0 purchase spend
 
-    // Guess printing based on rarity
-    const rarity = (card.rarity || '').toLowerCase();
-    if (rarity.includes('holo') || rarity.includes('secret') || rarity.includes('ultra') || rarity.includes('shining')) {
-      setPrinting('Holofoil');
-    } else {
-      setPrinting('Normal');
-    }
+    // Default to nonfoil and let the user say otherwise.
+    //
+    // This used to guess the finish from RARITY ('holo', 'secret', 'ultra',
+    // 'shining') -- rarity names from the game this app was forked from, which
+    // do not exist in Magic. MTG rarity says nothing at all about finish: a
+    // common can be foil and a mythic can be nonfoil. The guess therefore fired
+    // essentially at random, and since PR 6C made finish part of card identity,
+    // a wrong guess files a physical card under a variant the user does not own.
+    setPrinting('nonfoil');
 
     setIsDrawerOpen(true);
   };
@@ -402,7 +404,7 @@ function CardSearch({ onAddSuccess, showToast }) {
     setSelectedCard(null);
     setQuantity(1);
     setCondition('Near Mint');
-    setPrinting('Normal');
+    setPrinting('nonfoil');
 
     setPurchasePrice(0);
   };

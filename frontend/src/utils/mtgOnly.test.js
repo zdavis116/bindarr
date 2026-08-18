@@ -13,9 +13,12 @@ assert.deepEqual(gameOptions().map(({ value }) => value), ['mtg']);
 assert.equal(defaultGame(), 'mtg');
 assert.equal(defaultGameFilter(), 'mtg');
 assert.equal(showGamePicker(), false);
+// PR 6E: the picker now offers the CANONICAL MTG finishes the backend stores,
+// so what the UI submits is exactly what deck identity matches on.
 assert.deepEqual(getPrintings(), [
-  { value: 'Normal', label: 'Nonfoil' },
-  { value: 'Holofoil', label: 'Foil' },
+  { value: 'nonfoil', label: 'Nonfoil' },
+  { value: 'foil', label: 'Foil' },
+  { value: 'etched', label: 'Etched' },
 ]);
 
 // Product boundary: provider, alternate-game and printed-card-language controls
@@ -34,8 +37,16 @@ const productFiles = [
   'components/SortFilterBuilder.jsx',
   'components/SharedCollection.jsx',
 ];
-const forbidden = /pok[eé]mon|pokemontcg|tcgdex|showGamePicker|gameOptions|cardLanguage|LANGUAGE_NAMES|searchLang|languageFilter|language-asc|specLanguage|activeCard\.language|autoLanguage|ptcgl|Reverse Holofoil|1st Edition/i;
-for (const relative of productFiles) {
+// 'Holofoil' as a FINISH VALUE joins the list in PR 6E. It was the leftover
+// pre-fork finish that made every foil add fail with a 500, and the regex
+// previously only caught 'Reverse Holofoil' -- so the exact value causing the
+// outage was allowed through the guard that existed to catch it.
+//
+// Matched as a quoted string literal, not a bare word: `price_holofoil` is a
+// legitimate card_cache column name (Scryfall's usd_foil) that must stay.
+const forbidden = /pok[eé]mon|pokemontcg|tcgdex|showGamePicker|gameOptions|cardLanguage|LANGUAGE_NAMES|searchLang|languageFilter|language-asc|specLanguage|activeCard\.language|autoLanguage|ptcgl|['"](Reverse )?Holofoil['"]|['"]1st Edition['"]/i;
+const productFiles2 = ['utils/cardPrinting.js', 'utils/cardOptions.js', 'utils/resolveCardPrice.js', 'utils/cardSort.js'];
+for (const relative of [...productFiles, ...productFiles2]) {
   const source = fs.readFileSync(path.join(root, relative), 'utf8');
   const match = source.match(forbidden);
   if (match) throw new Error(`${relative} contains removed product term "${match[0]}"`);

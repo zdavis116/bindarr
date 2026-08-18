@@ -195,11 +195,11 @@ async function splitStackedEntries(database) {
     for (let i = 1; i < copies; i++) {
       await dbClient.run(`
         INSERT INTO collection (
-          card_id, user_id, quantity, condition, printing, purchase_price,
+          card_id, user_id, quantity, condition, printing, finish, purchase_price,
           location_id, compartment_id, position, is_trade, favorite, list_type
-        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        e.card_id, e.user_id, e.condition, e.printing, e.purchase_price,
+        e.card_id, e.user_id, e.condition, e.printing, e.finish, e.purchase_price,
         e.location_id, e.compartment_id, (e.position || 0) + (i * 0.001), e.is_trade, e.favorite, e.list_type
       ]);
       created++;
