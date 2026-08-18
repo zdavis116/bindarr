@@ -3,13 +3,14 @@ import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePoi
 
 import { formatPrice } from '../utils/formatPrice';
 import { CONDITIONS, PRINTINGS } from '../utils/cardOptions';
-import { getPrintingBadgeLabel, getPrintingBadgeStyle, getFoilOverlayClass } from '../utils/cardPrinting';
+import { getFoilOverlayClass } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '../utils/cardRarity';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { useMultiSelect } from '../utils/useMultiSelect';
 
 import { useT } from '../utils/i18n';
 import CardInspectorModal from './CardInspectorModal';
+import CardTile from './CardTile';
 import AddToDeckSelect from './AddToDeckSelect';
 import PackPriceSplitter from './PackPriceSplitter';
 
@@ -582,98 +583,30 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
           <p>{t('collection.noMatches')} {t(activeFilterCount > 0 ? 'collection.noMatchesFiltered' : 'collection.noMatchesEmpty')}</p>
         </div>
       ) : viewMode === 'gallery' ? (
-        /* Visual Cards Grid Gallery View */
+        /* Visual Cards Grid Gallery View.
+           The tile itself now lives in CardTile.jsx and is shared with the
+           deck's Grid view, so the same card cannot look like two different
+           cards depending on which screen you opened. The markup moved
+           unchanged; what this screen passes in is what it always showed. */
         <div className="card-grid">
           {displayCards.map((item) => {
-            const rarityStyle = getCardRarityBorder(item.rarity);
             const selected = selectedIds.has(item.entry_id);
 
             return (
-              <div
+              <CardTile
                 key={item.entry_id}
-                className="tcg-card tilt-card-wrapper"
-                style={{ cursor: 'pointer', touchAction: 'pan-y' }}
+                card={item}
+                selected={selected}
+                selectMode={selectMode}
+                conditionLabel={
+                  item.condition === 'Near Mint' ? 'NM' :
+                    item.condition === 'Lightly Played' ? 'LP' :
+                      item.condition === 'Moderately Played' ? 'MP' :
+                        item.condition === 'Heavily Played' ? 'HP' : 'DMG'
+                }
                 onClick={(e) => activateCard(item, e)}
-                {...pressHandlers(item.entry_id)}
-              >
-                <div className="tcg-card-inner" style={{ ...rarityStyle, ...(selected ? { outline: '3px solid var(--accent-red)', outlineOffset: '2px' } : {}) }}>
-                  {selectMode && (
-                    <div style={{ position: 'absolute', top: '6px', right: '6px', zIndex: 20, width: '22px', height: '22px', borderRadius: '50%', background: selected ? 'var(--accent-red)' : 'rgba(0,0,0,0.6)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-strong)', fontSize: '0.8rem', fontWeight: 900 }}>{selected ? '✓' : ''}</div>
-                  )}
-                  <img src={item.image_url} alt={item.name} className="tcg-card-image" loading="lazy" draggable={false} />
-                  {getFoilOverlayClass(item.printing) && (
-                    <div className={getFoilOverlayClass(item.printing)} style={{ borderRadius: 'var(--radius-sm)' }} />
-                  )}
-                  {item.quantity > 1 && (
-                    <div className="tcg-card-quantity-tag">x{item.quantity}</div>
-                  )}
-
-                  {/* Rarity badge (shared tier system, matches Storage view) */}
-                  <span style={{
-                    position: 'absolute',
-                    top: '6px',
-                    left: '6px',
-                    fontSize: '0.55rem',
-                    fontWeight: 900,
-                    padding: '2px 4px',
-                    borderRadius: '3px',
-                    zIndex: 10,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                    ...getRarityBadgeStyle(item.rarity)
-                  }}>
-                    {getRarityBadgeLabel(item.rarity)}
-                  </span>
-
-                  {/* Overlay Tags */}
-                  <div style={{
-                    position: 'absolute',
-                    bottom: '6px',
-                    left: '6px',
-                    right: '6px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: '4px',
-                    pointerEvents: 'none'
-                  }}>
-                    <span style={{
-                      fontSize: '0.6rem',
-                      fontWeight: 800,
-                      padding: '2px 5px',
-                      borderRadius: '3px',
-                      background: 'rgba(0, 0, 0, 0.75)',
-                      color: 'var(--text-strong)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      textTransform: 'uppercase'
-                    }}>
-                      {item.condition === 'Near Mint' ? 'NM' :
-                       item.condition === 'Lightly Played' ? 'LP' :
-                       item.condition === 'Moderately Played' ? 'MP' :
-                       item.condition === 'Heavily Played' ? 'HP' : 'DMG'}
-                    </span>
-                    {(item.finish || 'nonfoil') !== 'nonfoil' && (
-                      <span style={{
-                        fontSize: '0.6rem',
-                        fontWeight: 800,
-                        padding: '2px 5px',
-                        borderRadius: '3px',
-                        ...getPrintingBadgeStyle(item.printing),
-                        border: '1px solid rgba(255, 255, 255, 0.2)'
-                      }}>
-                        {getPrintingBadgeLabel(item.printing)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="tcg-card-info">
-                  <div className="tcg-card-name">{item.name}</div>
-                  <div className="tcg-card-meta">
-                    <span style={{ fontSize: '0.7rem' }}>{item.set_name} • #{item.number}</span>
-                    <span className="tcg-card-price">${formatPrice(item.price_trend)}</span>
-                  </div>
-                </div>
-              </div>
+                pressHandlers={pressHandlers(item.entry_id)}
+              />
             );
           })}
         </div>

@@ -10,6 +10,7 @@ const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
 const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
 const { splitPrice } = require('../utils/splitPrice');
+const commanderRules = require('../utils/commanderRules');
 const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
 const {
   InvariantError,
@@ -721,7 +722,10 @@ const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condit
 // route that silently goes stale.
 const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
 router.post('/collection/bulk', async (req, res) => {
-  const { entry_ids = [], action, value } = req.body;
+  // `confirm` applies ONLY to add_to_deck: it is the user having seen the
+  // pre-flight report and chosen to proceed with the applicable part of their
+  // selection. Every other bulk action ignores it.
+  const { entry_ids = [], action, value, confirm = false } = req.body;
   let ids;
   try {
     ids = uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: 1000 });
@@ -740,7 +744,10 @@ router.post('/collection/bulk', async (req, res) => {
     if (action === 'add_to_deck') {
       const deckId = parseInt(value, 10);
       if (!deckId) return res.status(400).json({ error: 'Invalid deck_id' });
-      const deck = await db.get(`SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, req.user.id]);
+      // The deck's FORMAT is read, not just its existence. This route writes
+      // deck requirements, so it is subject to the Commander singleton rule
+      // like every other write path, and the rule is gated on format.
+      const deck = await db.get(`SELECT id, format FROM decks WHERE id = ? AND user_id = ?`, [deckId, req.user.id]);
       if (!deck) return res.status(404).json({ error: 'Deck not found' });
 
       // Group by the EXACT variant, not by card_id.
@@ -762,28 +769,81 @@ router.post('/collection/bulk', async (req, res) => {
 
       let added = 0;
       const skipped = [];
+
+      // VALIDATE THE WHOLE SELECTION BEFORE WRITING ANY OF IT.
+      //
+      // Zach, 2026-08-18: "if its taking in a list it should verify the list
+      // before adding and giving you errors if the list has issues like
+      // duplicates or something."
+      //
+      // This replaces an earlier report-and-skip: the batch applied what it
+      // could and named the refusals afterwards. That was not wrong about the
+      // deck -- the rows always came out legal -- but it was wrong about the
+      // USER, who discovered the problem only once part of their selection had
+      // already been written, and could not tell which part.
+      //
+      // So this behaves like the import pre-flight, and it does so by CALLING
+      // it rather than by growing a second copy: commanderRules.preflightDeckAdds
+      // is the one implementation of "judge these many candidates against one
+      // snapshot". One rule, one implementation, no drift.
+      //
+      // `confirm` is the user having SEEN the report and chosen to proceed --
+      // the same shape as the import compare screen's apply step. Refused
+      // cards are still named in that case, never silently dropped.
+      const candidates = rows
+        .filter(row => row.oracle_id)
+        .map(row => ({ card_id: row.card_id, finish: row.finish, quantity: row.total_qty }));
+      for (const row of rows) {
+        if (!row.oracle_id) skipped.push(`${row.card_id} is missing Oracle identity`);
+      }
+
+      const preflight = await commanderRules.preflightDeckAdds(db, deck, candidates);
+      const problems = [
+        ...skipped.map(message => ({ code: 'CARD_UNKNOWN', message })),
+        ...preflight.problems
+      ];
+
+      if (problems.length > 0 && !confirm) {
+        // NOTHING HAS BEEN WRITTEN. This is a report, not a failure: the user
+        // is being shown what will happen before it happens, and may send the
+        // same request back with confirm:true to apply the rest.
+        return res.status(409).json({
+          error: problems[0].message,
+          code: 'BULK_ADD_PREFLIGHT',
+          problems,
+          applicable: preflight.applicable,
+          message: `${preflight.applicable} card(s) can be added; `
+            + `${problems.length} cannot. Nothing has been added yet.`
+        });
+      }
+
       // One transaction for the whole batch: a partial add leaves the deck in a
       // state the user never asked for and cannot tell apart from success.
       await db.withTransaction(async (tx) => {
-        for (const row of rows) {
-          if (!row.oracle_id) {
-            skipped.push(`${row.card_id} is missing Oracle identity`);
-            continue;
-          }
+        for (const candidate of preflight.accepted) {
+          const source = rows.find(
+            r => r.card_id === candidate.card_id && r.finish === candidate.finish
+          );
           const existing = await tx.get(
             `SELECT quantity FROM deck_cards
              WHERE deck_id = ? AND desired_card_id = ? AND desired_finish = ? AND board = 'mainboard'`,
-            [deckId, row.card_id, row.finish]
+            [deckId, candidate.card_id, candidate.finish]
           );
-          const newQty = (existing ? existing.quantity : 0) + row.total_qty;
-          await tx.run(
-            `INSERT INTO deck_cards (deck_id, oracle_id, desired_card_id, desired_finish, board, quantity)
-             VALUES (?, ?, ?, ?, 'mainboard', ?)
-             ON CONFLICT(deck_id, oracle_id, desired_card_id, desired_finish, board)
-             DO UPDATE SET quantity = excluded.quantity`,
-            [deckId, row.oracle_id, row.card_id, row.finish, newQty]
-          );
-          added += row.total_qty;
+          const newQty = (existing ? existing.quantity : 0) + candidate.quantity;
+          // Still written through commanderRules.writeDeckCard, the single
+          // choke point every deck_cards write passes through. The pre-flight
+          // above should mean this never refuses -- and that is exactly why it
+          // stays. If the two ever disagree, the write throws and the whole
+          // batch rolls back, rather than the deck quietly absorbing the
+          // disagreement.
+          await commanderRules.writeDeckCard(tx, deck, {
+            oracle_id: source.oracle_id,
+            desired_card_id: candidate.card_id,
+            desired_finish: candidate.finish,
+            board: 'mainboard',
+            quantity: newQty
+          });
+          added += candidate.quantity;
         }
       });
 
@@ -791,10 +851,12 @@ router.post('/collection/bulk', async (req, res) => {
       // to a deck is a planning action and never fails on inventory. Shortfalls
       // surface as warnings on the deck view, and checkout is where physical
       // availability is actually enforced.
-      const msg = skipped.length
-        ? `Added ${added} card(s). ${skipped[0]}`
+      const msg = problems.length
+        ? `Added ${added} card(s). ${problems[0].message}`
         : `Added ${added} card(s) to deck`;
-      return res.json({ message: msg, affected: added, rejected: skipped.length });
+      return res.json({
+        message: msg, affected: added, rejected: problems.length, problems
+      });
 
     }
 

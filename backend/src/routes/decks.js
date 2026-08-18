@@ -4,6 +4,7 @@ const scryfallApi = require('../scryfallApi');
 const { recordPrice } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
 const { buildDeckWarnings } = require('../utils/deckRules');
+const commanderRules = require('../utils/commanderRules');
 const deckIdentity = require('../utils/deckIdentity');
 const { DeckIdentityError } = deckIdentity;
 const { RequestBoundsError, positiveInteger } = require('../utils/requestBounds');
@@ -28,8 +29,26 @@ const MAX_IMPORT_LINES = 2000;
 // they drift -- the same bad request answers differently depending on which
 // route the client happened to call.
 function sendError(res, error, fallbackMessage) {
-  if (error instanceof DeckIdentityError || error instanceof RequestBoundsError) {
-    return res.status(error.status).json({ error: error.message, code: error.code });
+  // CommanderRuleError is listed alongside the others because singleton is
+  // REFUSED rather than warned: the choke point throws it from inside a
+  // transaction so the refusal rolls back with everything else, and it must
+  // reach the user as its own 409 with its own message. Without this arm a
+  // correct refusal would be reported as a generic 500 and the user would be
+  // told the app broke rather than told which card was refused and why.
+  if (error instanceof DeckIdentityError
+    || error instanceof RequestBoundsError
+    || error instanceof commanderRules.CommanderRuleError) {
+    // `details` carries the commander refusal's extras -- whether an override
+    // exists and which cards were refused. It is spread onto the body rather
+    // than nested so the client reads `overridable` at the top level next to
+    // `code`, and so a refusal WITHOUT details (singleton) simply has no
+    // `overridable` key rather than an explicit false the UI might misread as
+    // "there is an override, it is just off".
+    return res.status(error.status).json({
+      error: error.message,
+      code: error.code,
+      ...(error.details || {})
+    });
   }
   console.error(error);
   return res.status(500).json({ error: fallbackMessage });
@@ -82,6 +101,25 @@ router.get('/', async (req, res) => {
 // Deck creation takes no decklist text. Importing lines is POST /:id/import,
 // which needs a deck to import INTO and is a separate, retryable step: a paste
 // that half-resolves must not also decide whether the deck exists.
+//
+// COMMANDERS ARE THE ONE EXCEPTION, and only for the Commander format. A
+// Commander deck without a commander is not an incomplete deck, it is not a
+// deck -- the commander defines the colour identity every other card is legal
+// against. So it is required AT CREATION rather than warned about afterwards,
+// and the deck row and its commander entries are written in ONE transaction:
+// a half-created Commander deck with no commander is exactly the state this
+// requirement exists to prevent, and a failure after the deck row was inserted
+// would leave one behind.
+//
+// One or two commanders are accepted. Two is not an exotic case to be added
+// later: partner pairs and Background pairings are ordinary, and a
+// partner-only commander (The Prismatic Piper) is never legal on its own, so
+// a single slot would be wrong on the day it shipped.
+//
+// Every other format is untouched -- no field is read, nothing is validated,
+// nothing is written.
+const MAX_COMMANDERS = 2;
+
 router.post('/', async (req, res) => {
   const {
     name,
@@ -89,7 +127,13 @@ router.post('/', async (req, res) => {
     format = 'Commander / EDH',
     category = 'Competitive',
     accent_color = '#eab308',
-    target_size = 100
+    target_size = 100,
+    commanders = [],
+    // The EXPLICIT confirmation that overrides a commander refusal, shaped
+    // { reason }. Its ABSENCE means refuse -- silence is not consent, and
+    // there is deliberately no default value that would let a client opt in
+    // by accident.
+    commander_override = null
   } = req.body;
 
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -97,14 +141,162 @@ router.post('/', async (req, res) => {
   }
 
   const targetSizeNum = parseInt(target_size, 10) || 100;
+  const isCommander = commanderRules.isCommanderFormat(format);
+
+  // Commanders are read ONLY for the Commander format. Sending them with a
+  // Modern deck is ignored rather than rejected: the field does not exist for
+  // that format, so there is nothing for the user to have got wrong.
+  const requested = isCommander && Array.isArray(commanders) ? commanders : [];
+
+  if (isCommander) {
+    if (requested.length === 0) {
+      return res.status(400).json({
+        error: 'A Commander deck needs a commander. Choose one, or two for a partner pair.',
+        code: 'COMMANDER_REQUIRED'
+      });
+    }
+    if (requested.length > MAX_COMMANDERS) {
+      return res.status(400).json({
+        error: `A Commander deck may have at most ${MAX_COMMANDERS} commanders (a partner pair).`,
+        code: 'COMMANDER_TOO_MANY'
+      });
+    }
+    // A commander is an exact-identity entry like every other card, so the
+    // client must state printing AND finish. Defaulting either would be the
+    // app choosing a physical object on the user's behalf -- the single thing
+    // exact-only identity exists to prevent -- and the commander is the card
+    // they are most likely to want a specific printing of.
+    for (const commander of requested) {
+      if (!commander || !commander.desired_card_id) {
+        return res.status(400).json({ error: 'Each commander needs a desired_card_id', code: 'COMMANDER_INVALID' });
+      }
+      if (!deckIdentity.isFinish(commander.desired_finish)) {
+        return res.status(400).json({
+          error: `Each commander needs a desired_finish of ${deckIdentity.FINISHES.join(', ')}`,
+          code: 'COMMANDER_INVALID'
+        });
+      }
+    }
+    // Two commanders must be two different cards. A "partner pair" of one card
+    // with itself is a singleton violation in the deck-defining slot, and it
+    // would also be written as a single upserted row, silently collapsing to
+    // one commander while the user believed they had chosen two.
+    //
+    // This is the IDENTITY check -- literally the same (printing, finish)
+    // twice. It is NOT the singleton rule, and the difference is the whole of
+    // Blocker 2: two DIFFERENT printings of Atraxa, or one printing in nonfoil
+    // and foil, are two distinct identities and one card NAME. Both pass here.
+    // The name rule is enforced by writeDeckCard below, where it applies to
+    // every route rather than only to this one.
+    const identities = requested.map(c => `${c.desired_card_id}|${c.desired_finish}`);
+    if (new Set(identities).size !== identities.length) {
+      return res.status(400).json({
+        error: 'A partner pair must be two different cards.',
+        code: 'COMMANDER_DUPLICATE'
+      });
+    }
+  }
 
   try {
-    const result = await db.run(
-      `INSERT INTO decks (name, description, format, category, accent_color, target_size, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name.trim(), description, format, category, accent_color, targetSizeNum, req.user.id]
+    // HYDRATE THIN COMMANDER ROWS BEFORE THE TRANSACTION OPENS.
+    //
+    // The commander rules read type_line/subtypes/oracle_text/keywords, and
+    // every one of those fields biases toward REFUSE when missing -- so a row
+    // the app cached without ever reading the card would confidently refuse a
+    // legal commander. Rather than guessing in either direction, the app goes
+    // and gets the data it is missing.
+    //
+    // OUTSIDE THE TRANSACTION, deliberately, and for the same reason the
+    // deck-add route's Scryfall lookup is: a network call inside a transaction
+    // holds SQLite's single write lock for the duration of an upstream
+    // request, stalling every other writer behind a third party's latency.
+    // PR 6C/6E established this and addCardToCollection already follows it.
+    //
+    // This costs NOTHING on the happy path -- a row that is already complete
+    // is skipped without a request, so a legal commander stays instant.
+    await commanderRules.hydrateThinCommanderCards(
+      db,
+      requested.map(c => c.desired_card_id),
+      { hasOverride: !!commander_override }
     );
-    res.status(201).json({ message: 'Deck created successfully', id: result.lastID });
+
+    const deckId = await db.withTransaction(async (tx) => {
+      const result = await tx.run(
+        `INSERT INTO decks (name, description, format, category, accent_color, target_size, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [name.trim(), description, format, category, accent_color, targetSizeNum, req.user.id]
+      );
+      const id = result.lastID;
+
+      for (const commander of requested) {
+        // oracleIdentityForCard throws a 404 for an unknown printing, which
+        // rolls the whole transaction back -- so a bad commander id leaves no
+        // deck behind rather than an empty Commander deck the user then has to
+        // notice and delete.
+        const identity = await deckIdentity.oracleIdentityForCard(
+          tx, commander.desired_card_id, commander.desired_finish
+        );
+        // BLOCKER 2 FIX. Written through the choke point, so the create path
+        // applies the SAME name rule every later write applies. Previously
+        // this was a bare INSERT, and a deck could therefore be born already
+        // holding two commanders of one name -- illegal from the moment it
+        // existed, and refused by every route that touched it afterwards.
+        //
+        // A refusal throws, which rolls the deck row back with it: a refused
+        // create leaves no deck behind at all, rather than a half-built one
+        // the user has to notice and delete.
+        await commanderRules.writeDeckCard(tx, { id, format }, {
+          oracle_id: identity.oracle_id,
+          desired_card_id: identity.desired_card_id,
+          desired_finish: identity.desired_finish,
+          board: 'commander',
+          quantity: 1
+        });
+      }
+
+      // THE COMMANDER-ZONE GATE, inside the same transaction.
+      //
+      // It runs AFTER the writes rather than before, because the question is
+      // about the command zone AS A WHOLE -- "do these two cards pair" cannot
+      // be answered one card at a time. Running it inside the transaction is
+      // what makes the refusal safe: a throw here rolls the deck row and both
+      // commander rows back together, so a refused create leaves NOTHING
+      // behind rather than a half-built illegal deck the user has to notice.
+      const accepted = await commanderRules.checkCommanderZone(tx, { id, format }, {
+        override: commander_override
+      });
+      // An accepted override is RECORDED in the same transaction as the write
+      // it permitted. If the record cannot be written the deck must not exist
+      // either: an override we allowed but did not remember is precisely the
+      // silent state this feature exists to prevent, and it would corrupt the
+      // feedback loop the reason was collected for.
+      if (accepted) {
+        await commanderRules.recordCommanderOverride(tx, req.user.id, id, accepted);
+      }
+      return id;
+    });
+
+    // THE CREATE RESPONSE CARRIES THE DECK'S WARNINGS.
+    //
+    // Without this the user only discovers an illegal partner pairing when
+    // they next open the deck, which is precisely the "told afterwards what
+    // you could have been told beforehand" failure the pre-flight rules exist
+    // to remove. Computed AFTER the commit, deliberately: the warning
+    // describes the deck that now exists, and a warning is never a reason to
+    // roll one back.
+    let warnings = [];
+    try {
+      const { entries } = await deckIdentity.availabilityForDeck(db, deckId, req.user.id);
+      const created = await db.get(`SELECT * FROM decks WHERE id = ?`, [deckId]);
+      warnings = await buildDeckWarnings(db, created, entries);
+    } catch (warningError) {
+      // Advisory text failing must never turn a successful create into an
+      // error the user has to interpret. The deck exists; the deck screen will
+      // recompute the same warnings on open.
+      console.error('deck created but warnings could not be built', warningError);
+    }
+
+    res.status(201).json({ message: 'Deck created successfully', id: deckId, warnings });
   } catch (error) {
     sendError(res, error, 'Failed to create deck');
   }
@@ -231,8 +423,39 @@ router.delete('/:id', async (req, res) => {
 // user's behalf -- they would be told they own the card, walk to the binder,
 // and find the wrong version. Making the client state its choice is the whole
 // point of exact-only identity.
+//
+// `replacing_deck_card_id` MAKES AN EDIT AN EDIT. Without it the server cannot
+// tell "put a second Sol Ring in this deck" from "change which Sol Ring this
+// row means" -- the request body looks identical -- so it judged the second as
+// the first and refused every re-pin, finish change and commander re-printing
+// as a singleton violation. The client already knows which row the user is
+// editing; it just had no way to say so.
+//
+// Naming the row also lets the replace happen in ONE transaction instead of the
+// add-then-delete pair of requests the UI used to make. Two requests have a
+// window between them in which the deck holds two copies of one name, and if
+// the second never lands the deck holds them permanently.
 router.post('/:id/cards', async (req, res) => {
-  const { desired_card_id, desired_finish, board = 'mainboard', quantity = 1 } = req.body;
+  const {
+    desired_card_id, desired_finish, board = 'mainboard', quantity = 1,
+    // Same explicit confirmation the create route takes. Only ever consulted
+    // for a write to the commander board; absence means refuse.
+    commander_override = null,
+    // The deck_cards.id of the row being edited, when this write is an edit.
+    // Absent on an ordinary add, which is the common case.
+    replacing_deck_card_id = null
+  } = req.body;
+
+  // Validated as a shape here so a garbage id becomes a clear 400 rather than
+  // a confusing 404 from the rule layer. Ownership and deck scoping are checked
+  // inside the transaction, against the deck this request is actually for.
+  let replacingId = null;
+  if (replacing_deck_card_id !== null && replacing_deck_card_id !== undefined) {
+    replacingId = Number(replacing_deck_card_id);
+    if (!Number.isInteger(replacingId) || replacingId <= 0) {
+      return res.status(400).json({ error: 'replacing_deck_card_id must be a deck entry id' });
+    }
+  }
 
   if (!desired_card_id) {
     return res.status(400).json({ error: 'desired_card_id is required' });
@@ -269,19 +492,72 @@ router.post('/:id/cards', async (req, res) => {
       }
     }
 
+    // HYDRATE THE COMMAND ZONE BEFORE THE TRANSACTION, for the same reason and
+    // under the same constraint as the create path.
+    //
+    // The EXISTING commanders are hydrated too, not just the incoming card,
+    // because the pairing rule judges the zone AS A WHOLE -- a thin row already
+    // sitting in the command zone would refuse a legal partner just as surely
+    // as a thin incoming one. That query is a plain read of the cards this
+    // decision depends on; the network call still only happens for rows that
+    // are actually thin, so a fully-cached command zone costs nothing.
+    if (board === 'commander') {
+      const zone = await db.all(
+        `SELECT dc.desired_card_id AS id FROM deck_cards dc
+         JOIN decks d ON dc.deck_id = d.id
+         WHERE dc.deck_id = ? AND d.user_id = ? AND dc.board = 'commander'`,
+        [req.params.id, req.user.id]
+      );
+      await commanderRules.hydrateThinCommanderCards(
+        db,
+        [desired_card_id, ...zone.map(r => r.id)],
+        { hasOverride: !!commander_override }
+      );
+    }
+
     const outcome = await db.withTransaction(async (tx) => {
       const deck = await requireOwnedDeck(tx, req.params.id, req.user.id);
       const identity = await deckIdentity.oracleIdentityForCard(tx, desired_card_id, desired_finish);
 
+      // SINGLETON IS REFUSED HERE, NOT WARNED.
+      //
+      // The check itself now lives inside writeDeckCard, the choke point every
+      // deck_cards write passes through -- so this route no longer carries its
+      // own copy of the rule. It used to, and that was the shape of the
+      // problem: the rule was correct here and absent from the three other
+      // routes that wrote deck rows.
+      //
       // Quantity is the ABSOLUTE new count for this exact variant on this
       // board, not a delta. A delta makes a retried request (dropped response,
       // impatient double-tap) silently double the requirement.
-      await tx.run(`
-        INSERT INTO deck_cards (deck_id, oracle_id, desired_card_id, desired_finish, board, quantity)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(deck_id, oracle_id, desired_card_id, desired_finish, board)
-        DO UPDATE SET quantity = excluded.quantity
-      `, [deck.id, identity.oracle_id, identity.desired_card_id, identity.desired_finish, board, quantityNum]);
+      //
+      // The refusal throws from inside the transaction, so a refused add
+      // writes nothing at all -- the same promise the finish-validation path
+      // already makes.
+      await commanderRules.writeDeckCard(tx, deck, {
+        oracle_id: identity.oracle_id,
+        desired_card_id: identity.desired_card_id,
+        desired_finish: identity.desired_finish,
+        board,
+        quantity: quantityNum,
+        // An EDIT names the row it is replacing, so the rule excludes that one
+        // row rather than counting it as a duplicate of itself.
+        replacingDeckCardId: replacingId
+      });
+
+      // THE COMMANDER-ZONE GATE. Only a write that TOUCHES the command zone
+      // can make it illegal, so adding a card to the 99 does not pay for this
+      // check -- and, more importantly, deck CONTENTS are never refused by it.
+      // That boundary is the whole point: contents warn, the command zone
+      // refuses.
+      if (board === 'commander') {
+        const accepted = await commanderRules.checkCommanderZone(tx, deck, {
+          override: commander_override
+        });
+        if (accepted) {
+          await commanderRules.recordCommanderOverride(tx, req.user.id, deck.id, accepted);
+        }
+      }
 
       const { entries } = await deckIdentity.availabilityForDeck(tx, deck.id, req.user.id);
       const warnings = await buildDeckWarnings(tx, deck, entries);
@@ -313,7 +589,7 @@ router.post('/:id/cards', async (req, res) => {
 // whatever the row already holds. Importing the same list twice therefore adds
 // twice -- which is what "import these cards into my deck" means -- while a
 // retried single request cannot double it.
-async function writeImportRequirement(tx, deckId, board, allocations) {
+async function writeImportRequirement(tx, deck, board, allocations) {
   for (const allocation of allocations) {
     const identity = await deckIdentity.oracleIdentityForCard(
       tx, allocation.desired_card_id, allocation.desired_finish
@@ -321,18 +597,26 @@ async function writeImportRequirement(tx, deckId, board, allocations) {
     const existing = await tx.get(
       `SELECT quantity FROM deck_cards
        WHERE deck_id = ? AND desired_card_id = ? AND desired_finish = ? AND board = ?`,
-      [deckId, identity.desired_card_id, identity.desired_finish, board]
+      [deck.id, identity.desired_card_id, identity.desired_finish, board]
     );
     const total = Math.min(
       MAX_REQUIREMENT_QUANTITY,
       (existing ? existing.quantity : 0) + allocation.quantity
     );
-    await tx.run(`
-      INSERT INTO deck_cards (deck_id, oracle_id, desired_card_id, desired_finish, board, quantity)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(deck_id, oracle_id, desired_card_id, desired_finish, board)
-      DO UPDATE SET quantity = excluded.quantity
-    `, [deckId, identity.oracle_id, identity.desired_card_id, identity.desired_finish, board, total]);
+    // Through the choke point like every other write. Import already runs its
+    // own singleton pre-flight (it has to, because it judges many lines
+    // against one snapshot plus the lines it has already accepted), so this
+    // should never refuse in practice -- and that is exactly why it is here.
+    // If the pre-flight and the rule ever disagree, the deck must not be the
+    // thing that absorbs the disagreement: the import throws, rolls back, and
+    // the user retries, rather than quietly acquiring an unplayable deck.
+    await commanderRules.writeDeckCard(tx, deck, {
+      oracle_id: identity.oracle_id,
+      desired_card_id: identity.desired_card_id,
+      desired_finish: identity.desired_finish,
+      board,
+      quantity: total
+    });
   }
 }
 
@@ -409,6 +693,36 @@ router.post('/:id/import', async (req, res) => {
   }
 
   try {
+    // HYDRATE THE EXISTING COMMAND ZONE BEFORE THE TRANSACTION.
+    //
+    // Only for a commander-board import, and only the rows already there. The
+    // incoming lines are resolved by NAME inside the transaction below against
+    // the local cache -- import deliberately makes no per-line network call --
+    // so the thing that can wrongly refuse here is a thin row ALREADY in the
+    // command zone poisoning the pairing decision for a legal new partner.
+    //
+    // Outside the transaction, as everywhere else: a network call holding
+    // SQLite's single write lock is the failure mode PR 6C/6E ruled out.
+    //
+    // hasOverride is TRUE here on purpose, and it is not a bypass of the
+    // legality rule -- the rule below still runs in full. It only means a
+    // Scryfall outage must not turn a paste into a 503: import already takes
+    // no override (see the commander gate below), so the user would have no
+    // way to proceed, and failing a whole decklist because an upstream service
+    // blinked is not a trade worth making. The zone is judged on whatever data
+    // the app has, exactly as it was before this refinement.
+    if (board === 'commander') {
+      const zone = await db.all(
+        `SELECT dc.desired_card_id AS id FROM deck_cards dc
+         JOIN decks d ON dc.deck_id = d.id
+         WHERE dc.deck_id = ? AND d.user_id = ? AND dc.board = 'commander'`,
+        [req.params.id, req.user.id]
+      );
+      await commanderRules.hydrateThinCommanderCards(
+        db, zone.map(r => r.id), { hasOverride: true }
+      );
+    }
+
     const result = await db.withTransaction(async (tx) => {
       const deck = await requireOwnedDeck(tx, req.params.id, req.user.id);
       const plan = [];
@@ -452,6 +766,57 @@ router.post('/:id/import', async (req, res) => {
       // once at the end, makes the two modes identical BY CONSTRUCTION rather
       // than by both happening to be correct.
       const pendingWrites = [];
+
+      // SINGLETON PRE-FLIGHT STATE.
+      //
+      // Import has to judge many lines against ONE snapshot of the deck plus
+      // the lines it has already accepted in this same pass -- the database
+      // does not know about those yet. This is the same shape of problem as
+      // `claimedCopies` above and it is solved the same way: read the world
+      // once, then keep the in-flight bookkeeping in a map beside it.
+      //
+      // Without this a paste containing "1 Sol Ring (C21) 263" and "1 Sol Ring
+      // (CMM) 410" would have BOTH lines read a deck with no Sol Ring in it,
+      // both would pass, and the import would create the exact illegal deck
+      // this rule exists to prevent.
+      const isCommanderDeck = commanderRules.isCommanderFormat(deck.format);
+      const deckNameCounts = isCommanderDeck
+        ? await commanderRules.nameCountsForDeck(tx, deck.id)
+        : new Map();
+
+      // Decide whether a resolved line breaks singleton, and record it if not.
+      //
+      // Returns a refusal object (which the caller turns into a visible,
+      // NAMED line on the preview) or null. Exempt cards are never counted,
+      // so twenty Swamps and four Relentless Rats never accumulate towards a
+      // refusal for each other.
+      const singletonRefusal = (cardRow, requestedCopies) => {
+        if (!isCommanderDeck) return null;
+        if (board === 'considering') return null;
+        if (commanderRules.isSingletonExempt(cardRow)) return null;
+
+        const key = commanderRules.normalizeName(cardRow.name);
+        const already = deckNameCounts.get(key) || 0;
+        if (already > 0) {
+          return {
+            code: commanderRules.SINGLETON_CODE,
+            message: commanderRules.singletonMessage(cardRow.name)
+          };
+        }
+        if (requestedCopies > 1) {
+          return {
+            code: commanderRules.SINGLETON_CODE,
+            message: `${cardRow.name}: Commander decks allow one copy by name, `
+              + `so ${requestedCopies} copies cannot be imported.`
+          };
+        }
+        // Accepted. Count it immediately so a LATER line naming the same card
+        // by a different printing sees it, whether or not this is an apply.
+        // Preview and apply must reach the same verdict, and a count that only
+        // moved on apply would make the preview promise an import it refuses.
+        deckNameCounts.set(key, already + requestedCopies);
+        return null;
+      };
 
       // Merge lines that request THE SAME THING before allocating.
       //
@@ -525,7 +890,13 @@ router.post('/:id/import', async (req, res) => {
         const statedNumber = typeof rawLine.number === 'string' ? rawLine.number.trim() : '';
         if (statedSet) {
           const params = [name, statedSet];
-          let sql = `SELECT id, oracle_id, name, set_id, set_name, number, finishes
+          // supertype/subtypes/type_line are selected because the singleton
+          // exemption is a property of the CARD -- is it a basic land? -- and
+          // must be read from the cache rather than inferred from the name.
+          // Without them every basic land in a pasted Commander decklist is
+          // refused as a duplicate, which is the commonest paste there is.
+          let sql = `SELECT id, oracle_id, name, set_id, set_name, number, finishes,
+                            supertype, subtypes, type_line
                      FROM card_cache
                      WHERE LOWER(name) = LOWER(?) AND LOWER(set_id) = LOWER(?)
                        AND oracle_id IS NOT NULL`;
@@ -546,6 +917,35 @@ router.post('/:id/import', async (req, res) => {
         }
 
         if (explicitCard) {
+          // SINGLETON IS CHECKED BEFORE THE LINE IS ALLOCATED.
+          //
+          // Ordering matters: a refused line must not claim copies. If it
+          // allocated first and were refused afterwards, its `claim()` would
+          // have already told later lines those physical copies were spent,
+          // and a legitimate later line would report a shortfall caused
+          // entirely by a line that never imported.
+          const explicitRefusal = singletonRefusal(explicitCard, quantity);
+          if (explicitRefusal) {
+            // A refused line is REPORTED, with its name and the reason, and
+            // its copies are counted as visibly unresolved so the conservation
+            // invariant still balances. Named and visible, never dropped.
+            plan.push({
+              name: explicitCard.name,
+              oracle_id: explicitCard.oracle_id,
+              requested: quantity,
+              allocated: 0,
+              shortfall: quantity,
+              status: 'refused',
+              refused: true,
+              refusal_code: explicitRefusal.code,
+              refusal_reason: explicitRefusal.message,
+              explicit: true,
+              needs_choice: false,
+              allocations: []
+            });
+            continue;
+          }
+
           // The finish comes from the line's own marker when it gave one. When
           // it did not, we use the printing's own finish list -- its only
           // finish if it has exactly one, otherwise 'nonfoil' as that
@@ -615,8 +1015,13 @@ router.post('/:id/import', async (req, res) => {
         // CASE B/C -- bare line. Resolve the NAME to an Oracle card. Local
         // cache only: import must not make a network call per line, and a card
         // the user has never seen is one they certainly do not own.
+        //
+        // supertype/subtypes/type_line are selected because the singleton
+        // exemption is a property of the CARD (is it a basic land?) and must
+        // be read from the cache rather than guessed from the name.
         const card = await tx.get(
-          `SELECT id, oracle_id, name, set_name, number FROM card_cache
+          `SELECT id, oracle_id, name, set_name, number, supertype, subtypes, type_line
+           FROM card_cache
            WHERE LOWER(name) = LOWER(?) AND oracle_id IS NOT NULL
            ORDER BY id ASC LIMIT 1`,
           [name]
@@ -627,6 +1032,27 @@ router.post('/:id/import', async (req, res) => {
           plan.push({
             name, requested: quantity, status: 'unresolved',
             allocations: [], shortfall: quantity, needs_choice: false
+          });
+          continue;
+        }
+
+        // Same rule and same ordering as Case A: refuse before allocating, so
+        // a refused line never spends a physical copy a later line needs.
+        const bareRefusal = singletonRefusal(card, quantity);
+        if (bareRefusal) {
+          plan.push({
+            name: card.name,
+            oracle_id: card.oracle_id,
+            requested: quantity,
+            allocated: 0,
+            shortfall: quantity,
+            status: 'refused',
+            refused: true,
+            refusal_code: bareRefusal.code,
+            refusal_reason: bareRefusal.message,
+            explicit: false,
+            needs_choice: false,
+            allocations: []
           });
           continue;
         }
@@ -737,7 +1163,22 @@ router.post('/:id/import', async (req, res) => {
       }
 
       if (apply && pendingWrites.length > 0) {
-        await writeImportRequirement(tx, deck.id, board, pendingWrites);
+        await writeImportRequirement(tx, deck, board, pendingWrites);
+
+        // THE COMMANDER-ZONE GATE applies to import too. `board` is
+        // caller-supplied and `commander` is a valid board, so a decklist
+        // pasted into the command zone is another way to reach it -- and a
+        // rule enforced on three routes out of four is not enforced.
+        //
+        // Import deliberately takes NO override. The override is an explicit,
+        // per-pairing confirmation with a typed reason, and a bulk paste is
+        // not the place to collect one: the user is not looking at the pair
+        // when they press Import. A refused import rolls back whole and tells
+        // them why, and they set the commander from the picker where the
+        // confirmation lives.
+        if (board === 'commander') {
+          await commanderRules.checkCommanderZone(tx, deck, { override: null });
+        }
       }
 
       // THE COPY-CONSERVATION INVARIANT, checked before the transaction commits.
@@ -754,12 +1195,23 @@ router.post('/:id/import', async (req, res) => {
       // SEE as unfinished count. A shortfall that quietly became nothing is
       // exactly the bug, so it must not be allowed to satisfy the equation.
       //
+      // A REFUSED line counts here for the same reason a line awaiting a
+      // printing choice does: its copies did not become deck rows, and the
+      // user is told so by name and with a reason. Refused is a visible,
+      // explained outcome -- which is precisely what the invariant is asking
+      // for. Leaving it out would make the equation fail and roll back an
+      // import whose only problem was that it correctly refused a duplicate.
+      //
       // Throwing rolls the whole import back. That is the conservative choice
       // and the right one here: for software tracking physical objects, a
       // refused import the user can retry is recoverable, and a silently short
       // deck is not -- they would only discover it holding the cards.
       const requestedCopies = plan.reduce((s, l) => s + (Number(l.requested) || 0), 0);
+      const refusedCopies = plan.reduce(
+        (s, l) => (l.refused ? s + (Number(l.requested) || 0) : s), 0
+      );
       const unresolvedCopies = plan.reduce((s, l) => {
+        if (l.refused) return s + (Number(l.requested) || 0);
         if (l.status === 'unresolved') return s + (Number(l.shortfall) || 0);
         if (l.needs_choice) return s + (Number(l.choice_quantity) || 0);
         return s;
@@ -790,6 +1242,17 @@ router.post('/:id/import', async (req, res) => {
         written_copies: apply ? plannedCopies : 0,
         planned_copies: plannedCopies,
         unresolved_copies: unresolvedCopies,
+        // Refusals are broken out of the unresolved total rather than merged
+        // into it, because they are a different KIND of problem and the user
+        // acts on them differently: a line awaiting a printing is one click
+        // from being fixed, a line refused for singleton is a card that cannot
+        // go in this deck at all. Reporting one number for both would tell
+        // them to go looking for a picker that is not there.
+        refused_copies: refusedCopies,
+        lines_refused: plan.filter(l => l.refused).length,
+        refusals: plan
+          .filter(l => l.refused)
+          .map(l => ({ name: l.name, code: l.refusal_code, reason: l.refusal_reason })),
         lines_needing_choice: plan.filter(l => l.needs_choice).length,
         lines_unresolved: plan.filter(l => l.status === 'unresolved').length
       };
@@ -815,12 +1278,24 @@ router.post('/:id/import', async (req, res) => {
 // longer unique within a deck: the same printing can legitimately appear on the
 // mainboard and the sideboard, and in nonfoil and foil. Deleting "by card" would
 // have to guess which of those the user meant.
+//
+// A DELETE FROM THE COMMAND ZONE IS RE-VALIDATED, because removal is a mutation
+// of the zone like any other and the invariant is about the zone AS A WHOLE
+// AFTER EVERY MUTATION. This route used to write nothing back and check
+// nothing, which is what made the back door work: a zone of three could be
+// reduced by deletion to an illegal pair that creating directly is refused, with
+// no warning and no recorded override.
+//
+// The check runs AFTER the delete, inside the same transaction, so it judges the
+// zone the delete WOULD PRODUCE and a refusal rolls the deletion back with it --
+// the row the user tried to remove survives intact rather than the deck being
+// left in a state the app itself calls illegal.
 router.delete('/:id/cards/:deck_card_id', async (req, res) => {
   try {
     const removed = await db.withTransaction(async (tx) => {
       const deck = await requireOwnedDeck(tx, req.params.id, req.user.id);
       const requirement = await tx.get(
-        `SELECT id FROM deck_cards WHERE id = ? AND deck_id = ?`,
+        `SELECT id, board FROM deck_cards WHERE id = ? AND deck_id = ?`,
         [Number(req.params.deck_card_id), deck.id]
       );
       if (!requirement) {
@@ -831,6 +1306,19 @@ router.delete('/:id/cards/:deck_card_id', async (req, res) => {
       // being on for correctness of this path.
       await tx.run(`DELETE FROM deck_card_allocations WHERE deck_card_id = ?`, [requirement.id]);
       await tx.run(`DELETE FROM deck_cards WHERE id = ?`, [requirement.id]);
+
+      // Only a delete that TOUCHES the command zone can make it illegal, so
+      // removing a card from the 99 does not pay for this check -- and, more
+      // importantly, deck CONTENTS are never refused by it. Same boundary the
+      // add route draws: contents warn, the command zone refuses.
+      if (requirement.board === 'commander') {
+        const accepted = await commanderRules.checkCommanderZone(tx, deck, {
+          override: req.body && req.body.commander_override
+        });
+        if (accepted) {
+          await commanderRules.recordCommanderOverride(tx, req.user.id, deck.id, accepted);
+        }
+      }
       return deck.id;
     });
 

@@ -14,6 +14,11 @@
 // Legality warnings are advisory in a second sense too: Commander validation
 // here is intentionally shallow (PR 8 owns the real thing).
 const db = require('../db');
+// NOTE: this module no longer imports commanderRules. It used to, to produce
+// the COMMANDER_PAIR_ILLEGAL *warning*; pairing is now a REFUSAL enforced at
+// the write choke point (commanderRules.checkCommanderZone), so the coupling
+// is gone. deckRules is once again purely advisory, which is the invariant
+// worth protecting: nothing in this file may ever block a save.
 
 function parseSubtypes(raw) {
   if (Array.isArray(raw)) return raw;
@@ -98,11 +103,36 @@ async function buildDeckWarnings(database, deck, entries) {
     if (commanderCount === 0) {
       warnings.push({ code: 'COMMANDER_MISSING', message: 'This Commander deck has no commander assigned.' });
     } else if (commanderCount > 2) {
+      // A BACKSTOP, no longer the enforcement. As of the command-zone fix, a
+      // zone of three or more is REFUSED by commanderRules.checkCommanderZone
+      // after every mutation that can change the zone -- add, delete, swap,
+      // create -- so no route can produce this state any more.
+      //
+      // It stays as a warning because data that predates the rule (or a
+      // restored backup) can still hold such a zone, and a deck that is already
+      // wrong must SAY so rather than look fine. It describes a state the app
+      // will not create; it does not permit one.
       warnings.push({
         code: 'COMMANDER_TOO_MANY',
         message: `This Commander deck has ${commanderCount} commanders; at most two (partners) are allowed.`
       });
     }
+    // PAIRING LEGALITY IS NO LONGER A WARNING (Zach, 2026-08-18).
+    //
+    // It is REFUSED at the point a commander is written, by
+    // commanderRules.checkCommanderZone, and the refusal is overridable with
+    // a recorded reason. It deliberately does NOT appear here.
+    //
+    // Why it must not also warn: an illegal pair can now only exist in a deck
+    // because the user EXPLICITLY overrode the refusal and said why. Warning
+    // about it afterwards would nag them about a decision the app already
+    // asked them to justify and then accepted -- and a warning nobody can act
+    // on is noise that trains the user to ignore the warning list.
+    //
+    // The boundary this preserves: deck CONTENTS legality (missing copies,
+    // colour identity among the 99, deck size) stays warning-only, because
+    // the user fixes those by continuing to work. The command zone is not
+    // that -- it is a foundation that can never become legal -- so it refuses.
   }
 
   return warnings;

@@ -64,7 +64,19 @@ export function useMultiSelect({ showToast, onChanged, guard } = {}) {
   const { handlers: pressHandlers, fired: longPressFired } = useLongPress(arm);
 
   // Runs one bulk action against every selected entry via the bulk endpoint.
-  const runBulk = async (action, value, confirmMsg) => {
+  //
+  // ADD-TO-DECK VALIDATES THE WHOLE SELECTION BEFORE IT WRITES ANYTHING.
+  //
+  // The server judges the entire selection first and answers 409 with a
+  // BULK_ADD_PREFLIGHT report naming everything that will not apply, having
+  // written nothing. We show that report and let the user decide, then resend
+  // the identical request with confirm:true. This is the same "see it before
+  // it happens" shape as the import compare screen.
+  //
+  // Deliberately reuses the existing toolbar and confirm dialog rather than
+  // introducing a screen: the production look and layout are fixed, and this
+  // is a new answer on an existing gesture, not a new gesture.
+  const runBulk = async (action, value, confirmMsg, confirmed = false) => {
     const blocked = guard && guard();
     if (blocked) { showToast(blocked); return; }
     const ids = Array.from(selectedIds);
@@ -74,16 +86,31 @@ export function useMultiSelect({ showToast, onChanged, guard } = {}) {
       const res = await fetch('/api/collection/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry_ids: ids, action, value })
+        body: JSON.stringify({ entry_ids: ids, action, value, confirm: confirmed })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(data.message || 'Done.');
         clearSelection();
         onChanged && onChanged({ ids, action, value });
-      } else {
-        showToast(data.error || 'Bulk action failed.');
+        return;
       }
+      if (res.status === 409 && data.code === 'BULK_ADD_PREFLIGHT' && !confirmed) {
+        // Nothing has been written yet. Name every problem -- capped, so a
+        // large bad selection does not produce an unreadable wall -- and offer
+        // to apply the rest.
+        const problems = Array.isArray(data.problems) ? data.problems : [];
+        const shown = problems.slice(0, 5).map(p => `• ${p.message}`).join('\n');
+        const more = problems.length > 5 ? `\n…and ${problems.length - 5} more.` : '';
+        const proceed = window.confirm(
+          `${problems.length} of your selection cannot be added:\n\n${shown}${more}\n\n`
+          + `Nothing has been added yet. Add the other ${data.applicable} card(s)?`
+        );
+        if (!proceed) { showToast('Nothing was added.'); return; }
+        await runBulk(action, value, null, true);
+        return;
+      }
+      showToast(data.error || 'Bulk action failed.');
     } catch (err) {
       console.error(err);
       showToast('Error performing bulk action.');

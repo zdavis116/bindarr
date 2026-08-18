@@ -263,7 +263,6 @@
   "card.purchasePrice": "Purchase Price ($)",
   "card.condition": "Condition",
   "card.printing": "Printing",
-
   "deck.addToDeck": "Add to Deck…",
   "deck.filterPlaceholder": "Filter decks by name or description...",
   "deck.allStatuses": "All Statuses",
@@ -835,7 +834,6 @@
   "inspector.viewOnTcgplayer": "View on TCGplayer",
   "inspector.specCondition": "Condition:",
   "inspector.specPrinting": "Printing:",
-
   "inspector.specSupertype": "Supertype:",
   "inspector.viewInStorage": "Click to view in storage",
   "inspector.locationLabel": "Location:",
@@ -985,6 +983,8 @@
   "settings.errPasswordUpdate": "Failed to update password.",
   "settings.errPasswordUpdateGeneric": "Error updating password.",
   "settings.backupTitle": "Collection Backup & Data",
+  "settings.commanderOverridesTitle": "Commander pairings you confirmed",
+  "settings.commanderOverridesHint": "Bindarr refused these pairings because it could not find a partner mechanic in the card text, and you confirmed they were legal anyway. Each one is an example of a mechanic Bindarr does not recognise yet — they are kept so the check can be improved.",
   "settings.backupHint": "Export your card collection as a CSV or JSON backup, or import a previously exported database. Importing will merge cards into your collection.",
   "settings.exportCsv": "Export CSV",
   "settings.exportJson": "Export JSON",
@@ -1039,5 +1039,21 @@
   "prefs.autoConfirm": "Scanner Auto-Confirm",
   "prefs.autoConfirmHint": "Add high-confidence single matches automatically, skipping the confirm dialog.",
   "prefs.autoConfirmOn": "Scanner auto-confirm enabled.",
-  "prefs.autoConfirmOff": "Scanner auto-confirm disabled."
+  "prefs.autoConfirmOff": "Scanner auto-confirm disabled.",
+  "deck.commanderLabel": "Commander",
+  "deck.commanderHint": "Required for Commander decks. Choose one, or two for a partner pair or a Background.",
+  "deck.commanderSearchPlaceholder": "Search for a commander...",
+  "deck.commanderRequired": "A Commander deck needs a commander. Choose one, or two for a partner pair.",
+  "deck.commanderRemove": "Remove this commander",
+  "deck.commanderChange": "Change {name}",
+  "deck.commanderAddPartner": "+ Add a partner / Background",
+  "deck.commanderOverrideHint": "Bindarr works out which cards may pair by reading the card text, and new pairing mechanics are printed most sets — so it can be out of date. If you know this pairing is legal, say why and Bindarr will accept it and record your note so the check can be improved.",
+  "deck.commanderOverrideReasonPlaceholder": "Why is this pairing legal? (required)",
+  "deck.commanderOverrideConfirm": "Confirm — this pairing is legal",
+  "deck.commanderOverrideCancel": "Cancel",
+  "deck.importRefusedBadge": "Refused",
+  "deck.importRefusedHeading.one": "{count} card will not be imported:",
+  "deck.importRefusedHeading.other": "{count} cards will not be imported:",
+  "deck.importRefusedToast.one": "{count} card was refused and not imported.",
+  "deck.importRefusedToast.other": "{count} cards were refused and not imported."
 }

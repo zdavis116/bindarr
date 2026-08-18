@@ -63,3 +63,22 @@ export function getFoilOverlayClass(printing) {
   if (finish === 'etched') return 'reverse-holo-shine-overlay';
   return null;
 }
+
+// The finish a card row should be RENDERED as, whichever column it carries.
+//
+// Collection rows carry `printing` (display form) and `finish` (canonical);
+// deck entries carry `desired_finish`. Every screen used to remember which of
+// those its own rows had, and the deck grid remembered wrong -- it read
+// `printing`, which deck entries do not have, so every deck card rendered as a
+// nonfoil regardless of what it actually was. One function, asked once, means
+// a screen can no longer get this wrong.
+export function tileFinish(card) {
+  if (!card) return 'nonfoil';
+  return card.desired_finish || card.finish || card.printing || 'nonfoil';
+}
+
+// Does this card get a finish badge at all? False for nonfoil, which is the
+// ordinary case: badging it would put a pill on every card in the binder.
+export function hasFinishBadge(card) {
+  return getPrintingBadgeLabel(tileFinish(card)) !== '';
+}

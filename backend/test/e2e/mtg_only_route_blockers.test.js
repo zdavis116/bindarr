@@ -57,6 +57,15 @@ async function runTests() {
 
     await db.run(`INSERT INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend)
       VALUES ('mtg-route-card', 'oracle-route-card', 'Alpha Card', 'MTG', '[]', '["Artifact"]', 'Rare', 'lea', 'Alpha', '1', '', 12)`);
+    // A LEGAL COMMANDER for the deck-creation schema check below.
+    //
+    // 'mtg-route-card' is an Artifact, and since PR 6F a non-commander card is
+    // REFUSED in the command zone -- correctly. That check is about the shape
+    // of the deck RESPONSE, not about commander legality, so it needs a card
+    // that is a legal commander rather than a relaxed rule. Weakening the rule
+    // to keep an unrelated test green would be exactly backwards.
+    await db.run(`INSERT INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend, type_line)
+      VALUES ('mtg-route-cmdr', 'oracle-route-cmdr', 'Alpha General', 'Creature', '["Legendary","Creature"]', '["Creature"]', 'Rare', 'lea', 'Alpha', '2', '', 12, 'Legendary Creature — Human')`);
     const openLocation = await db.run(`INSERT INTO locations (name, type, rule_type, user_id) VALUES ('Open', 'Box', 'any', ?)`, [adminId]);
     await db.run(`INSERT INTO compartments (location_id, idx, capacity) VALUES (?, 1, 20)`, [openLocation.lastID]);
 
@@ -97,8 +106,19 @@ async function runTests() {
     });
 
     await check(5, async () => {
+      // A Commander deck now REQUIRES a commander (PR 6F), so this case states
+      // one. It is an exact identity -- printing plus finish -- like every
+      // other deck entry; the app never picks a physical card on the user's
+      // behalf, so the API will not accept a bare card id either. It must also
+      // be a card that is legal in the command zone, since an illegal one is
+      // now refused rather than warned about.
       const created = await request('/api/decks', {
-        method: 'POST', body: JSON.stringify({ name: 'Schema Deck', format: 'Commander / EDH' })
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'Schema Deck',
+          format: 'Commander / EDH',
+          commanders: [{ desired_card_id: 'mtg-route-cmdr', desired_finish: 'nonfoil' }]
+        })
       });
       assert.strictEqual(created.status, 201, await created.text());
       const decks = await (await request('/api/decks')).json();
