@@ -312,6 +312,12 @@ router.get('/collection', async (req, res) => {
         cc.cmc,
         cc.color_identity,
         cc.rarity,
+        -- The printing's own finish list. Carried so the finish picker can
+        -- offer only the versions that physically exist (plan requirement G1);
+        -- without it parseCardRow yields [] and every picker falls back to
+        -- offering all three, which is what let a user record a foil of a card
+        -- that was never printed in foil.
+        cc.finishes,
         cc.set_id,
         cc.set_name,
         cc.number,

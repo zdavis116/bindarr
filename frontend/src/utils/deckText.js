@@ -13,21 +13,40 @@ export function buildDeckExport(cards, format = 'plain') {
   if (!cards?.length) return '';
 
   if (format === 'buylist') {
-    // The shortfall is the SERVER's number (quantity_missing), not one derived
-    // here. The server computes it against availability -- copies another deck
-    // has already reserved are not available to this one -- so recomputing it
-    // from a raw owned count would tell the user they need fewer cards than
-    // they actually do. `owned_qty` is the older shape and is only used when
-    // the server did not send a shortfall.
+    // THE SHORTFALL IS THE SERVER'S NUMBER (quantity_missing), never one
+    // derived here. The server computes it against AVAILABILITY -- copies
+    // another deck has already reserved are not available to this one -- so
+    // recomputing it from a raw owned count would tell the user he needs fewer
+    // cards than he actually does. `owned_qty` is the older shape and is used
+    // only when the server did not send a shortfall.
+    //
+    // THE LINE NAMES THE EXACT PRINTING AND FINISH. This is the opposite of
+    // the text-IMPORT rule, and both are right because they answer different
+    // questions: import asks "which of my physical cards fills this slot" (any
+    // owned printing will do), while a buylist asks "which card am I BUYING",
+    // where the printing IS the decision because it is a PRICE decision. Zach
+    // (2026-08-19): "for buylist exact printing matters because I may chose a
+    // cheaper printing." A bare "3 Sol Ring" pasted into a shop's mass entry
+    // would let it pick any printing it liked and silently spend his money on
+    // an object he did not choose. So the set code, collector number and any
+    // non-nonfoil finish all travel with the line.
+    //
+    // The form is the one the import parser already round-trips
+    // ("3 Sol Ring (CMM) 410 *F*"), so a buylist pasted back into Bindarr
+    // reproduces the exact requirements it came from.
     return cards
       .map(card => ({
-        name: card.name,
+        card,
         need: card.quantity_missing !== undefined
           ? card.quantity_missing
           : Math.max(0, (card.quantity || 0) - (card.owned_qty || 0)),
       }))
-      .filter(card => card.need > 0)
-      .map(card => `${card.need} ${card.name}`)
+      .filter(entry => entry.need > 0)
+      .map(({ card, need }) => {
+        const finish = card.finish || card.desired_finish || 'nonfoil';
+        const marker = finish === 'foil' ? ' *F*' : (finish === 'etched' ? ' *E*' : '');
+        return `${cardLine({ ...card, quantity: need }, 'mtga')}${marker}`;
+      })
       .join('\n');
   }
 

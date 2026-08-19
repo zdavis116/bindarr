@@ -340,10 +340,15 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 </div>
               )}
 
+              {/* surface="edit": this form describes a card he ALREADY OWNS.
+                  The finish here is a record of a physical object, so it must
+                  never be rewritten by the picker — only flagged. */}
               <CardEntryFields
                 game={card.game || card.supertype}
+                surface="edit"
                 quantity={q} purchasePrice={purchasePrice} condition={condition} printing={printing}
                 onQuantity={setQ} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting}
+                finishes={card.finishes}
               />
 
               <div className="form-group">

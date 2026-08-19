@@ -512,6 +512,258 @@ function allocateFromOwnedVariants(variants, requested) {
   return { picks, shortfall: remaining };
 }
 
+// THE BUYLIST: what the user still has to BUY for one deck.
+//
+// It is derived entirely from availabilityForDeck(), deliberately. The
+// cross-deck reservation arithmetic is subtle and was got right once, in
+// availabilityForRequirement(); a buylist that recomputed a shortfall from raw
+// ownership would answer "must I buy this" differently from the red Missing
+// badge already on the same screen, and the user would have no way to tell
+// which of the two numbers to trust at the shop.
+//
+// EXACT PRINTING AND FINISH ARE THE INSTRUCTION. NEVER SUBSTITUTE.
+// ----------------------------------------------------------------
+// Aggregation is keyed on (desired_card_id, desired_finish) and nothing else.
+// Owning a different printing of the same Oracle card does not reduce a line,
+// and two printings of one card never merge into a single "2x Sol Ring".
+//
+// This is deliberately the OPPOSITE of the text-IMPORT rule in
+// allocateFromOwnedVariants(), which happily spends any owned printing. Both
+// are correct, because they answer different questions:
+//
+//   * Import asks "which of my physical cards fills this slot" — any copy the
+//     user already owns does the job, so substituting printings costs nothing.
+//   * Buylist asks "which card am I BUYING" — and there the printing IS the
+//     decision, because it is a PRICE decision. Zach (2026-08-19): "for
+//     buylist exact printing matters because I may chose a cheaper printing."
+//     Substituting here would silently spend his money differently than he
+//     chose, on an object he did not pick.
+//
+// So the asymmetry between these two functions is the design, not an
+// inconsistency to be tidied away. Generalising the buylist to "any Sol Ring"
+// would be a regression even though it would look like a simplification.
+//
+// CONSIDERING IS NOT BOUGHT. A considering entry never reserves and is not
+// part of the deck (see entryReserves), so it cannot be a gap in the deck and
+// is not on the shopping list. It is returned SEPARATELY, at the quantity he
+// would need if he committed to it, because "what would this cost me" is a
+// real question — it is just not an instruction to buy today.
+//
+// SURPLUS IS NEVER LISTED: a line only exists when quantity_missing > 0, and
+// quantity_missing is already floored at zero upstream.
+async function buylistForDeck(database, deckId, userId) {
+  const { deck, entries } = await availabilityForDeck(database, deckId, userId);
+
+  const variantKey = entry => `${entry.desired_card_id}|${entry.desired_finish}`;
+
+  // One line per exact variant. Two entries for the same printing+finish (a
+  // mainboard four-of plus a sideboard copy, say) are ONE thing to buy, and
+  // summing the shortfalls of the individual entries is what makes that
+  // arithmetic honest — each entry's shortfall was already computed against
+  // the copies the earlier entry claimed, so they do not double-count.
+  const byVariant = new Map();
+  for (const entry of entries) {
+    if (!entryReserves(entry.board)) continue;
+    if (!(entry.quantity_missing > 0)) continue;
+    const key = variantKey(entry);
+    const existing = byVariant.get(key);
+    if (existing) {
+      existing.quantity += entry.quantity_missing;
+      existing.quantity_required += entry.quantity_required;
+      // The board is kept only as a hint for display. Once a variant is wanted
+      // on two boards there is no single true answer, and 'mainboard' is the
+      // one that describes the deck proper.
+      if (existing.board !== entry.board) existing.board = 'mainboard';
+      continue;
+    }
+    byVariant.set(key, {
+      desired_card_id: entry.desired_card_id,
+      finish: entry.desired_finish,
+      oracle_id: entry.oracle_id,
+      name: entry.name,
+      set_id: entry.set_id,
+      set_name: entry.set_name,
+      number: entry.number,
+      image_url: entry.image_url,
+      rarity: entry.rarity,
+      board: entry.board,
+      quantity: entry.quantity_missing,
+      quantity_required: entry.quantity_required,
+      // Reported so a line can be honest about the difference between "I have
+      // none of these" and "I own two but both are sleeved in another deck".
+      // Without it a user looking at his own binder would think the app was
+      // wrong.
+      quantity_owned: entry.quantity_owned,
+      quantity_allocated_elsewhere: entry.quantity_allocated_elsewhere
+    });
+  }
+
+  const considering = entries
+    .filter(entry => !entryReserves(entry.board))
+    .map(entry => ({
+      desired_card_id: entry.desired_card_id,
+      finish: entry.desired_finish,
+      oracle_id: entry.oracle_id,
+      name: entry.name,
+      set_id: entry.set_id,
+      set_name: entry.set_name,
+      number: entry.number,
+      image_url: entry.image_url,
+      rarity: entry.rarity,
+      board: entry.board,
+      // What he would have to buy IF he committed to it: the full requirement
+      // less whatever is genuinely free right now. Not a shortfall, because a
+      // considering entry has no claim to fall short of.
+      quantity: Math.max(0, entry.quantity_required - entry.quantity_available),
+      quantity_required: entry.quantity_required,
+      quantity_owned: entry.quantity_owned,
+      quantity_available: entry.quantity_available
+    }));
+
+  const items = [...byVariant.values()].sort((a, b) => {
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+    if (a.set_id !== b.set_id) return String(a.set_id) < String(b.set_id) ? -1 : 1;
+    if (a.number !== b.number) return String(a.number) < String(b.number) ? -1 : 1;
+    return FINISHES.indexOf(a.finish) - FINISHES.indexOf(b.finish);
+  });
+
+  return {
+    deck,
+    items,
+    considering,
+    summary: {
+      // total_cards is COPIES, total_lines is distinct variants. Both are
+      // reported because "38 cards" and "22 different cards to find" are
+      // different facts and the shop cares about the first while the user
+      // scanning the list cares about the second.
+      total_cards: items.reduce((sum, item) => sum + item.quantity, 0),
+      total_lines: items.length,
+      considering_cards: considering.reduce((sum, item) => sum + item.quantity, 0),
+      considering_lines: considering.length
+    }
+  };
+}
+
+// THE MULTI-DECK BUYLIST: one shopping trip for the decks the USER SELECTED.
+//
+// Zach: "I want a per deck buylist but it would cool to be able to do one as an
+// aggregate of all decks in case Im trying to buy for multiple decks at once.
+// Actually let me revise that I dont want a per collection per say I want to be
+// able to select all the decks I want to make a buy list for."
+//
+// So this is a SELECTION, never an automatic "all decks" view. "Every deck" is
+// simply one selection he might make, and building the all-decks version
+// instead would answer a question he explicitly withdrew.
+//
+// ============================================================================
+// IT IS AN AGGREGATE OF WHAT IS MISSING. IT ADDS UP SHORTFALLS.
+// ============================================================================
+// His words: "it should be an aggregate of what is MISSING."
+//
+// The tempting and WRONG implementation is "what these decks want, minus what
+// he owns". That double-counts: two decks each wanting one copy of a card he
+// owns once would produce a demand of 2 against an ownership of 1 and tell him
+// to buy one he already has.
+//
+// Each deck ALREADY knows its own shortfall, computed after the reservations
+// held by other saved active decks (availabilityForRequirement, PR 6G). Adding
+// those shortfalls is therefore both simpler and correct, because the
+// cross-deck arithmetic has already happened once, properly, per deck.
+//
+// His worked example: deck 1 has card A, deck 2 also wants card A, he owns 1
+// copy. Deck 1 holds the reservation so its shortfall is 0; deck 2 cannot have
+// it so its shortfall is 1. Aggregate = 1, NOT 2. It scales the same way:
+// three decks want it, he owns two, two hold reservations — 0 + 0 + 1, buy 1.
+//
+// Hence this function calls buylistForDeck per deck and combines. There is
+// deliberately NO second shortage calculation here. A second one would drift
+// from the first, and the user would be looking at two numbers for the same
+// card with no way to know which to trust at the shop.
+//
+// AGGREGATED BY EXACT PRINTING + FINISH, NEVER BY CARD NAME.
+// --------------------------------------------------------
+// Deck A wanting the C21 Sol Ring and deck B wanting the CMM one are TWO
+// PURCHASES at two different prices. They must be two lines, not one line of
+// quantity 2. Merging on name would silently pick a printing for him — the
+// exact substitution buylistForDeck refuses — and spend his money on an object
+// he did not choose. This is the same key, for the same reason, as the
+// per-deck buylist.
+//
+// EVERY LINE NAMES THE DECKS THAT WANT IT, with each deck's contribution, so
+// he can see whether dropping a deck from the selection would change the line.
+// Without that a combined list is unauditable: he would have no way to tell
+// which deck put a card on it.
+//
+// AN EMPTY SELECTION IS REFUSED BY THE CALLER, not answered here. "Buy
+// nothing" and "you selected nothing" are different facts, and a silently
+// empty shopping list is the dangerous one because it reads as the good news
+// that he needs nothing.
+async function buylistForDecks(database, deckIds, userId) {
+  const combine = (target, entry, deck) => {
+    // Exact printing + finish. See the header: never the card name.
+    const key = `${entry.desired_card_id}|${entry.finish}`;
+    const existing = target.get(key);
+    const contribution = {
+      deck_id: deck.id,
+      name: deck.name,
+      quantity: entry.quantity
+    };
+    if (existing) {
+      existing.quantity += entry.quantity;
+      existing.quantity_required += entry.quantity_required;
+      existing.decks.push(contribution);
+      return;
+    }
+    target.set(key, { ...entry, decks: [contribution] });
+  };
+
+  const items = new Map();
+  const considering = new Map();
+  const decks = [];
+
+  for (const deckId of deckIds) {
+    // REUSED, not reimplemented. This is the whole design.
+    const buylist = await buylistForDeck(database, deckId, userId);
+    // The NAME is read here rather than widened into availabilityForDeck's
+    // shared query: that query feeds many callers and only this surface needs
+    // to attribute a line to a deck. buylistForDeck has already proven
+    // ownership, so this cannot read a deck the user may not see.
+    const row = await client(database).get(`SELECT id, name FROM decks WHERE id = ?`, [deckId]);
+    const deck = { id: buylist.deck.id ?? deckId, name: row?.name ?? null };
+    decks.push(deck);
+    for (const entry of buylist.items) combine(items, entry, deck);
+    // Considering keeps the per-deck rule exactly: excluded from the buylist,
+    // reported separately. It never reserves, so it is never a purchase today.
+    for (const entry of buylist.considering) {
+      if (!(entry.quantity > 0)) continue;
+      combine(considering, entry, deck);
+    }
+  }
+
+  const order = list => [...list.values()].sort((a, b) => {
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+    if (a.set_id !== b.set_id) return String(a.set_id) < String(b.set_id) ? -1 : 1;
+    if (a.number !== b.number) return String(a.number) < String(b.number) ? -1 : 1;
+    return FINISHES.indexOf(a.finish) - FINISHES.indexOf(b.finish);
+  });
+
+  const orderedItems = order(items);
+  const orderedConsidering = order(considering);
+
+  return {
+    decks,
+    items: orderedItems,
+    considering: orderedConsidering,
+    summary: {
+      deck_count: decks.length,
+      total_cards: orderedItems.reduce((sum, item) => sum + item.quantity, 0),
+      total_lines: orderedItems.length,
+      considering_cards: orderedConsidering.reduce((sum, item) => sum + item.quantity, 0),
+      considering_lines: orderedConsidering.length
+    }
+  };
+}
+
 module.exports = {
   FINISHES,
   BOARDS,
@@ -526,6 +778,8 @@ module.exports = {
   reservedByHigherPriority,
   availabilityForRequirement,
   availabilityForDeck,
+  buylistForDeck,
+  buylistForDecks,
   selectPhysicalCopies,
   ownedVariantsForOracle,
   printingChoicesForOracle,
