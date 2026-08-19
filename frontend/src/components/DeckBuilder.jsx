@@ -5,7 +5,7 @@ import { shuffleArray } from '../utils/shuffle';
 
 import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
-import { buildDeckExport, parseDeckLine } from '../utils/deckText';
+import { buildDeckExport, parseDeckLine, BRACKET_STYLES, DEFAULT_BRACKET_STYLE } from '../utils/deckText';
 import { useT } from '../utils/i18n';
 import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
 import CardTile, { FinishBadge } from './CardTile';
@@ -261,6 +261,28 @@ function DeckBuilder({ showToast }) {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState(null); // null = auto by deck game
+
+  // HOW THE BUYLIST WRITES A SET CODE — "[CMM]" or "(CMM)" (PR 7C).
+  //
+  // Held HERE, once, above BOTH the per-deck panel and the multi-deck panel,
+  // because the two must never disagree. If each panel owned its own toggle he
+  // could copy one list in brackets and the other in parentheses on the same
+  // shopping trip and only discover it at the counter. One piece of state is
+  // what makes that unreachable, rather than merely unlikely.
+  //
+  // Persisted in localStorage, which is where this app ALREADY keeps UI
+  // preferences (theme, search_page_size, bindarr_ui_lang, scanner settings) —
+  // no new persistence layer is invented for it. A bad or absent stored value
+  // falls through to the default rather than producing a third format.
+  const [buylistBracketStyle, setBuylistBracketStyleState] = useState(() => {
+    const stored = localStorage.getItem('buylist_bracket_style');
+    return BRACKET_STYLES.includes(stored) ? stored : DEFAULT_BRACKET_STYLE;
+  });
+  const setBuylistBracketStyle = (style) => {
+    if (!BRACKET_STYLES.includes(style)) return;
+    setBuylistBracketStyleState(style);
+    localStorage.setItem('buylist_bracket_style', style);
+  };
   // The server's buylist for the open deck (PR 7). `null` means "not loaded or
   // the fetch failed" and is deliberately distinct from a loaded-but-empty
   // list, which is the positive claim "you own every card in this deck".
@@ -1501,10 +1523,12 @@ function DeckBuilder({ showToast }) {
   };
 
   // The multi-deck buylist as text, reusing the SAME exporter as the per-deck
-  // one so the two can never describe different purchases.
+  // one so the two can never describe different purchases — including the
+  // bracket style, which is one piece of state shared by both (PR 7C).
   const multiBuylistText = () => buildDeckExport(
     (multiBuylist?.items || []).map(item => ({ ...item, quantity_missing: item.quantity })),
-    'buylist'
+    'buylist',
+    { bracketStyle: buylistBracketStyle }
   );
 
   // The buylist as text, from the SERVER's lines.
@@ -1515,7 +1539,8 @@ function DeckBuilder({ showToast }) {
   // onto the shape the exporter expects rather than recomputed.
   const buylistText = () => buildDeckExport(
     (buylist?.items || []).map(item => ({ ...item, quantity_missing: item.quantity })),
-    'buylist'
+    'buylist',
+    { bracketStyle: buylistBracketStyle }
   );
 
   const handleCopyBuylist = () => {
@@ -2068,6 +2093,8 @@ function DeckBuilder({ showToast }) {
                 <MissingCardsPanel
                   buylist={multiBuylist}
                   loading={false}
+                  bracketStyle={buylistBracketStyle}
+                  onBracketStyleChange={setBuylistBracketStyle}
                   onCopy={() => {
                     navigator.clipboard.writeText(multiBuylistText());
                     showToast(t('deck.buylistCopied'), 'success');
@@ -2728,6 +2755,8 @@ function DeckBuilder({ showToast }) {
                   <MissingCardsPanel
                     buylist={buylist}
                     loading={buylistLoading}
+                    bracketStyle={buylistBracketStyle}
+                    onBracketStyleChange={setBuylistBracketStyle}
                     onCopy={handleCopyBuylist}
                     onOpenMassEntry={handleOpenMassEntry}
                   />
