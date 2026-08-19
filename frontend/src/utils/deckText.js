@@ -1,16 +1,47 @@
 // MTG decklist text <-> card list. Export supports MTG Arena, a plain list,
 // and a buylist containing only ownership shortfalls.
-function cardLine(card, format) {
+function cardLine(card, format, bracketStyle = 'parentheses') {
   const set = String(card.set_id || card.set_code || '').replace(/^mtg-/, '').toUpperCase();
   const number = card.number || '';
   if (format === 'mtga') {
-    return `${card.quantity} ${card.name}${set ? ` (${set})` : ''}${number ? ` ${number}` : ''}`;
+    // MTG Arena's own spec is parentheses, so the mtga format never varies.
+    // Only the buylist offers a choice, because only the buylist has two
+    // legitimate destinations. See BRACKET_STYLES below.
+    const [open, close] = bracketStyle === 'brackets' ? ['[', ']'] : ['(', ')'];
+    return `${card.quantity} ${card.name}${set ? ` ${open}${set}${close}` : ''}${number ? ` ${number}` : ''}`;
   }
   return `${card.quantity} ${card.name}`;
 }
 
-export function buildDeckExport(cards, format = 'plain') {
+// THE TWO SHAPES OF A BUYLIST LINE, and why this is a choice rather than a bug.
+//
+// Zach (2026-08-19): "the set code needs to be in brackets not parenthesis" —
+// he pastes the buylist into shops, and brackets ("3 Sol Ring [CMM] 410") are
+// the MTG community convention that TCGplayer Mass Entry and most shop
+// mass-entry boxes parse. Parentheses are what MTG Arena's format uses, and
+// what the older buylist emitted.
+//
+// NEITHER IS "CORRECT" — each is correct for a different destination, so the
+// user picks. Zach: "I think you should be able to choose brackets or
+// paranthesis before copy. Maybe default to brackets."
+//
+// The default is BRACKETS because shopping is the common case; pasting a
+// buylist back into Bindarr is the rare one.
+//
+// Verified 2026-08-19, not assumed: parseDeckLine below accepts BOTH forms —
+// its SET_TOKEN is /[([]([A-Za-z0-9]{1,5})[)\]]/ and the name-strip is
+// /\s*[([][^)\]]*[)\]]/g. So the round-trip back into Bindarr survives either
+// choice, and this toggle costs no round-trip fidelity at all.
+export const BRACKET_STYLES = ['brackets', 'parentheses'];
+export const DEFAULT_BRACKET_STYLE = 'brackets';
+
+export function buildDeckExport(cards, format = 'plain', options = {}) {
   if (!cards?.length) return '';
+  // An unknown or absent style is the default, never a crash and never a
+  // silently different output shape.
+  const bracketStyle = BRACKET_STYLES.includes(options.bracketStyle)
+    ? options.bracketStyle
+    : DEFAULT_BRACKET_STYLE;
 
   if (format === 'buylist') {
     // THE SHORTFALL IS THE SERVER'S NUMBER (quantity_missing), never one
@@ -31,9 +62,11 @@ export function buildDeckExport(cards, format = 'plain') {
     // an object he did not choose. So the set code, collector number and any
     // non-nonfoil finish all travel with the line.
     //
-    // The form is the one the import parser already round-trips
-    // ("3 Sol Ring (CMM) 410 *F*"), so a buylist pasted back into Bindarr
-    // reproduces the exact requirements it came from.
+    // The form is the one the user chose above; BOTH forms round-trip through
+    // the import parser (verified, see BRACKET_STYLES), so a buylist pasted
+    // back into Bindarr reproduces the exact requirements it came from either
+    // way. The set code, collector number and finish travel on the line in
+    // both, because that is what makes the line an instruction.
     return cards
       .map(card => ({
         card,
@@ -45,13 +78,15 @@ export function buildDeckExport(cards, format = 'plain') {
       .map(({ card, need }) => {
         const finish = card.finish || card.desired_finish || 'nonfoil';
         const marker = finish === 'foil' ? ' *F*' : (finish === 'etched' ? ' *E*' : '');
-        return `${cardLine({ ...card, quantity: need }, 'mtga')}${marker}`;
+        return `${cardLine({ ...card, quantity: need }, 'mtga', bracketStyle)}${marker}`;
       })
       .join('\n');
   }
 
   if (format === 'mtga') {
-    return `Deck\n${cards.map(card => cardLine(card, 'mtga')).join('\n')}`;
+    // Parentheses, always: this is MTG Arena's documented spec, not a
+    // preference. The buylist's choice must never leak into it.
+    return `Deck\n${cards.map(card => cardLine(card, 'mtga', 'parentheses')).join('\n')}`;
   }
 
   return cards.map(card => cardLine(card, 'plain')).join('\n');

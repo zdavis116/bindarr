@@ -229,4 +229,127 @@ assert.doesNotMatch(
   'the old imperative build path must be gone — two paths to the list would drift'
 );
 
+// ---------------------------------------------------------------------------
+// PR 7C — THE BRACKET-STYLE CHOICE.
+//
+// Zach: "the set code needs to be in brackets not parenthesis" ... "I think you
+// should be able to choose brackets or paranthesis before copy. Maybe default
+// to brackets."
+//
+// The formatting itself is proven in utils/deckText.test.js, which can call the
+// exporter directly. What CANNOT be proven there is the wiring, and the wiring
+// carries the one property that matters here: the per-deck buylist and the
+// multi-deck buylist must never be able to disagree about the format. These are
+// source-contract assertions on that wiring.
+// ---------------------------------------------------------------------------
+
+// ONE PIECE OF STATE, not one per panel. Two independent toggles would let him
+// copy one list in brackets and the other in parentheses on the same shopping
+// trip, and he would only find out at the counter.
+assert.equal(
+  (builder.match(/const \[buylistBracketStyle, setBuylistBracketStyleState\] = useState/g) || []).length,
+  1,
+  'the bracket style must be a single piece of state shared by both buylists'
+);
+
+// And BOTH panels must actually be fed it, with a way to change it. A panel
+// that received the value but no setter would show a choice it could not honour.
+// The multi-deck panel carries inline handlers, so the window is generous; the
+// match is non-greedy and stops at that element's own closing `/>`.
+const panelUses = builder.match(/<MissingCardsPanel[\s\S]{0,1500}?\/>/g) || [];
+assert.equal(panelUses.length, 2, 'there are exactly two buylist panels: per-deck and multi-deck');
+for (const use of panelUses) {
+  assert.ok(
+    /bracketStyle=\{buylistBracketStyle\}/.test(use),
+    'every buylist panel must render the SAME shared bracket style'
+  );
+  assert.ok(
+    /onBracketStyleChange=\{setBuylistBracketStyle\}/.test(use),
+    'every buylist panel must change that same shared style, not a local copy'
+  );
+}
+
+// BOTH text builders must pass the choice through. A missed one would copy in
+// the default while the panel above it displayed the other form — the exact
+// "what I read is not what I pasted" surprise this PR exists to remove.
+for (const fn of ['multiBuylistText', 'buylistText']) {
+  const body = builder.slice(builder.indexOf(`const ${fn} = () => buildDeckExport`));
+  assert.ok(
+    /bracketStyle: buylistBracketStyle/.test(body.slice(0, 400)),
+    `${fn} must pass the chosen bracket style to the exporter`
+  );
+}
+
+// THE PANEL IS ITS OWN PREVIEW: what is on screen is what gets copied, so the
+// displayed printing must be built from the chosen style rather than hardcoded.
+assert.ok(
+  /const \[open, close\] = style === 'brackets'/.test(panel),
+  'the on-screen printing label must use the chosen delimiters, so reading and pasting agree'
+);
+
+// THE CHOICE IS OFFERED BEFORE COPYING, in the same row as the copy actions —
+// not in a settings screen, and not behind a modal.
+const copyRow = panel.slice(panel.indexOf("aria-label={t('deck.buylistBracketStyle')}"), panel.indexOf("deck.copyOpenTcg"));
+assert.ok(copyRow.length > 0, 'the style toggle must sit above the copy buttons in the same row');
+assert.ok(
+  /aria-pressed=\{style === option\}/.test(copyRow),
+  'the toggle must expose its two-state selection, and the selected side must be visible'
+);
+assert.ok(
+  /btn-primary.*:.*btn-secondary|\$\{style === option \? 'btn-primary' : 'btn-secondary'\}/.test(copyRow),
+  'the selected style must be visually obvious, reusing the app\'s existing segmented-toggle look'
+);
+
+// MOBILE — the toggle must not widen the panel. PR 6I fixed horizontal overflow
+// on an iPhone 16 caused by a flex-basis wider than the viewport; a fixed width
+// or a basis here would bring it straight back, and only on the phone.
+assert.doesNotMatch(
+  copyRow, /flexBasis|minWidth:\s*'\d/,
+  'the style toggle must not set a flex-basis or min-width — that is how PR 6I\'s overflow came back'
+);
+// The row that holds the toggle AND both copy buttons must wrap, so a narrow
+// screen stacks them instead of pushing the panel wider than the viewport.
+const actionRow = panel.slice(
+  panel.lastIndexOf('<div style={{ display:', panel.indexOf("aria-label={t('deck.buylistBracketStyle')}")),
+  panel.indexOf('deck.copyOpenTcg')
+);
+assert.ok(
+  /flexWrap: 'wrap'/.test(actionRow),
+  'the row holding the toggle must wrap, so a narrow screen stacks it instead of overflowing'
+);
+
+// iOS SAFARI — no browser API may be called with a non-Window receiver.
+//
+// PR 7B1: a debounce seam packed bare setTimeout/clearTimeout into a plain
+// object and threw "Can only call Window.setTimeout on instances of Window" on
+// iOS Safari, crashing the panel on first tap — after passing every gate,
+// because nothing in this repo runs a browser. This PR adds no timers at all,
+// and this assertion keeps it that way.
+assert.doesNotMatch(
+  panel, /\bsetTimeout\b|\bclearTimeout\b|\bsetInterval\b/,
+  'the buylist panel must not introduce timers — see PR 7B1, they crash on iOS Safari when detached from Window'
+);
+
+// THE PREFERENCE IS REMEMBERED, using the store the app ALREADY uses for UI
+// preferences (theme, search_page_size, bindarr_ui_lang). No new persistence
+// layer was invented for a two-value toggle.
+assert.ok(
+  /localStorage\.getItem\('buylist_bracket_style'\)/.test(builder)
+    && /localStorage\.setItem\('buylist_bracket_style', style\)/.test(builder),
+  'the chosen style must be remembered across visits in the existing preference store'
+);
+// A stale or hand-edited stored value must not produce a third format.
+assert.ok(
+  /BRACKET_STYLES\.includes\(stored\) \? stored : DEFAULT_BRACKET_STYLE/.test(builder),
+  'an unrecognised stored style must fall back to the default rather than be trusted'
+);
+
+// The labels he reads must exist and must say what each choice is FOR — the
+// destination is the whole reason there are two.
+for (const key of ['deck.buylistBracketStyle', 'deck.buylistBracketsHint', 'deck.buylistParenthesesHint']) {
+  assert.equal(typeof en[key], 'string', `${key} must exist in en.json`);
+}
+assert.match(en['deck.buylistBracketsHint'], /shop|tcgplayer/i, 'the brackets hint must name where brackets are wanted');
+assert.match(en['deck.buylistParenthesesHint'], /arena/i, 'the parentheses hint must name where parentheses are wanted');
+
 console.log('DeckBuilder PR 7A buylist-UX self-check passed');

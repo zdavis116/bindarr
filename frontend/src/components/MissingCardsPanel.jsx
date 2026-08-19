@@ -1,6 +1,7 @@
 import { ShoppingCart, AlertTriangle, Copy, ExternalLink } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { buylistKey, buylistLines, shortfallExplanation, buylistCoverage } from './missingCards';
+import { BRACKET_STYLES, DEFAULT_BRACKET_STYLE } from '../utils/deckText';
 
 // THE MISSING CARDS / BUYLIST PANEL (PR 7).
 //
@@ -27,8 +28,14 @@ export default function MissingCardsPanel({
   loading,
   onCopy,
   onOpenMassEntry,
+  bracketStyle = DEFAULT_BRACKET_STYLE,
+  onBracketStyleChange,
 }) {
   const { t } = useT();
+
+  // A prop from a caller that has not been updated, or a stale stored value,
+  // resolves to the default rather than to a third rendering.
+  const style = BRACKET_STYLES.includes(bracketStyle) ? bracketStyle : DEFAULT_BRACKET_STYLE;
 
   const items = buylistLines(buylist?.items);
   const considering = buylistLines(buylist?.considering);
@@ -53,11 +60,20 @@ export default function MissingCardsPanel({
     return null;
   };
 
+  // WHAT IS ON SCREEN IS WHAT GETS COPIED.
+  //
+  // The set code is shown in the SAME delimiters the copy will use, so there is
+  // no surprise between reading the panel and pasting into a shop. The label is
+  // otherwise unchanged: the set NAME is shown when the server sent one,
+  // because "Commander Masters" is more readable than "CMM" — the delimiters
+  // then wrap whichever of the two is displayed, which is what makes the toggle
+  // legible at a glance without a second preview line.
   const printingLabel = (item) => {
     const set = String(item.set_id || '').replace(/^mtg-/, '').toUpperCase();
+    const [open, close] = style === 'brackets' ? ['[', ']'] : ['(', ')'];
     const parts = [];
-    if (item.set_name) parts.push(item.set_name);
-    else if (set) parts.push(set);
+    if (item.set_name) parts.push(`${open}${item.set_name}${close}`);
+    else if (set) parts.push(`${open}${set}${close}`);
     if (item.number) parts.push(`#${item.number}`);
     return parts.join(' · ');
   };
@@ -162,7 +178,44 @@ export default function MissingCardsPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             {items.map(item => line(item))}
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* HOW THE SET CODE IS WRITTEN, chosen BEFORE copying (PR 7C).
+                Brackets are the MTG convention shops parse; parentheses are
+                MTG Arena's shape and what an older buylist emitted. Neither is
+                "correct" — they are correct for different destinations, so the
+                choice is his and the default is the shopping one.
+
+                It sits in the existing button row rather than in a settings
+                screen or a modal because it is a property of THIS copy, decided
+                at the moment of copying. The lines above already render in the
+                chosen delimiters, so the panel is its own preview.
+
+                MOBILE: this is a wrapping flex row of two small buttons with no
+                fixed or basis width, so it cannot widen the panel — the
+                horizontal-overflow failure PR 6I fixed. */}
+            <div
+              role="group"
+              aria-label={t('deck.buylistBracketStyle')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '3px',
+                background: 'rgba(0,0,0,0.3)', padding: '2px',
+                borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)'
+              }}
+            >
+              {BRACKET_STYLES.map(option => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`btn ${style === option ? 'btn-primary' : 'btn-secondary'}`}
+                  aria-pressed={style === option}
+                  style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem' }}
+                  onClick={() => onBracketStyleChange?.(option)}
+                  title={t(option === 'brackets' ? 'deck.buylistBracketsHint' : 'deck.buylistParenthesesHint')}
+                >
+                  {option === 'brackets' ? '[SET]' : '(SET)'}
+                </button>
+              ))}
+            </div>
             <button className="btn btn-secondary" onClick={onCopy} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <Copy size={14} /> {t('deck.copyClipboard')}
             </button>
