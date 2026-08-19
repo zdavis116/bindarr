@@ -61,7 +61,20 @@ export function createBuylistSync({
   fetchBuylist,
   onState,
   delay = BUYLIST_DEBOUNCE_MS,
-  scheduler = { setTimeout, clearTimeout }
+  // Bound to `window` deliberately. Packing bare `setTimeout`/`clearTimeout`
+  // into an object means calling them as `scheduler.setTimeout(...)`, which
+  // invokes them with `this === scheduler` rather than the Window. Chrome
+  // tolerates that; iOS Safari enforces the spec and throws
+  // "Can only call Window.setTimeout on instances of Window", which crashed
+  // the whole panel the moment a deck checkbox was tapped on a phone.
+  //
+  // The arrow wrappers keep the injectable seam for tests while making the
+  // receiver correct in a real browser. Do not "simplify" this back to
+  // `{ setTimeout, clearTimeout }`.
+  scheduler = {
+    setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+    clearTimeout: (id) => globalThis.clearTimeout(id)
+  }
 }) {
   // Bumped on EVERY selection change, not just on every request. A response is
   // only allowed to paint if the world has not moved on since it was asked for.
