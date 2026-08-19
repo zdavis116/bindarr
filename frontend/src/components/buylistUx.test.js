@@ -177,4 +177,56 @@ for (const key of ['deck.multiBuylistCovers.one', 'deck.multiBuylistCovers.other
   );
 }
 
+// ---------------------------------------------------------------------------
+// PR 7B — the redundant controls are gone, and ONE exit remains.
+//
+// Zach: "the build buylist/cancel seem redundant when I click build a buylist
+// and check off decks it should just automatically update".
+// ---------------------------------------------------------------------------
+
+// The build and clear ACTIONS are gone from the panel. Ticking a deck is the
+// instruction; a confirm button re-asks a question already answered on screen,
+// which is the defect class PR 6F removed from the printing picker.
+assert.doesNotMatch(
+  builder, /deck\.multiBuylistBuild/,
+  'there must be no "Build buylist" button — the selection already says to build it'
+);
+assert.doesNotMatch(
+  builder, /deck\.multiBuylistClear/,
+  'there must be no "Clear" button — unticking every deck already empties the list'
+);
+// And the dead strings must not linger in en.json to be re-wired later.
+for (const dead of ['deck.multiBuylistBuild', 'deck.multiBuylistClear']) {
+  assert.equal(en[dead], undefined, `${dead} is a removed action and must not remain a string`);
+}
+
+// The hint must not instruct him to press a button that no longer exists.
+assert.doesNotMatch(
+  en['deck.multiBuylistStepHint'], /then build/i,
+  'the step hint must not tell him to build — the list follows the ticks'
+);
+
+// EXACTLY ONE EXIT. The toolbar button he entered from is the way out; a second
+// dismiss inside the panel would be two controls for one outcome.
+assert.equal(
+  (builder.match(/deck\.multiBuylistCancel/g) || []).length, 1,
+  'the flow must have exactly one exit affordance'
+);
+assert.ok(
+  /exitBuylistMode/.test(builder),
+  'leaving the mode must go through one function that also drops the list and any in-flight request'
+);
+
+// THE LIST IS DRIVEN BY THE SELECTION, not by a click handler. This is the
+// correctness property: a list that does not follow the ticks would tell him to
+// buy cards for a deck he unticked.
+assert.ok(
+  /useEffect\(\(\) => \{[\s\S]{0,200}?buylistSyncRef\.current\.select\(selectedDeckIds\)/.test(builder),
+  'the combined buylist must be driven by the selection itself'
+);
+assert.doesNotMatch(
+  builder, /refreshMultiBuylist/,
+  'the old imperative build path must be gone — two paths to the list would drift'
+);
+
 console.log('DeckBuilder PR 7A buylist-UX self-check passed');

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb, ShoppingCart } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
@@ -10,6 +10,7 @@ import { useT } from '../utils/i18n';
 import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
 import CardTile, { FinishBadge } from './CardTile';
 import MissingCardsPanel from './MissingCardsPanel';
+import { createBuylistSync } from './buylistSync';
 
 // Basic lands are exempt from the four-copy deck rule.
 const isBasicEnergyOrLand = (card) => {
@@ -1445,42 +1446,58 @@ function DeckBuilder({ showToast }) {
   // The aggregate is a SUM OF PER-DECK SHORTFALLS (deckIdentity.buylistForDecks)
   // — never "what these decks want minus what I own", which would double-count
   // a single copy wanted by two decks. That arithmetic is not repeated here.
-  const refreshMultiBuylist = async (deckIds) => {
-    // An EMPTY SELECTION IS REFUSED, by the server, on purpose. We do not
-    // shortcut it to an empty list here: "buy nothing" and "you selected
-    // nothing" are different facts, and a silently empty shopping list is the
-    // dangerous one because it reads as good news.
-    setMultiBuylistLoading(true);
-    try {
-      const response = await fetch('/api/decks/buylist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deck_ids: deckIds })
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setMultiBuylist(null);
-        showToast(payload?.error || t('deck.multiBuylistFailed'), 'error');
-        return;
+  //
+  // LIVE, NOT ON A BUTTON (PR 7B). Ticking a deck IS the instruction, so there
+  // is nothing left to confirm; the old "Build buylist" button asked him a
+  // question whose answer was already on screen. The sequencing that makes live
+  // updating safe — debounce, discarding stale answers, never requesting an
+  // empty selection — lives in buylistSync.js, where it can be tested against
+  // the actual out-of-order interleavings. See that file's header.
+  const buylistSyncRef = useRef(null);
+  if (buylistSyncRef.current === null) {
+    buylistSyncRef.current = createBuylistSync({
+      fetchBuylist: async (deckIds) => {
+        const response = await fetch('/api/decks/buylist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deck_ids: deckIds })
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || 'buylist failed');
+        return payload;
+      },
+      onState: ({ loading, buylist, error }) => {
+        setMultiBuylistLoading(loading);
+        setMultiBuylist(buylist);
+        if (error) showToast(error.message || t('deck.multiBuylistFailed'), 'error');
       }
-      setMultiBuylist(payload);
-    } catch (err) {
-      console.error(err);
-      // Null, never an empty list — see refreshBuylist for the same reasoning.
-      setMultiBuylist(null);
-      showToast(t('deck.multiBuylistFailed'), 'error');
-    } finally {
-      setMultiBuylistLoading(false);
-    }
-  };
+    });
+  }
+
+  // THE SELECTION DRIVES THE LIST. Anything that changes selectedDeckIds —
+  // a checkbox, a row tap, leaving the mode — flows through here, so "the list
+  // matches the ticks" is true by construction rather than true wherever
+  // somebody remembered to call a refresh.
+  useEffect(() => {
+    if (!selectMode) return;
+    buylistSyncRef.current.select(selectedDeckIds);
+  }, [selectMode, selectedDeckIds]);
+
+  // Dropped on unmount so a late answer cannot land on a screen that is gone.
+  useEffect(() => () => buylistSyncRef.current?.dispose(), []);
 
   const toggleDeckSelected = (deckId) => {
     setSelectedDeckIds(current => current.includes(deckId)
       ? current.filter(id => id !== deckId)
       : [...current, deckId]);
-    // The previous result is dropped the moment the selection changes: a list
-    // built for a different set of decks, still on screen, is a wrong list.
-    setMultiBuylist(null);
+    // The list itself is dropped and refetched by the effect above; nothing to
+    // clear by hand here, which is the point — one path, not two.
+  };
+
+  const exitBuylistMode = () => {
+    setSelectMode(false);
+    setSelectedDeckIds([]);
+    buylistSyncRef.current.reset();
   };
 
   // The multi-deck buylist as text, reusing the SAME exporter as the per-deck
@@ -1978,9 +1995,8 @@ function DeckBuilder({ showToast }) {
                 className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => {
-                  const next = !selectMode;
-                  setSelectMode(next);
-                  if (!next) { setSelectedDeckIds([]); setMultiBuylist(null); }
+                  if (selectMode) { exitBuylistMode(); return; }
+                  setSelectMode(true);
                 }}
                 title={t('deck.multiBuylistTitle')}
               >
@@ -2017,6 +2033,14 @@ function DeckBuilder({ showToast }) {
               itself is untouched. Only rendered while selecting. */}
           {selectMode && (
             <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1rem 1.25rem' }}>
+              {/* NO "BUILD" AND NO "CLEAR" (PR 7B).
+                  The list follows the ticks live, so a build button would ask
+                  him to confirm something he already said — the same mistake as
+                  the printing picker removed in PR 6F. And "Clear" is just
+                  unticking every deck, which now empties the list by itself.
+                  The ONLY way out is the toolbar button he entered from, so the
+                  flow has one exit rather than three competing controls. Fewer
+                  buttons is also less width on a phone. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2029,28 +2053,6 @@ function DeckBuilder({ showToast }) {
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     {t('deck.multiBuylistSelected', { count: selectedDeckIds.length })}
                   </span>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ fontSize: '0.8rem' }}
-                    onClick={() => { setSelectedDeckIds([]); setMultiBuylist(null); }}
-                  >
-                    {t('deck.multiBuylistClear')}
-                  </button>
-                  {/* DISABLED ON AN EMPTY SELECTION, and the server refuses it
-                      too. Both, deliberately: the button explains the state
-                      before he clicks, and the server guarantees no caller can
-                      turn "you selected nothing" into an empty shopping list
-                      that reads as "you need nothing". */}
-                  <button
-                    className="btn btn-primary"
-                    style={{ fontSize: '0.8rem' }}
-                    disabled={selectedDeckIds.length === 0 || multiBuylistLoading}
-                    onClick={() => refreshMultiBuylist(selectedDeckIds)}
-                  >
-                    {t('deck.multiBuylistBuild')}
-                  </button>
                 </div>
               </div>
 

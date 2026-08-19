@@ -370,3 +370,45 @@ left holding off-identity cards after a commander delete — is fixed in this PR
       in either way. Fix shape: a case that pastes an off-identity line and
       asserts the refusal appears in the PREVIEW response, before any write is
       attempted, which is the thing only the import-layer gate can do.
+
+## PR 7B — the combined buylist updates live
+
+### User-visible behaviour changes (not regressions)
+
+- **"Build buylist" and "Clear" are gone from the multi-deck buylist panel.**
+  The list now follows the ticked decks directly: ticking a deck adds its
+  missing cards, unticking removes that deck's contribution, and unticking
+  every deck empties the list. Zach: *"the build buylist/cancel seem redundant
+  when I click build a buylist and check off decks it should just automatically
+  update and when I uncheck decks it should clear those cards from the list and
+  if I uncheck all decks it should clear the list."* A confirm button asked him
+  a question already answered by the checkboxes — the same defect class as the
+  printing picker removed in PR 6F. "Clear" became redundant the moment
+  unticking worked, so it went with it.
+
+- **One exit, not three.** The toolbar button he entered from ("Build a
+  buylist" → "Cancel buylist") is now the only way out of the mode.
+
+- The empty-selection refusal on `POST /api/decks/buylist` is UNCHANGED and
+  still correct. The UI simply never makes that call now: nothing was asked, so
+  there is no question to refuse. Do not "simplify" the server to return an
+  empty list — an empty shopping list reads as the good news that he needs
+  nothing.
+
+### Deferred
+
+- [ ] **No cancellation of the actual HTTP request when the selection changes.**
+      A superseded request is discarded on arrival by the generation guard in
+      `frontend/src/components/buylistSync.js`, so it can never repaint the
+      screen — the correctness property holds. What is not done is aborting the
+      request in flight, so a fast run of ticks can leave one or two useless
+      responses in transit. On a single-user self-hosted app reading a small
+      aggregate this costs nothing measurable. Fix shape: give each request an
+      `AbortController`, abort the previous one in `select()`, and keep the
+      generation guard as the backstop — the guard is what makes the behaviour
+      correct and must NOT be removed just because aborting exists.
+
+- [ ] **The debounce window (300ms) is untested against a real phone.**
+      `BUYLIST_DEBOUNCE_MS` is asserted to sit in the 250-400ms band, which
+      pins the intent but says nothing about how it feels on an iPhone 16 over
+      Tailscale. Needs Zach's hands, not a test.
