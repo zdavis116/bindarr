@@ -119,17 +119,26 @@ export function sectionCount(cards) {
 
 // The badge shown on a deck card row.
 //
-// The tone vocabulary is 'ok', 'warn', 'muted', 'unavailable'. There is
-// deliberately no 'error': not owning a card you plan to buy is a normal state
-// of a deck under construction, and styling it as an error tells the user
-// something broke when nothing did.
+// The tone vocabulary is 'ok', 'warn', 'muted', 'unavailable'.
 //
-// 'unavailable' is the one red state and it means something narrow: a card the
-// user is CONSIDERING has no free copy right now because a real deck holds them
-// all. Red because it answers a yes/no question ("can I actually put this in?"),
-// not a shopping shortfall. The row itself is never removed, dimmed or edited
-// when this happens -- the user is still considering the card, they just cannot
-// fill it today.
+// 'unavailable' is the RED state and it means one thing: the user cannot put
+// this card in the deck as things stand. Two situations reach it, and Zach
+// (2026-08-18) ruled they are the same situation from where he sits:
+//
+//   - a CONSIDERING card with no free copy, because a real deck holds them all;
+//   - a REQUIREMENT that is MISSING copies. "missing should show red not
+//     yellow."
+//
+// Missing was amber on the reasoning that planning a deck you have not finished
+// buying is normal and not an error. That is true about the app but wrong about
+// the USER: a missing card means he cannot build the deck as it stands, which
+// is a problem to solve, not a caution to note. Amber reads as "something
+// optional needs attention". Red is already this app's colour for "you cannot
+// have this right now" (the considering-availability rule from PR 6C), so this
+// REUSES that existing tone rather than inventing a new colour or badge style.
+//
+// The row itself is never removed, dimmed or edited when this happens -- only
+// the label and its colour change.
 export function requirementStatus(card) {
   if (!card) return { tone: 'muted', label: '' };
 
@@ -148,7 +157,7 @@ export function requirementStatus(card) {
   }
 
   if (card.quantity_missing > 0) {
-    return { tone: 'warn', label: `Missing ${card.quantity_missing} of ${card.quantity_required}` };
+    return { tone: 'unavailable', label: `Missing ${card.quantity_missing} of ${card.quantity_required}` };
   }
   return { tone: 'ok', label: `Reserved ${card.quantity_reserved} of ${card.quantity_required}` };
 }

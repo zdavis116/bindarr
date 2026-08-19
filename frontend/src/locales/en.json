@@ -1047,6 +1047,8 @@
   "deck.commanderRemove": "Remove this commander",
   "deck.commanderChange": "Change {name}",
   "deck.commanderAddPartner": "+ Add a partner / Background",
+  "deck.commanderSwapOnly": "A Commander deck always has a commander — pick a replacement to swap it.",
+  "deck.commanderSwapTitle": "Swap this commander",
   "deck.commanderOverrideHint": "Bindarr works out which cards may pair by reading the card text, and new pairing mechanics are printed most sets — so it can be out of date. If you know this pairing is legal, say why and Bindarr will accept it and record your note so the check can be improved.",
   "deck.commanderOverrideReasonPlaceholder": "Why is this pairing legal? (required)",
   "deck.commanderOverrideConfirm": "Confirm — this pairing is legal",

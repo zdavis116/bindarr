@@ -332,3 +332,41 @@ merge-blocking pass, per the project's proportionality rule.
       in the import compare screen and route the user to the picker — not to
       accept a reason typed blind.
 
+
+## Deferred: PR 6G
+
+Found during the PR 6G colour-identity review. None of these can corrupt data or
+put a deck into a state the app calls healthy while it is not, which is the bar
+for blocking a merge. The blocker that WAS found in the same review — a deck
+left holding off-identity cards after a commander delete — is fixed in this PR.
+
+- [ ] **`X-Total-Count` is not adjusted when the commander filter trims a page.**
+      Commander-only search filters results after the page is fetched, so the
+      total header can report more results than the client will ever be shown,
+      and the last page can come back short. The consequence is a paginator that
+      may offer a page with nothing on it. Nothing is mis-stated about any CARD
+      and nothing is written; it is a count in a header being optimistic. Fix
+      shape: filter before counting, or push the commander predicate into the
+      query so the count and the rows are produced by the same pass.
+
+- [ ] **The available-count colour uses a literal `#f87171` rather than a token
+      (`DeckBuilder.jsx:2295`).**
+      A hard-coded hex in a codebase that otherwise themes through CSS custom
+      properties. It renders correctly today and is invisible to the user; the
+      cost is that a future theme change will miss this one value. Fix shape:
+      replace with the existing danger/warning token used by the sibling
+      badges in the same list.
+
+- [ ] **No proving test for the batch identity gate on the IMPORT path
+      specifically.**
+      The import path's colour pre-flight is covered indirectly (F15-TC42
+      exercises the unverified-line case, and the choke point inside
+      `writeDeckCard` is a backstop every import write passes through), but
+      there is no test that would fail if the import-specific gate were deleted
+      while the choke point stayed. So the gate's behaviour is asserted, but its
+      EXISTENCE at that layer is not pinned — a refactor could remove it and the
+      suite would stay green because the backstop absorbs it. Not a correctness
+      gap today: the backstop genuinely refuses, so no off-identity card gets
+      in either way. Fix shape: a case that pastes an off-identity line and
+      asserts the refusal appears in the PREVIEW response, before any write is
+      attempted, which is the thing only the import-layer gate can do.

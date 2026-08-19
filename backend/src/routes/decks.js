@@ -443,8 +443,139 @@ router.post('/:id/cards', async (req, res) => {
     commander_override = null,
     // The deck_cards.id of the row being edited, when this write is an edit.
     // Absent on an ordinary add, which is the common case.
-    replacing_deck_card_id = null
+    replacing_deck_card_id = null,
+    // THE EXPLICIT CONFIRMATION for a commander swap that will remove cards.
+    //
+    // Like commander_override, its ABSENCE means "ask, do not do it". Silence
+    // is not consent: the user must have seen the named list of cards and
+    // actively agreed, so there is deliberately no default that would let a
+    // client opt in by accident and quietly empty part of a deck.
+    confirm_remove_off_identity = false,
+    // DROPPING ONE HALF OF A PARTNER PAIR: a swap of the zone from TWO
+    // commanders to ONE.
+    //
+    // Zach (2026-08-19) ruled that a commander is swapped, never deleted, and
+    // that the rule covers a second commander too. But "I want to go back to a
+    // single commander" is a legitimate thing to want, so refusing the delete
+    // without providing this would leave a partner deck with no way to become a
+    // mono-commander deck -- a rule with no way through, which is the failure
+    // mode this whole design avoids.
+    //
+    // So it lives HERE, on the swap route, rather than on DELETE: it is a
+    // mutation that arrives at a new command zone, and it must go through the
+    // SAME plan-and-confirm path as any other swap. Narrowing [R,G] to [R] by
+    // dropping the green partner strands exactly the cards that narrowing it by
+    // replacement would, and the user must be asked in exactly the same way.
+    //
+    // It names the row being DROPPED and carries no incoming card, which is the
+    // one shape `replacing_deck_card_id` cannot express (that one is a
+    // replacement, and needs something to replace WITH).
+    drop_commander_deck_card_id = null
   } = req.body;
+
+  const confirmRemoveOffIdentity = confirm_remove_off_identity === true;
+
+  let droppingId = null;
+  if (drop_commander_deck_card_id !== null && drop_commander_deck_card_id !== undefined) {
+    droppingId = Number(drop_commander_deck_card_id);
+    if (!Number.isInteger(droppingId) || droppingId <= 0) {
+      return res.status(400).json({ error: 'drop_commander_deck_card_id must be a deck entry id' });
+    }
+  }
+
+  // THE DROP-A-PARTNER PATH, handled in full before the ordinary add path's
+  // validation, because it has no incoming card and therefore no printing or
+  // finish to validate.
+  if (droppingId !== null) {
+    try {
+      const outcome = await db.withTransaction(async (tx) => {
+        const deck = await requireOwnedDeck(tx, req.params.id, req.user.id);
+        if (!commanderRules.isCommanderFormat(deck.format)) {
+          throw new DeckIdentityError(400,
+            'Only a Commander deck has a command zone.', 'NOT_COMMANDER_FORMAT');
+        }
+
+        const zone = await tx.all(
+          `SELECT id, desired_card_id FROM deck_cards
+           WHERE deck_id = ? AND board = 'commander' ORDER BY id ASC`,
+          [deck.id]
+        );
+        const dropping = zone.find(row => row.id === droppingId);
+        if (!dropping) {
+          throw new DeckIdentityError(404,
+            'That commander is not in this deck.', 'REQUIREMENT_NOT_FOUND');
+        }
+
+        // THE LAST COMMANDER IS NEVER DROPPABLE. This is the same rule the
+        // DELETE route enforces, restated here because this is the other way to
+        // shrink the zone: a Commander deck always has a commander, so the only
+        // legal drop is the one that leaves at least one behind.
+        if (zone.length <= 1) {
+          throw new commanderRules.CommanderRuleError(409,
+            `A Commander deck always has a commander, so the last one cannot be `
+            + `removed -- only SWAPPED for another. Choose the replacement and `
+            + `Bindarr will make the change in one step.`,
+            'COMMANDER_DELETE_UNSUPPORTED',
+            { requires: 'swap' });
+        }
+
+        // THE SAME PLANNER, against the zone this drop would produce. One
+        // implementation, so a drop and a replacement that arrive at the same
+        // zone cannot disagree about what they strand.
+        const futureZone = zone
+          .filter(row => row.id !== droppingId)
+          .map(row => row.desired_card_id);
+        const plan = await commanderRules.planCommanderSwapRemovals(tx, deck, futureZone);
+        if (plan.removing.length > 0 && !confirmRemoveOffIdentity) {
+          // A QUESTION, not an error. Nothing has been written, and the throw is
+          // what guarantees that. Same code and same shape as every other swap
+          // warning, so the client's existing handler covers this too.
+          throw new commanderRules.CommanderRuleError(
+            409,
+            commanderRules.swapRemovalMessage(plan.removing, plan.deck_identity),
+            commanderRules.SWAP_REMOVES_CODE,
+            {
+              removing: plan.removing,
+              removing_count: plan.removing.length,
+              deck_identity: plan.deck_identity,
+              requires_confirmation: 'confirm_remove_off_identity'
+            }
+          );
+        }
+
+        // The drop and the removals land TOGETHER, in this one transaction.
+        // Never a narrowed command zone beside a deck still holding cards it no
+        // longer allows.
+        await tx.run(`DELETE FROM deck_card_allocations WHERE deck_card_id = ?`, [dropping.id]);
+        await tx.run(`DELETE FROM deck_cards WHERE id = ?`, [dropping.id]);
+        if (plan.removing.length > 0) {
+          await commanderRules.applyCommanderSwapRemovals(tx, plan.removing);
+        }
+
+        // THE ZONE IS RE-JUDGED AFTER THE MUTATION, like every other path that
+        // changes it. Dropping from three to two can arrive at an illegal pair,
+        // and that must be refused here rather than tolerated.
+        const accepted = await commanderRules.checkCommanderZone(tx, deck, {
+          override: commander_override
+        });
+        if (accepted) {
+          await commanderRules.recordCommanderOverride(tx, req.user.id, deck.id, accepted);
+        }
+
+        const { entries } = await deckIdentity.availabilityForDeck(tx, deck.id, req.user.id);
+        const warnings = await buildDeckWarnings(tx, deck, entries);
+        return { entries, warnings };
+      });
+
+      return res.json({
+        message: 'Commander removed from the command zone',
+        cards: outcome.entries,
+        warnings: outcome.warnings
+      });
+    } catch (error) {
+      return sendError(res, error, 'Failed to change the command zone');
+    }
+  }
 
   // Validated as a shape here so a garbage id becomes a clear 400 rather than
   // a confusing 404 from the rule layer. Ownership and deck scoping are checked
@@ -513,11 +644,231 @@ router.post('/:id/cards', async (req, res) => {
         [desired_card_id, ...zone.map(r => r.id)],
         { hasOverride: !!commander_override }
       );
+    } else {
+      // PR 6G: HYDRATE FOR THE COLOUR-IDENTITY DECISION TOO.
+      //
+      // An ordinary deck add is now subject to a rule read off the cache row,
+      // and a thin row biases that rule toward ACCEPT -- a NULL colour identity
+      // reads as colourless and fits every deck. So the same principle applies
+      // as for commander legality: when the app's knowledge is insufficient to
+      // decide, GET BETTER KNOWLEDGE rather than guessing.
+      //
+      // Only for Commander decks, and only when the deck actually has a
+      // commander to judge against: other formats must pay nothing at all for a
+      // rule that does not apply to them. Outside the transaction, as always.
+      const deckRow = await db.get(
+        `SELECT id, format FROM decks WHERE id = ? AND user_id = ?`,
+        [req.params.id, req.user.id]
+      );
+      if (deckRow && commanderRules.isCommanderFormat(deckRow.format)) {
+        const zone = await commanderRules.deckColorIdentity(db, deckRow.id);
+        // HYDRATE THE COMMANDER TOO, not just the incoming card.
+        //
+        // A commander row the app never read makes the DECK's identity
+        // unknowable, and the choke point now answers that honestly with a 503
+        // rather than pretending the deck is colourless. That is the right
+        // answer, but a 503 the user can do nothing about is a dead end -- so
+        // the route goes and gets the data first, exactly as the commander
+        // legality path already does. Only the rows that are actually thin cost
+        // a request, so a normal add still costs nothing.
+        if (zone.status === commanderRules.ZONE_UNVERIFIED) {
+          await commanderRules.hydrateThinColorIdentity(
+            db, zone.unverified.map(c => c.id)
+          );
+        } else if (zone.status === commanderRules.ZONE_KNOWN) {
+          await commanderRules.hydrateThinColorIdentity(db, [desired_card_id]);
+        }
+        // ZONE_EMPTY hydrates nothing: there is no commander to read, and the
+        // incoming card is refused on the deck's state rather than its colour.
+      }
     }
 
     const outcome = await db.withTransaction(async (tx) => {
       const deck = await requireOwnedDeck(tx, req.params.id, req.user.id);
       const identity = await deckIdentity.oracleIdentityForCard(tx, desired_card_id, desired_finish);
+
+      // ===================================================================
+      // THE CHOKE POINT FOR COMMAND-ZONE CHANGES.
+      //
+      // READ THIS BEFORE ADDING A VERB THAT TOUCHES A DECK.
+      //
+      // THE CLASS OF BUG THIS EXISTS TO CLOSE. Three merge-blocking defects in
+      // a row shared one root error: the check was attached to a SPECIFIC
+      // OPERATION rather than to the STATE CHANGE the operation produces.
+      //
+      //   PR 6F  -- pairing was checked only when the zone held exactly TWO
+      //             rows. Grow to three (each write sees "not two") then delete
+      //             one, and an illegal pair exists that creating directly is
+      //             refused.
+      //   PR 6G/1 -- DELETE never re-validated colour identity, so
+      //             delete-the-commander / add-an-off-identity-card / re-add
+      //             walked straight through.
+      //   PR 6G/2 -- this gate read `board === 'commander'`, i.e. "is the
+      //             DESTINATION the zone". Moving a commander OFF the zone has
+      //             destination 'mainboard', so it looked like an ordinary add
+      //             and skipped every commander check -- silently narrowing the
+      //             deck's colour identity and stranding cards.
+      //
+      // Every time, ADD-shaped operations were scrutinised and deletes, moves
+      // and re-pins slipped through, because they do not look like they
+      // introduce anything. They do not have to: they change the RESULTING
+      // STATE, and the rules are about the resulting state.
+      //
+      // THE RULE FOR ANY NEW VERB:
+      //
+      //   Ask "what does the command zone / the set of deck cards LOOK LIKE
+      //   AFTER this write", never "what kind of request is this".
+      //
+      // THE ENUMERATION. Every verb that can change the command zone or the
+      // set of deck cards, and where each is validated. Test F15-TC56 has one
+      // case per line; add a line and a case together.
+      //
+      //   1. CREATE a deck with commanders      -> POST /decks. writeDeckCard
+      //                                            per commander + checkCommanderZone.
+      //   2. ADD a card                          -> here. writeDeckCard.
+      //   3. RE-PIN / replace a row              -> here, via replacing_deck_card_id.
+      //   4. BOARD MOVE, any direction           -> here, via replacing_deck_card_id.
+      //      Including ONTO and OFF the command zone: `touchesCommandZone`
+      //      below is true when EITHER side is the zone, which is the fix.
+      //   5. COMMANDER ADD / SWAP                -> here, board 'commander'.
+      //   6. COMMANDER DROP (half a pair)        -> here, drop_commander_deck_card_id,
+      //                                            handled above this block.
+      //   7. DELETE a row                        -> DELETE /decks/:id/cards/:deck_card_id.
+      //      A commander delete is REFUSED there; an ordinary delete can never
+      //      break the invariant, because removing a card cannot make a
+      //      surviving card off-identity.
+      //   8. IMPORT APPLY                        -> POST /decks/:id/import, through
+      //                                            writeImportRequirement -> writeDeckCard,
+      //                                            plus checkCommanderZone for a
+      //                                            commander-board import.
+      //   9. MULTI-SELECT BULK ADD               -> POST /collection/bulk (action
+      //                                            add_to_deck), pre-flight then
+      //                                            writeDeckCard.
+      //  10. DELETE a whole deck                 -> POST /decks/:id DELETE. Removes
+      //                                            everything, so no surviving row
+      //                                            can be left illegal.
+      //
+      // VERBS THAT CANNOT BE ROUTED THROUGH HERE, stated explicitly rather
+      // than special-cased silently:
+      //
+      //   - CHECKOUT and RETURN move ALLOCATIONS only. They never change the
+      //     command zone or the set of deck cards, so there is no resulting
+      //     state for these rules to judge. F15-TC56 asserts the invariant
+      //     still holds across them rather than assuming it.
+      //   - The nightly card-cache refresh (PR 6H) can change a card's
+      //     colour_identity underneath a deck that was legal when built. That
+      //     is a DATA change, not a deck verb, and no route-level gate can
+      //     catch it; it is the reason buildDeckWarnings reports identity
+      //     drift rather than the write path alone.
+      // ===================================================================
+
+      // THE ROW BEING REPLACED, read BEFORE anything is written. This one query
+      // is what makes a move OFF the command zone recognisable: without it the
+      // route only knows where the card is GOING.
+      const replacingRow = replacingId
+        ? await tx.get(
+          `SELECT id, board, desired_card_id FROM deck_cards WHERE id = ? AND deck_id = ?`,
+          [replacingId, deck.id]
+        )
+        : null;
+
+      // TOUCHES THE COMMAND ZONE ON EITHER SIDE. Destination OR origin.
+      const touchesCommandZone = commanderRules.isCommanderFormat(deck.format)
+        && (board === 'commander' || (replacingRow && replacingRow.board === 'commander'));
+
+      // ANY MUTATION THAT ARRIVES AT A NEW COMMAND ZONE.
+      //
+      // Zach: "You should allow the swap with a warning that it will remove any
+      // cards from the deck that are no longer valid."
+      //
+      // PLANNED AGAINST THE ZONE THE WRITE WOULD PRODUCE, deliberately. Once
+      // the commander rows have changed the old identity is gone and there is
+      // nothing left to compare.
+      //
+      // The plan comes back EMPTY whenever the identity widens or does not
+      // move, so adding a partner still costs nothing and never grows a
+      // confirmation step.
+      //
+      // Without confirmation this THROWS, which rolls back before any write:
+      // the user is shown exactly what would go and nothing has happened yet.
+      // With confirmation the removals are applied in THIS SAME TRANSACTION as
+      // the write, so the two cannot come apart.
+      let swapRemovals = [];
+      let futureZoneIdentity = null;
+      if (touchesCommandZone) {
+        const zone = await tx.all(
+          `SELECT id, desired_card_id FROM deck_cards
+           WHERE deck_id = ? AND board = 'commander'`,
+          [deck.id]
+        );
+        // THE ZONE AS IT WOULD BE.
+        //
+        // The replaced row is DROPPED unconditionally -- it is leaving whatever
+        // board it was on -- and the incoming card is added back ONLY when this
+        // write's destination is the command zone. That asymmetry is the whole
+        // fix: a move OFF the zone drops a commander and adds nothing, which is
+        // exactly a shrink.
+        const futureZone = zone
+          .filter(row => row.id !== replacingId)
+          .map(row => row.desired_card_id)
+          .concat(board === 'commander' ? [desired_card_id] : []);
+
+        // THE LAST COMMANDER IS NEVER REMOVABLE, whichever verb is spelling the
+        // removal. A Commander deck always has a commander; the way to change
+        // it is a SWAP, and the refusal says so.
+        //
+        // This is the SAME refusal the DELETE route and the drop path raise --
+        // one rule, three spellings of the operation, so no spelling can reach
+        // a state the others forbid. It is why COMMANDER_DELETE_UNSUPPORTED is
+        // live logic, not an unreachable backstop: this route is a real way to
+        // empty the zone and it is stopped HERE.
+        if (futureZone.length === 0) {
+          throw new commanderRules.CommanderRuleError(409,
+            `A Commander deck always has a commander, so the last one cannot be `
+            + `removed -- only SWAPPED for another. Choose the replacement and `
+            + `Bindarr will make the change in one step.`,
+            'COMMANDER_DELETE_UNSUPPORTED',
+            { requires: 'swap' });
+        }
+
+        const plan = await commanderRules.planCommanderSwapRemovals(tx, deck, futureZone);
+        futureZoneIdentity = { status: plan.zone_status, identity: plan.deck_identity };
+        if (plan.removing.length > 0) {
+          if (!confirmRemoveOffIdentity) {
+            // NOT AN ERROR -- A QUESTION. Nothing has been written, and the
+            // throw is what guarantees that. The user sends the same request
+            // back with the confirmation to proceed.
+            throw new commanderRules.CommanderRuleError(
+              409,
+              commanderRules.swapRemovalMessage(plan.removing, plan.deck_identity),
+              commanderRules.SWAP_REMOVES_CODE,
+              {
+                // NAMED, WITH A COUNT. This is what the user is agreeing to,
+                // so it must be specific enough to reconcile against a binder.
+                removing: plan.removing,
+                removing_count: plan.removing.length,
+                deck_identity: plan.deck_identity,
+                requires_confirmation: 'confirm_remove_off_identity'
+              }
+            );
+          }
+          swapRemovals = plan.removing;
+        }
+      }
+
+      // REMOVALS FIRST, THEN THE SWAP.
+      //
+      // Ordering matters: writeDeckCard re-validates the deck it is writing
+      // into, and the off-identity cards are exactly what would make that
+      // validation awkward. Removing them first means the swap lands into a
+      // deck that is already consistent with its new commander.
+      //
+      // Both are in this one transaction, so a failure anywhere takes the whole
+      // thing back -- including a swap that turns out to be refused on
+      // legality below, which must remove nothing.
+      if (swapRemovals.length > 0) {
+        await commanderRules.applyCommanderSwapRemovals(tx, swapRemovals);
+      }
 
       // SINGLETON IS REFUSED HERE, NOT WARNED.
       //
@@ -542,15 +893,26 @@ router.post('/:id/cards', async (req, res) => {
         quantity: quantityNum,
         // An EDIT names the row it is replacing, so the rule excludes that one
         // row rather than counting it as a duplicate of itself.
-        replacingDeckCardId: replacingId
+        replacingDeckCardId: replacingId,
+        // JUDGED AGAINST THE ZONE THIS WRITE PRODUCES, when this write is what
+        // changes the zone. Moving a green partner into the 99 narrows the deck
+        // to [R], and the green card landing there is the moved card itself --
+        // judged against the zone as FOUND it would pass, and the app would
+        // produce a deck that breaks its own rule.
+        futureZoneIdentity: touchesCommandZone ? futureZoneIdentity : null
       });
 
-      // THE COMMANDER-ZONE GATE. Only a write that TOUCHES the command zone
-      // can make it illegal, so adding a card to the 99 does not pay for this
-      // check -- and, more importantly, deck CONTENTS are never refused by it.
-      // That boundary is the whole point: contents warn, the command zone
-      // refuses.
-      if (board === 'commander') {
+      // THE COMMANDER-ZONE GATE.
+      //
+      // Keyed on `touchesCommandZone`, NOT on the destination board. A write
+      // that takes a commander OFF the zone changes the zone just as surely as
+      // one that puts a card on it, and the zone that results must still be a
+      // legal command zone -- one commander, or two that legally pair.
+      //
+      // Deck CONTENTS are still never refused by this: an ordinary add touches
+      // neither side of the zone, so it does not reach here. That boundary is
+      // the whole point -- contents warn, the command zone refuses.
+      if (touchesCommandZone) {
         const accepted = await commanderRules.checkCommanderZone(tx, deck, {
           override: commander_override
         });
@@ -783,6 +1145,32 @@ router.post('/:id/import', async (req, res) => {
       const deckNameCounts = isCommanderDeck
         ? await commanderRules.nameCountsForDeck(tx, deck.id)
         : new Map();
+      // The deck's colour identity, read ONCE for the whole paste. It cannot
+      // change during an import -- import never writes the command zone and its
+      // own contents -- so re-reading it per line would be a query per card for
+      // an answer that does not move.
+      const deckIdentityZone = isCommanderDeck
+        ? await commanderRules.deckColorIdentity(tx, deck.id)
+        : { status: commanderRules.ZONE_KNOWN, identity: null, unverified: [] };
+
+      // AN IMPORT INTO A DECK WITH NO READABLE IDENTITY IS REFUSED WHOLE.
+      //
+      // Not line by line: an empty or unreadable command zone is a fact about
+      // the DECK, and reporting it against each of a hundred pasted lines would
+      // blame the user's list for the deck's state. Refused before any line is
+      // resolved, so the paste is untouched and can be retried once a commander
+      // exists or the cache row is read.
+      if (isCommanderDeck && board !== 'commander' && board !== 'considering'
+        && deckIdentityZone.status !== commanderRules.ZONE_KNOWN) {
+        if (deckIdentityZone.status === commanderRules.ZONE_EMPTY) {
+          throw new commanderRules.CommanderRuleError(409,
+            `This Commander deck has no commander, so there is no colour identity `
+            + `to judge an imported list against. Choose a commander first.`,
+            commanderRules.ZONE_EMPTY_CODE, { requires: 'commander' });
+        }
+        throw commanderRules.commanderIdentityUnverified(deckIdentityZone.unverified);
+      }
+      const deckIdentityColors = deckIdentityZone.identity;
 
       // Decide whether a resolved line breaks singleton, and record it if not.
       //
@@ -793,6 +1181,47 @@ router.post('/:id/import', async (req, res) => {
       const singletonRefusal = (cardRow, requestedCopies) => {
         if (!isCommanderDeck) return null;
         if (board === 'considering') return null;
+
+        // COLOUR IDENTITY IS CHECKED FIRST, AND BEFORE THE SINGLETON EXEMPTION.
+        //
+        // The spec requires import refusals to be reported IN THE PRE-FLIGHT,
+        // not after -- and this function is the pre-flight, shared by preview
+        // and apply, so a refusal raised here appears on the screen the user
+        // reads before pressing Import.
+        //
+        // Ahead of isSingletonExempt deliberately: basic lands are exempt from
+        // singleton but NOT from colour identity, so a Forest in an Izzet paste
+        // must still be refused. Same ordering trap as preflightDeckAdds.
+        // AN UNVERIFIED ROW IS REPORTED ON ITS LINE, NOT AT WRITE TIME.
+        //
+        // Import makes no per-line network call by design, so a row the app has
+        // never read reaches the choke point unverified -- where it is now a
+        // 503 that would fail the WHOLE paste over one unknown card. Reported
+        // here instead, the line is named in the same pre-flight the user reads
+        // before pressing Import and every other line still applies.
+        //
+        // Not a colour ruling: the card is not called illegal, only unchecked.
+        // Gated on `deckIdentityColors !== null` for the same reason the colour
+        // rule is: no commander means nothing to judge against, so an unread
+        // row is not a problem and must not be reported as one.
+        if (deckIdentityColors !== null && board !== 'commander'
+          && commanderRules.isThinForColorIdentity(cardRow)) {
+          return {
+            code: commanderRules.VERIFY_UNAVAILABLE_CODE,
+            message: `${cardRow.name}: Bindarr has never read this card's colour `
+              + `identity, so it cannot verify the card fits this deck's commander. `
+              + `This is not a ruling that the card is illegal -- add it on its own `
+              + `and Bindarr will look it up.`
+          };
+        }
+
+        const colorRefusal = commanderRules.checkColorIdentity(
+          deckIdentityColors, cardRow, { board }
+        );
+        if (colorRefusal) {
+          return { code: colorRefusal.code, message: colorRefusal.message };
+        }
+
         if (commanderRules.isSingletonExempt(cardRow)) return null;
 
         const key = commanderRules.normalizeName(cardRow.name);
@@ -896,7 +1325,7 @@ router.post('/:id/import', async (req, res) => {
           // Without them every basic land in a pasted Commander decklist is
           // refused as a duplicate, which is the commonest paste there is.
           let sql = `SELECT id, oracle_id, name, set_id, set_name, number, finishes,
-                            supertype, subtypes, type_line
+                            supertype, subtypes, type_line, color_identity
                      FROM card_cache
                      WHERE LOWER(name) = LOWER(?) AND LOWER(set_id) = LOWER(?)
                        AND oracle_id IS NOT NULL`;
@@ -1020,7 +1449,8 @@ router.post('/:id/import', async (req, res) => {
         // exemption is a property of the CARD (is it a basic land?) and must
         // be read from the cache rather than guessed from the name.
         const card = await tx.get(
-          `SELECT id, oracle_id, name, set_name, number, supertype, subtypes, type_line
+          `SELECT id, oracle_id, name, set_name, number, supertype, subtypes, type_line,
+                  color_identity
            FROM card_cache
            WHERE LOWER(name) = LOWER(?) AND oracle_id IS NOT NULL
            ORDER BY id ASC LIMIT 1`,
@@ -1279,17 +1709,61 @@ router.post('/:id/import', async (req, res) => {
 // mainboard and the sideboard, and in nonfoil and foil. Deleting "by card" would
 // have to guess which of those the user meant.
 //
-// A DELETE FROM THE COMMAND ZONE IS RE-VALIDATED, because removal is a mutation
-// of the zone like any other and the invariant is about the zone AS A WHOLE
-// AFTER EVERY MUTATION. This route used to write nothing back and check
-// nothing, which is what made the back door work: a zone of three could be
-// reduced by deletion to an illegal pair that creating directly is refused, with
-// no warning and no recorded override.
+// HISTORY, kept because it explains why the rule below is shaped the way it is.
 //
-// The check runs AFTER the delete, inside the same transaction, so it judges the
-// zone the delete WOULD PRODUCE and a refusal rolls the deletion back with it --
-// the row the user tried to remove survives intact rather than the deck being
-// left in a state the app itself calls illegal.
+// This route used to re-validate the command zone after a delete, then grew a
+// colour-aware plan-and-confirm path, then a special refusal for the LAST
+// commander of a non-empty deck. Each was a correct answer to the case in front
+// of it, and together they were still the wrong rule: they all accepted the
+// premise that deleting a commander is an operation and only argued about when
+// to allow it. Two reviewer repros lived in that premise --
+//
+//   Repro A -- delete the Izzet commander, and while the zone is empty the deck
+//              had no identity, so a GREEN card was accepted. Put the commander
+//              back and you have an [U,R] deck holding a green card.
+//   Repro B -- delete the green half of a legal [R,G] pair and the identity
+//              narrows to [R] with the green card still sitting there.
+//
+// Zach's ruling removes the premise instead of patching the cases. See below.
+//
+// THERE IS NO DELETE-COMMANDER OPERATION. Only a swap.
+//
+// Zach, 2026-08-19, verbatim: "You cant outright delete the commander only swap
+// and when swapping you should get a warning if the swap is to a different
+// color type."
+//
+// This SUPERSEDES the earlier rule here, which refused only the delete that
+// would strand cards and allowed the zone to be emptied on a deck with nothing
+// in it. That was the wrong shape of rule. PR 6F already refuses to CREATE a
+// Commander deck without a commander; permitting deletion one request later was
+// a hole in THAT SAME RULE, not a separate question about consequences. A
+// Commander deck ALWAYS has a commander, at every instant of its life, and the
+// only way to change who leads it is to swap.
+//
+// SO THE REFUSAL IS UNCONDITIONAL, and deliberately does not consult the deck's
+// contents. "Refused only when it would hurt" is a rule the user cannot predict
+// -- it works on an empty deck and fails on a full one, so they learn the wrong
+// model and are surprised later. "A commander is swapped, never deleted" is one
+// sentence they can hold in their head.
+//
+// IT APPLIES TO A SECOND COMMANDER TOO. Removing one half of a legal partner
+// pair takes the zone from two commanders to one, which is a SWAP of the zone
+// and must go through the plan-and-confirm path where the stranding warning
+// lives -- not a bare delete that silently narrows the deck's colour identity
+// under cards already in it.
+//
+// WHAT THIS MAKES UNREACHABLE. The reviewer's Repro A was: delete the
+// commander, add an off-identity card while the zone is empty, put the
+// commander back. Its first step no longer exists, so the empty-command-zone
+// state cannot be ARRIVED AT through the API at all and the accept-anything
+// window has nowhere to open. The choke point's empty-zone refusal stays as
+// DEFENCE IN DEPTH and should now be unreachable in practice; it is kept
+// because a rule that depends on no other route ever appearing is not enforced.
+//
+// NON-COMMANDER FORMATS ARE ENTIRELY UNAFFECTED, and so is an ordinary card in
+// a Commander deck. This is scoped to the COMMANDER BOARD of a COMMANDER-format
+// deck; removing a card from the 99 stays the single unconfirmed request it has
+// always been.
 router.delete('/:id/cards/:deck_card_id', async (req, res) => {
   try {
     const removed = await db.withTransaction(async (tx) => {
@@ -1301,24 +1775,31 @@ router.delete('/:id/cards/:deck_card_id', async (req, res) => {
       if (!requirement) {
         throw new DeckIdentityError(404, 'Requirement not found', 'REQUIREMENT_NOT_FOUND');
       }
+
+      // THE REFUSAL. Thrown before anything is written, so a refused delete is
+      // byte-for-byte inert.
+      //
+      // It NAMES THE WAY OUT, because a refusal the user cannot see past is the
+      // failure mode this whole module is built to avoid. The operation they
+      // want exists; it is just spelled differently, and the message says so.
+      if (requirement.board === 'commander'
+        && commanderRules.isCommanderFormat(deck.format)) {
+        throw new commanderRules.CommanderRuleError(409,
+          `A Commander deck always has a commander, so a commander cannot be `
+          + `deleted -- only SWAPPED for another. Choose the replacement and `
+          + `Bindarr will make the change in one step, naming any cards that no `
+          + `longer fit its colour identity and removing them only with your `
+          + `confirmation.`,
+          'COMMANDER_DELETE_UNSUPPORTED',
+          { requires: 'swap' });
+      }
+
       // Allocations first: the FK is ON DELETE CASCADE, but doing it explicitly
       // keeps the intent visible and does not depend on PRAGMA foreign_keys
       // being on for correctness of this path.
       await tx.run(`DELETE FROM deck_card_allocations WHERE deck_card_id = ?`, [requirement.id]);
       await tx.run(`DELETE FROM deck_cards WHERE id = ?`, [requirement.id]);
 
-      // Only a delete that TOUCHES the command zone can make it illegal, so
-      // removing a card from the 99 does not pay for this check -- and, more
-      // importantly, deck CONTENTS are never refused by it. Same boundary the
-      // add route draws: contents warn, the command zone refuses.
-      if (requirement.board === 'commander') {
-        const accepted = await commanderRules.checkCommanderZone(tx, deck, {
-          override: req.body && req.body.commander_override
-        });
-        if (accepted) {
-          await commanderRules.recordCommanderOverride(tx, req.user.id, deck.id, accepted);
-        }
-      }
       return deck.id;
     });
 

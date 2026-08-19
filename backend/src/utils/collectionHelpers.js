@@ -208,10 +208,53 @@ async function splitStackedEntries(database) {
   return created;
 }
 
+// HOW MANY COPIES OF EACH VARIANT ARE COMMITTED TO DECKS -- ACROSS ALL DECKS.
+//
+// THE BUG THIS FIXES. Browse Collection showed "In Deck: 1" while viewing the
+// deck that held the card and "In Deck: 0" while viewing any other deck. Zach:
+// "that in deck should reflect if it's in any deck otherwise it gives you a
+// false idea if it's available or not."
+//
+// The old figure was computed CLIENT-SIDE from the open deck's own card list,
+// so it could only ever describe one deck. That is not a display quirk -- it is
+// the app asserting something FALSE about the user's physical collection:
+// "Owned 6, In Deck 0" invites them to sleeve a card that is already in another
+// deck box, and they discover it only when they go looking for it.
+//
+// So the figure moves to the SERVER, where the question can actually be
+// answered, and it is computed the same way for every screen that shows it.
+//
+// IT COUNTS COPIES, NOT DECKS. Two copies in one deck and one in another is 3,
+// not 2. A count of decks would understate the commitment and reintroduce the
+// same false availability in a subtler form.
+//
+// KEYED ON (card_id, finish), which is the app's deck identity: a foil and a
+// nonfoil of one printing are different physical objects that do not substitute
+// for each other, so committing the foil must not make the nonfoil read as
+// spoken for.
+//
+// RESERVING BOARDS ONLY. The 'considering' board is a shortlist -- it reserves
+// nothing and competes with nobody -- so counting it would OVERSTATE the
+// commitment and understate availability. That is the mirror image of the bug
+// being fixed and just as false.
+async function inDeckQuantities(userId, database) {
+  const client = database || db;
+  const rows = await client.all(`
+    SELECT dc.desired_card_id AS card_id, dc.desired_finish AS finish,
+           SUM(dc.quantity) AS qty
+    FROM deck_cards dc
+    JOIN decks d ON dc.deck_id = d.id
+    WHERE d.user_id = ? AND dc.board IN ('commander', 'mainboard', 'sideboard')
+    GROUP BY dc.desired_card_id, dc.desired_finish
+  `, [userId]);
+  return new Map(rows.map(r => [`${r.card_id}|${r.finish}`, r.qty]));
+}
+
 module.exports = {
   getCompartmentOccupancy,
   defaultCompartmentPlan,
   checkedOutAllocation,
+  inDeckQuantities,
   resolveCompartmentAndPosition,
   describePlacement,
   normalizeRuleConfig,
