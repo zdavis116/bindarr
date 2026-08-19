@@ -177,6 +177,20 @@ function DeckBuilder({ showToast }) {
   // risk overriding a different card than the one the refusal describes.
   const [commanderRefusedSwap, setCommanderRefusedSwap] = useState(null);
 
+  // THE SWAP THAT WILL REMOVE CARDS, held so the panel can NAME them.
+  //
+  // Zach: "You should allow the swap with a warning that it will remove any
+  // cards from the deck that are no longer valid." This is that warning's
+  // state. It is null until the server says the swap would remove something,
+  // and it carries the exact list -- names, printings, count -- because the
+  // user has to be able to reconcile it against a physical binder before
+  // agreeing. "Some cards will be removed" is not informed consent.
+  //
+  // Like the override above, there is no pre-armed confirmation and no default
+  // path through: the user must press the confirm button, which re-sends the
+  // identical write with the confirmation flag set.
+  const [commanderSwapRemoval, setCommanderSwapRemoval] = useState(null);
+
   // Whether the deck being created is a Commander deck. Every commander
   // control on the modal is gated on this, so other formats show no extra
   // field, run no extra validation, and look exactly as they did.
@@ -317,11 +331,17 @@ function DeckBuilder({ showToast }) {
   // building a deck around a commander you are about to acquire. Ownership is
   // still reported afterwards by the deck's ordinary Missing badge, which is
   // where every other unowned card in the app is reported.
+  //
+  // `commanders=1` asks the server to return ONLY cards that can actually be a
+  // commander. The filter lives on the server and reuses isLegalCommanderCard,
+  // the same rule that REFUSES an illegal commander at create time -- so the
+  // picker can no longer offer a choice the app is about to reject. Filtering
+  // here in the client would be a second, divergent notion of the rule.
   const searchCommanders = async (query) => {
     if (!query.trim()) { setCommanderResults([]); return; }
     setCommanderSearching(true);
     try {
-      const res = await fetch(`/api/search?name=${encodeURIComponent(query)}&game=mtg`);
+      const res = await fetch(`/api/search?name=${encodeURIComponent(query)}&game=mtg&commanders=1`);
       if (res.ok) setCommanderResults(await res.json());
       else showToast(t('deck.errSearch'));
     } catch (err) {
@@ -605,7 +625,7 @@ function DeckBuilder({ showToast }) {
   // user's behalf, who then finds the wrong version when they walk to the
   // binder. `quantity` is the ABSOLUTE new count, not a delta, so a retried or
   // double-tapped request cannot double the requirement.
-  const writeRequirement = async ({ desired_card_id, desired_finish, board = 'mainboard', quantity, commander_override = null, replacing_deck_card_id = null }) => {
+  const writeRequirement = async ({ desired_card_id, desired_finish, board = 'mainboard', quantity, commander_override = null, replacing_deck_card_id = null, confirm_remove_off_identity = false }) => {
     if (!activeDeck) return false;
     const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
       method: 'POST',
@@ -619,11 +639,23 @@ function DeckBuilder({ showToast }) {
         // user is changing, so the singleton rule excludes that row instead of
         // counting it as a duplicate of itself, and so the replace lands as one
         // atomic write rather than an add followed by a delete.
-        ...(replacing_deck_card_id ? { replacing_deck_card_id } : {})
+        ...(replacing_deck_card_id ? { replacing_deck_card_id } : {}),
+        // The user has SEEN the named list of cards a commander swap will
+        // remove and agreed to it. Sent only on that confirmed retry -- its
+        // absence means the server asks first, which is the whole point.
+        ...(confirm_remove_off_identity ? { confirm_remove_off_identity: true } : {})
       })
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      // A COMMANDER SWAP THAT WILL REMOVE CARDS is not an error -- it is the
+      // server asking a question, with the exact cards named. Handed back to
+      // the caller so the swap panel can show the list and take a confirmation,
+      // rather than being flattened into a toast the user cannot act on.
+      if (data.code === 'COMMANDER_SWAP_REMOVES_CARDS') {
+        setCommanderSwapRemoval(data);
+        return false;
+      }
       // An overridable commander refusal is handed back to the caller instead
       // of being flattened into a toast, so the swap flow can offer the same
       // explicit confirmation the create modal does. Everything else keeps
@@ -842,6 +874,37 @@ function DeckBuilder({ showToast }) {
     if (!Number.isFinite(newQty)) return;
 
     if (newQty <= 0) {
+      // A COMMANDER IS SWAPPED, NEVER DELETED (Zach, 2026-08-19). The server
+      // refuses the delete outright, so leaving this control wired to it would
+      // give the user a button that always errors.
+      //
+      // ADAPTED IN PLACE rather than removed: the control keeps its position,
+      // its styling and its meaning ("get rid of this card"), and routes to the
+      // operation that can actually express the user's intent.
+      //
+      // TWO CASES, because the zone's size decides what "get rid of this one"
+      // can mean:
+      //
+      //   A PARTNER PAIR -> dropping one leaves a legal single-commander zone,
+      //     so this IS a supported change. It goes through dropCommander, which
+      //     is the same plan-and-confirm path as a replacement swap and names
+      //     any cards the narrowed identity would strand.
+      //   THE ONLY COMMANDER -> there is nothing to drop to. The deck must keep
+      //     a commander, so the control opens the swap panel to pick the
+      //     replacement instead of erroring.
+      if (entry.board === 'commander') {
+        const commanderCount = (activeDeck.cards || [])
+          .filter(c => c.board === 'commander').length;
+        if (commanderCount > 1) {
+          dropCommander(entry);
+          return;
+        }
+        setCommanderResults([]);
+        setCommanderQuery('');
+        setCommanderSwap({ replacing: entry });
+        showToast(t('deck.commanderSwapOnly'));
+        return;
+      }
       handleRemoveCard(entry.id);
       return;
     }
@@ -917,20 +980,43 @@ function DeckBuilder({ showToast }) {
 
   // Remove a requirement by its deck_cards.id, for the same reason quantity
   // edits take the whole entry: card id alone no longer identifies one row.
+  //
+  // THIS NEVER APPLIES TO A COMMANDER. Per Zach (2026-08-19) a commander is
+  // swapped, never deleted, and the server refuses a commander delete outright
+  // with COMMANDER_DELETE_UNSUPPORTED. handleUpdateCardQty intercepts the
+  // commander case before it reaches here and opens the swap panel instead, so
+  // the user never sees that refusal in normal use.
+  //
+  // The refusal is still SHOWN rather than swallowed, because the server is the
+  // authority: if some other path ever reaches here with a commander row, the
+  // user must read what the app actually said instead of a silent no-op. Its
+  // message names the swap as the way forward, which is exactly what they need.
+  //
+  // The stranding warning that used to be handled here has moved WITH the
+  // operation it belongs to -- it now only arrives on the swap request, and
+  // swapCommander/the inline removal panel handle it. There is no second
+  // implementation of the same conversation.
   const handleRemoveCard = async (deckCardId) => {
     if (!activeDeck) return;
 
     try {
       const response = await fetch(`/api/decks/${activeDeck.id}/cards/${deckCardId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
       });
 
       if (response.ok) {
         showToast(t('deck.cardRemoved'));
         loadDeckDetails(activeDeck.id);
-      } else {
-        showToast(t('loc.errRemoveCard'));
+        return;
       }
+
+      const data = await response.json().catch(() => ({}));
+      // Every refusal carries a message worth reading -- "a commander is
+      // swapped, not deleted" is actionable, and flattening it to a generic
+      // error would hide the way forward.
+      showToast(data.error || t('loc.errRemoveCard'));
     } catch (err) {
       console.error(err);
       showToast(t('loc.errRemoveCard'));
@@ -996,6 +1082,14 @@ function DeckBuilder({ showToast }) {
         rarity: item.rarity,
         price_trend: item.price_trend,
         owned_qty: item.quantity || 1,
+        // THE CROSS-DECK COMMITMENT, carried through from the server.
+        //
+        // NOT accumulated like owned_qty. Ownership is summed because each row
+        // is one physical card, but in_deck_qty is already the TOTAL for this
+        // (printing, finish) across every deck -- the server computed it once
+        // per variant. Adding it up per collection row would multiply it by the
+        // number of copies owned and claim far more was committed than exists.
+        in_deck_qty: item.in_deck_qty ?? 0,
         // The exact identity this row IS. Carried explicitly so the add path
         // can send it straight to the server rather than re-deriving it from
         // a search result that has no finish.
@@ -1029,7 +1123,19 @@ function DeckBuilder({ showToast }) {
         }
       } else {
         const finalQuery = searchQuery;
-        const response = await fetch(`/api/search?name=${encodeURIComponent(finalQuery)}&scope=collection&game=${deckSearchGame}`);
+        // SCOPE=DATABASE, NOT COLLECTION. This is the whole of item 5.
+        //
+        // The search was hardcoded to `scope=collection`, so it could only ever
+        // return cards the user already owned. Searching for anything else came
+        // back empty -- which reads exactly like "no such card" -- and that is
+        // why unowned cards could not be added as requirements. The backend
+        // route already defaults to the full catalogue and always could; the
+        // client was the thing narrowing it.
+        //
+        // Owned and unowned stay DISTINGUISHABLE because every row carries
+        // `owned_qty` from the server, which the row's "Owned: N" badge below
+        // already renders -- an unowned card simply reads "Owned: 0".
+        const response = await fetch(`/api/search?name=${encodeURIComponent(finalQuery)}&scope=database&game=${deckSearchGame}`);
         if (response.ok) {
           const data = await response.json();
           setSearchResults(data);
@@ -1321,6 +1427,58 @@ function DeckBuilder({ showToast }) {
   };
 
 
+  // DROP ONE HALF OF A PARTNER PAIR: a swap of the zone from two commanders to
+  // one.
+  //
+  // Reuses the SAME confirmation panel the replacement swap uses, because it is
+  // the same conversation: the server answers with COMMANDER_SWAP_REMOVES_CARDS
+  // and the identical payload, so the existing panel renders it unchanged. The
+  // only difference is what the confirm button re-sends.
+  //
+  // `commanderRefusedSwap` carries { dropping } instead of { replacing, card },
+  // so the panel's confirm knows which request to repeat. Remembering the
+  // attempt rather than reading current state matters for the same reason it
+  // does on the swap: the list the user agreed to must describe the write that
+  // then happens.
+  const dropCommander = async (commander, confirmRemove = false) => {
+    if (!activeDeck || savingCard) return;
+    setSavingCard(true);
+    try {
+      const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drop_commander_deck_card_id: commander.id,
+          ...(confirmRemove ? { confirm_remove_off_identity: true } : {})
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        if (data.code === 'COMMANDER_SWAP_REMOVES_CARDS') {
+          setCommanderRefusedSwap({ dropping: commander });
+          setCommanderSwapRemoval(data);
+          return;
+        }
+        showToast(data.error || t('deck.errQuantity'));
+        return;
+      }
+
+      setCommanderRefusal(null);
+      setCommanderOverrideReason('');
+      setCommanderRefusedSwap(null);
+      setCommanderSwapRemoval(null);
+      setCommanderSwap(null);
+      await loadDeckDetails(activeDeck.id);
+    } catch (err) {
+      console.error(err);
+      showToast(t('deck.errQuantity'));
+    } finally {
+      setSavingCard(false);
+    }
+  };
+
+
   // Swap a commander on an EXISTING deck.
   //
   // ONE atomic server-side replace, for exactly the reason repinEntryPrinting
@@ -1332,7 +1490,7 @@ function DeckBuilder({ showToast }) {
   // half was a second copy by name. Naming the row being replaced makes it one
   // write: the zone never transiently holds both, and a refusal rolls the whole
   // swap back with the commander the user already had left in place.
-  const swapCommander = async (replacing, card, override = null) => {
+  const swapCommander = async (replacing, card, override = null, confirmRemove = false) => {
     if (!activeDeck || savingCard) return;
     const choice = commanderChoiceFromCard(card);
 
@@ -1353,7 +1511,8 @@ function DeckBuilder({ showToast }) {
         commander_override: override,
         // Only when REPLACING one. Adding a second commander to a deck that
         // has one is not an edit, and must still be judged as a new entry.
-        replacing_deck_card_id: replacing ? replacing.id : null
+        replacing_deck_card_id: replacing ? replacing.id : null,
+        confirm_remove_off_identity: confirmRemove
       });
       // A refused write leaves the command zone untouched, so there is nothing
       // to undo -- and the old commander is still in place, because the
@@ -1361,7 +1520,9 @@ function DeckBuilder({ showToast }) {
       if (!ok) {
         // A refused swap remembers WHAT was attempted, so the override
         // re-sends the identical write rather than whatever is selected by
-        // the time the user finishes typing their reason.
+        // the time the user finishes typing their reason. The same applies to
+        // the removal confirmation: the list the user agreed to must describe
+        // the write that then happens.
         setCommanderRefusedSwap({ replacing, card });
         return;
       }
@@ -1370,6 +1531,7 @@ function DeckBuilder({ showToast }) {
       setCommanderRefusal(null);
       setCommanderOverrideReason('');
       setCommanderRefusedSwap(null);
+      setCommanderSwapRemoval(null);
 
       setCommanderSwap(null);
       setCommanderQuery('');
@@ -2118,14 +2280,61 @@ function DeckBuilder({ showToast }) {
                   ) : searchResults.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '1rem', maxHeight: '240px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
                       {searchResults.map(card => {
-                          // "In deck" is counted across every printing and
-                          // finish of this Oracle card, because that is the
-                          // question the user is asking when they look at a
-                          // search row: have I already put this card in?
-                          const qtyInDeck = deckCards
+                          // "IN DECK" IS THE CROSS-DECK TOTAL, FROM THE SERVER.
+                          //
+                          // It used to be counted from `deckCards` -- the OPEN
+                          // deck's own list -- so the same card read "In Deck: 1"
+                          // while viewing the deck holding it and "In Deck: 0"
+                          // from any other deck. That told the user a card was
+                          // free when it was already sleeved elsewhere, which is
+                          // the "app shows something false about what you own"
+                          // class of bug.
+                          //
+                          // The client cannot answer this question: it only ever
+                          // holds one deck. So the server answers it
+                          // (in_deck_qty, counted across ALL decks) and this row
+                          // reports it. `?? 0` rather than `||` so a legitimate
+                          // zero is not confused with a missing field.
+                          const qtyInDeck = card.in_deck_qty ?? 0;
+                          // "In this deck" is kept as a SEPARATE, secondary
+                          // figure. Both are useful and they answer different
+                          // questions -- "have I already put this in THIS deck"
+                          // versus "is this card actually free" -- but only the
+                          // cross-deck number is allowed to drive availability.
+                          const qtyInThisDeck = deckCards
                             .filter(c => c.oracle_id === card.oracle_id)
                             .reduce((s, c) => s + c.quantity, 0);
                           const ownedQty = card.owned_qty || 0;
+                          // WHAT IS GENUINELY FREE, FROM THE SERVER.
+                          //
+                          // Zach (2026-08-18): "searching when inside the deck
+                          // would allow you to search on cards you own/dont own
+                          // and that is where show available count becomes nice
+                          // in that because you can see if you even have it and
+                          // then even farther it marks it as missing".
+                          //
+                          // So the search row answers the whole question on the
+                          // spot -- do I have it, and is it actually free --
+                          // instead of sending the user off to look it up a
+                          // second time.
+                          //
+                          // `available_qty` is the SERVER's figure: owned minus
+                          // committed across ALL decks. It is not derived here
+                          // and must not be: this screen holds one deck, so a
+                          // client-side subtraction could only ever see this
+                          // deck's commitments and would report a card as free
+                          // while another deck box already had it -- the exact
+                          // false-availability bug this PR fixes.
+                          //
+                          // `??` rather than `||` so a legitimate 0 survives,
+                          // and the older-payload fallback is the arithmetic on
+                          // the two figures already shown rather than a blank.
+                          const freeQty = card.available_qty ?? Math.max(0, ownedQty - qtyInDeck);
+                          // Zero free is not a blocker -- the add below stays
+                          // enabled and the requirement simply reads as missing
+                          // in the deck (in red, per the same ruling). This
+                          // flag only chooses the colour of the count.
+                          const noneFree = freeQty === 0;
                           const isAtRuleMax = !isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4;
                           // Ownership does NOT disable the add. Planning a deck
                           // you have not finished buying is the normal case;
@@ -2164,7 +2373,35 @@ function DeckBuilder({ showToast }) {
                                           would drift from the first one. */}
                                       <FinishBadge card={card} />
                                     </span>
-                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Owned: {ownedQty} | In Deck: {qtyInDeck}</span>
+                                    {/* The SAME badge, in the same place, with
+                                        the same styling -- only the numbers
+                                        behind it are now correct. "In Deck" is
+                                        the cross-deck total, so Owned minus
+                                        In Deck is what is genuinely free.
+                                        "in this deck" is appended only when it
+                                        is non-zero and differs from the total,
+                                        so the common case reads exactly as it
+                                        did before rather than growing noise.
+
+                                        AVAILABLE IS ALWAYS SHOWN, including on
+                                        a card the user owns none of, because
+                                        "0 free" is the answer to "do I even
+                                        have this" -- and an omitted count reads
+                                        as unknown, which is the second lookup
+                                        this is here to remove. It is coloured
+                                        with the app's EXISTING red when nothing
+                                        is free, the same red the deck row's
+                                        Missing badge uses, so one colour means
+                                        one thing across the screen. */}
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                                      Owned: {ownedQty} | In Deck: {qtyInDeck}
+                                      {qtyInThisDeck > 0 && qtyInThisDeck !== qtyInDeck
+                                        ? ` (${qtyInThisDeck} in this deck)` : ''}
+                                      {' | '}
+                                      <span style={{ color: noneFree ? '#f87171' : 'var(--type-grass)', fontWeight: 700 }}>
+                                        Available: {freeQty}
+                                      </span>
+                                    </span>
                                   </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -2460,6 +2697,74 @@ function DeckBuilder({ showToast }) {
                                       </div>
                                     </div>
                                   )}
+
+                                  {/* THE SWAP-REMOVES-CARDS WARNING.
+                                      Same panel shape and same place as the
+                                      override control above -- not a new
+                                      screen and not a second design. The
+                                      difference is what it asks for: the
+                                      override needs a typed REASON because the
+                                      app may be wrong; this needs only a
+                                      confirmation, because the app is not
+                                      guessing -- it knows exactly which cards
+                                      no longer fit and says so by name. */}
+                                  {commanderSwapRemoval && commanderRefusedSwap && (
+                                    <div style={{ padding: '0.5rem', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.35)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.35rem' }}>
+                                        <AlertTriangle size={13} style={{ color: '#eab308', flexShrink: 0, marginTop: '1px' }} />
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-strong)', fontWeight: 600, lineHeight: 1.35 }}>
+                                          {commanderRefusedSwap.dropping
+                                            ? `Removing this commander will remove ${commanderSwapRemoval.removing_count} card(s) that no longer fit the deck's colour identity.`
+                                            : `Changing the commander will remove ${commanderSwapRemoval.removing_count} card(s) that no longer fit its colour identity.`}
+                                        </div>
+                                      </div>
+                                      {/* NAMED, WITH THEIR PRINTINGS. The user
+                                          has to find these in a binder, and
+                                          under exact-only identity a bare name
+                                          does not identify a physical card. */}
+                                      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.65rem', color: 'var(--text-secondary)', lineHeight: 1.5, maxHeight: '120px', overflowY: 'auto' }}>
+                                        {(commanderSwapRemoval.removing || []).map(entry => (
+                                          <li key={entry.deck_card_id}>
+                                            {entry.name}{entry.set_name ? ` (${entry.set_name} • #${entry.number})` : ''}
+                                            {entry.quantity > 1 ? ` ×${entry.quantity}` : ''}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      <div style={{ fontSize: '0.63rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                        The physical cards stay in your collection and become available for other decks. The commander change and these removals happen together.
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary"
+                                          disabled={savingCard}
+                                          onClick={() => (
+                                            commanderRefusedSwap.dropping
+                                              ? dropCommander(commanderRefusedSwap.dropping, true)
+                                              : swapCommander(
+                                                commanderRefusedSwap.replacing,
+                                                commanderRefusedSwap.card,
+                                                null,
+                                                true
+                                              )
+                                          )}
+                                          style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}
+                                        >
+                                          {commanderRefusedSwap.dropping
+                                            ? `Remove commander and ${commanderSwapRemoval.removing_count} card(s)`
+                                            : `Change commander and remove ${commanderSwapRemoval.removing_count} card(s)`}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary"
+                                          onClick={() => { setCommanderSwapRemoval(null); setCommanderRefusedSwap(null); }}
+                                          style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}
+                                        >
+                                          {t('deck.commanderOverrideCancel')}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -2518,7 +2823,9 @@ function DeckBuilder({ showToast }) {
                                         style={{ width: '22px', height: '22px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         disabled={savingCard}
                                         onClick={() => handleUpdateCardQty(card, card.quantity - 1)}
-                                        title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}
+                                        title={t(isCommanderSection
+                                          ? 'deck.commanderSwapTitle'
+                                          : (card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty'))}
                                       >
                                         {card.quantity === 1 ? <Trash2 size={11} /> : '-'}
                                       </button>
@@ -2626,7 +2933,7 @@ function DeckBuilder({ showToast }) {
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                                       <StatusBadge card={card} />
                                       <div style={{ display: 'flex', gap: '2px' }}>
-                                        <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card, card.quantity - 1)} title={t(card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty')}>
+                                        <button className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`} style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={savingCard} onClick={() => handleUpdateCardQty(card, card.quantity - 1)} title={t(isCommanderSection ? 'deck.commanderSwapTitle' : (card.quantity === 1 ? 'deck.removeFromDeck' : 'deck.decreaseQty'))}>
                                           {card.quantity === 1 ? <Trash2 size={10} /> : '-'}
                                         </button>
                                         <button className="btn btn-secondary btn-icon-only" style={{ width: '20px', height: '20px', fontSize: '0.7rem', padding: 0 }} disabled={savingCard || (!isBasicEnergyOrLand(card) && deckCountByName(deckCards, card.name) >= 4)} onClick={() => handleUpdateCardQty(card, card.quantity + 1)}>+</button>
@@ -3364,7 +3671,20 @@ function DeckBuilder({ showToast }) {
                             ...(TONE_STYLES[
                               item.status === 'full' ? 'ok'
                                 : item.status === 'partial' ? 'warn'
-                                  : item.status === 'missing' ? 'warn'
+                                  // MISSING IS RED HERE TOO (Zach, 2026-08-18:
+                                  // "missing should show red not yellow").
+                                  //
+                                  // The same word on the same table has to mean
+                                  // the same thing on every screen. Fixing only
+                                  // the deck row badge would leave this pill
+                                  // amber on the screen the user reads BEFORE
+                                  // committing an import -- the one place the
+                                  // shortfall is most worth acting on.
+                                  //
+                                  // 'partial' stays amber deliberately: some
+                                  // copies WILL be allocated, so it is a
+                                  // different answer, not a softer one.
+                                  : item.status === 'missing' ? 'unavailable'
                                     : 'unavailable'
                             ])
                           }}>

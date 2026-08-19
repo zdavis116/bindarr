@@ -129,11 +129,31 @@ assert.deepEqual(
   { tone: 'ok', label: 'Reserved 4 of 4' }
 );
 
-// A shortfall is amber, not red: planning a deck you have not finished buying
-// is normal, and styling it as an error says something broke when nothing did.
+// MISSING IS RED, NOT AMBER (Zach, 2026-08-18): "missing should show red not
+// yellow."
+//
+// A missing card means he cannot build the deck AS IT STANDS -- that is a
+// problem, not a caution. Amber reads as a warning about something optional.
+// Red is already the app's colour for unavailable (the considering-availability
+// rule from PR 6C), so this REUSES that existing tone rather than introducing a
+// new colour or badge style.
 assert.deepEqual(
   requirementStatus({ reserves: true, quantity_missing: 3, quantity_reserved: 1, quantity_required: 4 }),
-  { tone: 'warn', label: 'Missing 3 of 4' }
+  { tone: 'unavailable', label: 'Missing 3 of 4' }
+);
+
+// A partial shortfall and a total one are the SAME problem and must read the
+// same way -- the user cannot build the deck either way.
+assert.deepEqual(
+  requirementStatus({ reserves: true, quantity_missing: 4, quantity_reserved: 0, quantity_required: 4 }),
+  { tone: 'unavailable', label: 'Missing 4 of 4' }
+);
+
+// The fully-reserved case is untouched: nothing is missing, so nothing is red.
+assert.equal(
+  requirementStatus({ reserves: true, quantity_missing: 0, quantity_reserved: 2, quantity_required: 2 }).tone,
+  'ok',
+  'a fully reserved row must stay green'
 );
 
 // A CONSIDERING entry with a copy free. It reserves nothing, so it reports
@@ -330,6 +350,38 @@ assert.ok(
 assert.ok(
   /newDeckIsCommander\s*&&/.test(builder),
   'commander inputs must be gated on the Commander format'
+);
+
+// ---------------------------------------------------------------------------
+// PR 6G source contracts.
+// ---------------------------------------------------------------------------
+
+// MISSING IS RED EVERYWHERE IT APPEARS, not just on the deck row badge.
+//
+// The import compare screen renders its OWN status pill from the same
+// TONE_STYLES table, and it mapped `missing` to 'warn'. Fixing only the deck
+// badge would leave the same word amber on the screen the user reads before
+// committing an import -- the inconsistency Zach would then have to report a
+// second time.
+assert.ok(
+  !/item\.status === 'missing' \? 'warn'/.test(builder),
+  'the import compare screen must not render a missing line as amber'
+);
+assert.ok(
+  /item\.status === 'missing' \? 'unavailable'/.test(builder),
+  'the import compare screen must render a missing line in the existing red tone'
+);
+
+// THE DECK SEARCH SHOWS THE AVAILABLE COUNT INLINE.
+//
+// Zach: "that is where show available count becomes nice ... because you can
+// see if you even have it". The count must come from the SERVER's
+// available_qty, which is owned minus committed across ALL decks. A count
+// derived on the client could only ever see the open deck, which is the
+// false-availability bug this PR exists to remove.
+assert.ok(
+  /available_qty/.test(builder),
+  'the deck search row must render the server-computed available count'
 );
 
 console.log('deckSections + DeckBuilder exact-identity self-check passed');

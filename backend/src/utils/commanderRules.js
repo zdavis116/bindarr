@@ -306,13 +306,31 @@ async function nameCountsForDeck(database, deckId) {
 // rule, produced by the app itself. One transaction has no such window, and a
 // refusal rolls the whole edit back rather than consuming the row it was
 // editing.
+// `futureZoneIdentity` JUDGES THE INCOMING CARD AGAINST THE ZONE THE WRITE
+// PRODUCES, not the one it found. It is the PR 6G round-2 fix, and it exists
+// because of a case the reviewer's suggested patch does not cover.
+//
+// Moving a green Partner OFF the command zone and into the 99 narrows the deck
+// from [R,G] to [R]. Planning removals for the OTHER cards is not enough: the
+// moved card is itself green, and it lands in the mainboard of a deck that no
+// longer allows green. It STRANDS ITSELF. Judged against the zone as found --
+// which still contains the green partner at the moment the check runs -- it
+// passes, and the app produces an illegal deck by its own rule.
+//
+// So a caller performing a command-zone change states the identity the zone
+// WILL have, and the incoming card is judged against that. Callers that are not
+// changing the zone pass nothing and the live zone is read as before.
+//
+// Shaped as `{ status, identity }` -- the same shape deckColorIdentity returns
+// -- so the branch below is identical for both and the two cannot drift.
 async function writeDeckCard(database, deck, {
   oracle_id,
   desired_card_id,
   desired_finish,
   board = 'mainboard',
   quantity = 1,
-  replacingDeckCardId = null
+  replacingDeckCardId = null,
+  futureZoneIdentity = null
 } = {}) {
   const tx = client(database);
 
@@ -358,6 +376,99 @@ async function writeDeckCard(database, deck, {
   });
   if (refusal) {
     throw new CommanderRuleError(409, refusal.message, refusal.code, { name: refusal.name });
+  }
+
+  // COLOUR IDENTITY, AT THE SAME CHOKE POINT AND FOR THE SAME REASON.
+  //
+  // Enforced here rather than at each route because the spec lists five write
+  // paths (browse add, multi-select add, import, re-pin, board moves) and a
+  // rule enforced at four of five is not enforced. There is no other way to
+  // create a deck entry, so a future sixth route physically cannot forget it.
+  //
+  // JUDGED ON THE ZONE'S STATE, NOT ON A NULL. This is the PR 6G blocker fix:
+  // deckColorIdentity used to return null both for "no commander" and for a
+  // deck it could not read, and this code treated null as "nothing to judge".
+  // That is the accept-anything window the delete-then-re-add sequence walked
+  // through. Each state now gets the answer it actually deserves.
+  //
+  // Other formats are entirely unaffected, which the spec requires explicitly.
+  if (isCommanderFormat(deck && deck.format)) {
+    // THE ZONE THIS WRITE ARRIVES AT. A caller mid-way through a command-zone
+    // change hands it in, because the live rows still describe the zone as it
+    // WAS -- and a card judged against the old zone is judged against a state
+    // that will not exist by the time the transaction commits.
+    const zone = futureZoneIdentity || await deckColorIdentity(tx, deck.id);
+    // The commander board DEFINES the identity and a considering entry is not
+    // in the deck, so neither is judged on colour. Checked first, before the
+    // zone's state matters at all -- otherwise an empty zone could never be
+    // refilled, and the refusal would have no way out.
+    const judged = board !== 'commander' && board !== 'considering';
+    if (judged) {
+      const card = await tx.get(
+        `SELECT id, name, color_identity FROM card_cache WHERE id = ?`,
+        [desired_card_id]
+      );
+      const cardName = (card && card.name) || desired_card_id;
+
+      // AN EMPTY COMMAND ZONE ADMITS NOTHING.
+      //
+      // Not "anything goes". A Commander deck cannot be CREATED without a
+      // commander, and since Zach's 2026-08-19 ruling a commander cannot be
+      // DELETED either -- only swapped.
+      //
+      // ROUND-2 CORRECTION: this was previously documented as
+      // expected-unreachable. It was NOT. Both commander gates on the swap
+      // route were keyed on the DESTINATION board, so moving the only commander
+      // OFF the zone emptied it and returned 200 -- and this refusal was the
+      // only thing stopping an off-identity card going in behind it. It was
+      // live, load-bearing logic described as a backstop, which is the worst of
+      // both: nobody maintained it and everybody relied on it.
+      //
+      // The route now raises the last-commander refusal itself, on either side
+      // of the write, so this IS defence in depth again -- but it is kept for
+      // the reason it should have been kept all along: a rule that depends on
+      // no future route ever reintroducing the state is not a rule that is
+      // enforced. If this ever fires, a new write path has reopened the hole.
+      if (zone.status === ZONE_EMPTY) {
+        throw emptyZoneRefusal(cardName);
+      }
+
+      // A COMMANDER THE APP NEVER READ IS COULD-NOT-VERIFY, NOT COLOURLESS.
+      //
+      // The old code let a NULL commander identity parse as colourless, which
+      // refuses every coloured card and tells the user their deck is colourless
+      // -- a confident assertion built on data that was never fetched. Honest
+      // error instead. Routes hydrate before the transaction; this is the
+      // backstop for the paths that cannot.
+      if (zone.status === ZONE_UNVERIFIED) {
+        throw commanderIdentityUnverified(zone.unverified);
+      }
+
+      // THE BACKSTOP FOR AN UNVERIFIED CARD ROW. (Zach, 2026-08-18: fail hard.)
+      //
+      // Hydration happens on the route, OUTSIDE the transaction, because a
+      // network call must not hold SQLite's write lock. That means the routes
+      // that do not hydrate could otherwise reach this point with a row the app
+      // has never read -- and a NULL colour identity parses as colourless,
+      // which fits every deck. The rule would then ACCEPT an unverified card,
+      // which is exactly the outcome the hard-fail decision rejects.
+      if (isThinForColorIdentity(card)) {
+        throw colorVerifyUnavailable(desired_card_id);
+      }
+
+      const colorRefusal = checkColorIdentity(zone.identity, card, { board });
+      if (colorRefusal) {
+        // A THROW, like singleton, so it rolls back with whatever else the
+        // caller's transaction was doing. NOT overridable and deliberately not
+        // flagged as such: colour identity is card data, so there is nothing
+        // for the user to know that the app does not.
+        throw new CommanderRuleError(409, colorRefusal.message, colorRefusal.code, {
+          name: colorRefusal.name,
+          offending: colorRefusal.offending,
+          deck_identity: colorRefusal.deck_identity
+        });
+      }
+    }
   }
 
   // The edit lands as one row, not two. Removed BEFORE the insert so the write
@@ -571,7 +682,8 @@ async function hydrateThinCommanderCards(database, cardIds, { hasOverride = fals
 
   for (const id of ids) {
     const row = await client(database).get(
-      `SELECT id, type_line, oracle_text, keywords, subtypes FROM card_cache WHERE id = ?`,
+      `SELECT id, type_line, oracle_text, keywords, subtypes, color_identity
+       FROM card_cache WHERE id = ?`,
       [id]
     );
     // A row that is absent, or already complete, is not our business. The
@@ -615,6 +727,137 @@ async function hydrateThinCommanderCards(database, cardIds, { hasOverride = fals
   }
 }
 
+
+// HYDRATE THE ROWS AMONG `cardIds` THAT ARE TOO THIN TO DECIDE COLOUR ON.
+//
+// DELIBERATELY SEPARATE FROM hydrateThinCommanderCards, and the separation is
+// the point. The two ask DIFFERENT QUESTIONS of the same row:
+//
+//   Commander legality -> needs type_line, oracle_text, keywords, subtypes.
+//   Colour identity    -> needs color_identity, and nothing else.
+//
+// Folding colour into the commander predicate (the first attempt) made every
+// row with a complete type line but a NULL colour_identity look "thin for
+// commander purposes", which sent perfectly decidable commanders off to
+// Scryfall and turned a legal create into a 503 when the stub did not know the
+// card. A row can be complete for one decision and incomplete for the other;
+// merging them makes each answer depend on data it does not use.
+//
+// MUST BE CALLED OUTSIDE ANY TRANSACTION, like its sibling: a network call
+// inside a transaction holds SQLite's single write lock for the duration of an
+// upstream request.
+//
+// A FAILED REFETCH IS NOT EVIDENCE -- IN EITHER DIRECTION. (Zach, 2026-08-18.)
+//
+// This originally failed SOFT: on an upstream failure it swallowed the error
+// and let the rule proceed on whatever the app happened to hold. The reasoning
+// was that a colour refusal has no override, so a hard failure would be a dead
+// end on an ordinary card add. Zach ruled the other way, and his reasoning is
+// the standing principle this whole module is built on:
+//
+//   An app tracking PHYSICAL OBJECTS must not accept a card it could not
+//   verify. "Could not verify this card right now, try again" is RECOVERABLE --
+//   the user retries and the app is right. A wrongly-accepted off-identity card
+//   is NOT recoverable, because the user would never know to go looking for it.
+//   An unnoticed wrong answer is worse than a noticed refusal.
+//
+// The lockout risk is also much narrower than it first looked.
+// isThinForColorIdentity fires ONLY when color_identity is entirely NULL -- a
+// row the app has never read at all -- and any card the user has searched,
+// owned, or added before is already cached. So the common case never reaches
+// the network and an outage cannot lock them out of cards they have handled.
+//
+// NEVER A LEGALITY RULING IN EITHER DIRECTION. The failure must not silently
+// accept (the old behaviour) and must not be dressed up as a colour refusal
+// either -- the user must be told the APP could not check, not that their card
+// is illegal. Hence the same could-not-verify shape the commander path uses.
+//
+// NOT OVERRIDABLE, and the omission is deliberate. Colour identity is computed
+// from card DATA, so there is nothing for the user to assert that the app does
+// not already know; advertising an override here would offer a door that leads
+// nowhere. That is the one way this differs from hydrateThinCommanderCards.
+async function hydrateThinColorIdentity(database, cardIds) {
+  const ids = [...new Set((cardIds || []).filter(Boolean))];
+  if (ids.length === 0) return;
+
+  const fetcher = getCardFetcher();
+  const { cacheNormalizedCards } = require('./cardCache');
+
+  for (const id of ids) {
+    const row = await client(database).get(
+      `SELECT id, color_identity FROM card_cache WHERE id = ?`, [id]
+    );
+    // Absent, or already known: not our business. The complete case is the
+    // HAPPY PATH and must not cost a network call.
+    if (!row || !isThinForColorIdentity(row)) continue;
+
+    let fresh = null;
+    try {
+      fresh = await fetcher.getCardById(id);
+    } catch {
+      throw colorVerifyUnavailable(id);
+    }
+    // Scryfall answered and does not know this printing. Still not a finding
+    // about colour: a rule cannot be evaluated against a card we cannot read.
+    if (!fresh) throw colorVerifyUnavailable(id, { notFound: true });
+
+    // SELF-HEALING, through the same cache writer every other Scryfall result
+    // goes through, so the next decision about this card is instant.
+    await cacheNormalizedCards([fresh]);
+  }
+}
+
+// THE COULD-NOT-VERIFY REFUSAL FOR COLOUR, written once so the hydration path
+// and the checkColorIdentity backstop below say the same sentence.
+function colorVerifyUnavailable(cardId, { notFound = false } = {}) {
+  const cause = notFound
+    ? `Bindarr could not find this card on Scryfall`
+    : `Bindarr could not verify this card with Scryfall right now`;
+  return new CommanderRuleError(503,
+    `${cause}, so it cannot say whether the card's colour identity fits this `
+    + `deck's commander. This is NOT a ruling that the card is illegal -- it is `
+    + `the app being unable to check, and it will not add a card it could not `
+    + `verify. Try again shortly.`,
+    VERIFY_UNAVAILABLE_CODE,
+    // No `overridable` key at all. Colour identity has no override, and an
+    // explicit false could be misread by the UI as "an override exists, it is
+    // just switched off".
+    { cards: [{ id: cardId }] });
+}
+
+// THE COULD-NOT-VERIFY REFUSAL FOR AN UNREADABLE COMMANDER.
+//
+// Distinct from colorVerifyUnavailable above, which is about the CARD being
+// added. This one is about the DECK's own identity being unknowable, and the
+// difference matters to the user: nothing is wrong with the card they picked,
+// the app simply cannot say what the deck allows.
+//
+// The alternative -- reading a NULL commander identity as colourless -- is a
+// confident wrong answer in BOTH directions, and both are bad:
+//
+//   Adding cards -> every coloured card is refused, and the message tells the
+//                   user their Izzet deck is "colourless". There is no way
+//                   through and no way to tell it is a data problem.
+//   Swapping     -- planCommanderSwapRemovals would compute a removal list
+//                   against that phantom colourless identity and offer to
+//                   DELETE the user's real cards. Deleting things from a
+//                   decklist on the strength of data never read is the worst
+//                   available outcome, and it is the one the old code chose.
+//
+// 503, matching every other could-not-verify in this module, because it is an
+// outage rather than a ruling and will fix itself. NOT overridable: the answer
+// is not something the user knows better than the app, it is something NOBODY
+// knows until the card is read.
+function commanderIdentityUnverified(unverified) {
+  const names = (unverified || []).map(c => c.name || c.id).join(', ');
+  return new CommanderRuleError(503,
+    `Bindarr has not read the colour identity of this deck's commander `
+    + `(${names}), so it cannot say which cards fit this deck. This is NOT a `
+    + `ruling about any card -- it is the app being unable to check, and it will `
+    + `not guess. Try again shortly.`,
+    VERIFY_UNAVAILABLE_CODE,
+    { cards: (unverified || []).map(c => ({ id: c.id, name: c.name })) });
+}
 
 // IS THIS CARD A LEGAL COMMANDER IN ITS OWN RIGHT? (Rule 3)
 //
@@ -857,6 +1100,241 @@ async function checkCommanderZone(database, deck, { override = null } = {}) {
   };
 }
 
+// ===========================================================================
+// COLOUR IDENTITY. A HARD FORMAT RULE -- REFUSED, NOT WARNED.
+//
+// A Commander deck may only contain cards whose colour identity is a SUBSET of
+// the commander's. Zach added Kodama of the West Tree (green) to a red/blue
+// deck and it was accepted; that is a deck that cannot be played, produced by
+// the app itself.
+//
+// WHY THIS REFUSES RATHER THAN WARNS, when "you do not own this card yet" only
+// warns. The test the rest of this module uses is: CAN THE USER FIX THIS BY
+// CONTINUING TO WORK? An unowned card is a normal state of a deck under
+// construction -- they resolve it by buying the card. An off-identity card is
+// not unfinished; it can never become legal in this deck no matter how much
+// more work is done. So it is refused where it is introduced, consistent with
+// singleton and commander validity.
+//
+// WHY IT IS NOT OVERRIDABLE.
+//
+// This is the same distinction PR 6F drew, applied again. An override exists
+// only where the APP CAN BE WRONG:
+//
+//   Pairing legality  -> parsed from ORACLE TEXT. Wizards prints new mechanics,
+//                        so the app's knowledge goes stale. OVERRIDABLE with a
+//                        recorded reason, and the reasons are the to-do list.
+//   Singleton         -> a FIXED rule about names. NOT overridable.
+//   Colour identity   -> computed from Scryfall's own `color_identity` FIELD,
+//                        which is card DATA, not prose we parsed. There is
+//                        nothing for the user to know that the app does not,
+//                        so there is nothing to override. NOT overridable.
+//
+// A thin row is the one case where the app might not know, and that is handled
+// the way PR 6F handles it -- by GETTING BETTER DATA (hydrateThinCommanderCards
+// before the transaction), not by guessing in either direction.
+// ===========================================================================
+
+const COLOR_IDENTITY_CODE = 'COMMANDER_COLOR_IDENTITY';
+
+// READ THE STORED FIELD, DO NOT DERIVE IT.
+//
+// Colour identity includes mana symbols in COSTS, in RULES TEXT, and colour
+// indicators. A land with no mana cost and no colours whose text reads
+// "{T}: Add {G}" has a GREEN identity -- so any implementation that looked at
+// the card's `colors` would wave it straight into an Izzet deck. Scryfall
+// already computes the correct answer and the cache already stores it; the only
+// correct move is to read it.
+//
+// The cache stores colour NAMES ('Green'), because scryfallApi.normalizeCard
+// maps WUBRG through COLOR_NAMES on the way in. Both spellings are accepted
+// here so the rule cannot be broken by a row cached under either convention,
+// and the output is always canonical single letters for comparison.
+const COLOR_LETTER_BY_NAME = {
+  white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G',
+  w: 'W', u: 'U', b: 'B', r: 'R', g: 'G'
+};
+const COLOR_NAME_BY_LETTER = {
+  W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green'
+};
+
+function parseColorIdentity(raw) {
+  let list = raw;
+  if (typeof list === 'string' && list) {
+    try { list = JSON.parse(list); } catch { list = [list]; }
+  }
+  if (!Array.isArray(list)) return [];
+  const letters = new Set();
+  for (const entry of list) {
+    const letter = COLOR_LETTER_BY_NAME[String(entry || '').trim().toLowerCase()];
+    if (letter) letters.add(letter);
+  }
+  // WUBRG order, so two identities built from differently-ordered rows compare
+  // and PRINT the same. A refusal that says "Blue, Red" one time and
+  // "Red, Blue" the next reads like two different problems.
+  return ['W', 'U', 'B', 'R', 'G'].filter(letter => letters.has(letter));
+}
+
+function colorIdentityOfCard(card) {
+  return card ? parseColorIdentity(card.color_identity) : [];
+}
+
+// Human-readable identity, for a refusal the user can act on.
+// A colourless identity is named rather than rendered as an empty string.
+function describeColors(letters) {
+  if (!letters || letters.length === 0) return 'colourless';
+  return letters.map(letter => COLOR_NAME_BY_LETTER[letter] || letter).join(', ');
+}
+
+// THE DECK'S COLOUR IDENTITY: the union of its commanders'.
+//
+// A partner pair's identity is the union of both cards, which is why this is
+// computed from the ZONE rather than from a single card.
+//
+// RETURNS A STATE, NOT A BARE ARRAY-OR-NULL, and that change is the fix for the
+// PR 6G blocker. The old signature collapsed THREE different situations into
+// one `null`, and every caller then read that null as "nothing to judge, let it
+// through":
+//
+//   EMPTY      -- the command zone has no rows. Under PR 6F a Commander deck
+//                 cannot be CREATED without a commander, so this is only
+//                 reachable by DELETING one. It is an INVALID deck state, not a
+//                 blank cheque, and the window it opened is exactly how a green
+//                 card got into an Izzet deck: delete the commander, add the
+//                 card while the identity read null, put the commander back.
+//   UNVERIFIED -- a commander row's colour identity is NULL, meaning the app
+//                 never READ that card. Reading that as colourless is a
+//                 confident wrong answer in BOTH directions: it refuses every
+//                 coloured card with no way through, and it lets the swap
+//                 planner propose DELETING the user's cards on the strength of
+//                 data the app never had.
+//   KNOWN      -- the ordinary case: `identity` is the union, possibly [] for a
+//                 genuinely colourless commander the app DID read.
+//
+// A non-Commander deck never gets here; callers gate on the format first, so
+// other formats pay nothing.
+const ZONE_EMPTY = 'empty';
+const ZONE_UNVERIFIED = 'unverified';
+const ZONE_KNOWN = 'known';
+
+async function deckColorIdentity(database, deckId) {
+  const rows = await client(database).all(
+    `SELECT cc.id, cc.name, cc.color_identity
+     FROM deck_cards dc JOIN card_cache cc ON dc.desired_card_id = cc.id
+     WHERE dc.deck_id = ? AND dc.board = 'commander'`,
+    [deckId]
+  );
+  return colorIdentityOfZone(rows);
+}
+
+// The same judgement applied to rows the caller already has, so a hypothetical
+// zone (the one a swap or a delete WOULD produce) is evaluated by exactly the
+// same code as the real one. Two implementations of "what is this zone's
+// identity" is how the real zone and the planned zone start disagreeing.
+function colorIdentityOfZone(rows) {
+  if (!rows || rows.length === 0) {
+    return { status: ZONE_EMPTY, identity: null, unverified: [] };
+  }
+  // Reported BEFORE any union is computed. A single unread commander makes the
+  // whole answer unknown -- the union of "red" and "we never looked" is not
+  // "red", it is "we do not know".
+  const unverified = rows
+    .filter(row => isThinForColorIdentity(row))
+    .map(row => ({ id: row.id, name: row.name }));
+  if (unverified.length > 0) {
+    return { status: ZONE_UNVERIFIED, identity: null, unverified };
+  }
+  const union = new Set();
+  for (const row of rows) {
+    for (const letter of parseColorIdentity(row.color_identity)) union.add(letter);
+  }
+  return {
+    status: ZONE_KNOWN,
+    identity: ['W', 'U', 'B', 'R', 'G'].filter(letter => union.has(letter)),
+    unverified: []
+  };
+}
+
+// THE REFUSAL FOR AN EMPTY COMMAND ZONE.
+//
+// Written once so every path says the same sentence, and it NAMES THE WAY OUT.
+// A Commander deck with no commander has no identity, so it admits NOTHING --
+// not even a colourless card, which is a subset of every identity but not of
+// "no identity at all". The deck is in a state the app refuses to create, and
+// the only thing that can move it forward is choosing a commander.
+function emptyZoneRefusal(cardName) {
+  return new CommanderRuleError(409,
+    `${cardName} cannot be added yet: this Commander deck has no commander, so `
+    + `there is no colour identity to judge cards against. Choose a commander `
+    + `first and the deck will accept every card that fits it.`,
+    ZONE_EMPTY_CODE,
+    // No override. This is not the app being unsure about a card -- it is the
+    // deck being incomplete, and the user fixes it by continuing.
+    { requires: 'commander' });
+}
+
+const ZONE_EMPTY_CODE = 'COMMANDER_ZONE_EMPTY';
+
+// The refusal message, written once so every path says the same sentence.
+//
+// It NAMES the offending colour(s) and the commander's identity, because
+// "invalid card" is a refusal the user cannot act on: they need to know which
+// colour is the problem and what the deck actually allows.
+function colorIdentityMessage(cardName, offending, deckIdentity) {
+  return `${cardName} cannot go in this deck: its colour identity includes `
+    + `${describeColors(offending)}, but this deck's commander identity is `
+    + `${describeColors(deckIdentity)}. A Commander deck may only contain cards `
+    + `whose colour identity fits its commander's.`;
+}
+
+// THE COLOUR IDENTITY CHECK. Returns null when allowed, or a refusal.
+//
+// `board` gating, and both halves are load-bearing:
+//
+//   'commander'  -- SKIPPED. The commander DEFINES the identity; judging it
+//                   against itself is circular, and a swap to a commander of a
+//                   different identity is a deliberate, separately-handled
+//                   operation (see the swap plan in decks.js).
+//   'considering'-- SKIPPED, for the same reason singleton skips it. A
+//                   considering entry is a note that the user is thinking about
+//                   a card. It is not in the deck, reserves nothing, and counts
+//                   towards no other legality rule. Refusing it would stop the
+//                   user shortlisting a card they may build another deck around.
+function checkColorIdentity(deckIdentityLetters, card, { board = 'mainboard' } = {}) {
+  if (deckIdentityLetters === null || deckIdentityLetters === undefined) return null;
+  if (board === 'commander' || board === 'considering') return null;
+  if (!card) return null;
+
+  const cardIdentity = colorIdentityOfCard(card);
+  // Colourless fits in EVERY deck -- the empty set is a subset of anything.
+  if (cardIdentity.length === 0) return null;
+
+  const allowed = new Set(deckIdentityLetters);
+  const offending = cardIdentity.filter(letter => !allowed.has(letter));
+  if (offending.length === 0) return null;
+
+  return {
+    code: COLOR_IDENTITY_CODE,
+    name: card.name,
+    offending,
+    deck_identity: deckIdentityLetters,
+    message: colorIdentityMessage(card.name, offending, deckIdentityLetters)
+  };
+}
+
+// IS THIS ROW TOO THIN TO DECIDE COLOUR IDENTITY ON?
+//
+// NULL is the signal, exactly as it is for the commander decision above:
+// cacheNormalizedCards always writes '[]' for a card it actually READ, even a
+// genuinely colourless one. NULL means the row never went through the
+// normalizer, so the app has not learned that the card is colourless -- it has
+// learned nothing at all. Treating that as colourless would confidently accept
+// an off-identity card, which is the exact bug being fixed.
+function isThinForColorIdentity(card) {
+  if (!card) return false;
+  return card.color_identity === null || card.color_identity === undefined;
+}
+
 // PRE-FLIGHT FOR A MULTI-CARD SELECTION.
 //
 // Per Zach (2026-08-18): "if its taking in a list it should verify the list
@@ -875,18 +1353,54 @@ async function checkCommanderZone(database, deck, { override = null } = {}) {
 // split is that the user gets to see the problems before that decision.
 //
 // `candidates` are { card_id, finish, quantity } as the caller resolved them.
-async function preflightDeckAdds(database, deck, candidates) {
+async function preflightDeckAdds(database, deck, candidates, { board = 'mainboard' } = {}) {
   const tx = client(database);
   const isCommander = isCommanderFormat(deck && deck.format);
   const counts = isCommander ? await nameCountsForDeck(tx, deck.id) : new Map();
+  // Read ONCE for the whole batch rather than per candidate: the command zone
+  // does not change during a pre-flight, and re-reading it per card would turn
+  // a 100-card selection into 100 extra queries for an unchanging answer.
+  const zone = isCommander
+    ? await deckColorIdentity(tx, deck.id)
+    : { status: ZONE_KNOWN, identity: null, unverified: [] };
 
   const problems = [];
   const accepted = [];
   let applicable = 0;
 
+  // THE ZONE'S OWN STATE IS A PROBLEM WITH THE WHOLE BATCH, NOT WITH ONE CARD.
+  //
+  // An empty or unreadable command zone is not a fact about any candidate, so
+  // reporting it per candidate would name the user's cards as if they were the
+  // issue. Reported once, and every candidate is rejected -- there is no
+  // identity to judge them against, and PR 6G's blocker was exactly the code
+  // that treated "no identity" as "no objection".
+  const judgedBoard = board !== 'commander' && board !== 'considering';
+  if (isCommander && judgedBoard && zone.status !== ZONE_KNOWN) {
+    return {
+      problems: [zone.status === ZONE_EMPTY
+        ? {
+          code: ZONE_EMPTY_CODE,
+          message: `This Commander deck has no commander, so there is no colour `
+            + `identity to judge these cards against. Choose a commander first.`
+        }
+        : {
+          code: VERIFY_UNAVAILABLE_CODE,
+          message: `Bindarr has not read the colour identity of this deck's `
+            + `commander (${zone.unverified.map(c => c.name || c.id).join(', ')}), `
+            + `so it cannot say which of these cards fit. This is not a ruling `
+            + `about any card. Try again shortly.`
+        }],
+      applicable: 0,
+      accepted: []
+    };
+  }
+  const identity = zone.identity;
+
   for (const candidate of candidates) {
     const card = await tx.get(
-      `SELECT id, name, supertype, subtypes, type_line FROM card_cache WHERE id = ?`,
+      `SELECT id, name, supertype, subtypes, type_line, color_identity
+       FROM card_cache WHERE id = ?`,
       [candidate.card_id]
     );
     if (!card) {
@@ -897,6 +1411,58 @@ async function preflightDeckAdds(database, deck, candidates) {
       });
       continue;
     }
+
+    // AN UNVERIFIED ROW IS REPORTED HERE, NOT LEFT TO THE WRITE.
+    //
+    // The batch paths (multi-select add, import) do not hydrate: hydration is a
+    // network call and these judge many candidates at once, so a selection of
+    // 100 cards would become 100 upstream requests inside one user action.
+    //
+    // The choke point refuses an unverified row with a 503, which is right but
+    // is the WRONG SHAPE here -- it would fail the ENTIRE selection because of
+    // one card the app has never read, and say nothing about which. So the
+    // pre-flight names the card, the rest of the batch still applies, and the
+    // choke point's 503 remains a backstop that should never fire.
+    //
+    // This is NOT a colour ruling and does not pretend to be: the card is not
+    // said to be illegal, only unverifiable right now.
+    // GATED EXACTLY LIKE THE COLOUR RULE ITSELF. `identity === null` means
+    // there is nothing to judge against -- a non-Commander deck, or a Commander
+    // deck with no commander chosen yet -- so there is nothing to verify
+    // against and an unread row costs the user nothing. Without this gate a
+    // Modern deck would be refused by a rule that does not apply to it at all.
+    if (identity !== null
+      && board !== 'commander' && board !== 'considering'
+      && isThinForColorIdentity(card)) {
+      problems.push({
+        code: VERIFY_UNAVAILABLE_CODE,
+        card_id: candidate.card_id,
+        name: card.name,
+        message: `${card.name}: Bindarr has never read this card's colour identity, `
+          + `so it cannot verify the card fits this deck's commander. This is not a `
+          + `ruling that the card is illegal -- add it on its own and Bindarr will `
+          + `look it up.`
+      });
+      continue;
+    }
+
+    // COLOUR IDENTITY IS CHECKED BEFORE THE SINGLETON EXEMPTION.
+    //
+    // Ordering matters and this is the subtle one: basic lands are exempt from
+    // SINGLETON but NOT from colour identity. Checking the exemption first
+    // would `continue` past this check and wave a Forest into an Izzet deck --
+    // two different rules that happen to share an early-out.
+    const colorRefusal = checkColorIdentity(identity, card, { board });
+    if (colorRefusal) {
+      problems.push({
+        code: colorRefusal.code,
+        card_id: candidate.card_id,
+        name: card.name,
+        message: colorRefusal.message
+      });
+      continue;
+    }
+
     if (!isCommander || isSingletonExempt(card)) {
       accepted.push(candidate);
       applicable += candidate.quantity;
@@ -934,6 +1500,146 @@ async function preflightDeckAdds(database, deck, candidates) {
   }
 
   return { problems, applicable, accepted };
+}
+
+// ===========================================================================
+// CHANGING THE COMMANDER.
+//
+// Zach, 2026-08-18, verbatim: "You should allow the swap with a warning that it
+// will remove any cards from the deck that are no longer valid."
+//
+// So the swap is ALLOWED -- it is a legitimate thing to want to do, and
+// refusing it would leave the user hand-deleting cards to get permission to
+// make a change the app could make for them. But it is NOT SILENT, and that is
+// the whole design:
+//
+//   1. BEFORE anything is applied, the exact cards that will be removed are
+//      NAMED, with a count. "Some cards will be removed" is not consent; the
+//      user cannot reconcile that against a physical binder.
+//   2. The user confirms.
+//   3. The swap and the removals happen TOGETHER, in ONE transaction. Never a
+//      swapped commander beside a half-cleaned deck -- that state is illegal by
+//      the app's own rule and would have been produced by the app itself.
+//
+// This is the standing principle applied to a multi-step mutation: when an
+// operation cannot complete correctly, error out and roll back rather than
+// leaving a partial result.
+//
+// WHAT THIS PLANS AGAINST. `newCommanderIds` is the command zone AS IT WOULD BE
+// after the mutation, not the incoming card alone, because a partner pair's
+// identity is the union of both -- swapping one half of a pair leaves the other
+// half's colours in play, and planning against the incoming card alone would
+// over-remove.
+//
+// AN EMPTY list is still handled below, but since Zach's 2026-08-19 ruling no
+// caller should be able to produce one: a commander is swapped, never deleted,
+// so every real mutation arrives at a zone with at least one commander in it.
+// The branch is kept for the same defence-in-depth reason the choke point's
+// empty-zone refusal is.
+//
+// IT ONLY REPORTS WHAT IS ACTUALLY STRANDED, and that is the second half of
+// Zach's ruling. `removing` comes back EMPTY whenever the new identity is the
+// SAME as the old one or BROADER than it, because every card in the deck still
+// fits and there is nothing to agree to. The caller must not prompt on an empty
+// plan: a confirmation dialog that always appears is one the user learns to
+// click through without reading, which destroys the value of the one that
+// matters. Only a swap that genuinely narrows the identity under cards already
+// in the deck produces a non-empty plan and therefore a question.
+//
+// The 'considering' board is excluded for the same reason it is excluded
+// everywhere else: it reserves nothing and is not deck contents, so a swap has
+// no business emptying the user's shortlist.
+//
+// WRITES NOTHING. Returns the plan; the caller decides.
+//
+// IT REFUSES TO PLAN FROM DATA IT NEVER READ. The removal list decides which of
+// the user's REAL CARDS to delete, so it is the last place in the app that may
+// guess. A commander row with a NULL colour identity used to parse as
+// colourless, which made every coloured card in the deck look off-identity and
+// produced a plan offering to delete them all -- built entirely on an identity
+// the app never fetched. Now that case throws the honest could-not-verify
+// instead, and the plan is empty rather than wrong.
+async function planCommanderSwapRemovals(database, deck, newCommanderIds) {
+  const tx = client(database);
+  if (!isCommanderFormat(deck && deck.format)) return { removing: [] };
+
+  const ids = [...new Set((newCommanderIds || []).filter(Boolean))];
+  const commanderRows = ids.length === 0 ? [] : await tx.all(
+    `SELECT id, name, color_identity FROM card_cache WHERE id IN (${
+      ids.map(() => '?').join(',')
+    })`,
+    ids
+  );
+  // The SAME judgement the live zone gets, so the planned zone and the real one
+  // cannot disagree about what a NULL means.
+  const zone = colorIdentityOfZone(commanderRows);
+  if (zone.status === ZONE_UNVERIFIED) throw commanderIdentityUnverified(zone.unverified);
+
+  const entries = await tx.all(
+    `SELECT dc.id, dc.board, dc.quantity, cc.id AS card_id, cc.name, cc.color_identity,
+            cc.set_name, cc.number
+     FROM deck_cards dc JOIN card_cache cc ON dc.desired_card_id = cc.id
+     WHERE dc.deck_id = ? AND dc.board NOT IN ('commander', 'considering')
+     ORDER BY dc.id ASC`,
+    [deck.id]
+  );
+
+  // AN EMPTY RESULTING ZONE STRANDS EVERY CARD IN THE DECK, because a deck with
+  // no commander has no identity and therefore admits nothing -- the same rule
+  // the choke point applies to adds, applied to the state a delete would leave.
+  // The caller decides what to do with a plan this large; it does NOT get
+  // silently applied.
+  const removing = [];
+  for (const entry of entries) {
+    const refusal = zone.status === ZONE_EMPTY
+      ? { offending: colorIdentityOfCard(entry) }
+      : checkColorIdentity(zone.identity, entry, { board: entry.board });
+    if (!refusal) continue;
+    // The set and number are carried because the user has to find these cards
+    // in a physical binder afterwards, and a bare name does not identify a
+    // printing under exact-only identity.
+    removing.push({
+      deck_card_id: entry.id,
+      card_id: entry.card_id,
+      name: entry.name,
+      set_name: entry.set_name,
+      number: entry.number,
+      quantity: entry.quantity,
+      board: entry.board,
+      offending: refusal.offending
+    });
+  }
+
+  return { removing, deck_identity: zone.identity, zone_status: zone.status };
+}
+
+// APPLY the planned removals, inside the caller's transaction.
+//
+// Allocations go first and explicitly. The FK is ON DELETE CASCADE, but doing
+// it here keeps the intent visible and matches the delete route, which does the
+// same for the same reason.
+//
+// THE PHYSICAL CARD IS NOT TOUCHED. Removing a deck entry releases its
+// reservation and its allocation; the collection row -- a real object in a real
+// binder -- is untouched and the copy simply becomes available again.
+async function applyCommanderSwapRemovals(database, removing) {
+  const tx = client(database);
+  for (const entry of removing) {
+    await tx.run(`DELETE FROM deck_card_allocations WHERE deck_card_id = ?`, [entry.deck_card_id]);
+    await tx.run(`DELETE FROM deck_cards WHERE id = ?`, [entry.deck_card_id]);
+  }
+}
+
+const SWAP_REMOVES_CODE = 'COMMANDER_SWAP_REMOVES_CARDS';
+
+// The warning message. Names the cards and states the count, because that is
+// what the user is being asked to agree to.
+function swapRemovalMessage(removing, identity) {
+  const names = removing.map(r => r.name).join(', ');
+  return `Changing the commander to a ${describeColors(identity)} identity will `
+    + `remove ${removing.length} card(s) that no longer fit: ${names}. `
+    + `The physical cards stay in your collection and become available again. `
+    + `Confirm to change the commander and remove them together.`;
 }
 
 // RECORD AN ACCEPTED OVERRIDE.
@@ -997,5 +1703,25 @@ module.exports = {
   checkCommanderPairing,
   checkCommanderZone,
   recordCommanderOverride,
-  preflightDeckAdds
+  preflightDeckAdds,
+  // Colour identity (PR 6G).
+  COLOR_IDENTITY_CODE,
+  SWAP_REMOVES_CODE,
+  ZONE_EMPTY_CODE,
+  ZONE_EMPTY,
+  ZONE_UNVERIFIED,
+  ZONE_KNOWN,
+  parseColorIdentity,
+  colorIdentityOfCard,
+  describeColors,
+  deckColorIdentity,
+  colorIdentityOfZone,
+  commanderIdentityUnverified,
+  colorIdentityMessage,
+  checkColorIdentity,
+  isThinForColorIdentity,
+  hydrateThinColorIdentity,
+  planCommanderSwapRemovals,
+  applyCommanderSwapRemovals,
+  swapRemovalMessage
 };

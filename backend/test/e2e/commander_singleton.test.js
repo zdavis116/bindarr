@@ -1998,7 +1998,17 @@ test('F13-TC53', 'a THIRD commander is refused on the add path, closing the back
     `a refused third commander must leave the zone at two: ${JSON.stringify(rows)}`);
 });
 
-test('F13-TC54', 'a DELETE that would leave an ILLEGAL PAIR is refused, and the zone is untouched', async ({ owner }) => {
+test('F13-TC54', 'an illegal pair CANNOT be reached by deleting a commander', async ({ owner }) => {
+  // ORIGINAL INTENT, PRESERVED: a zone of three must not be reducible by
+  // deletion to an illegal pair that creating directly is refused.
+  //
+  // UPDATED FOR ZACH'S RULING (2026-08-19): "You cant outright delete the
+  // commander only swap". The delete is now refused as an UNSUPPORTED
+  // OPERATION before the zone is even judged, which is a STRONGER guarantee
+  // than the old revalidate-after-delete: the illegal pair is not merely
+  // caught, it is unreachable by this route at all. The assertion moves from
+  // "the pairing rule refuses it" to "the operation does not exist", and the
+  // load-bearing part -- the zone is untouched -- is unchanged.
   const deck = await api(owner.token, '/api/decks', {
     method: 'POST',
     body: {
@@ -2015,10 +2025,7 @@ test('F13-TC54', 'a DELETE that would leave an ILLEGAL PAIR is refused, and the 
   // A third commander row planted DIRECTLY, bypassing the route. This is a
   // fixture, not the thing under test: it stands in for a zone that got to
   // three some other way -- data written before the rule existed, a restored
-  // backup, a future route that forgets. The point of this case is that DELETE
-  // judges the zone it is ABOUT TO PRODUCE, whatever produced the zone it
-  // started from. Defence in depth: TC53 shuts the front door, this proves the
-  // back one is bolted too.
+  // backup, a future route that forgets.
   const identity = await db.get(`SELECT oracle_id FROM card_cache WHERE id = 'cmd-krenko'`);
   await db.run(
     `INSERT INTO deck_cards (deck_id, oracle_id, desired_card_id, desired_finish, board, quantity)
@@ -2029,38 +2036,53 @@ test('F13-TC54', 'a DELETE that would leave an ILLEGAL PAIR is refused, and the 
   const before = await deckRows(deck.body.id);
   assert.strictEqual(before.filter(r => r.board === 'commander').length, 3, 'fixture: the zone holds three');
 
-  // Deleting Thrasios leaves Piper + Krenko. Piper has Partner; Krenko has no
-  // pairing mechanic at all -- so that is an ILLEGAL pair, and creating it
-  // directly is correctly refused. Reaching it by deletion must be refused too.
+  // Deleting Thrasios would leave Piper + Krenko, an ILLEGAL pair. The delete
+  // never gets far enough to be judged on pairing: a commander is swapped,
+  // never deleted.
   const thrasios = before.find(r => r.desired_card_id === 'cmd-thrasios');
   const removed = await api(owner.token, `/api/decks/${deck.body.id}/cards/${thrasios.id}`, {
     method: 'DELETE'
   });
 
   assert.strictEqual(removed.status, 409,
-    `a delete that produces an illegal pair must be refused: ${JSON.stringify(removed.body)}`);
-  assert.strictEqual(removed.body.code, 'COMMANDER_PAIR_ILLEGAL',
-    `the refusal must name the pairing rule: ${JSON.stringify(removed.body)}`);
-  // Pairing is parsed from oracle text, so the app CAN be out of date about it
-  // -- this refusal must stay escapable with a recorded reason.
-  assert.strictEqual(removed.body.overridable, true,
-    'a pairing refusal must remain overridable with a reason');
-  assert.ok(/Krenko Test/.test(String(removed.body.error)),
-    `the refusal must name the cards it is judging, got: ${removed.body.error}`);
+    `a commander delete must be refused: ${JSON.stringify(removed.body)}`);
+  assert.strictEqual(removed.body.code, 'COMMANDER_DELETE_UNSUPPORTED',
+    `the refusal must name the unsupported operation: ${JSON.stringify(removed.body)}`);
+  assert.ok(/swap/i.test(String(removed.body.error)),
+    `the refusal must point the user at the swap, got: ${removed.body.error}`);
 
   // AND THE ROW IS STILL THERE. A refused delete that deleted anyway would be
-  // the silent partial state the app exists to prevent.
+  // the silent partial state the app exists to prevent. Unchanged assertion.
   const after = await deckRows(deck.body.id);
   assert.strictEqual(after.filter(r => r.board === 'commander').length, 3,
     `a refused delete must roll back completely: ${JSON.stringify(after)}`);
   assert.ok(after.some(r => r.desired_card_id === 'cmd-thrasios'),
     'the row the user tried to delete must survive a refused delete');
+
+  // THE PAIRING RULE IS STILL ENFORCED, just at the operation that can actually
+  // produce the zone. Swapping Thrasios for Krenko would leave Piper + Krenko
+  // -- the same illegal pair -- and THAT is refused on pairing grounds, with
+  // the override the rule has always carried. The guarantee did not move, only
+  // the door it is enforced at.
+  const swap = await api(owner.token, `/api/decks/${deck.body.id}/cards`, {
+    method: 'POST',
+    body: {
+      desired_card_id: 'cmd-krenko', desired_finish: 'nonfoil', board: 'commander',
+      replacing_deck_card_id: thrasios.id
+    }
+  });
+  assert.strictEqual(swap.status, 409,
+    `a swap producing an illegal pair must still be refused: ${JSON.stringify(swap.body)}`);
 });
 
-test('F13-TC55', 'a DELETE that leaves a LEGAL zone still works', async ({ owner }) => {
-  // The guard must not become a trap. Deleting one half of a legal pair leaves
-  // a single commander, which is a perfectly legal zone, so it must succeed --
-  // otherwise the fix for TC54 would strand every partner deck.
+test('F13-TC55', 'dropping to ONE commander is still possible -- through the SWAP', async ({ owner }) => {
+  // ORIGINAL INTENT, PRESERVED: the guard must not become a trap. A user with a
+  // partner pair must still be able to end up with a single commander.
+  //
+  // UPDATED FOR ZACH'S RULING: that is a SWAP of the zone from two commanders
+  // to one, not a delete. The delete is refused; the swap is the way, and it
+  // works. A rule with no way through is the failure mode this design avoids,
+  // so this case proves the way through exists.
   const deck = await api(owner.token, '/api/decks', {
     method: 'POST',
     body: {
@@ -2076,15 +2098,63 @@ test('F13-TC55', 'a DELETE that leaves a LEGAL zone still works', async ({ owner
 
   const rows = await deckRows(deck.body.id);
   const piper = rows.find(r => r.desired_card_id === 'cmd-piper');
+
+  // The bare delete is refused, even though the zone it would leave is legal.
+  // The rule is about the operation, not about the consequences.
   const removed = await api(owner.token, `/api/decks/${deck.body.id}/cards/${piper.id}`, {
     method: 'DELETE'
   });
-  assert.strictEqual(removed.status, 200,
-    `dropping to one commander is legal and must succeed: ${JSON.stringify(removed.body)}`);
+  assert.strictEqual(removed.status, 409,
+    `a commander delete is refused even when the resulting zone is legal: `
+    + `${JSON.stringify(removed.body)}`);
+  assert.strictEqual(removed.body.code, 'COMMANDER_DELETE_UNSUPPORTED',
+    JSON.stringify(removed.body));
+  assert.strictEqual((await deckRows(deck.body.id)).filter(r => r.board === 'commander').length, 2,
+    'a refused delete must leave the zone as it was');
+
+  // THE WAY THROUGH: drop Piper from the zone. That is a swap of the zone from
+  // two commanders to one, expressed on the swap route, and it leaves a legal
+  // single-commander zone.
+  const dropped = await api(owner.token, `/api/decks/${deck.body.id}/cards`, {
+    method: 'POST',
+    body: { drop_commander_deck_card_id: piper.id }
+  });
+  assert.strictEqual(dropped.status, 200,
+    `dropping to one commander must be possible through the swap route: `
+    + `${JSON.stringify(dropped.body)}`);
 
   const after = await deckRows(deck.body.id);
-  assert.strictEqual(after.filter(r => r.board === 'commander').length, 1);
-  assert.strictEqual(after.filter(r => r.board === 'commander')[0].desired_card_id, 'cmd-thrasios');
+  assert.strictEqual(after.filter(r => r.board === 'commander').length, 1,
+    `the zone must end at one commander: ${JSON.stringify(after)}`);
+  assert.strictEqual(after.filter(r => r.board === 'commander')[0].desired_card_id, 'cmd-thrasios',
+    'the surviving commander must be the one the user kept');
+});
+
+test('F13-TC55b', 'the LAST commander cannot be dropped either', async ({ owner }) => {
+  // The drop path is the other way to shrink the zone, so it carries the same
+  // rule as DELETE: a Commander deck always has a commander. Without this, the
+  // affordance added for TC55 would be a second door to the empty zone.
+  const deck = await api(owner.token, '/api/decks', {
+    method: 'POST',
+    body: {
+      name: 'Drop Last',
+      format: 'Commander / EDH',
+      commanders: [{ desired_card_id: 'cmd-atraxa', desired_finish: 'nonfoil' }]
+    }
+  });
+  assert.strictEqual(deck.status, 201, JSON.stringify(deck.body));
+
+  const only = (await deckRows(deck.body.id)).find(r => r.board === 'commander');
+  const dropped = await api(owner.token, `/api/decks/${deck.body.id}/cards`, {
+    method: 'POST',
+    body: { drop_commander_deck_card_id: only.id }
+  });
+  assert.strictEqual(dropped.status, 409,
+    `the last commander must not be droppable: ${JSON.stringify(dropped.body)}`);
+  assert.strictEqual(dropped.body.code, 'COMMANDER_DELETE_UNSUPPORTED',
+    JSON.stringify(dropped.body));
+  assert.strictEqual((await deckRows(deck.body.id)).filter(r => r.board === 'commander').length, 1,
+    'the commander must survive');
 });
 
 test('F13-TC56', 'deleting an ordinary deck card never consults the command zone', async ({ owner }) => {
@@ -2672,6 +2742,26 @@ async function seed() {
   await seedThinCard('thin-partner-a', { name: 'Thin Partner A', oracleId: 'o-thin-pa', number: '202' });
   await seedThinCard('thin-partner-b', { name: 'Thin Partner B', oracleId: 'o-thin-pb', number: '203' });
   await seedThinCard('thin-unfetchable', { name: 'Thin Unfetchable Test', oracleId: 'o-thin-unf', number: '204' });
+
+  // MATCH THE REAL CACHE WRITER'S GUARANTEE ABOUT color_identity.
+  //
+  // These fixtures insert card_cache rows with direct SQL and never named
+  // color_identity, so it defaulted to NULL. cacheNormalizedCards -- the ONLY
+  // thing in the app that writes this table -- always writes '[]' for a card it
+  // actually read, and the column is in the base schema with no migration that
+  // could leave it NULL. So a NULL colour identity is a state PRODUCTION CANNOT
+  // PRODUCE, and these rows were describing a card that cannot exist.
+  //
+  // That mattered from PR 6G on: NULL is precisely the app's signal for "never
+  // read this card", which now blocks a Commander add until it can verify. The
+  // fixtures were quietly asserting the opposite of the real invariant.
+  //
+  // Deliberately NOT applied to the thin rows above: their thinness is the
+  // thing under test, and it is expressed through type_line/oracle_text/
+  // keywords -- different fields, a different question. Colour identity is
+  // filled in for them too, so they are thin for the COMMANDER decision only,
+  // which is exactly what those cases mean.
+  await db.run(`UPDATE card_cache SET color_identity = '[]' WHERE color_identity IS NULL`);
 }
 
 async function main() {

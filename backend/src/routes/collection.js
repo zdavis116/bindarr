@@ -8,7 +8,7 @@ const { authenticateToken, searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, parseCardRow, recordPrice } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
-const { checkedOutAllocation, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
+const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
 const { splitPrice } = require('../utils/splitPrice');
 const commanderRules = require('../utils/commanderRules');
 const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
@@ -33,6 +33,34 @@ router.use(authenticateToken);
 // Stamp each result with how many copies the user already owns, so browsing a
 // set shows what is already in the binder instead of inviting duplicate adds.
 // A collection-scope search already reports owned_qty from its own join.
+//
+// PR 6G: also stamps `in_deck_qty` -- how many copies are committed to decks
+// ACROSS ALL DECKS. That figure used to be computed client-side from whichever
+// deck happened to be open, so the same card read "In Deck: 1" in one deck and
+// "In Deck: 0" in another, telling the user a card was free when it was already
+// sleeved elsewhere. It is computed here, on the server, for the same reason
+// availability is: it is a fact about the WHOLE collection, and no single
+// screen has the information to derive it.
+//
+// `owned_qty - in_deck_qty` is therefore the number genuinely free, and it is
+// stamped as `available_qty` so no caller has to do that subtraction itself.
+//
+// PR 6G item 3 (Zach, 2026-08-18): "searching when inside the deck would allow
+// you to search on cards you own/dont own and that is where show available
+// count becomes nice in that because you can see if you even have it and then
+// even farther it marks it as missing".
+//
+// So the SEARCH ITSELF must answer "do I even have this, and is it free?" --
+// otherwise the user finds the card and then has to go and look it up a second
+// time somewhere else. AVAILABLE MEANS GENUINELY FREE: owned minus committed
+// across ALL decks, the same figure the In Deck fix in this PR establishes.
+// Owned-minus-this-deck would be the false-availability bug in a new costume.
+//
+// It is stamped here rather than derived on the client for the reason the whole
+// PR turns on: the client only ever holds ONE deck, so it cannot subtract the
+// commitments it cannot see. An explicit 0 rather than an absent field, so an
+// unowned card reads as a confident "none" instead of a blank the UI would have
+// to guess about.
 async function attachOwnedQty(cards, userId) {
   if (!Array.isArray(cards) || cards.length === 0 || !userId) return;
   const ids = cards.map(c => c.id).filter(Boolean);
@@ -44,24 +72,74 @@ async function attachOwnedQty(cards, userId) {
     [userId, ...ids]
   );
   const owned = new Map(rows.map(r => [r.card_id, r.qty]));
-  for (const c of cards) c.owned_qty = owned.get(c.id) || 0;
+
+  // Keyed on (card_id, finish) because that is the app's deck identity. A
+  // search row that does not state a finish (a name-scoped catalogue result)
+  // has no single variant to report, so it sums every finish of the printing --
+  // which is the honest answer to "is this card spoken for", the question the
+  // user is actually asking when looking at such a row.
+  const inDeck = await inDeckQuantities(userId);
+  for (const c of cards) {
+    c.owned_qty = owned.get(c.id) || 0;
+    if (c.finish) {
+      c.in_deck_qty = inDeck.get(`${c.id}|${c.finish}`) || 0;
+    } else {
+      let total = 0;
+      for (const [key, qty] of inDeck) {
+        if (key.slice(0, key.lastIndexOf('|')) === c.id) total += qty;
+      }
+      c.in_deck_qty = total;
+    }
+    // Clamped at zero. A negative would only be possible if commitments
+    // outran ownership (a card sold while still required by a deck), and
+    // "-1 free" is not a thing a user can act on; "0 free, and the deck says
+    // missing" is.
+    c.available_qty = Math.max(0, c.owned_qty - c.in_deck_qty);
+  }
 }
 
 // 1. Search English MTG cards through Scryfall.
+//
+// `commanders=1` FILTERS THE RESULTS TO LEGAL COMMANDERS ONLY.
+//
+// The commander picker in the Create New Deck modal used this route unfiltered
+// and therefore offered any card at all -- so the user could pick a Sol Ring,
+// press create, and be refused by a rule they had no way to see coming. A
+// picker that offers a choice the app will then reject is worse than no picker.
+//
+// THE FILTER REUSES isLegalCommanderCard, THE REFUSAL'S OWN RULE. That is the
+// point and it is not merely tidy: a second, simpler notion of "legal
+// commander" here (say, a type_line regex) would drift from the real one and
+// reintroduce the same disagreement in the opposite direction -- wrongly hiding
+// legal planeswalker commanders and Backgrounds. One rule, one implementation,
+// so the picker and the refusal cannot disagree by construction.
+//
+// OPT-IN, never applied by default: the deck Add Cards search and the manual
+// collection add both use this route and must keep seeing every card.
 router.get('/search', searchLimiter, async (req, res) => {
   const { name, number, set, scope = 'database', prints } = req.query;
+  const commandersOnly = req.query.commanders === '1';
   // 1-based page over `limit`-sized pages.
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(250, Math.max(1, parseInt(req.query.limit, 10) || 60));
   try {
     const { cards, total } = await scryfallApi.searchCards(name, number, set, scope, req.user.id, 'en', prints === '1', page, limit);
-    await attachOwnedQty(cards, req.user.id);
+    // Filtered BEFORE ownership is stamped, so the work of the ownership join
+    // is not spent on rows that are about to be discarded.
+    const visible = commandersOnly
+      ? cards.filter(card => commanderRules.isLegalCommanderCard(card))
+      : cards;
+    await attachOwnedQty(visible, req.user.id);
     // Header, not the body: every existing caller expects a bare array here.
     if (total != null) {
+      // The total is NOT re-stated when filtering. It describes the upstream
+      // match count, and quietly replacing it with the filtered page's length
+      // would make paging think it had reached the end. A filtered search that
+      // pages is a genuine limitation, flagged rather than papered over.
       res.set('X-Total-Count', String(total));
       res.set('Access-Control-Expose-Headers', 'X-Total-Count');
     }
-    res.json(cards);
+    res.json(visible);
   } catch (error) {
     console.error(error);
     if (error.message === 'INVALID_API_KEY') {
@@ -218,11 +296,20 @@ router.get('/collection', async (req, res) => {
     const rows = await db.all(query, filterParams);
 
     const alloc = await checkedOutAllocation(req.user.id);
+    // The cross-deck commitment, computed ONCE for the whole listing rather
+    // than per row. Browse Collection is the screen the false-availability bug
+    // was reported on, so the figure has to be carried here -- fixing it only
+    // on the search route would leave it wrong exactly where it was seen.
+    const inDeck = await inDeckQuantities(req.user.id);
 
     const formatted = rows.map(row => ({
       ...parseCardRow(row),
       price_trend: resolveCardPrice(row),
       checked_out_qty: alloc.get(row.entry_id) || 0,
+      // Keyed on (card_id, finish): the app's deck identity. A committed foil
+      // must not make the nonfoil of the same printing read as spoken for --
+      // they are different physical objects.
+      in_deck_qty: inDeck.get(`${row.card_id}|${row.finish || 'nonfoil'}`) || 0,
       compartment_display_label: row.compartment_id
         ? compartmentLabel({ idx: row.compartment_idx, label: row.compartment_label }, row.location_type)
         : null,
