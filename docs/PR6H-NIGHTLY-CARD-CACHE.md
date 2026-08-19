@@ -61,3 +61,41 @@ Once the catalogue is reliably complete, revisit:
 Do not remove those guards as part of this PR. They are the correct behaviour
 when the cache genuinely lacks a card; the point of the cache is that the
 situation stops arising.
+
+## Colour-identity "drift" — mostly a non-issue (Zach, 2026-08-19)
+
+A PR 6G round-3 review finding suggested a nightly refresh could retroactively
+change a card's colour identity beneath a legal deck, and asked for a drift
+warning to ship with this PR.
+
+Zach's correction, and it is right: **colour identity cannot change on a
+printed card.** Once a card is printed its colours are fixed. A card printed
+with different colours in another set is a *different printing* — a different
+`desired_card_id` under exact-only identity — so it cannot overwrite the
+original row's data.
+
+The only real case is **Scryfall correcting its own data error**: the card was
+always green, their record said otherwise, and a refresh fixes it. That is not
+the card drifting, it is the app finally learning the truth, and it is rare.
+
+So full drift detection is not warranted. What is worth doing, cheaply:
+
+- If a refresh changes the `color_identity` of a card already used in a deck,
+  log it and surface it once. Do not silently overwrite, and never auto-remove
+  cards — the standing rule against silent state changes still applies, and a
+  data correction is something the user should be able to see.
+- Do NOT build ongoing drift monitoring, periodic re-validation of every deck,
+  or a `buildDeckWarnings` code for a condition that should not occur.
+
+Treat a changed colour identity on refresh as evidence the earlier data was
+wrong, not that the card changed.
+
+**Priority (Zach, 2026-08-19):** "errors can happen and I guess it's always a
+possibility but you were right to mark it for later. That's an issue to address
+if there is no other feature work or high priority bugs to fix."
+
+So: lowest priority. Do not build it as part of PR 6H. The realistic case is a
+Scryfall data correction affecting one card, once — nothing is lost, the card
+is still in the binder, and the deck view will show the problem the next time
+it is opened. Revisit only when there is no feature work and no high-priority
+bug outstanding.
