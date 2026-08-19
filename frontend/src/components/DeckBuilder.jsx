@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb, ShoppingCart } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
 
@@ -9,6 +9,7 @@ import { buildDeckExport, parseDeckLine } from '../utils/deckText';
 import { useT } from '../utils/i18n';
 import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
 import CardTile, { FinishBadge } from './CardTile';
+import MissingCardsPanel from './MissingCardsPanel';
 
 // Basic lands are exempt from the four-copy deck rule.
 const isBasicEnergyOrLand = (card) => {
@@ -103,6 +104,20 @@ function DeckBuilder({ showToast }) {
   const [activeDeck, setActiveDeck] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
+
+  // THE MULTI-DECK BUYLIST SELECTION (PR 7).
+  //
+  // He picks the decks; there is no automatic "all decks" view. Zach: "I dont
+  // want a per collection per say I want to be able to select all the decks I
+  // want to make a buy list for." Selecting every deck is simply one selection
+  // he might make.
+  //
+  // Held as transient screen state and NOT persisted: he explicitly asked for
+  // no saved selections or presets, so a selection lives as long as the screen.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedDeckIds, setSelectedDeckIds] = useState([]);
+  const [multiBuylist, setMultiBuylist] = useState(null);
+  const [multiBuylistLoading, setMultiBuylistLoading] = useState(false);
   
   // Deck View & Display Modes
   const [cardDisplayMode, setCardDisplayMode] = useState('list'); // 'list' | 'grid'
@@ -245,6 +260,11 @@ function DeckBuilder({ showToast }) {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState(null); // null = auto by deck game
+  // The server's buylist for the open deck (PR 7). `null` means "not loaded or
+  // the fetch failed" and is deliberately distinct from a loaded-but-empty
+  // list, which is the positive claim "you own every card in this deck".
+  const [buylist, setBuylist] = useState(null);
+  const [buylistLoading, setBuylistLoading] = useState(false);
   const [importText, setImportText] = useState('');
   const [importComparison, setImportComparison] = useState(null);
   // The server's copy-level accounting for the previewed paste. Kept beside the
@@ -646,6 +666,13 @@ function DeckBuilder({ showToast }) {
         // blocking the whole view on a secondary panel's fetch would make every
         // delete feel slower than it is.
         refreshResultsPanel();
+        // THE BUYLIST IS REFRESHED FROM THE SAME CHOKE POINT, and for the same
+        // reason: every deck mutation already ends here, so "the buylist is
+        // current after any change that can move a shortfall" is true by
+        // construction rather than true only where somebody remembered. A
+        // stale buylist is worse than none — it is a shopping list for a deck
+        // he no longer has.
+        refreshBuylist(deckId);
       }
     } catch (err) {
       console.error(err);
@@ -1389,8 +1416,106 @@ function DeckBuilder({ showToast }) {
   // --- EXPORT & IMPORT LOGIC ---
   const effectiveExportFormat = exportFormat || 'mtga';
 
+  // THE BUYLIST, FETCHED FROM THE SERVER (PR 7).
+  //
+  // Not derived from `deckCards` on the client, deliberately. The shortfall is
+  // computed AFTER other saved decks' reservations, and that arithmetic lives
+  // once on the server (deckIdentity.buylistForDeck). Re-deriving it here
+  // would create a second answer to "must I buy this card", and the one the
+  // user acts on would depend on which screen they happened to open.
+  const refreshBuylist = async (deckId) => {
+    if (!deckId) return;
+    setBuylistLoading(true);
+    try {
+      const response = await fetch(`/api/decks/${deckId}/buylist`);
+      if (!response.ok) throw new Error('buylist failed');
+      setBuylist(await response.json());
+    } catch (err) {
+      console.error(err);
+      // Left as null rather than emptied: an empty buylist MEANS "you own
+      // everything", which is a claim we cannot make when the fetch failed.
+      setBuylist(null);
+    } finally {
+      setBuylistLoading(false);
+    }
+  };
+
+  // The MULTI-DECK buylist, also fetched from the server, for the same reason.
+  //
+  // The aggregate is a SUM OF PER-DECK SHORTFALLS (deckIdentity.buylistForDecks)
+  // — never "what these decks want minus what I own", which would double-count
+  // a single copy wanted by two decks. That arithmetic is not repeated here.
+  const refreshMultiBuylist = async (deckIds) => {
+    // An EMPTY SELECTION IS REFUSED, by the server, on purpose. We do not
+    // shortcut it to an empty list here: "buy nothing" and "you selected
+    // nothing" are different facts, and a silently empty shopping list is the
+    // dangerous one because it reads as good news.
+    setMultiBuylistLoading(true);
+    try {
+      const response = await fetch('/api/decks/buylist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deck_ids: deckIds })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMultiBuylist(null);
+        showToast(payload?.error || t('deck.multiBuylistFailed'), 'error');
+        return;
+      }
+      setMultiBuylist(payload);
+    } catch (err) {
+      console.error(err);
+      // Null, never an empty list — see refreshBuylist for the same reasoning.
+      setMultiBuylist(null);
+      showToast(t('deck.multiBuylistFailed'), 'error');
+    } finally {
+      setMultiBuylistLoading(false);
+    }
+  };
+
+  const toggleDeckSelected = (deckId) => {
+    setSelectedDeckIds(current => current.includes(deckId)
+      ? current.filter(id => id !== deckId)
+      : [...current, deckId]);
+    // The previous result is dropped the moment the selection changes: a list
+    // built for a different set of decks, still on screen, is a wrong list.
+    setMultiBuylist(null);
+  };
+
+  // The multi-deck buylist as text, reusing the SAME exporter as the per-deck
+  // one so the two can never describe different purchases.
+  const multiBuylistText = () => buildDeckExport(
+    (multiBuylist?.items || []).map(item => ({ ...item, quantity_missing: item.quantity })),
+    'buylist'
+  );
+
+  // The buylist as text, from the SERVER's lines.
+  //
+  // buildDeckExport is reused rather than a second formatter, so the copied
+  // text and the on-screen panel cannot describe different purchases. The
+  // server's items already carry `quantity` as the shortfall, so it is mapped
+  // onto the shape the exporter expects rather than recomputed.
+  const buylistText = () => buildDeckExport(
+    (buylist?.items || []).map(item => ({ ...item, quantity_missing: item.quantity })),
+    'buylist'
+  );
+
+  const handleCopyBuylist = () => {
+    const text = buylistText();
+    if (!text) { showToast(t('deck.nothingToBuy')); return; }
+    navigator.clipboard.writeText(text)
+      .then(() => showToast(t('deck.buylistCopied')))
+      .catch(() => showToast(t('deck.errCopy')));
+  };
+
   const handleExportDeckText = () => {
     if (!activeDeck) return '';
+    // The buylist option reads the SERVER's list; every other format describes
+    // the deck itself. That split is the whole point of the two outputs: an
+    // EXPORT lists all planned cards including the missing ones (a decklist is
+    // what the deck IS), while the buylist lists only the gap.
+    if (effectiveExportFormat === 'buylist') return buylistText();
     return buildDeckExport(deckCards, effectiveExportFormat);
   };
 
@@ -1404,8 +1529,13 @@ function DeckBuilder({ showToast }) {
   // Copy the buylist and open TCGplayer Mass Entry — user pastes (their mass
   // entry page has no documented prefill URL param, so clipboard + open is the
   // reliable path).
+  //
+  // PR 7: the text now comes from the SERVER's buylist rather than being
+  // re-derived from the open deck's card list. The old client-side derivation
+  // could not see other decks' reservations, so it under-reported what he
+  // actually had to buy — the copied list was short exactly where it mattered.
   const handleOpenMassEntry = () => {
-    const text = buildDeckExport(deckCards, 'buylist');
+    const text = buylistText();
     if (!text) { showToast(t('deck.nothingToBuy')); return; }
     navigator.clipboard.writeText(text).catch(() => {});
     window.open('https://www.tcgplayer.com/massentry?productline=Magic', '_blank', 'noopener');
@@ -1836,6 +1966,23 @@ function DeckBuilder({ showToast }) {
                 </div>
               </div>
 
+              {/* MULTI-DECK BUYLIST toggle. Adapts the existing toolbar in
+                  place — the deck list keeps its layout, and checkboxes only
+                  appear on the existing cards while selecting. */}
+              <button
+                type="button"
+                className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => {
+                  const next = !selectMode;
+                  setSelectMode(next);
+                  if (!next) { setSelectedDeckIds([]); setMultiBuylist(null); }
+                }}
+                title={t('deck.multiBuylistTitle')}
+              >
+                <ShoppingCart size={13} /> {t('deck.multiBuylistSelect')}
+              </button>
+
               {/* View Mode Toggle: Grid vs Table */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(0,0,0,0.3)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                 <button
@@ -1860,6 +2007,70 @@ function DeckBuilder({ showToast }) {
 
             </div>
           </div>
+
+          {/* MULTI-DECK BUYLIST: the selection bar and its result.
+              Sits between the toolbar and the deck list, so the deck list
+              itself is untouched. Only rendered while selecting. */}
+          {selectMode && (
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1rem 1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <ShoppingCart size={15} style={{ color: 'var(--accent-yellow)' }} />
+                    {t('deck.multiBuylistTitle')}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {t('deck.multiBuylistSelected', { count: selectedDeckIds.length })}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.8rem' }}
+                    onClick={() => { setSelectedDeckIds([]); setMultiBuylist(null); }}
+                  >
+                    {t('deck.multiBuylistClear')}
+                  </button>
+                  {/* DISABLED ON AN EMPTY SELECTION, and the server refuses it
+                      too. Both, deliberately: the button explains the state
+                      before he clicks, and the server guarantees no caller can
+                      turn "you selected nothing" into an empty shopping list
+                      that reads as "you need nothing". */}
+                  <button
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.8rem' }}
+                    disabled={selectedDeckIds.length === 0 || multiBuylistLoading}
+                    onClick={() => refreshMultiBuylist(selectedDeckIds)}
+                  >
+                    {t('deck.multiBuylistBuild')}
+                  </button>
+                </div>
+              </div>
+
+              {selectedDeckIds.length === 0 && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+                  {t('deck.multiBuylistEmptyHint')}
+                </p>
+              )}
+
+              {multiBuylistLoading && <div className="spinner" style={{ margin: '1rem auto' }}></div>}
+
+              {multiBuylist && !multiBuylistLoading && (
+                <MissingCardsPanel
+                  buylist={multiBuylist}
+                  loading={false}
+                  onCopy={() => {
+                    navigator.clipboard.writeText(multiBuylistText());
+                    showToast(t('deck.buylistCopied'), 'success');
+                  }}
+                  onOpenMassEntry={() => {
+                    navigator.clipboard.writeText(multiBuylistText());
+                    window.open('https://www.tcgplayer.com/massentry', '_blank', 'noopener');
+                  }}
+                />
+              )}
+            </div>
+          )}
 
           {/* Decks Display Section */}
           {loading ? (
@@ -1908,7 +2119,9 @@ function DeckBuilder({ showToast }) {
                       transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
                       background: 'linear-gradient(145deg, rgba(211,32,42,0.06), rgba(15,23,42,0.65))'
                     }}
-                    onClick={() => loadDeckDetails(deck.id)}
+                    /* In select mode a card TOGGLES instead of opening. The
+                       deck list is adapted in place, not replaced. */
+                    onClick={() => selectMode ? toggleDeckSelected(deck.id) : loadDeckDetails(deck.id)}
                     onMouseEnter={e => {
                       e.currentTarget.style.transform = 'translateY(-3px)';
                       e.currentTarget.style.boxShadow = `0 12px 30px ${accentColor}25`;
@@ -1925,6 +2138,21 @@ function DeckBuilder({ showToast }) {
                         ? 'linear-gradient(90deg, #eab308, #f59e0b)'
                         : `linear-gradient(90deg, ${accentColor}, ${accentColor}cc)`
                     }} />
+
+                    {/* SELECTION CHECKBOX, only while selecting. The card keeps
+                        its existing layout; this sits over the accent line. */}
+                    {selectMode && (
+                      <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 2 }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedDeckIds.includes(deck.id)}
+                          onChange={() => toggleDeckSelected(deck.id)}
+                          onClick={e => e.stopPropagation()}
+                          aria-label={deck.name}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent-yellow)' }}
+                        />
+                      </div>
+                    )}
 
                     {/* In Play Banner */}
                     {deck.checked_out ? (
@@ -2123,7 +2351,8 @@ function DeckBuilder({ showToast }) {
                       <tr
                         key={deck.id}
                         style={{ borderBottom: '1px solid var(--border-glass)', cursor: 'pointer', transition: 'background 0.15s' }}
-                        onClick={() => loadDeckDetails(deck.id)}
+                        /* In select mode a row TOGGLES instead of opening. */
+                        onClick={() => selectMode ? toggleDeckSelected(deck.id) : loadDeckDetails(deck.id)}
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
@@ -2352,6 +2581,98 @@ function DeckBuilder({ showToast }) {
               {/* Left Column: Deck Card List */}
               <div className="deck-detail-main" style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 
+                {/* DECK HEALTH & RULES, ABOVE ADD CARDS (PR 7; was PR 6I item 4c).
+
+                    Zach: "moving deck health and rules toward the top would be
+                    nice as well since it's super important to know that data."
+                    It used to sit in the right-hand statistics column, which on
+                    a phone stacks BELOW the whole card list -- so the panel that
+                    says whether the deck is legal and buildable was the last
+                    thing seen, a long scroll away.
+
+                    MOVED, NOT REBUILT. This is the same markup, the same styling
+                    and the same content as before; only its position in the tree
+                    changed. The charts it used to sit above (mana curve,
+                    supertype, colour distribution) stay in the right column,
+                    where they belong -- they are analysis, this is status.
+
+                    PR 7 moves it one step further, above Add Cards / Browse
+                    Collection. Zach: "deck health should be above the card
+                    search/browse collection on mobile." PR 6I put it above the
+                    card LIST but still below the search box, so on a phone the
+                    tool for fixing the deck came before the panel saying what
+                    was wrong with it. Diagnosis before treatment. Placement
+                    only -- nothing about the panel itself changed. */}
+                {/* Deck Health & Summary Status */}
+                <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {totalDeckCardsCount === targetDeckCardsCount ? (
+                      <CheckCircle size={15} style={{ color: 'var(--type-grass)' }} />
+                    ) : (
+                      <AlertTriangle size={15} style={{ color: 'var(--accent-yellow)' }} />
+                    )}
+                    {t('deck.healthTitle')}
+                  </h3>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                      <span>Target Deck Size:</span>
+                      <strong style={{ color: totalDeckCardsCount === targetDeckCardsCount ? 'var(--type-grass)' : 'var(--text-strong)' }}>{totalDeckCardsCount}/{targetDeckCardsCount} Cards</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                      <span>Unique Cards:</span>
+                      <strong style={{ color: 'var(--text-strong)' }}>{deckCards.length} titles</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                      <span>{t('deck.basicLands')}</span>
+                      <strong style={{ color: 'var(--accent-yellow)' }}>
+                        {deckCards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
+                      </strong>
+                    </div>
+                    {consideringCards.length > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                        <span>{t('deck.consideringLabel')}</span>
+                        <strong style={{ color: 'var(--accent-yellow)' }}>
+                          {sectionCount(consideringCards)}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Server-computed rules and ownership warnings.
+                      Advisory, never a blocked save: not owning a card you plan
+                      to buy is a normal state of a deck under construction, so
+                      these are listed as information rather than styled as
+                      errors. They come from the server so the screen and the
+                      database cannot disagree about them. */}
+                  {(activeDeck.warnings || []).length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
+                      {activeDeck.warnings.map((warning, index) => (
+                        <div key={`${warning.code}-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          <AlertTriangle size={12} style={{ color: 'var(--accent-yellow)', flexShrink: 0, marginTop: '2px' }} />
+                          <span>{warning.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* MISSING CARDS / BUYLIST (PR 7).
+                    Sits with Deck Health, above Add Cards, for the same reason
+                    the health panel does: what is wrong with the deck comes
+                    before the tool for fixing it. It is only rendered when the
+                    server has actually answered -- a buylist that has not
+                    loaded must not be shown as an empty one, because an empty
+                    buylist is the positive claim "you own everything". */}
+                {buylist && (
+                  <MissingCardsPanel
+                    buylist={buylist}
+                    loading={buylistLoading}
+                    onCopy={handleCopyBuylist}
+                    onOpenMassEntry={handleOpenMassEntry}
+                  />
+                )}
+
                 {/* Search & Quick Add to Deck */}
                 <div className="glass-panel">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -2609,73 +2930,6 @@ function DeckBuilder({ showToast }) {
                   )}
                 </div>
 
-                {/* DECK HEALTH & RULES, ABOVE THE CARD LIST (PR 6I item 4c).
-
-                    Zach: "moving deck health and rules toward the top would be
-                    nice as well since it's super important to know that data."
-                    It used to sit in the right-hand statistics column, which on
-                    a phone stacks BELOW the whole card list -- so the panel that
-                    says whether the deck is legal and buildable was the last
-                    thing seen, a long scroll away.
-
-                    MOVED, NOT REBUILT. This is the same markup, the same styling
-                    and the same content as before; only its position in the tree
-                    changed. The charts it used to sit above (mana curve,
-                    supertype, colour distribution) stay in the right column,
-                    where they belong -- they are analysis, this is status. */}
-                {/* Deck Health & Summary Status */}
-                <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {totalDeckCardsCount === targetDeckCardsCount ? (
-                      <CheckCircle size={15} style={{ color: 'var(--type-grass)' }} />
-                    ) : (
-                      <AlertTriangle size={15} style={{ color: 'var(--accent-yellow)' }} />
-                    )}
-                    {t('deck.healthTitle')}
-                  </h3>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>Target Deck Size:</span>
-                      <strong style={{ color: totalDeckCardsCount === targetDeckCardsCount ? 'var(--type-grass)' : 'var(--text-strong)' }}>{totalDeckCardsCount}/{targetDeckCardsCount} Cards</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>Unique Cards:</span>
-                      <strong style={{ color: 'var(--text-strong)' }}>{deckCards.length} titles</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>{t('deck.basicLands')}</span>
-                      <strong style={{ color: 'var(--accent-yellow)' }}>
-                        {deckCards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
-                      </strong>
-                    </div>
-                    {consideringCards.length > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                        <span>{t('deck.consideringLabel')}</span>
-                        <strong style={{ color: 'var(--accent-yellow)' }}>
-                          {sectionCount(consideringCards)}
-                        </strong>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Server-computed rules and ownership warnings.
-                      Advisory, never a blocked save: not owning a card you plan
-                      to buy is a normal state of a deck under construction, so
-                      these are listed as information rather than styled as
-                      errors. They come from the server so the screen and the
-                      database cannot disagree about them. */}
-                  {(activeDeck.warnings || []).length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
-                      {activeDeck.warnings.map((warning, index) => (
-                        <div key={`${warning.code}-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                          <AlertTriangle size={12} style={{ color: 'var(--accent-yellow)', flexShrink: 0, marginTop: '2px' }} />
-                          <span>{warning.message}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
                 {/* Deck Cards Header & Display Mode Toggle */}
                 <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

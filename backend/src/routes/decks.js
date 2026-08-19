@@ -1901,6 +1901,96 @@ router.delete('/:id/cards/:deck_card_id', async (req, res) => {
   }
 });
 
+// THE BUYLIST (PR 7). What this deck still needs the user to BUY.
+//
+// A separate route from GET /:id rather than a field on it, because it is a
+// different output with different rules: the deck read describes what the deck
+// IS (every planned card, owned or not — which is what export needs), while
+// this describes only the gap. Folding them together would have meant one of
+// the two silently losing its rule.
+//
+// The rules themselves live in deckIdentity.buylistForDeck, next to the
+// availability arithmetic they depend on. This route only checks ownership and
+// serialises — it must not acquire a second opinion about what "missing" means.
+router.get('/:id/buylist', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const buylist = await deckIdentity.buylistForDeck(db, deck.id, req.user.id);
+    res.json({
+      deck_id: deck.id,
+      deck_name: deck.name,
+      items: buylist.items,
+      considering: buylist.considering,
+      summary: buylist.summary
+    });
+  } catch (error) {
+    sendError(res, error, 'Failed to build buylist');
+  }
+});
+
+// THE MULTI-DECK BUYLIST (PR 7). One shopping trip for the decks HE SELECTED.
+//
+// POST rather than GET because the selection is the input and a list of deck
+// ids does not belong in a URL — but it is a READ: nothing is written, and no
+// selection is saved. He asked for no presets, so a selection lives exactly as
+// long as the screen he made it on.
+//
+// The arithmetic — SUM OF PER-DECK SHORTFALLS, keyed on exact printing +
+// finish — lives in deckIdentity.buylistForDecks, next to the per-deck buylist
+// it reuses. This route only validates the selection and serialises.
+router.post('/buylist', async (req, res) => {
+  try {
+    const requested = req.body?.deck_ids;
+
+    // AN EMPTY SELECTION IS REFUSED, NOT ANSWERED.
+    //
+    // Returning an empty list here would be the dangerous answer: an empty
+    // shopping list reads as the good news that he needs nothing, when the
+    // truth is that he was never asked about any deck. "Buy nothing" and "you
+    // selected nothing" are different facts and must look different.
+    if (!Array.isArray(requested) || requested.length === 0) {
+      throw new DeckIdentityError(
+        400,
+        'Select at least one deck to build a buylist.',
+        'NO_DECKS_SELECTED'
+      );
+    }
+
+    // De-duplicated, because selecting a deck twice must not double its
+    // shortfall — a UI bug would otherwise become a wrong number to spend
+    // money against.
+    const deckIds = [...new Set(requested.map(Number))];
+
+    // Ownership is checked for EVERY id BEFORE any aggregation, and one
+    // foreign id refuses the whole request rather than being quietly dropped.
+    // A list silently missing a deck he asked for is a wrong list, and it
+    // would look complete.
+    const decks = [];
+    for (const deckId of deckIds) decks.push(await requireOwnedDeck(db, deckId, req.user.id));
+
+    // "ONLY ACTIVE DECKS SELECTABLE" — and in this model EVERY SAVED DECK IS
+    // ACTIVE, so there is nothing extra to filter here.
+    //
+    // Worth stating explicitly because the requirement sounds like a missing
+    // check. PR 6C gave decks an 'active'/'considering' status column; PR 6D
+    // removed it as a modelling mistake (see db.js: "considering" describes ONE
+    // CARD, via deck_cards.board, never a whole deck). A saved deck therefore
+    // always reserves, and the deck-level labels the UI shows (Building, Ready,
+    // In Play) are DERIVED at read time, not stored states.
+    //
+    // So a status filter here would be dead code guarding a column that does
+    // not exist, and worse, it would re-imply a deck-level concept the schema
+    // deliberately deleted. If a real inactive/archived state is ever added,
+    // THIS is the place that must exclude it — an archived deck must not put
+    // cards on a shopping list.
+
+    const buylist = await deckIdentity.buylistForDecks(db, deckIds, req.user.id);
+    res.json(buylist);
+  } catch (error) {
+    sendError(res, error, 'Failed to build combined buylist');
+  }
+});
+
 // Where to physically find the cards for this deck.
 //
 // Reads through the STORED allocation when the deck is checked out, and the

@@ -57,11 +57,54 @@ assert.deepEqual(parseDeckLine('1 Foil'), { qty: 1, name: 'Foil' });
 // printing their line never mentioned.
 assert.deepEqual(parseDeckLine('2 Counterspell 267'), { qty: 2, name: 'Counterspell' });
 
+// THE BUYLIST NAMES THE EXACT PRINTING (PR 7).
+//
+// The old assertion here expected bare "3 Lightning Bolt" lines. That was the
+// defect, not the contract: a bare name pasted into a shop's mass entry lets
+// the shop choose the printing, which silently spends money on an object the
+// user did not pick. The printing is a PRICE decision and it belongs on the
+// line.
 const buylist = buildDeckExport([
-  { quantity: 4, name: 'Lightning Bolt', owned_qty: 1 },
-  { quantity: 2, name: 'Counterspell', owned_qty: 2 },
-  { quantity: 3, name: 'Sol Ring', owned_qty: 0 },
+  { quantity: 4, name: 'Lightning Bolt', set_id: '2x2', number: '117', quantity_missing: 3 },
+  { quantity: 2, name: 'Counterspell', set_id: 'mh2', number: '267', quantity_missing: 0 },
+  { quantity: 3, name: 'Sol Ring', set_id: 'cmm', number: '410', quantity_missing: 3 },
 ], 'buylist');
-assert.equal(buylist, '3 Lightning Bolt\n3 Sol Ring', 'buylist contains only the ownership shortfall');
+assert.equal(
+  buylist,
+  '3 Lightning Bolt (2X2) 117\n3 Sol Ring (CMM) 410',
+  'buylist contains only the shortfall, and names the exact printing to buy'
+);
+
+// A card he owns enough of is absent entirely -- a shopping list of things you
+// already have is worse than no list.
+assert.ok(!buylist.includes('Counterspell'), 'owned surplus is never listed');
+
+// FINISH TRAVELS TOO. A foil slot and a nonfoil slot are different physical
+// objects at different prices; dropping the marker would buy the wrong one.
+assert.equal(
+  buildDeckExport([
+    { quantity: 1, name: 'Sol Ring', set_id: 'cmm', number: '410', finish: 'foil', quantity_missing: 1 },
+    { quantity: 1, name: 'Sol Ring', set_id: 'cmm', number: '410', finish: 'etched', quantity_missing: 1 },
+    { quantity: 1, name: 'Sol Ring', set_id: 'c21', number: '263', finish: 'nonfoil', quantity_missing: 1 },
+  ], 'buylist'),
+  '1 Sol Ring (CMM) 410 *F*\n1 Sol Ring (CMM) 410 *E*\n1 Sol Ring (C21) 263',
+  'foil and etched carry their marker; nonfoil is the unmarked default'
+);
+
+// AND IT ROUND-TRIPS. A buylist line fed back through the import parser must
+// reproduce the exact requirement it came from -- that is what proves the line
+// is unambiguous rather than merely more detailed.
+assert.deepEqual(
+  parseDeckLine('3 Sol Ring (CMM) 410 *F*'),
+  { qty: 3, name: 'Sol Ring', set: 'CMM', number: '410', finish: 'foil' },
+  'a buylist line is a fully specified printing, not a hint'
+);
+
+// The legacy owned_qty shape still works for callers that predate
+// quantity_missing.
+assert.equal(
+  buildDeckExport([{ quantity: 4, name: 'Lightning Bolt', set_id: '2x2', number: '117', owned_qty: 1 }], 'buylist'),
+  '3 Lightning Bolt (2X2) 117'
+);
 
 console.log('deckText MTG-only self-check passed');

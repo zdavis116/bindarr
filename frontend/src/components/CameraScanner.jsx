@@ -1816,6 +1816,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     variant="stacked"
                     quantity={quantity} purchasePrice={purchasePrice} condition={condition} printing={printing}
                     onQuantity={setQuantity} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting}
+                    finishes={selectedCard.finishes}
                   />
                 </div>
               </div>

@@ -342,6 +342,98 @@ async function run() {
   assert.strictEqual(await readLock(), null, 'and the recovered lock is released normally');
   pass('F6I-TC7', 'a stale lock from a dead process is taken over rather than blocking forever');
 
+  // === F6I-TC8 (plan requirement H1): AN OWNED CARD SURVIVES A REFRESH ======
+  //
+  // The plan required: "Preserve user-owned/deck-referenced cache rows if an
+  // upstream object disappears." The PR 6H review observed zero orphans but
+  // could not say whether that was DESIGN or luck, because nothing exercised
+  // the case. This exercises it.
+  //
+  // Why it matters more than most cache concerns: card_cache is not merely a
+  // cache here. collection.card_id and deck_cards.desired_card_id point INTO
+  // it, so a row that vanishes takes with it the app's only record of what a
+  // physical card in Zach's binder actually IS. Scryfall dropping an object —
+  // a card merged, re-ided, or withheld by a partial bulk build — must never
+  // be able to delete his ownership record. That is data loss about physical
+  // objects he still has in a box, and he would have no way to reconcile it.
+  //
+  // The refresh below publishes a bulk file that OMITS the card entirely.
+  const survivor = card({
+    id: '00000000-0000-4000-8000-0000000000e5',
+    oracle_id: '10000000-0000-4000-8000-0000000000e5',
+    name: 'Vanishing Upstream Card',
+    collector_number: '5',
+  });
+  publishedBuild = '2026-08-26T00:00:00.000+00:00';
+  fixtureCards = [CARD_A, CARD_B, CARD_C, survivor];
+  await refreshCatalogue({ log: captureLog(), lockLabel: 'h1-seed' });
+  assert.ok(await db.get(`SELECT id FROM card_cache WHERE id = ?`, [survivor.id]),
+    'setup: the card must be in the catalogue before it disappears upstream');
+
+  // He OWNS one and has it in a deck. Both foreign keys into card_cache are
+  // exercised, because either one going dangling is the same disaster.
+  const h1User = await db.run(
+    `INSERT INTO users (username, password_hash, role, share_token) VALUES (?, ?, 'member', ?)`,
+    ['h1owner', db.hashPassword('test-only-password'), `share-h1-${process.pid}`]
+  );
+  await db.run(
+    `INSERT INTO collection (card_id, user_id, quantity, condition, printing, finish, list_type)
+     VALUES (?, ?, 2, 'Near Mint', 'Normal', 'nonfoil', 'collection')`,
+    [survivor.id, h1User.lastID]
+  );
+  const h1Deck = await db.run(
+    `INSERT INTO decks (name, format, user_id) VALUES ('H1 Deck', 'Modern', ?)`,
+    [h1User.lastID]
+  );
+  await db.run(
+    `INSERT INTO deck_cards (deck_id, oracle_id, desired_card_id, desired_finish, board, quantity)
+     VALUES (?, ?, ?, 'nonfoil', 'mainboard', 2)`,
+    [h1Deck.lastID, survivor.oracle_id, survivor.id]
+  );
+
+  // THE REFRESH THAT DROPS IT. A complete, successful, legitimate refresh —
+  // the bulk file simply no longer contains this object.
+  publishedBuild = '2026-08-27T00:00:00.000+00:00';
+  fixtureCards = [CARD_A, CARD_B, CARD_C];
+  const h1Result = await refreshCatalogue({ log: captureLog(), lockLabel: 'h1-drop' });
+  assert.strictEqual(h1Result.skipped, false, 'the dropping refresh must really have run');
+
+  // THE ROW SURVIVES, with its identifying data intact. Asserting on the NAME
+  // and set as well as existence: a row reduced to a bare id would technically
+  // satisfy the foreign key while still leaving the user unable to tell what
+  // card is in his binder.
+  const survived = await db.get(
+    `SELECT id, name, set_id, number FROM card_cache WHERE id = ?`, [survivor.id]
+  );
+  assert.ok(survived,
+    'DATA LOSS: a card the user OWNS was deleted because Scryfall stopped publishing it');
+  assert.strictEqual(survived.name, 'Vanishing Upstream Card',
+    'and it keeps the data that says WHICH physical card this is');
+
+  // NOTHING IS ORPHANED. Checked as a property over the whole table rather
+  // than for this one row, so the assertion still means something if the
+  // fixtures change.
+  const orphanedCollection = await db.all(
+    `SELECT c.id FROM collection c
+     LEFT JOIN card_cache cc ON c.card_id = cc.id WHERE cc.id IS NULL`
+  );
+  assert.deepStrictEqual(orphanedCollection, [],
+    'no collection row may be left pointing at a card that no longer exists');
+  const orphanedDeckCards = await db.all(
+    `SELECT dc.id FROM deck_cards dc
+     LEFT JOIN card_cache cc ON dc.desired_card_id = cc.id WHERE cc.id IS NULL`
+  );
+  assert.deepStrictEqual(orphanedDeckCards, [],
+    'no deck requirement may be left pointing at a card that no longer exists');
+
+  // And the quantities are untouched: surviving as a row is not enough if the
+  // count of physical cards changed.
+  const ownedAfter = await db.get(
+    `SELECT SUM(quantity) AS qty FROM collection WHERE card_id = ?`, [survivor.id]
+  );
+  assert.strictEqual(ownedAfter.qty, 2, 'he still owns exactly the two copies he owns');
+  pass('F6I-TC8', 'a card the user owns and decks SURVIVES a refresh that drops it upstream (plan H1)');
+
   console.log(`\nAll ${passed} PR 6I catalogue behaviour tests passed.`);
 }
 

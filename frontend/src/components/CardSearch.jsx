@@ -843,6 +843,7 @@ function CardSearch({ onAddSuccess, showToast }) {
               <CardEntryFields
                 quantity={quantity} purchasePrice={purchasePrice} condition={condition} printing={printing}
                 onQuantity={setQuantity} onPurchasePrice={setPurchasePrice} onCondition={setCondition} onPrinting={setPrinting}
+                finishes={selectedCard.finishes}
               />
 
 
