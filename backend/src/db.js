@@ -344,7 +344,9 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       public_base_url TEXT DEFAULT '',
-      mtg_prices_swept_at DATETIME
+      mtg_prices_swept_at DATETIME,
+      card_catalogue_updated_at TEXT,
+      card_catalogue_refreshed_at DATETIME
     )
   `);
   await run(`INSERT OR IGNORE INTO app_settings (id, public_base_url) VALUES (1, '')`);
@@ -617,6 +619,23 @@ async function initDb() {
   const appSettingsCols = await all(`PRAGMA table_info(app_settings)`);
   if (!appSettingsCols.some(c => c.name === 'mtg_prices_swept_at')) {
     await run(`ALTER TABLE app_settings ADD COLUMN mtg_prices_swept_at DATETIME`);
+  }
+
+  // Card catalogue bookkeeping (see cardCatalogue.js).
+  //
+  // card_catalogue_updated_at stores SCRYFALL's build timestamp for the bulk
+  // file we last imported, not our own clock. That is what lets two instances
+  // (dev and production) share the same cadence without either downloading a
+  // file it already holds: each compares this against the few-kilobyte bulk
+  // index and skips the hundreds of megabytes when they match.
+  //
+  // card_catalogue_refreshed_at is our own clock, and only answers "when did a
+  // refresh last actually succeed" for operators.
+  if (!appSettingsCols.some(c => c.name === 'card_catalogue_updated_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_updated_at TEXT`);
+  }
+  if (!appSettingsCols.some(c => c.name === 'card_catalogue_refreshed_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refreshed_at DATETIME`);
   }
 
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);

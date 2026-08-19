@@ -169,6 +169,38 @@ db.initDb()
 
     // Periodic auto-backup (BACKUP_INTERVAL_HOURS, default 24; 0 disables)
     require('./backup').startAutoBackup();
+
+    // Nightly: refresh the full local card catalogue (see cardCatalogue.js).
+    //
+    // In-process rather than a systemd timer or cron, for three reasons:
+    //   1. It works identically in dev and production, and in Docker, with no
+    //      per-host unit files to keep in sync. The other scheduled work in
+    //      this app (prices, sets, backups) already lives here.
+    //   2. It shares the app's database handle, so the refresh takes its turn
+    //      on the same serialized queue as everything else. An external process
+    //      opening the same SQLite file would be contending for write locks
+    //      with a live server.
+    //   3. Duplicate downloads are prevented by the Scryfall build timestamp,
+    //      not by scheduling. Dev and production both check the small bulk
+    //      index first and neither pulls the large file twice for the same
+    //      build, so running two instances costs one download between them.
+    //
+    // CARD_CATALOGUE_REFRESH=off disables it entirely for hosts that should
+    // never pull hundreds of megabytes.
+    if (process.env.CARD_CATALOGUE_REFRESH !== 'off') {
+      const cardCatalogue = require('./cardCatalogue');
+      const runCatalogueRefresh = () => {
+        cardCatalogue.refreshCatalogue().catch((err) => {
+          // Already logged in detail, including that the cache is intact.
+          console.error('Card catalogue refresh failed:', err.message);
+        });
+      };
+      // Catch up shortly after startup. Not forced: if Scryfall has not
+      // rebuilt the file since the last import this costs one small request,
+      // which keeps restarts (and nodemon in dev) cheap.
+      setTimeout(runCatalogueRefresh, 60000);
+      setInterval(runCatalogueRefresh, 1000 * 60 * 60 * 24);
+    }
   })
   .catch(err => {
     console.error('Failed to initialize database:', err);
