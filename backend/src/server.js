@@ -190,8 +190,19 @@ db.initDb()
     if (process.env.CARD_CATALOGUE_REFRESH !== 'off') {
       const cardCatalogue = require('./cardCatalogue');
       const runCatalogueRefresh = () => {
-        cardCatalogue.refreshCatalogue().catch((err) => {
-          // Already logged in detail, including that the cache is intact.
+        cardCatalogue.refreshCatalogue({ lockLabel: 'server' }).catch((err) => {
+          // A refresh already in flight is the GUARD WORKING, not a failure.
+          // Logging it as an error would train an operator to ignore genuine
+          // catalogue errors in this same line. It is worth a note, though:
+          // it tells them the nightly tick found a manual run underway.
+          if (err.code === 'CATALOGUE_REFRESH_IN_PROGRESS') {
+            console.log(`Card catalogue refresh skipped: ${err.message}`);
+            return;
+          }
+          // Already logged in detail, INCLUDING the verified resulting state —
+          // which is why this line no longer claims the cache is intact. It
+          // does not know that, and PR 6I item 7 is exactly the bug caused by
+          // a layer asserting a state it had not checked.
           console.error('Card catalogue refresh failed:', err.message);
         });
       };

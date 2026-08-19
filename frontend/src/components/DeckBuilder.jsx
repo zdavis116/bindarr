@@ -208,6 +208,27 @@ function DeckBuilder({ showToast }) {
   const [searching, setSearching] = useState(false);
   const deckSearchGame = 'mtg';
 
+  // WHAT THE RESULTS PANEL IS CURRENTLY SHOWING (PR 6I items 1 and 4b).
+  //
+  // null = nothing open. { mode: 'browse' } = the Browse Collection listing.
+  // { mode: 'search', query } = a catalogue search.
+  //
+  // Two things need this, and neither could be done without it:
+  //
+  //  1. STALE COUNTS (item 1). After a deck mutation the open panel still shows
+  //     pre-mutation "In Deck" and "Available" figures. To re-read them from the
+  //     server the app has to know which request produced the list. Nudging the
+  //     numbers locally instead was explicitly rejected: availability now spans
+  //     every deck, its reservations and its allocations, so a client-side
+  //     adjustment would be a SECOND implementation of that rule and would drift
+  //     from the real one. Re-fetching keeps exactly one implementation, on the
+  //     server, where all the inputs live.
+  //
+  //  2. CLOSING THE PANEL (item 4b). "Is the browse panel open" was previously
+  //     only implied by searchResults being non-empty, so there was nothing to
+  //     set to closed — which is precisely why the button could not toggle.
+  const [resultsSource, setResultsSource] = useState(null);
+
   // Deck Selection Menu Controls
   const [deckSearchTerm, setDeckSearchTerm] = useState('');
   const [deckStatusFilter, setDeckStatusFilter] = useState('all'); // 'all' | 'ready' | 'in_progress' | 'in_play'
@@ -608,6 +629,23 @@ function DeckBuilder({ showToast }) {
         setActiveDeck({ ...data, checked_out: deckMeta?.checked_out || 0, checked_out_at: deckMeta?.checked_out_at || null });
 
         setViewMode('detail');
+
+        // RE-READ THE OPEN RESULTS PANEL TOO (PR 6I item 1).
+        //
+        // Put HERE, and not at each mutation, on purpose. Every deck mutation in
+        // this file already ends by calling loadDeckDetails to re-read the deck
+        // -- delete, add, quantity change, re-pin, board move, commander swap
+        // removals, import. Hanging the panel refresh off that one choke point
+        // makes the spec's "after ANY mutation that can change availability"
+        // true by construction, instead of true only for the mutations someone
+        // remembered to annotate. A future mutation gets it for free, which is
+        // the failure mode that produced this bug: the delete path simply had
+        // no line telling the panel anything had happened.
+        //
+        // Not awaited: the deck itself is already on screen and correct, and
+        // blocking the whole view on a secondary panel's fetch would make every
+        // delete feel slower than it is.
+        refreshResultsPanel();
       }
     } catch (err) {
       console.error(err);
@@ -1108,47 +1146,109 @@ function DeckBuilder({ showToast }) {
     return [...byVariant.values()];
   };
 
+  // Run whatever the results panel is showing, and put the answer on screen.
+  //
+  // Split out of handleSearchCards so the SAME request can be re-issued after a
+  // mutation without going through the event handler. That is what makes item 1
+  // a re-read rather than a local fixup: the panel is refilled from the server's
+  // answer, so its In Deck and Available figures are the server's current ones
+  // by construction.
+  const runResultsSource = async (source) => {
+    if (!source) return;
+    if (source.mode === 'browse') {
+      const res = await fetch(`/api/collection?game=${deckSearchGame}`);
+      if (!res.ok) throw new Error('browse failed');
+      setSearchResults(groupOwnedByVariant(await res.json()));
+      return;
+    }
+    const response = await fetch(
+      `/api/search?name=${encodeURIComponent(source.query)}&scope=database&game=${deckSearchGame}`
+    );
+    if (!response.ok) {
+      const err = new Error('search failed');
+      err.status = response.status;
+      throw err;
+    }
+    setSearchResults(await response.json());
+  };
+
+  // Re-read the open results panel from the server (PR 6I item 1).
+  //
+  // Called after EVERY mutation that can change availability. It is deliberately
+  // a no-op when nothing is open, so callers do not each have to check — a
+  // condition repeated at nine call sites is a condition that will be forgotten
+  // at the tenth.
+  //
+  // SILENT ON FAILURE, and that is a considered choice rather than laziness: the
+  // mutation itself already succeeded and reported. A toast here would tell the
+  // user their delete failed when it did not. The visible consequence of a
+  // failed refresh is a panel showing figures that are one step behind, which is
+  // exactly the state they were in before this fix — no worse, and recoverable
+  // by searching again.
+  const refreshResultsPanel = async () => {
+    if (!resultsSource) return;
+    try {
+      await runResultsSource(resultsSource);
+    } catch (err) {
+      console.error('Could not refresh the open results panel:', err);
+    }
+  };
+
   const handleSearchCards = async (e, forceBrowse = false) => {
     if (e) e.preventDefault();
+
+    // BROWSE COLLECTION IS A TOGGLE (PR 6I item 4b). Pressing the button while
+    // the browse listing is open closes it. Previously the button only ever
+    // opened the panel, so once open there was no way to dismiss it at all --
+    // which matters most on a phone, where it occupies most of the screen.
+    if (forceBrowse && resultsSource?.mode === 'browse') {
+      closeResultsPanel();
+      return;
+    }
+
+    const source = (forceBrowse || !searchQuery.trim())
+      ? { mode: 'browse' }
+      : { mode: 'search', query: searchQuery };
+
     try {
       setSearching(true);
       // Any new result list invalidates an open picker: it was asking about a
       // card that may no longer be on screen.
       setVariantPicker(null);
-      if (forceBrowse || !searchQuery.trim()) {
-        const res = await fetch(`/api/collection?game=${deckSearchGame}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSearchResults(groupOwnedByVariant(data));
-        }
-      } else {
-        const finalQuery = searchQuery;
-        // SCOPE=DATABASE, NOT COLLECTION. This is the whole of item 5.
-        //
-        // The search was hardcoded to `scope=collection`, so it could only ever
-        // return cards the user already owned. Searching for anything else came
-        // back empty -- which reads exactly like "no such card" -- and that is
-        // why unowned cards could not be added as requirements. The backend
-        // route already defaults to the full catalogue and always could; the
-        // client was the thing narrowing it.
-        //
-        // Owned and unowned stay DISTINGUISHABLE because every row carries
-        // `owned_qty` from the server, which the row's "Owned: N" badge below
-        // already renders -- an unowned card simply reads "Owned: 0".
-        const response = await fetch(`/api/search?name=${encodeURIComponent(finalQuery)}&scope=database&game=${deckSearchGame}`);
-        if (response.ok) {
-          const data = await response.json();
-          setSearchResults(data);
-        } else {
-          showToast(t(response.status === 429 ? 'deck.errRateLimit' : 'deck.errSearch'));
-        }
-      }
+      // SCOPE=DATABASE, NOT COLLECTION, for the search branch. This is the whole
+      // of PR 6G item 5.
+      //
+      // The search was hardcoded to `scope=collection`, so it could only ever
+      // return cards the user already owned. Searching for anything else came
+      // back empty -- which reads exactly like "no such card" -- and that is
+      // why unowned cards could not be added as requirements. The backend
+      // route already defaults to the full catalogue and always could; the
+      // client was the thing narrowing it.
+      //
+      // Owned and unowned stay DISTINGUISHABLE because every row carries
+      // `owned_qty` from the server, which the row's "Owned: N" badge below
+      // already renders -- an unowned card simply reads "Owned: 0". Since
+      // PR 6I item 3 the owned ones also sort to the top, so his own printing
+      // is on screen rather than several scrolls down a 104k-card catalogue.
+      await runResultsSource(source);
+      // Recorded only AFTER the request succeeded, so a failed search does not
+      // leave the panel claiming to show something it never loaded.
+      setResultsSource(source);
     } catch (err) {
       console.error(err);
-      showToast(t('deck.errSearch'));
+      showToast(t(err.status === 429 ? 'deck.errRateLimit' : 'deck.errSearch'));
     } finally {
       setSearching(false);
     }
+  };
+
+  // Dismiss the results panel (PR 6I item 4b). Clearing the rows AND the source
+  // together, so "nothing is showing" is one fact rather than two that can
+  // disagree.
+  const closeResultsPanel = () => {
+    setSearchResults([]);
+    setResultsSource(null);
+    setVariantPicker(null);
   };
 
   // --- CHECKOUT / RETURN ---
@@ -2247,17 +2347,17 @@ function DeckBuilder({ showToast }) {
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem', alignItems: 'start' }}>
-            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: '1.5rem' }}>
+            <div className="deck-detail-columns" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: '1.5rem' }}>
               
               {/* Left Column: Deck Card List */}
-              <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <div className="deck-detail-main" style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 
                 {/* Search & Quick Add to Deck */}
                 <div className="glass-panel">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0 }}>{t('deck.addCardsTitle')}</h3>
                   </div>
-                  <form onSubmit={handleSearchCards} style={{ display: 'flex', gap: '0.5rem' }}>
+                  <form onSubmit={handleSearchCards} className="deck-search-row" style={{ display: 'flex', gap: '0.5rem' }}>
                     <input
                       type="text"
                       className="input-control"
@@ -2269,7 +2369,18 @@ function DeckBuilder({ showToast }) {
                     <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem 1rem' }} title={t('shared.search')}>
                       <Search size={16} />
                     </button>
-                    <button type="button" className="btn btn-secondary" onClick={(e) => handleSearchCards(e, true)} style={{ padding: '0.5rem 0.9rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} title={t('deck.browseHint')}>
+                    {/* A TOGGLE (PR 6I item 4b). It reads as pressed while the
+                        browse listing is open, so the control's own appearance
+                        says what pressing it again will do -- previously it
+                        looked identical open or shut and only ever opened. */}
+                    <button
+                      type="button"
+                      className={`btn ${resultsSource?.mode === 'browse' ? 'btn-primary' : 'btn-secondary'}`}
+                      aria-pressed={resultsSource?.mode === 'browse'}
+                      onClick={(e) => handleSearchCards(e, true)}
+                      style={{ padding: '0.5rem 0.9rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                      title={t('deck.browseHint')}
+                    >
                       {t('deck.browseCollection')}
                     </button>
                   </form>
@@ -2278,7 +2389,30 @@ function DeckBuilder({ showToast }) {
                   {searching || loadingVariants ? (
                     <div className="spinner" style={{ margin: '1rem auto' }}></div>
                   ) : searchResults.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '1rem', maxHeight: '240px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
+                    <>
+                    {/* AN EXPLICIT DISMISS (PR 6I item 4b), on the panel itself.
+                        The toggle above closes a BROWSE listing, but a search
+                        result list had no way out either -- and the X is the
+                        affordance every other dismissible panel in this file
+                        uses (the modals all carry the same Trash-free X button),
+                        so this follows the app's existing convention rather than
+                        inventing a control. */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {resultsSource?.mode === 'browse' ? t('deck.browseCollection') : t('deck.addCardsTitle')}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-icon-only"
+                        onClick={closeResultsPanel}
+                        title={t('common.close')}
+                        aria-label={t('common.close')}
+                        style={{ padding: '0.2rem 0.35rem' }}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.4rem', maxHeight: '240px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
                       {searchResults.map(card => {
                           // "IN DECK" IS THE CROSS-DECK TOTAL, FROM THE SERVER.
                           //
@@ -2470,6 +2604,75 @@ function DeckBuilder({ showToast }) {
                             </div>
                           );
                       })}
+                    </div>
+                    </>
+                  )}
+                </div>
+
+                {/* DECK HEALTH & RULES, ABOVE THE CARD LIST (PR 6I item 4c).
+
+                    Zach: "moving deck health and rules toward the top would be
+                    nice as well since it's super important to know that data."
+                    It used to sit in the right-hand statistics column, which on
+                    a phone stacks BELOW the whole card list -- so the panel that
+                    says whether the deck is legal and buildable was the last
+                    thing seen, a long scroll away.
+
+                    MOVED, NOT REBUILT. This is the same markup, the same styling
+                    and the same content as before; only its position in the tree
+                    changed. The charts it used to sit above (mana curve,
+                    supertype, colour distribution) stay in the right column,
+                    where they belong -- they are analysis, this is status. */}
+                {/* Deck Health & Summary Status */}
+                <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {totalDeckCardsCount === targetDeckCardsCount ? (
+                      <CheckCircle size={15} style={{ color: 'var(--type-grass)' }} />
+                    ) : (
+                      <AlertTriangle size={15} style={{ color: 'var(--accent-yellow)' }} />
+                    )}
+                    {t('deck.healthTitle')}
+                  </h3>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                      <span>Target Deck Size:</span>
+                      <strong style={{ color: totalDeckCardsCount === targetDeckCardsCount ? 'var(--type-grass)' : 'var(--text-strong)' }}>{totalDeckCardsCount}/{targetDeckCardsCount} Cards</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                      <span>Unique Cards:</span>
+                      <strong style={{ color: 'var(--text-strong)' }}>{deckCards.length} titles</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                      <span>{t('deck.basicLands')}</span>
+                      <strong style={{ color: 'var(--accent-yellow)' }}>
+                        {deckCards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
+                      </strong>
+                    </div>
+                    {consideringCards.length > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                        <span>{t('deck.consideringLabel')}</span>
+                        <strong style={{ color: 'var(--accent-yellow)' }}>
+                          {sectionCount(consideringCards)}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Server-computed rules and ownership warnings.
+                      Advisory, never a blocked save: not owning a card you plan
+                      to buy is a normal state of a deck under construction, so
+                      these are listed as information rather than styled as
+                      errors. They come from the server so the screen and the
+                      database cannot disagree about them. */}
+                  {(activeDeck.warnings || []).length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
+                      {activeDeck.warnings.map((warning, index) => (
+                        <div key={`${warning.code}-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          <AlertTriangle size={12} style={{ color: 'var(--accent-yellow)', flexShrink: 0, marginTop: '2px' }} />
+                          <span>{warning.message}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2955,62 +3158,12 @@ function DeckBuilder({ showToast }) {
                 </div>
               </div>
 
-              {/* Right Column: Statistics, Mana Curve & Deck Health */}
-              <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Right Column: Statistics & Mana Curve.
+                  Deck Health moved OUT of this column in PR 6I item 4c -- it is
+                  status, not analysis, and on a phone this column stacks below
+                  the entire card list. */}
+              <div className="deck-detail-side" style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 
-                {/* Deck Health & Summary Status */}
-                <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <h3 style={{ fontSize: '0.95rem', color: 'var(--text-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {totalDeckCardsCount === targetDeckCardsCount ? (
-                      <CheckCircle size={15} style={{ color: 'var(--type-grass)' }} />
-                    ) : (
-                      <AlertTriangle size={15} style={{ color: 'var(--accent-yellow)' }} />
-                    )}
-                    {t('deck.healthTitle')}
-                  </h3>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>Target Deck Size:</span>
-                      <strong style={{ color: totalDeckCardsCount === targetDeckCardsCount ? 'var(--type-grass)' : 'var(--text-strong)' }}>{totalDeckCardsCount}/{targetDeckCardsCount} Cards</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>Unique Cards:</span>
-                      <strong style={{ color: 'var(--text-strong)' }}>{deckCards.length} titles</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                      <span>{t('deck.basicLands')}</span>
-                      <strong style={{ color: 'var(--accent-yellow)' }}>
-                        {deckCards.filter(isBasicEnergyOrLand).reduce((s, c) => s + c.quantity, 0)} basic lands
-                      </strong>
-                    </div>
-                    {consideringCards.length > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                        <span>{t('deck.consideringLabel')}</span>
-                        <strong style={{ color: 'var(--accent-yellow)' }}>
-                          {sectionCount(consideringCards)}
-                        </strong>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Server-computed rules and ownership warnings.
-                      Advisory, never a blocked save: not owning a card you plan
-                      to buy is a normal state of a deck under construction, so
-                      these are listed as information rather than styled as
-                      errors. They come from the server so the screen and the
-                      database cannot disagree about them. */}
-                  {(activeDeck.warnings || []).length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
-                      {activeDeck.warnings.map((warning, index) => (
-                        <div key={`${warning.code}-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                          <AlertTriangle size={12} style={{ color: 'var(--accent-yellow)', flexShrink: 0, marginTop: '2px' }} />
-                          <span>{warning.message}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
                 {/* Mana curve */}
                 {manaCurveData.some(d => d.count > 0) && (

@@ -2233,7 +2233,7 @@ test('F15-TC50', 'NON-Commander formats are entirely unaffected', async ({ owner
   // zone, no colour identity and no partner pairs, and must pay nothing at all
   // -- not a refusal, not a confirmation step, not a Scryfall call.
   const response = await api(owner.token, '/api/decks', {
-    method: 'POST', body: { name: 'PR6G Modern', format: 'Modern' }
+    method: 'POST', body: { name: 'PR6G Modern TC50', format: 'Modern' }
   });
   assert.strictEqual(response.status, 201, JSON.stringify(response.body));
   const deckId = response.body.id;

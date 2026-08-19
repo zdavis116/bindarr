@@ -68,6 +68,77 @@ async function requireOwnedDeck(database, deckId, userId) {
   return deck;
 }
 
+// Refuse a deck name that is already in use (PR 6I item 2).
+//
+// ONE FUNCTION, called by BOTH create and rename, because they are the same
+// question asked at two moments. A rule implemented twice is a rule that will
+// eventually disagree with itself — create would refuse "Ur-Dragon" while
+// rename quietly allowed it, and the user would find two identically named
+// decks anyway by a route the check forgot about.
+//
+// COMPARISON IS CASE- AND WHITESPACE-INSENSITIVE, per the spec. That is a
+// judgement about what a human means by "the same deck", not about what SQLite
+// means by string equality: "Ur-Dragon", "ur-dragon " and "Ur-Dragon" with a
+// double space inside are one name to the person picking a deck off a shelf.
+// Interior runs of whitespace are collapsed too, since a stray double space is
+// invisible on screen and would otherwise create a deck the user cannot tell
+// apart from the one they already have.
+//
+// PER USER. Two people may each own a deck called "Ur-Dragon"; that is not a
+// collision, and scoping it any wider would leak the existence of other users'
+// decks through a refusal message.
+//
+// REFUSED, NOT DEDUPLICATED. The app does not invent "Ur-Dragon (2)" — it says
+// what is wrong and lets the user decide, which is the standing rule here for
+// anything touching things the user tracks physically.
+//
+// `excludeDeckId` is what makes RENAME work: renaming a deck to the name it
+// already has, or fixing only its capitalisation, must not be refused as a
+// collision with ITSELF. Without it the check would make a deck permanently
+// unrenameable.
+function normalizeDeckName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+async function assertDeckNameAvailable(database, userId, name, { excludeDeckId = null } = {}) {
+  const normalized = normalizeDeckName(name);
+  // An empty name is refused by the caller's own required-field check, which
+  // gives a better message than this one would. Nothing to do here.
+  if (!normalized) return;
+  // NORMALISED IN JS, NOT IN SQL, and on both sides.
+  //
+  // Both sides, because existing decks were created before this rule and may
+  // already carry stray whitespace or odd casing — comparing a normalised new
+  // name against raw stored names would miss exactly the duplicates the user
+  // can actually see on screen.
+  //
+  // In JS because SQLite has no regex: collapsing interior whitespace there
+  // means nested REPLACE() calls, and REPLACE('  ', ' ') only collapses a
+  // doubled space ONCE, so three spaces survive it. That would be a second,
+  // subtly weaker implementation of normalizeDeckName() sitting in a string —
+  // the drift this file keeps warning about. One function decides what "the
+  // same name" means, and every comparison goes through it.
+  //
+  // The scan is bounded by ONE USER'S deck count, which is tens of rows. If a
+  // user ever holds enough decks for this to matter, a normalised column with
+  // a unique index is the right answer — but adding one now would be storing a
+  // derived value to solve a problem nobody has.
+  const existing = await (database || db).all(
+    `SELECT id, name FROM decks WHERE user_id = ?`, [userId]
+  );
+  const excluded = excludeDeckId == null ? null : Number(excludeDeckId);
+  const clash = existing.find(deck =>
+    deck.id !== excluded && normalizeDeckName(deck.name) === normalized
+  );
+  if (clash) {
+    throw new DeckIdentityError(
+      409,
+      `You already have a deck called "${clash.name}". Deck names must be unique, so pick a different one.`,
+      'DECK_NAME_IN_USE'
+    );
+  }
+}
+
 // Get User Decks.
 //
 // total_cards counts only cards that are actually IN the deck. Considering
@@ -221,6 +292,13 @@ router.post('/', async (req, res) => {
     );
 
     const deckId = await db.withTransaction(async (tx) => {
+      // INSIDE the transaction, not before it. withTransaction opens BEGIN
+      // IMMEDIATE, so the check and the INSERT hold the write lock together and
+      // two simultaneous creates of one name cannot both pass the check. Done
+      // outside, this would be a check-then-act race that lets exactly the
+      // duplicate it forbids through under concurrency.
+      await assertDeckNameAvailable(tx, req.user.id, name);
+
       const result = await tx.run(
         `INSERT INTO decks (name, description, format, category, accent_color, target_size, user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -372,6 +450,19 @@ router.put('/:id', async (req, res) => {
   try {
     const result = await db.withTransaction(async (tx) => {
       const deck = await requireOwnedDeck(tx, req.params.id, req.user.id);
+
+      // The SAME rule create applies, from the same function (PR 6I item 2).
+      // Renaming was the half the spec calls out explicitly: without this a
+      // user refused at create could simply create "temp" and rename it into
+      // the collision, which would make the create-time refusal theatre.
+      //
+      // excludeDeckId is THIS deck, so re-saving a deck without touching its
+      // name — or only fixing its capitalisation — is not refused as a clash
+      // with itself. Only run when a name was actually supplied; a
+      // description-only update must not be judged on a name it did not send.
+      if (name !== undefined) {
+        await assertDeckNameAvailable(tx, req.user.id, name, { excludeDeckId: deck.id });
+      }
 
       await tx.run(
         `UPDATE decks SET name = ?, description = ? WHERE id = ? AND user_id = ?`,

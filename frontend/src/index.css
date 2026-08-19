@@ -2552,3 +2552,83 @@ button, input, select, textarea {
 .recharts-tooltip-item-value {
   color: var(--text-strong) !important;
 }
+
+/* =====================================================================
+   PR 6I item 4 — the deck view fits an iPhone instead of overflowing it.
+
+   THE CAUSE, not a symptom. Zach's iPhone 16 screenshot showed the whole
+   page scrolling sideways, with the Browse Collection button, the Grid
+   toggle, the Add Cards row buttons and the commander row all clipped at
+   the right edge. Those are five symptoms of ONE thing:
+
+     .deck-detail-main declares `flex: 2 1 500px`.
+
+   A 500px flex-basis on a 393px-wide viewport already overflows, and a
+   flex item's default `min-width: auto` means it REFUSES to shrink below
+   its content's intrinsic width — so the column stayed ~500px wide, the
+   page grew wider than the screen, and everything near the right edge
+   went off it. Chasing each clipped control with its own overflow rule
+   would have fixed none of it.
+
+   So the fix is to let those columns shrink: min-width 0 and a 100%
+   basis on phones. Everything clipped follows from that.
+
+   SCOPED TO max-width: 768px, matching the breakpoint the rest of this
+   file already uses for the pinned tab bar. The desktop layout is
+   correct and is not touched by any rule in this block.
+   ===================================================================== */
+@media (max-width: 768px) {
+  /* min-width: 0 is the whole fix. Without it the `2 1 500px` basis below
+     cannot take effect, because the item's automatic minimum size keeps it
+     as wide as its widest content. */
+  .deck-detail-main,
+  .deck-detail-side {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Belt and braces for the container itself: a stray wide child inside a
+     panel should clip or scroll within that panel rather than widening the
+     document. This is the guard that keeps a FUTURE wide element from
+     re-introducing the page-level horizontal scroll. */
+  .deck-detail-columns {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  .deck-detail-columns .glass-panel {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow-x: hidden;
+  }
+
+  /* The search row WRAPS rather than overflowing (spec's wording). The input
+     takes the full first line and the Search / Browse Collection buttons sit
+     on the next, so Browse Collection is fully visible instead of clipped. */
+  .deck-search-row {
+    flex-wrap: wrap !important;
+  }
+  .deck-search-row .input-control {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* THE BOTTOM NAV FITS, by scrolling deliberately — the spec's own phrasing.
+     Eight tabs cannot share 393px at a readable size, so rather than shrink
+     "Settings" until it truncates to "Setting…", the bar scrolls horizontally
+     as ONE deliberately scrollable strip. `flex: 0 0 auto` stops the tabs
+     being squeezed, and the labels stop wrapping mid-word. */
+  .nav-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .nav-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}

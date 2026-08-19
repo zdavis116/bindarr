@@ -405,6 +405,54 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
 
   // 2. Local cache first. Kept as a closure because an internet-scope search
   // skips it here but still needs it as a fallback when Scryfall is unreachable.
+  //
+  // OWNED PRINTINGS SORT FIRST (PR 6I item 3).
+  //
+  // Since PR 6H this table holds the whole ~104k-card catalogue, so a name
+  // search returns a wall of printings and the handful the user actually owns
+  // sit wherever the table happened to put them. Zach searched Kodama and had
+  // to scroll to find his own copy.
+  //
+  // THE RANKING IS IN THE SQL, not applied to the returned page, and that is
+  // the whole point. This query pages with LIMIT/OFFSET; sorting a page after
+  // the fact can only reorder the 60 rows already chosen, so an owned printing
+  // that landed on page 5 would stay on page 5. Ordering before the limit is
+  // what actually brings it to the top.
+  //
+  // Three bands, matching the spec:
+  //   0. owned AND at least one copy free
+  //   1. owned but every copy committed to a deck
+  //   2. everything else
+  // Within a band the previous ordering is untouched — this adds a leading sort
+  // key, it does not replace the ordering that existed.
+  //
+  // OWNERSHIP IS PER PRINTING here, summed over finishes, because a card_cache
+  // row IS a printing and carries no finish. That is deliberately the same rule
+  // attachOwnedQty already applies to a finish-less search row, so the badge the
+  // user reads and the position the row sits in cannot disagree. It still gives
+  // Zach what he asked for: his Kodama PRINTING rises, not every Kodama.
+  //
+  // The commitment subquery mirrors collectionHelpers.inDeckQuantities — same
+  // boards, same cross-deck scope — so "available" here means the same thing as
+  // the available count already shown on the row.
+  const OWNED_RANK_SQL = `
+    CASE
+      WHEN ? IS NULL THEN 2
+      WHEN (
+        COALESCE((SELECT SUM(c.quantity) FROM collection c
+                  WHERE c.card_id = card_cache.id AND c.user_id = ? AND c.list_type = 'collection'), 0)
+        -
+        COALESCE((SELECT SUM(dc.quantity) FROM deck_cards dc
+                  JOIN decks d ON dc.deck_id = d.id
+                  WHERE dc.desired_card_id = card_cache.id AND d.user_id = ?
+                    AND dc.board IN ('commander', 'mainboard', 'sideboard')), 0)
+      ) > 0 THEN 0
+      WHEN COALESCE((SELECT SUM(c.quantity) FROM collection c
+                     WHERE c.card_id = card_cache.id AND c.user_id = ? AND c.list_type = 'collection'), 0) > 0
+        THEN 1
+      ELSE 2
+    END`;
+
   const queryLocal = async () => {
     let sql = `SELECT * FROM card_cache WHERE 1 = 1`;
     const params = [];
@@ -412,6 +460,10 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
     if (cleanNumber) { sql += ` AND (number = ? OR CAST(number AS INTEGER) = CAST(? AS INTEGER))`; params.push(cleanNumber, cleanNumber); }
     const localSetFilter = setSqlFilter(setList);
     if (localSetFilter) { sql += ` AND ${localSetFilter.clause}`; params.push(...localSetFilter.params); }
+    // ORDER BY comes before LIMIT/OFFSET in both SQL and intent: the band has to
+    // decide WHICH rows the page contains, not merely their order within it.
+    sql += ` ORDER BY ${OWNED_RANK_SQL} ASC`;
+    params.push(userId, userId, userId, userId);
     sql += ` LIMIT ? OFFSET ?`;
     params.push(limit, offset);
     return db.all(sql, params);

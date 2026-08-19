@@ -98,6 +98,41 @@ async function attachOwnedQty(cards, userId) {
   }
 }
 
+// PR 6I item 3: put the printings the user OWNS at the top of a catalogue
+// search.
+//
+// TWO PLACES RANK, AND BOTH ARE NEEDED — they fix different halves of the same
+// problem, and neither is redundant:
+//
+//   * scryfallApi.queryLocal() ranks IN SQL, before LIMIT/OFFSET. That is what
+//     decides WHICH rows land on page 1 out of ~104k. No amount of sorting here
+//     could rescue an owned printing sitting on page 5.
+//   * this sorts the page that is about to be sent. It covers the results that
+//     came from SCRYFALL rather than the local table, which never passed
+//     through that SQL at all, so without it a cache-miss search would still
+//     bury an owned printing.
+//
+// It reads the SAME fields the row displays (owned_qty / available_qty, just
+// stamped by attachOwnedQty) rather than re-deriving ownership, so the order
+// and the badge cannot disagree. That is the standing rule in this codebase:
+// one implementation of a fact, not two.
+//
+// STABLE, and deliberately so. Ties keep whatever order the caller produced —
+// Scryfall relevance, exact-match-first, collector number — so this ADDS a
+// leading band and changes nothing else about the ordering.
+function ownedBand(card) {
+  if ((card.available_qty ?? 0) > 0) return 0;   // owned and free
+  if ((card.owned_qty ?? 0) > 0) return 1;       // owned but fully committed
+  return 2;                                       // not owned
+}
+
+function sortOwnedFirst(cards) {
+  if (!Array.isArray(cards)) return cards;
+  // Array.prototype.sort is stable in Node, so decorating is unnecessary; the
+  // comparator returning 0 for a tie preserves the incoming order.
+  return cards.sort((a, b) => ownedBand(a) - ownedBand(b));
+}
+
 // 1. Search English MTG cards through Scryfall.
 //
 // `commanders=1` FILTERS THE RESULTS TO LEGAL COMMANDERS ONLY.
@@ -130,6 +165,13 @@ router.get('/search', searchLimiter, async (req, res) => {
       ? cards.filter(card => commanderRules.isLegalCommanderCard(card))
       : cards;
     await attachOwnedQty(visible, req.user.id);
+    // PR 6I item 3. AFTER attachOwnedQty, necessarily: the band is computed
+    // from the very fields it stamps. Applied to EVERY search this route
+    // serves — deck Add Cards, the commander picker, and any future caller —
+    // because it sits at the route rather than in one screen's handler. That
+    // is what makes "every search that returns catalogue results" true by
+    // construction instead of by remembering to repeat it.
+    sortOwnedFirst(visible);
     // Header, not the body: every existing caller expects a bare array here.
     if (total != null) {
       // The total is NOT re-stated when filtering. It describes the upstream

@@ -638,6 +638,35 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refreshed_at DATETIME`);
   }
 
+  // THE CATALOGUE REFRESH LOCK (PR 6I item 8).
+  //
+  // It lives in the DATABASE, not in a module variable, because the two things
+  // that must not overlap RUN IN DIFFERENT PROCESSES: the server's nightly job
+  // and scripts/refresh-card-catalogue.js, which an operator runs by hand. An
+  // in-memory guard cannot see across a process boundary, so it would have
+  // stopped exactly the collision that never happens and missed the one that
+  // did (Zach's SQLITE_BUSY, 2026-08-19).
+  //
+  // Claimed with a conditional UPDATE inside withTransaction(), which opens
+  // BEGIN IMMEDIATE — SQLite serialises write transactions across processes, so
+  // exactly one claimant can win however many are racing.
+  //
+  // A HEARTBEAT, not just a start time. A process that is killed mid-import can
+  // never release its own lock, and a lock nothing can release would block every
+  // future refresh permanently — a worse failure than the one being fixed. The
+  // heartbeat lets a later run PROVE the holder is gone (nothing has touched it
+  // for far longer than the slowest progress interval) before taking over, and
+  // that takeover is logged loudly rather than done quietly.
+  if (!appSettingsCols.some(c => c.name === 'card_catalogue_refresh_started_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refresh_started_at TEXT`);
+  }
+  if (!appSettingsCols.some(c => c.name === 'card_catalogue_refresh_heartbeat_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refresh_heartbeat_at TEXT`);
+  }
+  if (!appSettingsCols.some(c => c.name === 'card_catalogue_refresh_owner')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refresh_owner TEXT`);
+  }
+
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);
   // Marketplace links as the PROVIDER gives them. Building them from name+set+number
   // only works for English cards: searching TCGplayer for "ヒトカゲ ポケモンカード151"
