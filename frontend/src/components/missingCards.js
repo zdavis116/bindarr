@@ -62,3 +62,23 @@ export function shortfallExplanation(item) {
     committed: item.quantity_allocated_elsewhere
   };
 }
+
+// WHAT THIS LIST COVERS, for the combined (multi-deck) buylist.
+//
+// A shopping list he opens in a shop an hour later must say which decks it was
+// built from. Without it the list is a bare set of cards and he cannot tell
+// whether it includes the deck he was unsure about — and the failure is silent:
+// he buys for a deck he did not mean to include and only finds out at home.
+//
+// The deck names come from the SERVER's response (deckIdentity.buylistForDecks
+// returns `decks` and `summary.deck_count`); nothing is re-derived from the UI's
+// current selection, which can already have moved on since the list was built.
+// Returns null for the per-deck buylist, where the heading already names it.
+export function buylistCoverage(buylist) {
+  const decks = (buylist?.decks || []).filter(deck => deck && deck.name);
+  if (decks.length === 0) return null;
+  return {
+    count: decks.length,
+    names: decks.map(deck => deck.name).join(', ')
+  };
+}

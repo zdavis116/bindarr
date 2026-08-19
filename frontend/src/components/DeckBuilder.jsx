@@ -1966,9 +1966,13 @@ function DeckBuilder({ showToast }) {
                 </div>
               </div>
 
-              {/* MULTI-DECK BUYLIST toggle. Adapts the existing toolbar in
-                  place — the deck list keeps its layout, and checkboxes only
-                  appear on the existing cards while selecting. */}
+              {/* MULTI-DECK BUYLIST entry point. Named for the OUTCOME, not the
+                  mechanism: he opens this because he wants a shopping list, and
+                  picking decks is a step inside that, not the point of it. The
+                  previous label ("Select decks") described the first interaction
+                  and left the purpose unstated until he was already inside.
+                  Once active the same button becomes the way out, so the mode
+                  can always be left from where it was entered. */}
               <button
                 type="button"
                 className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
@@ -1980,7 +1984,7 @@ function DeckBuilder({ showToast }) {
                 }}
                 title={t('deck.multiBuylistTitle')}
               >
-                <ShoppingCart size={13} /> {t('deck.multiBuylistSelect')}
+                <ShoppingCart size={13} /> {t(selectMode ? 'deck.multiBuylistCancel' : 'deck.multiBuylistSelect')}
               </button>
 
               {/* View Mode Toggle: Grid vs Table */}
@@ -2018,6 +2022,9 @@ function DeckBuilder({ showToast }) {
                   <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <ShoppingCart size={15} style={{ color: 'var(--accent-yellow)' }} />
                     {t('deck.multiBuylistTitle')}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {t('deck.multiBuylistStepHint')}
                   </span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     {t('deck.multiBuylistSelected', { count: selectedDeckIds.length })}
@@ -2099,6 +2106,18 @@ function DeckBuilder({ showToast }) {
                 const isComplete = totalCards >= targetSize;
                 const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
                 const accentColor = deck.accent_color || '#ef4444';
+                // SELECTED FOR THE BUYLIST. A ticked checkbox alone is too easy
+                // to miss, and the cost of missing it is real: he shops for a
+                // deck he did not mean to include. The card itself therefore
+                // carries the state, in the app's EXISTING "active" language —
+                // the same yellow already used for In Play, the picking rows
+                // and the printing editor.
+                //
+                // Border COLOR changes, never border WIDTH, and the ring is an
+                // INSET box-shadow: both are zero-width, so a selected card
+                // occupies exactly the same box as an unselected one and
+                // cannot reintroduce the PR 6I horizontal overflow on a phone.
+                const isSelected = selectMode && selectedDeckIds.includes(deck.id);
 
                 return (
                   <div
@@ -2110,14 +2129,19 @@ function DeckBuilder({ showToast }) {
                       justifyContent: 'space-between',
                       gap: '1rem',
                       padding: '1.25rem',
-                      border: deck.checked_out
-                        ? '1px solid rgba(234,179,8,0.5)'
-                        : `1px solid ${accentColor}40`,
+                      border: isSelected
+                        ? '1px solid rgba(234,179,8,0.9)'
+                        : deck.checked_out
+                          ? '1px solid rgba(234,179,8,0.5)'
+                          : `1px solid ${accentColor}40`,
+                      boxShadow: isSelected ? 'inset 0 0 0 2px rgba(234,179,8,0.45)' : 'none',
                       position: 'relative',
                       overflow: 'hidden',
                       cursor: 'pointer',
                       transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                      background: 'linear-gradient(145deg, rgba(211,32,42,0.06), rgba(15,23,42,0.65))'
+                      background: isSelected
+                        ? 'linear-gradient(145deg, rgba(234,179,8,0.16), rgba(15,23,42,0.65))'
+                        : 'linear-gradient(145deg, rgba(211,32,42,0.06), rgba(15,23,42,0.65))'
                     }}
                     /* In select mode a card TOGGLES instead of opening. The
                        deck list is adapted in place, not replaced. */
@@ -2128,7 +2152,12 @@ function DeckBuilder({ showToast }) {
                     }}
                     onMouseLeave={e => {
                       e.currentTarget.style.transform = 'none';
-                      e.currentTarget.style.boxShadow = 'none';
+                      // Restore the SELECTED ring rather than clearing it: hover
+                      // is transient, selection is not, and a hover that erased
+                      // the selected look would be worse than no ring at all.
+                      e.currentTarget.style.boxShadow = isSelected
+                        ? 'inset 0 0 0 2px rgba(234,179,8,0.45)'
+                        : 'none';
                     }}
                   >
                     {/* Top Accent Line */}
@@ -2346,19 +2375,48 @@ function DeckBuilder({ showToast }) {
                     const isComplete = totalCards >= targetSize;
                     const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
                     const accentColor = deck.accent_color || '#ef4444';
+                    // Same rule as the grid, same yellow. See the grid branch
+                    // for why the card/row carries this and not just a tick.
+                    const isSelected = selectMode && selectedDeckIds.includes(deck.id);
+                    // The row's resting background. Hover overwrites background
+                    // directly, so it has to be restored to THIS, not to
+                    // transparent, or hovering a selected row would clear its
+                    // selected look.
+                    const restingBackground = isSelected ? 'rgba(234,179,8,0.14)' : 'transparent';
 
                     return (
                       <tr
                         key={deck.id}
-                        style={{ borderBottom: '1px solid var(--border-glass)', cursor: 'pointer', transition: 'background 0.15s' }}
+                        style={{ borderBottom: '1px solid var(--border-glass)', cursor: 'pointer', transition: 'background 0.15s', background: restingBackground }}
                         /* In select mode a row TOGGLES instead of opening. */
                         onClick={() => selectMode ? toggleDeckSelected(deck.id) : loadDeckDetails(deck.id)}
-                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        onMouseEnter={e => e.currentTarget.style.background = isSelected ? 'rgba(234,179,8,0.2)' : 'rgba(255,255,255,0.03)'}
+                        onMouseLeave={e => e.currentTarget.style.background = restingBackground}
                       >
-                        <td style={{ padding: '0.75rem 1rem' }}>
+                        <td style={{
+                          padding: '0.75rem 1rem',
+                          /* INSET shadow, so the selected marker bar costs zero
+                             width — a real left border would widen the table and
+                             is exactly how PR 6I's overflow got introduced. */
+                          boxShadow: isSelected ? 'inset 3px 0 0 0 var(--accent-yellow)' : 'none'
+                        }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {/* THE TICK IS PRESENT IN BOTH VIEWS. The table
+                                  had none at all, so the only feedback was the
+                                  counter in the panel above. It sits inside the
+                                  existing first cell rather than in a new
+                                  column, so no column is added on a phone. */}
+                              {selectMode && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedDeckIds.includes(deck.id)}
+                                  onChange={() => toggleDeckSelected(deck.id)}
+                                  onClick={e => e.stopPropagation()}
+                                  aria-label={deck.name}
+                                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--accent-yellow)', flexShrink: 0 }}
+                                />
+                              )}
                               <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: accentColor, display: 'inline-block' }} />
                               <span style={{
                                 fontSize: '0.65rem',

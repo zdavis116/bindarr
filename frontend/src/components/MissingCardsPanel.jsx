@@ -1,6 +1,6 @@
 import { ShoppingCart, AlertTriangle, Copy, ExternalLink } from 'lucide-react';
 import { useT } from '../utils/i18n';
-import { buylistKey, buylistLines, shortfallExplanation } from './missingCards';
+import { buylistKey, buylistLines, shortfallExplanation, buylistCoverage } from './missingCards';
 
 // THE MISSING CARDS / BUYLIST PANEL (PR 7).
 //
@@ -32,6 +32,7 @@ export default function MissingCardsPanel({
 
   const items = buylistLines(buylist?.items);
   const considering = buylistLines(buylist?.considering);
+  const coverage = buylistCoverage(buylist);
 
   if (loading) {
     return (
@@ -137,6 +138,17 @@ export default function MissingCardsPanel({
           </span>
         )}
       </div>
+
+      {/* WHAT THIS LIST COVERS. Rendered above the lines and BEFORE the
+          nothing-to-buy branch, because "nothing to buy for these three decks"
+          is a different and more useful fact than a bare "nothing to buy".
+          Only appears on the combined list; the per-deck buylist sits under a
+          heading that already names its deck. */}
+      {coverage && (
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0, wordBreak: 'break-word' }}>
+          {t('deck.multiBuylistCovers', { count: coverage.count, names: coverage.names })}
+        </p>
+      )}
 
       {nothingToBuy ? (
         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
