@@ -8,7 +8,8 @@ import {
   buylistKey,
   buylistLines,
   isCommittedElsewhere,
-  shortfallExplanation
+  shortfallExplanation,
+  buylistCoverage
 } from './missingCards.js';
 
 let failed = 0;
@@ -151,6 +152,49 @@ test('F7-TCM12', 'an aggregate line carrying deck attribution is shaped unchange
   assert.deepStrictEqual(line.decks.map(d => d.name), ['Aggro', 'Control'],
     'the panel needs the deck names intact to say which decks put a card on the list');
   assert.strictEqual(line.quantity, 3, 'and the aggregated shortfall is passed through untouched');
+});
+
+// ---------------------------------------------------------------------------
+// THE COMBINED LIST SAYS WHAT IT COVERS (PR 7A).
+//
+// A shopping list read an hour later in a shop must name the decks it was built
+// from. The failure without it is silent and expensive: he buys for a deck he
+// did not mean to include and only finds out at home.
+// ---------------------------------------------------------------------------
+
+test('F7A-TCM13', 'the combined list names every deck it was built from', () => {
+  const coverage = buylistCoverage({
+    decks: [{ id: 1, name: 'Aggro' }, { id: 2, name: 'Control' }],
+    items: []
+  });
+  assert.strictEqual(coverage.count, 2);
+  assert.ok(coverage.names.includes('Aggro') && coverage.names.includes('Control'),
+    'both decks must be named — a list that omits one is a list he cannot audit');
+});
+
+test('F7A-TCM14', 'coverage comes from the SERVER response, not from a UI selection', () => {
+  // The response is the record of what was actually built. The UI's current
+  // selection may already have moved on, and describing the list by the newer
+  // selection would label it with decks it does not cover.
+  const coverage = buylistCoverage({ decks: [{ id: 7, name: 'Only This One' }] });
+  assert.strictEqual(coverage.count, 1);
+  assert.strictEqual(coverage.names, 'Only This One');
+});
+
+test('F7A-TCM15', 'the per-deck buylist gets no coverage line', () => {
+  // No `decks` key at all: the per-deck panel already sits under a heading that
+  // names its deck, so a coverage line there would be noise.
+  assert.strictEqual(buylistCoverage({ items: [] }), null);
+  assert.strictEqual(buylistCoverage(null), null);
+});
+
+test('F7A-TCM16', 'a nameless deck entry never renders as a blank name', () => {
+  // buylistForDecks reads the name from a row that could be missing it. Better
+  // to name fewer decks than to show him "Covers 2 decks: Aggro, " and let him
+  // guess what the second one was.
+  const coverage = buylistCoverage({ decks: [{ id: 1, name: 'Aggro' }, { id: 2, name: null }] });
+  assert.strictEqual(coverage.count, 1);
+  assert.strictEqual(coverage.names, 'Aggro');
 });
 
 if (failed > 0) {
