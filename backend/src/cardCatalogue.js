@@ -290,87 +290,276 @@ async function applyStaged() {
   return corrections;
 }
 
+// --- The in-flight lock (PR 6I item 8) --------------------------------------
+
+// How stale a heartbeat must be before a later run is allowed to conclude the
+// holder is dead and take the lock. Deliberately far longer than any gap a live
+// import produces: the heartbeat is written on every progress callback, so a
+// healthy refresh touches it every few thousand rows. Twenty minutes of total
+// silence is not a slow import, it is a process that is gone.
+const LOCK_STALE_AFTER_MS = 20 * 60 * 1000;
+
+// A refresh is already running elsewhere. A distinct class so callers can tell
+// "someone else is doing this" from "this failed" — they are different events
+// and deserve different words to the operator.
+class RefreshInProgressError extends Error {
+  constructor(holder) {
+    super(
+      `A catalogue refresh is already running (started by ${holder.owner || 'an unknown process'} ` +
+      `at ${holder.startedAt}). Refusing to start a second one.`
+    );
+    this.code = 'CATALOGUE_REFRESH_IN_PROGRESS';
+    this.holder = holder;
+  }
+}
+
+function lockOwnerLabel(label) {
+  return `${label || 'unknown'} pid ${process.pid} on ${os.hostname()}`;
+}
+
+// Read who currently holds the lock, or null when it is free.
+async function readLock() {
+  const row = await db.get(
+    `SELECT card_catalogue_refresh_started_at AS startedAt,
+            card_catalogue_refresh_heartbeat_at AS heartbeatAt,
+            card_catalogue_refresh_owner AS owner
+     FROM app_settings WHERE id = 1`
+  ).catch(() => null);
+  if (!row || !row.startedAt) return null;
+  return row;
+}
+
+// Claim the lock, or refuse.
+//
+// The read and the write happen INSIDE ONE withTransaction() — that is what
+// makes this a lock rather than a check. withTransaction opens BEGIN IMMEDIATE,
+// which takes SQLite's write lock for the whole body, so two processes cannot
+// both read "free" and then both write "mine". Doing the read outside and the
+// write inside would leave exactly that window open.
+async function acquireLock(label, { now = () => new Date().toISOString() } = {}) {
+  const owner = lockOwnerLabel(label);
+  return db.withTransaction(async (tx) => {
+    const row = await tx.get(
+      `SELECT card_catalogue_refresh_started_at AS startedAt,
+              card_catalogue_refresh_heartbeat_at AS heartbeatAt,
+              card_catalogue_refresh_owner AS owner
+       FROM app_settings WHERE id = 1`
+    );
+    const holder = row && row.startedAt ? row : null;
+    if (holder) {
+      const beat = Date.parse(holder.heartbeatAt || holder.startedAt);
+      const age = Number.isNaN(beat) ? Infinity : Date.now() - beat;
+      // A live holder wins outright. Note this is the ONLY place a refusal is
+      // decided, so both the server job and the manual script get the same
+      // answer from the same rule.
+      if (age < LOCK_STALE_AFTER_MS) throw new RefreshInProgressError(holder);
+      // A dead holder is taken over, LOUDLY. Never silently: an operator who
+      // sees a takeover in the log knows a previous run died, which is a real
+      // fact about the system they would otherwise never learn.
+      console.warn(
+        `cardCatalogue: taking over a catalogue refresh lock last touched ` +
+        `${Math.round(age / 1000)}s ago by ${holder.owner || 'an unknown process'}; ` +
+        `treating that run as dead.`
+      );
+    }
+    const stamp = now();
+    await tx.run(
+      `UPDATE app_settings
+       SET card_catalogue_refresh_started_at = ?,
+           card_catalogue_refresh_heartbeat_at = ?,
+           card_catalogue_refresh_owner = ?
+       WHERE id = 1`,
+      [stamp, stamp, owner]
+    );
+    return { owner, startedAt: stamp };
+  });
+}
+
+// Release the lock, but ONLY if we still hold it. The guard matters: if our
+// lock was taken over as stale while we were still running, clearing it here
+// would delete the NEW holder's claim and let a third refresh start alongside
+// them. Better to leave a lock we no longer own alone.
+async function releaseLock(claim) {
+  if (!claim) return;
+  try {
+    await db.run(
+      `UPDATE app_settings
+       SET card_catalogue_refresh_started_at = NULL,
+           card_catalogue_refresh_heartbeat_at = NULL,
+           card_catalogue_refresh_owner = NULL
+       WHERE id = 1 AND card_catalogue_refresh_owner = ?`,
+      [claim.owner]
+    );
+  } catch (error) {
+    // Never mask the outcome of the refresh itself with a bookkeeping failure.
+    // A lock left behind is recoverable (it goes stale); a lost error is not.
+    console.warn('cardCatalogue: could not release the refresh lock:', error.message);
+  }
+}
+
+async function beatHeartbeat(claim) {
+  if (!claim) return;
+  try {
+    await db.run(
+      `UPDATE app_settings SET card_catalogue_refresh_heartbeat_at = ?
+       WHERE id = 1 AND card_catalogue_refresh_owner = ?`,
+      [new Date().toISOString(), claim.owner]
+    );
+  } catch { /* a missed beat only costs us a shorter stale window */ }
+}
+
 // --- Public entry point ------------------------------------------------------
 
 // Refresh the local catalogue.
 //
-// Failure contract: if anything goes wrong at any point before applyStaged()
-// succeeds, card_cache is untouched and the error propagates. There is no
-// half-written state to recover from, because nothing is written to card_cache
-// until the entire download has been read and staged successfully.
+// FAILURE CONTRACT (rewritten for PR 6I item 7).
+//
+// The old contract read: "if anything goes wrong at any point before
+// applyStaged() succeeds, card_cache is untouched". That sentence was true. The
+// error handler's message was not, because it made a WIDER claim than the
+// sentence supports — it said the cache was unchanged for ANY error, including
+// errors thrown AFTER applyStaged() had already committed.
+//
+// That is exactly what bit Zach on 2026-08-19: the import committed 104,406
+// rows, the app_settings bookkeeping UPDATE afterwards hit SQLITE_BUSY, and the
+// handler printed "The existing cache of 174 cards is unchanged — no partial
+// catalogue was written." The catalogue had in fact been completely replaced.
+// The app stated a rollback that never happened.
+//
+// So the handler no longer INFERS state from the fact that it is on the error
+// path. It tracks whether the swap actually committed, and it RE-READS the row
+// count from the database before saying anything about it. The rule this
+// encodes: never describe your own state from control flow when you can go and
+// look.
 async function refreshCatalogue(options = {}) {
-  const { force = false, log = console } = options;
+  const { force = false, log = console, lockLabel = 'server' } = options;
   const startedAt = Date.now();
 
-  const info = await fetchBulkInfo();
+  // The lock is taken BEFORE the bulk index fetch, not after. The point is to
+  // stop two imports overlapping, and the download is the long part — claiming
+  // afterwards would leave both processes free to spend minutes downloading
+  // before one discovers it should not have started.
+  const claim = await acquireLock(lockLabel);
 
-  // Skip the download when Scryfall has not rebuilt the file since our last
-  // successful import. This is what stops the dev and production instances from
-  // both pulling hundreds of megabytes: each checks a few-kilobyte index first,
-  // and neither downloads a file it already has. It also makes the job safe to
-  // run more often than nightly, and safe to re-run by hand.
-  const settings = await db.get(`SELECT card_catalogue_updated_at FROM app_settings WHERE id = 1`).catch(() => null);
-  const lastImported = settings && settings.card_catalogue_updated_at;
-  if (!force && lastImported && info.updatedAt && lastImported === info.updatedAt) {
-    log.log(`cardCatalogue: already current (Scryfall build ${info.updatedAt}); skipping download.`);
-    return { skipped: true, reason: 'already_current', updatedAt: info.updatedAt };
-  }
-
-  const existing = await db.get(`SELECT COUNT(*) AS count FROM card_cache`);
-  log.log(
-    `cardCatalogue: refreshing from Scryfall default_cards (build ${info.updatedAt}); ` +
-    `${existing.count} cards currently cached. This takes several minutes on a first run.`
-  );
-
-  await createStagingTable();
   try {
-    const staged = await downloadIntoStaging(info.url, {
-      onProgress: ({ accepted, skipped }) => {
-        log.log(`cardCatalogue: staged ${accepted} cards (${skipped} non-English/non-card rows skipped)...`);
-      },
-    });
+    const info = await fetchBulkInfo();
 
-    const corrections = await applyStaged();
-
-    for (const correction of corrections) {
-      log.warn(
-        `cardCatalogue: Scryfall corrected the colour identity of "${correction.name}" ` +
-        `(${correction.id}), which is used in a deck: ${correction.previous_identity} -> ${correction.new_identity}. ` +
-        `Nothing was removed from the deck.`
-      );
+    // Skip the download when Scryfall has not rebuilt the file since our last
+    // successful import. This is what stops the dev and production instances from
+    // both pulling hundreds of megabytes: each checks a few-kilobyte index first,
+    // and neither downloads a file it already has. It also makes the job safe to
+    // run more often than nightly, and safe to re-run by hand.
+    const settings = await db.get(`SELECT card_catalogue_updated_at FROM app_settings WHERE id = 1`).catch(() => null);
+    const lastImported = settings && settings.card_catalogue_updated_at;
+    if (!force && lastImported && info.updatedAt && lastImported === info.updatedAt) {
+      log.log(`cardCatalogue: already current (Scryfall build ${info.updatedAt}); skipping download.`);
+      return { skipped: true, reason: 'already_current', updatedAt: info.updatedAt };
     }
 
-    await db.run(
-      `UPDATE app_settings SET card_catalogue_updated_at = ?, card_catalogue_refreshed_at = CURRENT_TIMESTAMP WHERE id = 1`,
-      [info.updatedAt || null]
-    );
-
-    const total = await db.get(`SELECT COUNT(*) AS count FROM card_cache`);
-    const seconds = Math.round((Date.now() - startedAt) / 1000);
+    const existing = await db.get(`SELECT COUNT(*) AS count FROM card_cache`);
     log.log(
-      `cardCatalogue: refresh complete in ${seconds}s — ${staged.accepted} cards imported, ` +
-      `${total.count} now cached.`
+      `cardCatalogue: refreshing from Scryfall default_cards (build ${info.updatedAt}); ` +
+      `${existing.count} cards currently cached. This takes several minutes on a first run.`
     );
 
-    return {
-      skipped: false,
-      imported: staged.accepted,
-      ignored: staged.skipped,
-      cached: total.count,
-      corrections,
-      updatedAt: info.updatedAt,
-      seconds,
-    };
-  } catch (error) {
-    // Say so, explicitly. A silent failure here is how the app would drift back
-    // into ruling on cards it has never read without anyone noticing.
-    log.error(
-      `cardCatalogue: refresh FAILED (${error.message}). ` +
-      `The existing cache of ${existing.count} cards is unchanged — no partial catalogue was written.`
-    );
-    throw error;
+    // THE FACT the error handler needs, recorded rather than guessed. It flips
+    // only once applyStaged() has RETURNED — i.e. once its transaction has
+    // committed — so it can never claim a commit that did not happen, and can
+    // never deny one that did.
+    let swapCommitted = false;
+
+    await createStagingTable();
+    try {
+      const staged = await downloadIntoStaging(info.url, {
+        onProgress: ({ accepted, skipped }) => {
+          log.log(`cardCatalogue: staged ${accepted} cards (${skipped} non-English/non-card rows skipped)...`);
+          // Piggy-backed on progress rather than a timer: no interval to leak
+          // if this function throws, and it beats often enough to be useful.
+          beatHeartbeat(claim);
+        },
+      });
+
+      const corrections = await applyStaged();
+      swapCommitted = true;
+
+      for (const correction of corrections) {
+        log.warn(
+          `cardCatalogue: Scryfall corrected the colour identity of "${correction.name}" ` +
+          `(${correction.id}), which is used in a deck: ${correction.previous_identity} -> ${correction.new_identity}. ` +
+          `Nothing was removed from the deck.`
+        );
+      }
+
+      await db.run(
+        `UPDATE app_settings SET card_catalogue_updated_at = ?, card_catalogue_refreshed_at = CURRENT_TIMESTAMP WHERE id = 1`,
+        [info.updatedAt || null]
+      );
+
+      const total = await db.get(`SELECT COUNT(*) AS count FROM card_cache`);
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      log.log(
+        `cardCatalogue: refresh complete in ${seconds}s — ${staged.accepted} cards imported, ` +
+        `${total.count} now cached.`
+      );
+
+      return {
+        skipped: false,
+        imported: staged.accepted,
+        ignored: staged.skipped,
+        cached: total.count,
+        corrections,
+        updatedAt: info.updatedAt,
+        seconds,
+      };
+    } catch (error) {
+      // REPORT WHAT IS ACTUALLY THERE, not what the code path implies.
+      //
+      // Re-reading the count is the whole fix. It is cheap, it cannot be wrong,
+      // and it is the only way to distinguish the two genuinely different
+      // situations that both arrive here.
+      let cachedNow = null;
+      try {
+        const row = await db.get(`SELECT COUNT(*) AS count FROM card_cache`);
+        cachedNow = row ? row.count : null;
+      } catch (countError) {
+        // If we cannot even count, we say we cannot — we do not fall back to a
+        // confident claim. An unverified assertion about the user's data is the
+        // defect being fixed; repeating it in the recovery path would be absurd.
+        log.error(
+          `cardCatalogue: refresh FAILED (${error.message}), and the resulting state could NOT be ` +
+          `verified (${countError.message}). Check the catalogue by hand before relying on it.`
+        );
+        error.catalogueState = 'unverified';
+        throw error;
+      }
+
+      if (swapCommitted) {
+        // The import landed and something after it failed. Saying "unchanged"
+        // here is the false statement PR 6I item 7 exists to remove.
+        log.error(
+          `cardCatalogue: the catalogue import COMMITTED, but the refresh then failed ` +
+          `(${error.message}). The cache now holds ${cachedNow} cards — it HAS been replaced, ` +
+          `and no rollback occurred. What did not complete is the bookkeeping that records ` +
+          `which Scryfall build is loaded, so the next run will import this build again.`
+        );
+        error.catalogueState = 'committed';
+      } else {
+        // Nothing was copied into card_cache: everything up to here writes only
+        // to the staging table. This claim is now BACKED by the count, so it is
+        // an observation rather than an assumption.
+        log.error(
+          `cardCatalogue: refresh FAILED (${error.message}) before any card was written. ` +
+          `The existing cache of ${cachedNow} cards is unchanged — no partial catalogue was written.`
+        );
+        error.catalogueState = 'unchanged';
+      }
+      error.catalogueCached = cachedNow;
+      throw error;
+    } finally {
+      await dropStagingTable();
+    }
   } finally {
-    await dropStagingTable();
+    await releaseLock(claim);
   }
 }
 
@@ -379,5 +568,8 @@ module.exports = {
   // Exported for tests and for the manual trigger script.
   fetchBulkInfo,
   isWantedCard,
+  readLock,
+  RefreshInProgressError,
+  LOCK_STALE_AFTER_MS,
   STAGING_TABLE,
 };
