@@ -16,7 +16,29 @@ const { parseSetList } = require('./utils/setQuery');
 const languages = require('./utils/languages');
 
 const DATA_DIR = process.env.INDEX_DATA_DIR || path.join(__dirname, '..', 'data');
-const RECALL_K = 250;      // CLIP candidates to geometrically verify
+// CLIP candidates to geometrically verify.
+//
+// Measured on the dev box against the global (unscoped) index, 8 varied cards
+// including Alpha originals, modern frames and a double-faced card. Card
+// identification was 8/8 at EVERY value tested; only latency moved:
+//
+//   250 -> 4952ms    100 -> 1642ms    50 -> 1118ms    25 -> 752ms    10 -> 587ms
+//
+// So verifying 250 candidates was almost entirely wasted work: CLIP already
+// ranks the right card at or near the top, exactly as the note further down
+// this file predicted ("if these stay well below K, RECALL_K can be lowered
+// losslessly"). The sweep ran DESCENDING, so the fast numbers came last and are
+// not a warm-cache artefact.
+//
+// 50 rather than 10 deliberately. Every test image was a clean Scryfall render:
+// no glare, no sleeve, no angle, no worn edges. Geometric verification exists
+// for exactly those cases and none of them are in the sample, so the measurement
+// proves 250 is wasteful - NOT that 10 is safe. 50 keeps a 5x margin over the
+// point where accuracy could start to matter and still cuts a scan from ~5s to
+// ~1.1s, which is the difference between cataloguing a collection and giving up.
+//
+// Callers may still pass a lower recallK per request for speed-critical paths.
+const RECALL_K = 50;
 const REF_WIDTH = 500;     // must match build-card-orb.mjs
 const DESC_BYTES = 32;
 const RATIO = 0.75;        // Lowe ratio test
