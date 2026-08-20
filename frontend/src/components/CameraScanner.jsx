@@ -10,6 +10,7 @@ import ScanReviewQueue from './ScanReviewQueue';
 import { createScanReviewQueue } from './scanReviewQueue';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
+import { laplacianVarianceScore, decideCapture } from '../utils/frameSharpness';
 
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
@@ -166,6 +167,19 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // different kinds of value in one ref would make a future "why doesn't this
   // match?" bug very hard to see.
   const lastQueuedNameRef = useRef(null);
+
+  // BUG 2 (auto-scan blur): the sharpness gate's rolling state.
+  //
+  // A PLAIN OBJECT IN A REF, deliberately — { skips, bestScore }, no timer
+  // handles, no DOM nodes, nothing with a lifecycle. An earlier PR shipped an
+  // iOS Safari crash by packing bare setTimeout handles into an object on this
+  // screen, so this state is kept to values that are safe to drop at any moment.
+  // Losing it costs at most one extra skipped frame.
+  //
+  // It is a REF and not state on purpose: updating it must NOT re-render the
+  // scanner. It changes on every auto tick, and a re-render per tick would
+  // restart the capture effect below and disturb the very cadence it gates.
+  const sharpnessRef = useRef({ skips: 0, bestScore: 0 });
 
   const beepCtxRef = useRef(null); // reused AudioContext for the scan cue
   const handleCaptureRef = useRef(null); // always the latest handleCapture, for timers
@@ -411,7 +425,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     let timerId;
     if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard) {
       timerId = setTimeout(() => {
-        handleCaptureRef.current?.();
+        handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, SCAN_COOLDOWN_MS);
     }
     return () => {
@@ -682,7 +696,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
     }
   };
 
-  const handleCapture = async () => {
+  // `auto` distinguishes the two callers, and it is the ONLY thing the
+  // sharpness gate keys on. The metronome effect passes true; the scan BUTTON
+  // passes nothing, so a manual tap is never gated and always produces a scan.
+  const handleCapture = async (auto = false) => {
     if (loading || !videoRef.current || !cameraActive) return;
 
     setLoading(true);
@@ -736,6 +753,58 @@ function CameraScanner({ onAddSuccess, showToast }) {
     fctx.rotate(-rad);
     fctx.translate(-cx, -cy);
     fctx.drawImage(oc, 0, 0);
+
+    // --- BUG 2: THE SHARPNESS GATE ------------------------------------------
+    //
+    // AUTO-CAPTURE ONLY. A manual tap is Zach explicitly asking for a scan, and
+    // the app must never answer that with silence — `auto` is false on that
+    // path, so the whole block is skipped and a button press ALWAYS captures.
+    //
+    // Placed HERE, on the cropped frame, not the full video frame. The crop is
+    // the region that actually gets uploaded and OCR'd, so it is the region
+    // whose sharpness decides whether the collector number is readable. Scoring
+    // the whole frame would let a sharp background rescue a blurred card.
+    //
+    // Scored on a small downscaled copy (~160px wide): the metric is a ratio of
+    // edge energy, so it does not need full resolution, and the downscale keeps
+    // the check at a fraction of a millisecond.
+    if (auto) {
+      let decision = { capture: true, reason: 'unmeasured' };
+      try {
+        const gate = document.createElement('canvas');
+        const gs = Math.min(1, 160 / framedCanvas.width);
+        gate.width = Math.max(3, Math.round(framedCanvas.width * gs));
+        gate.height = Math.max(3, Math.round(framedCanvas.height * gs));
+        const gctx = gate.getContext('2d', { willReadFrequently: true });
+        gctx.drawImage(framedCanvas, 0, 0, gate.width, gate.height);
+        const px = gctx.getImageData(0, 0, gate.width, gate.height);
+        const score = laplacianVarianceScore(px.data, gate.width, gate.height);
+        decision = decideCapture(score, sharpnessRef.current);
+        sharpnessRef.current = decision.state;
+      } catch {
+        // getImageData can throw on a tainted canvas, and a browser that
+        // refuses to give us pixels must not disable scanning. FAIL OPEN: an
+        // ungated capture is the old behaviour, which is merely imperfect; a
+        // gate that swallows every frame would silently stop auto-scan, and a
+        // card missing from a scanned stack is the failure this app cannot
+        // afford.
+        decision = { capture: true, reason: 'gate-unavailable' };
+      }
+
+      if (!decision.capture) {
+        // Skip WITHOUT signalling. No click, no flash, no vibrate: from Zach's
+        // side nothing happened, the card is still in frame, and the next tick
+        // comes around in SCAN_COOLDOWN_MS. Dropping `loading` back to false is
+        // what reschedules it — the capture effect keys on `loading`.
+        setScanStatus(t('scan.holdSteady'));
+        setLoading(false);
+        return;
+      }
+      // Clear a lingering "hold steady" so the status line reflects the scan
+      // that is actually now running.
+      setScanStatus('');
+    }
+
     // Picture is now taken — fire the instant cue (click + vibrate + flash) so
     // the user can move the card immediately, before the server lookup runs.
     signal('capture');
@@ -1444,7 +1513,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 {t('scan.cancelScan')}
               </button>
             ) : (
-              <button className="btn btn-primary" onClick={handleCapture} style={{ flex: 2 }}>
+              // NOTE: the arrow wrapper is load-bearing. onClick={handleCapture}
+              // would pass the CLICK EVENT as `auto`, which is truthy, and a
+              // manual tap would then be silently subject to the sharpness gate
+              // — the one thing that must never happen.
+              <button className="btn btn-primary" onClick={() => handleCapture(false)} style={{ flex: 2 }}>
                 {t('scan.captureIdentify')}
               </button>
             )}

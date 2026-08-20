@@ -588,6 +588,7 @@
   "scan.adjustAndAdd": "Adjust & Add",
   "scan.exactMatch": "Exact Match Identified!",
   "scan.setOptionalHint": "Scanning all sets — no set needed. Pick set(s) below only if you want faster scans on a box you already know.",
+  "scan.holdSteady": "Hold steady — waiting for a sharp frame…",
   "scan.queuedForReview": "{name} — needs a printing chosen. Added to review.",
   "scan.queuedToast": "{name} → review queue (not added yet)",
   "scan.pendingReview.one": "{count} card waiting for a printing — not in your collection yet",
