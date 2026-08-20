@@ -955,6 +955,64 @@ async function initDb() {
     await run(`ALTER TABLE locations ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`);
   }
 
+  // --- PR 8: SCAN REVIEW QUEUE ---
+  //
+  // Cards whose exact PRINTING the scan could not determine wait here until
+  // Zach resolves them. Zach, 2026-08-20: "maybe when scanning hold the unknown
+  // cards till im done scanning and then let me go through all the unknown
+  // cards and update them correctly that way it doesnt slow scanning down."
+  //
+  // WHY THIS IS A SEPARATE TABLE, NOT A FLAG ON `collection`
+  //
+  // A queued card is NOT YET OWNED. It must not count toward availability,
+  // appear in deck matching, or affect a buylist until resolved — a pending
+  // decision is not a card he owns.
+  //
+  // 52 queries across 15 files read `FROM collection`. A `pending` flag on that
+  // table would make correctness depend on every one of those 52 sites
+  // remembering to filter it out, and on every FUTURE query remembering too.
+  // The first one that forgot would silently inflate availability and put a
+  // card he does not own into a buylist — exactly the failure the spec calls
+  // the most important thing to get right.
+  //
+  // A separate table makes "not owned" TRUE BY CONSTRUCTION: those 52 queries
+  // cannot see this data even if they try. Resolving an entry MOVES it into
+  // `collection` through the normal add path and deletes it from here, so a
+  // card is in exactly one of the two states and never both.
+  await run(`
+    CREATE TABLE IF NOT EXISTS scan_review_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      -- What image matching identified. Card IDENTITY was 12/12 in measurement,
+      -- so this is the trustworthy part of the scan and is stored as text
+      -- rather than a card_cache FK: the whole point is that we do not yet know
+      -- WHICH printing (which row) it is.
+      matched_name TEXT NOT NULL,
+      -- Why this entry needs a human. Different reasons need different
+      -- decisions, so the reason is recorded rather than re-derived later.
+      --   'unreadable'   OCR could not read a number it expected to find
+      --   'no_number'    the card's frame prints no collector number at all
+      --   'ambiguous'    the read matched several catalogue printings
+      reason TEXT NOT NULL CHECK(reason IN ('unreadable', 'no_number', 'ambiguous')),
+      -- The OCR read, kept verbatim for debugging and so the UI can show what
+      -- it thought it saw. TEXT, never INTEGER: Scryfall collector numbers are
+      -- strings ('123a', 'A-12', 'GR1', '1508').
+      ocr_number TEXT,
+      ocr_set TEXT,
+      ocr_confident INTEGER NOT NULL DEFAULT 0,
+      ocr_raw TEXT,
+      -- Candidate printings as JSON, already sorted owned-first (PR 6I banding)
+      -- at the time of scan. Snapshotted rather than recomputed so the queue
+      -- renders without re-querying the catalogue for every entry.
+      candidates_json TEXT NOT NULL DEFAULT '[]',
+      -- The cropped scan thumbnail, so he can see the card he actually scanned
+      -- when deciding. Without it a queue of 40 entries is unresolvable.
+      crop_data_url TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
   // --- PERFORMANCE INDEXES ---
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_comp_user_qty ON collection(compartment_id, user_id, quantity)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_loc_pos ON collection(location_id, position)`);
@@ -970,6 +1028,9 @@ async function initDb() {
 
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_tags_tag_id ON collection_tags(tag_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_date ON audit_logs(user_id, created_at DESC)`);
+  // The queue is always read as "this user's queue, oldest first" — the order
+  // he scanned the stack in, which is the order the physical pile is in.
+  await run(`CREATE INDEX IF NOT EXISTS idx_scan_review_user ON scan_review_queue(user_id, created_at)`);
 
   // --- SEED DATA & MIGRATION TO DEFAULT ADMIN ---
   const userCount = await get(`SELECT COUNT(*) as count FROM users`);

@@ -57,15 +57,31 @@ important thing the measurement taught us, and it was not obvious beforehand.
 
 ## Where the number is, and when it is not
 
-- Modern frames: bottom-left, small white text, `123/456` or `123`, with the set
-  code and rarity beside it. Measured: that strip is **~28px tall** in the
-  pipeline's existing 500x700 rectified image (`scanMatch.js:47`), which is above
-  the usual 20px OCR threshold. If it proves marginal, rectify **only the OCR
-  crop** at 750x1050 (~42px) — do not change the size used for matching, which is
-  tuned and working.
-- Older frames: **no collector number is printed at all.** Cards before roughly
-  1996 cannot be disambiguated this way. The information is physically absent —
-  this is not a gap to engineer around.
+**CORRECTED BY MEASUREMENT (PR 8 implementation).** This section originally said
+pre-1996 cards carry no number. The real boundary is much later and much bigger:
+**only the 2015 frame redesign prints a collector number.** Cropping and
+inspecting every frame family in a 21-card corpus:
+
+```
+frame 1993 (LEA, LEB, ARN)      -> artist credit + copyright only, NO number
+frame 2003 (8ED, 10E, M12)      -> artist credit + copyright only, NO number
+frame 2015 (C21, MH2, ZNR, ...) -> "263/281 U" / "C21 * EN <artist>"
+```
+
+So a 2007 10th Edition card is exactly as unreadable as an Alpha one. This
+matters for expectations: OCR resolves printings for the MODERN catalogue, and
+everything printed before ~2015 goes to the review queue by physical necessity,
+not because the OCR is weak. That is a much larger share of a mixed shoebox than
+"pre-1996" implied.
+
+- Modern (2015+) frames: bottom-left, small white text, `123/456` or `123`, with
+  the set code and rarity beside it. Measured: that strip is **~28px tall** in
+  the pipeline's existing 500x700 rectified image (`scanMatch.js:47`). It proved
+  marginal, so the OCR crop is rectified at **750x1050** — measured to raise
+  exact reads 10/15 -> 12/15 and cut fabricated reads 5/21 -> 1/21. The size used
+  for MATCHING is unchanged.
+- Older frames: **no collector number is printed at all.** The information is
+  physically absent — this is not a gap to engineer around.
 - Non-numeric and suffixed values exist: `123a`, `★`, `A-12`, `GR1`. Scryfall
   stores `collector_number` as a STRING. Any parse assuming an integer will
   silently mangle these.
@@ -168,9 +184,43 @@ them. Finish stays an explicit choice, exactly as plan task G2 already required
 
 ## Engine choice
 
-- `onnxruntime-node` is **already a dependency** (CLIP uses it), so an ONNX text
-  recogniser adds no new native dependency.
-- `tesseract.js` is pure JS/WASM, heavier and slower, but simpler to wire up.
+**DECIDED BY MEASUREMENT.** Both engines were benchmarked on the same 21-card
+corpus (real Scryfall images, identical crops, ground truth from Scryfall's own
+API). 18 cards carry a printed number; 3 do not. Graded per frame, so a correct
+"I cannot read this" on a numberless card scores as a SUCCESS.
+
+```
+engine / config                          number   set     no-num  fabricated  median
+tesseract.js @ 500x700 (matcher size)    10/15    11/15   4/6     5/21        114ms
+tesseract.js @ 750x1050 (OCR crop only)  12/15     7/15   6/6     1/21        186ms
+tesseract.js @ 750x1050 + 2x upscale     12/15     9/15   5/6     3/21        241ms
+onnx trocr-small-printed @ 500x700        0/15     0/15   6/6     1/21        558ms
+onnx trocr-small-printed @ 750x1050       0/15     0/15   6/6     4/21        608ms
+```
+
+**tesseract.js @ 750x1050 wins and is what shipped.** TrOCR scored ZERO. It is
+trained on single-line document/receipt text, so this crop is far out of its
+distribution — and it does not misread the strip, it IGNORES it and emits fluent
+receipt boilerplate ("SEE BACK OF RECEIPT FOR AN OFFER", "TOTAL EXCHANGE AND
+RECEIPT"). That failure shape is worse than a low score: confident, well-formed
+text with no relationship to the card. It is also 3x slower.
+
+The `onnxruntime-node` argument was that it adds no new dependency. It is also
+worth noting it is only a TRANSITIVE dep (via `@huggingface/transformers`), not a
+direct one. Either way an engine that is 0/15 is not a cheaper option, it is a
+non-option, so tesseract.js was added as a direct dependency (~1.7MB package plus
+a ~5MB English traineddata downloaded once and cached under `backend/data/ocr`).
+
+The `fabricated` column is the one that matters most: how often an engine
+returned a number that was wrong or invented. Rectifying the OCR crop at
+750x1050 cut that from 5/21 to 1/21. The 2x upscale made it worse and was
+dropped.
+
+**Measured added latency: +193ms median** (min 110, p90 249, max 314) on the
+2-core box, warm. A scan goes ~1100ms -> ~1293ms. Worker startup (~740ms) is paid
+once at first use, not per card. OCR is opt-in per request (`ocr: true`), so any
+path that does not ask for it pays nothing.
+
 - The box is 2 cores / 2GB RAM.
 - **Hard constraint:** a scan is ~1.1s after PR 22 lowered `RECALL_K` 250 -> 50.
   OCR on a small crop must not undo that win. Budget tens of milliseconds, and
@@ -181,5 +231,65 @@ them. Finish stays an explicit choice, exactly as plan task G2 already required
 1. ~~Global index builds~~ — done, 1.2GB, first ever on any box.
 2. ~~Measure unscoped matching~~ — done: card 100%, printing 58%.
 3. ~~Cut latency~~ — done: ~5s -> ~1.1s.
-4. **OCR the collector number and set code from the rectified crop.**
-5. Look up `card_cache` by name + number (+ set), and ask when ambiguous.
+4. ~~OCR the collector number and set code from the rectified crop.~~ — done.
+5. ~~Look up `card_cache` by name + number (+ set), and ask when ambiguous.~~ — done.
+6. **UI for the review queue** — not built. See below.
+
+---
+
+## What shipped (backend only)
+
+| file | role |
+|---|---|
+| `src/utils/collectorNumberOcr.js` | tesseract.js worker + the 750x1050 crop |
+| `src/utils/collectorNumberParse.js` | raw OCR text -> `{number, set, confident}`, refuses junk |
+| `src/utils/scanPrintingResolver.js` | catalogue lookup; decides add vs queue |
+| `src/routes/collection.js` | `/scan-resolve`, `/scan-queue`, resolve, discard |
+| `src/db.js` | `scan_review_queue` table + index |
+
+### The safety property, stated plainly
+
+**The catalogue is the validator.** OCR is only a lookup key. A misread like
+`M1508` (observed in the benchmark) does not become a wrong card — no printing
+has that number, so the lookup returns nothing and the card queues. The only
+reads that can auto-add are ones that matched a real catalogue row exactly.
+
+**A queued card is not owned, by construction.** The queue is a SEPARATE TABLE,
+not a flag on `collection`. 52 queries across 15 files read `FROM collection`; a
+flag would make correctness depend on all 52 (and every future query) remembering
+to filter. A separate table means they cannot see queued cards even by mistake.
+
+### API for the follow-up UI PR
+
+```
+POST /api/scan-match      { image, ocr: true }   -> adds `ocr: {number,set,confident,ms}`
+POST /api/scan-resolve    { name, ocr_text, crop, finish?, quantity? }
+                          -> { action: 'added', card }            (exactly one printing)
+                          -> { action: 'queued', reason, candidates, queue_id }
+GET  /api/scan-queue      -> { entries: [{ id, matched_name, reason, ocr, candidates, crop }] }
+POST /api/scan-queue/:id/resolve  { card_id, finish, quantity }
+DELETE /api/scan-queue/:id
+```
+
+`reason` is one of `unreadable`, `no_number`, `ambiguous`. `candidates` are
+pre-sorted owned-first (PR 6I banding), so the common case is the first row.
+
+**Finish is never inferred.** `/scan-resolve` passes the client's explicit finish
+through; nothing reads pixels to decide it.
+
+### What the UI PR must do — and what needs Zach's eyes
+
+Nothing in this repo runs a browser, so none of the above proves any frontend
+behaviour. An iOS Safari crash shipped through green tests this week. The UI PR
+needs:
+
+- A review screen reached AFTER scanning, never mid-scan. Adapt the existing
+  scanner screen in place; do not replace it.
+- Each entry: the scan thumbnail, the matched name, WHY it is queued (the three
+  reasons need different wording — "this card prints no number" is not a
+  failure), and the candidate printings owned-first.
+- A visible pending count during scanning, so the queue is not a surprise.
+- **Zach's phone is the real gate.** Test on iPhone 16 Safari: a 40-entry queue
+  with thumbnails is the layout risk.
+- Bulk actions ("apply this set to all remaining Sol Rings") are deliberately NOT
+  built. Measure a real queue first.
