@@ -98,9 +98,13 @@ function pass(id, msg) { passed++; console.log(`PASS: ${id} - ${msg}`); }
 // degrade to the old ungated behaviour, never to a scanner that captures
 // nothing.
 {
-  const catchIdx = src.indexOf("decision = { capture: true, reason: 'gate-unavailable' }");
+  const catchIdx = src.indexOf("reason: 'gate-unavailable'");
   assert.ok(catchIdx > 0,
     'the gate must FAIL OPEN when pixels are unavailable — a broken gate must not stop scanning');
+  // The capture flag is what makes it fail OPEN rather than closed.
+  const decl = src.slice(src.lastIndexOf('decision = {', catchIdx), catchIdx);
+  assert.ok(/capture:\s*true/.test(decl),
+    'the fail-open path must set capture: true');
   pass('FGATE-TC7', 'the gate fails open if the canvas refuses pixels');
 }
 
@@ -112,11 +116,42 @@ function pass(id, msg) { passed++; console.log(`PASS: ${id} - ${msg}`); }
   const refIdx = src.indexOf('const sharpnessRef = useRef(');
   assert.ok(refIdx > 0, 'the gate state must live in a ref');
   const decl = src.slice(refIdx, src.indexOf(')', refIdx) + 1);
-  assert.ok(/\{\s*skips:\s*0,\s*bestScore:\s*0\s*\}/.test(decl),
-    'the gate ref must hold plain numbers only');
+  assert.ok(/newGateState\(\)/.test(decl),
+    'the gate ref must be seeded from the shared newGateState(), so its shape has ONE definition');
   assert.ok(!/setTimeout|setInterval/.test(decl),
     'NO timer handles in the gate state — that exact shape crashed iOS Safari before');
-  pass('FGATE-TC8', 'the gate state is plain numbers, no timer handles packed into an object');
+  pass('FGATE-TC8', 'the gate state comes from newGateState(), no timer handles packed into an object');
+}
+
+// --- FGATE-TC9: BUG 2 — no absolute threshold survives ---------------------
+//
+// The regression guard for the reported bug. The gate compared every frame to
+// a constant 12 tuned against synthetic blur, and on Zach's real iPhone 16
+// "hold steady showed on like every card". If a future change reintroduces an
+// absolute cut point, this fails.
+{
+  const mod = fs.readFileSync(path.join(here, '..', 'utils', 'frameSharpness.js'), 'utf8');
+  assert.ok(!/SHARPNESS_MIN_SCORE/.test(mod),
+    'the absolute SHARPNESS_MIN_SCORE threshold must be GONE — it is BUG 2');
+  assert.ok(/SHARPNESS_REL_FLOOR/.test(mod) && /baselineOf/.test(mod),
+    'the gate must judge frames against a rolling per-device baseline instead');
+  assert.ok(!/SHARPNESS_MIN_SCORE/.test(src),
+    'and CameraScanner must not reference the removed constant');
+  pass('FGATE-TC9', 'no absolute sharpness threshold remains — the gate is relative to the device');
+}
+
+// --- FGATE-TC10: the observed scores are surfaced, not just computed -------
+//
+// BUG 2 was a guessed number nobody could check; it took Zach scanning a real
+// stack to disprove it. The scores must reach a surface he can read, so the
+// next adjustment is measured.
+{
+  assert.ok(/gateLogRef/.test(src), 'the gate decisions must be recorded');
+  assert.ok(/decision\.score/.test(src) && /decision\.baseline/.test(src),
+    'and must record BOTH the observed score and the baseline it was judged against');
+  assert.ok(/t\('scan\.focusGateDebug'\)/.test(src),
+    'and must be rendered somewhere Zach can actually read them');
+  pass('FGATE-TC10', 'observed focus scores and baselines are surfaced for measured diagnosis');
 }
 
 console.log(`\ncameraScannerGate.test.js: ${passed} cases passed`);

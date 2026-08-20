@@ -107,5 +107,39 @@ check('F8P-TC12', 'a confident read is still only a LOOKUP KEY, never a decision
     'a misread must NOT be "corrected" into a real printing — that is the guess we forbid');
 });
 
+// --- BUG 1: the rarity letter glued to the number ---------------------------
+//
+// Zach's iPhone 16 read Avatar Aang (tla #207) as '#M0207 · TAA'. The M is the
+// printed RARITY, not part of the number. These pin the rule that `number`
+// stays exactly as read while `numberAlt` offers the stripped reading for the
+// CATALOGUE to adjudicate.
+
+check('F8P-TC13', 'a glued rarity letter is preserved in number and offered as numberAlt', () => {
+  const r = parseCollectorStrip('M0207/0286\nTAA * EN SOME ARTIST');
+  assert.strictEqual(r.number, 'M0207',
+    'the read is reported EXACTLY as read — never silently rewritten');
+  assert.strictEqual(r.numberAlt, '207',
+    'and the rarity-stripped reading is offered as a second candidate');
+  assert.strictEqual(r.confident, true);
+});
+
+check('F8P-TC14', 'numberAlt is null when there is no plausible alternative', () => {
+  // A plain number has no leading letter to strip.
+  assert.strictEqual(parseCollectorStrip('263/281 U\nC21 * EN').numberAlt, null);
+  // 'GR1' is a REAL collector number shape. 'R1' is not a rarity+number
+  // reading of it, so no alternative is offered.
+  assert.strictEqual(parseCollectorStrip('GR1\nMH2 * EN').numberAlt, null);
+});
+
+check('F8P-TC15', 'numberAlt NEVER replaces the primary read', () => {
+  // The F8P-TC12 property, restated against the new field. 'M1508' was a real
+  // observed misread. The parser may SUGGEST '1508' but must still report
+  // 'M1508' as what it actually read — the catalogue decides which is real.
+  const r = parseCollectorStrip('M1508 SLD * EN ANDREA RADECK');
+  assert.strictEqual(r.number, 'M1508', 'the primary read is untouched');
+  assert.notStrictEqual(r.number, '1508',
+    'a misread must NOT be "corrected" into a real printing — that is the guess we forbid');
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);
