@@ -92,9 +92,22 @@ ACTIVE="$(systemctl is-active "$SERVICE" || true)"
 echo "dev service    : $ACTIVE"
 [ "$ACTIVE" = "active" ] || die "$SERVICE is $ACTIVE"
 
-PROD="$(systemctl is-active bindarr.service || true)"
-echo "prod service   : $PROD"
-[ "$PROD" = "active" ] || die "production service is $PROD -- it must never be disturbed by a dev deploy"
+# Production lives on a DIFFERENT machine now (the bindarr LXC). This check was
+# written when dev and prod shared a box, where a dev deploy could plausibly
+# disturb prod. On the dedicated dev box bindarr.service does not exist, so
+# asserting it is active reported a perfectly good deploy as FAILED - the same
+# "tool lies about its own state" defect this project blocks merges over, and
+# the fastest way to teach someone to ignore their own alarms.
+#
+# So: only assert prod health when prod is actually installed here.
+if systemctl list-unit-files bindarr.service >/dev/null 2>&1 && \
+   systemctl cat bindarr.service >/dev/null 2>&1; then
+  PROD="$(systemctl is-active bindarr.service || true)"
+  echo "prod service   : $PROD"
+  [ "$PROD" = "active" ] || die "production service is $PROD -- it must never be disturbed by a dev deploy"
+else
+  echo "prod service   : not on this host (production runs on the bindarr LXC)"
+fi
 
 CODE="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/ || true)"
 echo "dev http       : $CODE"
