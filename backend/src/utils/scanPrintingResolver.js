@@ -53,12 +53,49 @@ function framePrintsNumber(releaseDate) {
   return year >= FRAME_REDESIGN_YEAR;
 }
 
+// The scan index and the catalogue do not agree on what a two-part card is
+// CALLED, and the disagreement is not uniform. That is the whole problem.
+//
+// The scan index is built from Scryfall's `unique_artwork` bulk, which for any
+// multi-part card carries the COMBINED "Front // Back" name. The catalogue
+// (card_cache) stores the card object's OWN name, and Scryfall sets that
+// differently by layout:
+//
+//   SPLIT / ADVENTURE / flip ('Dusk // Dawn', 'Consecrate // Consume',
+//     "Obyra's Attendants // Desperate Parry") -> stored COMBINED. 916 rows in
+//     the live catalogue. These match today and MUST keep matching.
+//
+//   TRANSFORMING DFC ('Avatar Aang // Aang, Master of Elements') -> stored as
+//     the FRONT FACE ONLY: name='Avatar Aang'. These matched NOTHING, so the
+//     resolver took its "not in the catalogue" branch and produced a queue
+//     entry with zero candidates — an entry with nothing to tap, from which
+//     the card could never be added at all.
+//
+// So there is no single name to look up, and no way to tell the two layouts
+// apart from the name string alone: both are "A // B". The catalogue has to
+// answer the question.
+//
+// ORDER IS LOAD-BEARING, and this is the part that must not be "simplified"
+// later. The combined name is tried FIRST and the front face is a FALLBACK
+// that runs ONLY when the combined name returned nothing. Two live catalogue
+// rows show why: 'Bind // Liberate' and 'Smelt // Herd // Saw' each have a
+// standalone row for their front face ('Bind', 'Smelt') that is a DIFFERENT
+// CARD. Truncating first — or merging both result sets — would offer
+// Weatherlight's 'Bind' as a printing of 'Bind // Liberate'. That is a silent
+// wrong card, the exact failure this file exists to prevent, and it would look
+// perfectly successful.
+//
+// Splitting on the FIRST ' // ' is deliberate: 'Smelt // Herd // Saw' has a
+// front face of 'Smelt', not 'Smelt // Herd'.
+function frontFaceName(name) {
+  const i = name.indexOf(' // ');
+  return i === -1 ? null : name.slice(0, i);
+}
+
 // Look up every catalogue printing of a card by NAME.
 //
 // Name is the join key because image matching identifies the card reliably
-// (12/12 measured) while it cannot identify the printing. Compared
-// case-insensitively; DFCs are stored under their full "A // B" name, so the
-// front-face name is also tried.
+// (12/12 measured) while it cannot identify the printing.
 async function printingsByName(name) {
   if (!name) return [];
   // LEFT JOIN, never INNER: `sets` is only populated for sets the user has
@@ -66,15 +103,30 @@ async function printingsByName(name) {
   // make the catalogue look like it had fewer options than it does — turning
   // an 'ambiguous' into a wrong 'add'. release_date is a nice-to-have for
   // wording the queue reason; the printing rows are not.
-  const rows = await db.all(
+  const lookup = (n, includeCombinedPrefix) => db.all(
     `SELECT c.*, s.release_date AS release_date
        FROM card_cache c
        LEFT JOIN sets s ON s.id = c.set_id
-      WHERE LOWER(c.name) = LOWER(?) OR LOWER(c.name) LIKE LOWER(?)
+      WHERE LOWER(c.name) = LOWER(?)${includeCombinedPrefix ? ' OR LOWER(c.name) LIKE LOWER(?)' : ''}
       ORDER BY c.set_id, c.number`,
-    [name, `${name} // %`]
+    includeCombinedPrefix ? [n, `${n} // %`] : [n]
   );
-  return rows;
+
+  // 1. The name exactly as the scan index gave it. For a split/adventure card
+  //    this is the stored name and it hits directly. The ` // %` prefix arm is
+  //    the pre-existing reverse case: the scan supplied a FRONT face and the
+  //    catalogue stores the combined name.
+  const direct = await lookup(name, true);
+  if (direct.length) return direct;
+
+  // 2. Nothing under the combined name. ONLY NOW consider the front face —
+  //    the transforming-DFC case. EXACT match only, never widened with the
+  //    ` // %` prefix: widening here would let a front face reach back into
+  //    OTHER combined cards that share it, which is precisely the collision
+  //    the ordering above is protecting against.
+  const front = frontFaceName(name);
+  if (!front) return direct;               // no ' // ' at all: nothing to fall back to
+  return lookup(front, false);
 }
 
 // Narrow printings to those whose collector number matches the OCR read.
