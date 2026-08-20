@@ -6,6 +6,8 @@ import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
+import ScanReviewQueue from './ScanReviewQueue';
+import { createScanReviewQueue } from './scanReviewQueue';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
 
@@ -19,16 +21,37 @@ import { useT } from '../utils/i18n';
 // Below the gate the scan shows the candidates for manual selection.
 const SCAN_MATCH_MIN_SCORE = 0.55;
 const SCAN_MATCH_MIN_INLIERS = 12;
-// Scan-detail presets (quick↔accurate slider). Higher index = more upload
-// resolution, deeper server CLIP recall + more ORB features, longer cooldown:
-// slower but more accurate. Lower = faster, less accurate. Turbo keeps ORB
-// verify but with the fewest recall candidates + features — leanest ORB pass.
-const SCAN_PROFILES = [
-  { label: 'Turbo',    uploadW: 400,  cooldown: 400,  countdown: 0, recallK: 28,  orb: 240, cadence: 2000 },
-  { label: 'Fast',     uploadW: 640,  cooldown: 1200, countdown: 1, recallK: 60,  orb: 300 },
-  { label: 'Balanced', uploadW: 900,  cooldown: 2000, countdown: 2, recallK: 120, orb: 400 },
-  { label: 'Accurate', uploadW: 1280, cooldown: 3000, countdown: 2, recallK: 250, orb: 500 },
-];
+// ONE capture profile. The scan-detail slider is gone, and this is why.
+//
+// The slider bundled uploadW + cooldown + countdown + recallK + orb behind a
+// single "quick <-> accurate" axis. MEASURED, that axis did not exist:
+//
+//   recallK 250 / 100 / 50 / 25 / 10  -> 8/8 card identity at EVERY value.
+//   Only latency moved: 4952ms -> 587ms. RECALL_K's server default is now 50.
+//
+// So the slider's headline promise — drag right to be more accurate — was
+// false. Card identity was already 100%, and dragging right only bought a
+// slower scan. A control whose axis measurably does nothing is worse than no
+// control: it invites Zach to blame (or "fix") it for problems it cannot cause,
+// and it is another thing to get wrong on a phone mid-stack.
+//
+// uploadW DOES matter, but not the way the labels implied. Card identity was
+// 10/10 at every width including 400px — so width buys nothing for identifying
+// the CARD. It matters only for the COLLECTOR NUMBER, which needs enough
+// resolution to be legible at all, and which is now the thing that decides the
+// exact printing. 1280 is therefore chosen for the OCR strip, the only consumer
+// that can tell the difference. Zach: "it may be worth removing the slider and
+// just having uploadW be the 1280."
+const SCAN_UPLOAD_W = 1280;
+// Kept from the old 'Accurate' preset. Deliberately NOT collapsed to Turbo's
+// values: countdown 2 leaves a window to cancel a mis-scan, and the cooldown
+// paces a physical stack. Neither is an accuracy setting.
+const SCAN_COOLDOWN_MS = 3000;
+const SCAN_COUNTDOWN = 2;
+const SCAN_ORB = 500;
+// Server-side default after PR 22's latency work; sent explicitly so the value
+// in play is visible here rather than implied.
+const SCAN_RECALL_K = 50;
 
 function CameraScanner({ onAddSuccess, showToast }) {
   const { t } = useT();
@@ -54,9 +77,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
     },
   });
   const [scanFlash, setScanFlash] = useState(null); // 'capture', 'error', or null
-  // Fixed-cadence capture countdown (Turbo): ms remaining until the next photo,
-  // or null when the metronome isn't running. Drives the countdown ring.
-  const [captureCountdown, setCaptureCountdown] = useState(null);
   // Draggable/rotatable scan guide: translate (px, relative to centered) + angle
   // (deg). Lets the user aim the crop at an off-center or tilted card.
   const [guideOffset, setGuideOffset] = useState({ x: 0, y: 0 });
@@ -70,12 +90,25 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [cameraErrorKey, setCameraErrorKey] = useState('');
   const [autoScan, setAutoScan] = useState(false);
   const [showScanSettings, setShowScanSettings] = useState(false);
-  // Scan detail level: index into SCAN_PROFILES. Persisted; default Balanced.
-  const [scanDetail, setScanDetail] = useState(() => {
-    const v = parseInt(localStorage.getItem('scan_detail'), 10);
-    return Number.isInteger(v) && v >= 0 && v < SCAN_PROFILES.length ? v : 2;
-  });
-  const profile = SCAN_PROFILES[scanDetail];
+  // The review queue: cards scanned but not yet resolved to an exact printing.
+  //
+  // The controller is created ONCE (useRef, not useState) because it owns the
+  // pending count across re-renders; recreating it would silently reset the
+  // badge to zero mid-stack. React state mirrors it purely for rendering — the
+  // SERVER remains the source of truth, and `refresh()` reconciles the count.
+  const [showReviewQueue, setShowReviewQueue] = useState(false);
+  const [queuePending, setQueuePending] = useState(0);
+  const reviewQueueRef = useRef(null);
+  if (!reviewQueueRef.current) {
+    reviewQueueRef.current = createScanReviewQueue({
+      onChange: (s) => setQueuePending(s.pendingCount),
+    });
+  }
+  const reviewQueue = reviewQueueRef.current;
+  // Reconcile against the server on mount, so a queue left over from a previous
+  // session (or a reload mid-stack) shows its real size immediately rather than
+  // appearing empty until something new is queued.
+  useEffect(() => { reviewQueue.refresh(); }, [reviewQueue]);
   // Torch/Flashlight control
   const [isTorchOn, setIsTorchOn] = useState(false);
   // Manual exposure: caps ({min,max,step}) if the track exposes
@@ -126,6 +159,14 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // different card appears (stops a re-prompt loop while it stays in view).
   const lastAddedIdRef = useRef(null);
   const resolvedDupIdRef = useRef(null);
+  // PR 9: the auto-scan queue path guards on the matched card NAME, because
+  // that path never resolves a printing itself — the server does — so it has no
+  // card id to compare. Kept as its OWN ref rather than reusing
+  // resolvedDupIdRef: that one holds card IDs everywhere else, and storing two
+  // different kinds of value in one ref would make a future "why doesn't this
+  // match?" bug very hard to see.
+  const lastQueuedNameRef = useRef(null);
+
   const beepCtxRef = useRef(null); // reused AudioContext for the scan cue
   const handleCaptureRef = useRef(null); // always the latest handleCapture, for timers
   const captureBlockedRef = useRef(false); // true while a modal/picker/drawer is up
@@ -243,6 +284,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [dupQty, setDupQty] = useState(1);
 
   useBackGuard(scanMatches.length > 0, () => setScanMatches([]));
+  // Android hardware back / iOS swipe closes the review screen instead of
+  // leaving the scanner entirely, matching every other overlay here.
+  useBackGuard(showReviewQueue, () => setShowReviewQueue(false));
+
   useBackGuard(!!dupConfirmCard, () => setDupConfirmCard(null));
   useBackGuard(!!inspectorEntry, () => setInspectorEntry(null));
   useBackGuard(recentSelect.selectMode, recentSelect.exitSelectMode);
@@ -353,51 +398,28 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAddCountdown, autoAddTargetCard, autoAddEditing]);
 
-  // Fixed-cadence metronome (Turbo): fire a capture every profile.cadence ms
-  // with a visible countdown, independent of scan timing. `loading` is NOT a
-  // dep, so the tick keeps a steady beat; handleCapture no-ops while a previous
-  // scan is still running (its own loading guard), so ticks never overlap — if
-  // a scan ever runs longer than the cadence, that tick is simply skipped.
+  // Capture scheduler: fire the next capture SCAN_COOLDOWN_MS after the previous
+  // scan finishes (loading drops).
+  //
+  // PR 9: the fixed-cadence metronome that used to sit here is gone with the
+  // scan-detail slider. It only ever ran for the 'Turbo' preset (the sole
+  // profile carrying a `cadence`), and Turbo was the 400px/recallK-28 tier the
+  // measurements retired. With one profile there is no cadence, so that whole
+  // branch was unreachable code — and unreachable timer code on a page Zach
+  // uses for long stretches is a liability, not a spare option.
   useEffect(() => {
-    if (!profile.cadence || !cameraActive || !autoScan) { setCaptureCountdown(null); return; }
-    const cadence = profile.cadence;
-    let nextFireAt = Date.now() + cadence;
-    setCaptureCountdown(cadence);
-    const STEP = 100;
-    // Time-based metronome (one stable interval). The countdown is time-until-
-    // next-capture. When it hits 0 we fire — unless a scan is still running
-    // (loadingRef) or a modal is up (captureBlockedRef), in which case the ring
-    // holds at 0 and we fire the instant it's free. So the ring sweeps down ONCE
-    // per capture (no phantom resets), and the true cadence is max(cadence,
-    // lookupTime): a slow lookup just delays the next fire, never overlaps.
-    const id = setInterval(() => {
-      if (captureBlockedRef.current) return; // modal/picker/drawer: hold
-      const remaining = nextFireAt - Date.now();
-      if (remaining > 0) { setCaptureCountdown(remaining); return; }
-      if (loadingRef.current) { setCaptureCountdown(0); return; } // scan busy: wait
-      handleCaptureRef.current?.();
-      nextFireAt = Date.now() + cadence;
-      setCaptureCountdown(cadence);
-    }, STEP);
-    return () => { clearInterval(id); setCaptureCountdown(null); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraActive, autoScan, scanDetail]);
-
-  // After-completion scheduler (non-Turbo tiers): capture cooldown ms after the
-  // previous scan finishes (loading drops).
-  useEffect(() => {
-    if (profile.cadence) return;
     let timerId;
     if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard) {
       timerId = setTimeout(() => {
         handleCaptureRef.current?.();
-      }, profile.cooldown);
+      }, SCAN_COOLDOWN_MS);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, scanDetail]);
+  // The dep list is now exhaustive on its own: dropping `scanDetail` (which the
+  // effect never actually read) removed the reason this needed a suppression.
+  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {
     try {
@@ -648,14 +670,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // A different card is now in frame — clear the skip guard so the old
         // resolved-duplicate card is scannable again later.
         resolvedDupIdRef.current = null;
-        // countdown 0 (Turbo): add immediately, no confirm-modal idle. Higher
-        // tiers show the countdown overlay so the user can cancel a mis-scan.
-        if (profile.countdown === 0) {
-          autoAddCard(matches[0]);
-        } else {
-          setAutoAddTargetCard(matches[0]);
-          setAutoAddCountdown(profile.countdown);
-        }
+        // The countdown overlay gives a window to cancel a mis-scan before the
+        // card is added. SCAN_COUNTDOWN is fixed at 2 now that the profile
+        // table is gone; the old countdown-0 fast path belonged to 'Turbo'.
+        setAutoAddTargetCard(matches[0]);
+        setAutoAddCountdown(SCAN_COUNTDOWN);
         setScanMatches([]);
       } else {
         openQuickAdd(matches[0]);
@@ -731,7 +750,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
           // Downscale the frame for upload; server auto-crops the card. Keep it
           // fairly high-res so a far/small card still has enough pixels to match.
           const up = document.createElement('canvas');
-          const s = Math.min(1, profile.uploadW / framedCanvas.width);
+          const s = Math.min(1, SCAN_UPLOAD_W / framedCanvas.width);
           up.width = Math.round(framedCanvas.width * s);
           up.height = Math.round(framedCanvas.height * s);
           up.getContext('2d').drawImage(framedCanvas, 0, 0, up.width, up.height);
@@ -741,11 +760,18 @@ function CameraScanner({ onAddSuccess, showToast }) {
             const resp = await fetch('/api/scan-match', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ game: 'mtg', image: imageData, set: scanSetParam, lang: 'en', recallK: profile.recallK, orb: profile.orb }),
+              // ocr: true is what connects PR 8's collector-number pipeline to
+              // the app. The server GATES OCR behind this flag, so without it
+              // the whole pipeline — reader, parser, resolver, queue — was built
+              // and tested but never once ran from the scanner, and every scan
+              // fell back to guessing the printing from whichever unique_artwork
+              // entry matched. That is the bug PR 9 exists to fix.
+              body: JSON.stringify({ game: 'mtg', image: imageData, set: scanSetParam, lang: 'en', recallK: SCAN_RECALL_K, orb: SCAN_ORB, ocr: true }),
             });
             if (scanId !== currentScanId.current) return;
             if (resp.ok) {
-              const { game: matchGame, verified, candidates, crop, scoped, englishOnly } = await resp.json();
+              const { game: matchGame, verified, candidates, crop, scoped, englishOnly, ocr } = await resp.json();
+
               console.log('Scan candidates:', matchGame, scoped ? `(set-scoped ${scanSetParam})` : '(GLOBAL)', verified ? 'ORB' : 'CLIP', candidates);
               if (crop) setDebugHashImg(crop); // show the server's auto-cropped card
               setDebugScoped(scoped ? scanSetParam : false);
@@ -769,6 +795,74 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 && (top.set !== second.set || top.number !== second.number)
                 && (verified ? second.inliers >= top.inliers * 0.7 : second.score >= top.score - 0.02);
               if (candidates && candidates.length > 0) {
+                // --- PR 9: the add-or-queue decision ------------------------
+                //
+                // AUTO-SCAN ONLY, and that boundary is deliberate. Auto-scan is
+                // the stack workflow: Zach holds a pile and the app must never
+                // stop to ask, so an unresolved card goes to the server-side
+                // review queue and scanning continues. A MANUAL tap is already
+                // an explicit, one-card-at-a-time interaction, so the existing
+                // picker below stays exactly as it is for that path — showing
+                // him a picker he asked for is not an interruption.
+                //
+                // THE SERVER MAKES THE DECISION, NOT THIS CODE. /scan-resolve
+                // adds only when the OCR read narrows the catalogue to exactly
+                // one printing; everything else queues. Nothing here inspects
+                // the OCR read to second-guess that, because the catalogue is
+                // the validator and this component is not.
+                if (autoScan && confident && top?.name) {
+                  const identified = top.name;
+                  if (identified === lastQueuedNameRef.current) {
+                    setScanStatus(t('scan.sameCardAgain'));
+                    return;
+                  }
+                  setScanStatus('');
+                  const outcome = await reviewQueue.submitScan({
+                    name: identified,
+                    // The RAW OCR text, not a parsed number. The server owns the
+                    // parse (collectorNumberParse.js) and re-parsing it here
+                    // would be a second, divergent implementation of the one
+                    // rule that keeps a misread from becoming a wrong card.
+                    ocrText: ocr?.raw || '',
+                    // The server's rectified crop, so the queue shows the card
+                    // he actually photographed rather than a catalogue image.
+                    crop: crop || null,
+                    quantity: 1,
+                  });
+                  if (scanId !== currentScanId.current) return;
+
+                  if (outcome.action === 'added') {
+                    lastAddedIdRef.current = outcome.card?.id;
+                    setRecentScans(prev => [{
+                      ...outcome.card, card_id: outcome.card?.id, entry_id: outcome.entry_id,
+                      quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
+                    }, ...prev].slice(0, 10));
+                    showToast(t('scan.autoAdded', {
+                      qty: '', name: outcome.card?.name || identified, set: outcome.card?.set_name || '',
+                    }));
+                    signal('success');
+                    if (onAddSuccess) onAddSuccess();
+                  } else if (outcome.action === 'queued') {
+                    // NOT added to the collection. The badge moves; the
+                    // collection does not. No modal, by design — he reviews the
+                    // whole queue when the stack is done.
+                    setScanStatus(t('scan.queuedForReview', { name: identified }));
+                    showToast(t('scan.queuedToast', { name: identified }));
+                    signal('capture');
+                  } else {
+                    setScanStatus(outcome.error || t('scan.unknownError'));
+                    signal('error');
+                  }
+                  // Guard only on a DECIDED outcome. An error (a dropped request
+                  // mid-stack) must stay retryable: setting the guard here would
+                  // make the app quietly ignore that card until Zach noticed it
+                  // never appeared, and a card silently missing from a scanned
+                  // stack is exactly the failure this app cannot afford.
+                  if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
+                  setScanMatches([]);
+                  return;
+                }
+
                 if (confident && !ambiguousPrinting) {
                   // Instant path: if scan-match pre-hydrated the card from local card_cache,
                   // apply it directly without waiting for a second /api/search HTTP round-trip!
@@ -846,6 +940,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // Frame no longer shows a recognizable card — clear the skip guard so the
       // resolved-duplicate card isn't skipped forever once re-presented.
       resolvedDupIdRef.current = null;
+      // Same reasoning for the queue guard: once the card has left the frame, a
+      // genuine SECOND physical copy of it must be scannable again. Without
+      // this, scanning two real copies of the same card in one stack would
+      // silently record only the first.
+      lastQueuedNameRef.current = null;
       signal('error');
     } catch (err) {
       console.error('Scan match failed:', err);
@@ -1021,27 +1120,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 {isTorchOn ? <Zap size={18} /> : <ZapOff size={18} />}
               </button>
 
-            {/* Fixed-cadence countdown ring (Turbo): depletes over profile.cadence
-                and resets each capture, so the next-photo beat is visible. */}
-            {captureCountdown !== null && (() => {
-              const total = profile.cadence || 1000;
-              const frac = Math.max(0, Math.min(1, captureCountdown / total));
-              const R = 18, C = 2 * Math.PI * R;
-              return (
-                <div style={{ position: 'absolute', top: '1rem', left: '1rem', zIndex: 20, width: 44, height: 44, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}>
-                  <svg width="44" height="44" viewBox="0 0 44 44">
-                    <circle cx="22" cy="22" r={R} fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.25)" strokeWidth="3" />
-                    <circle
-                      cx="22" cy="22" r={R} fill="none"
-                      stroke="var(--accent-red)" strokeWidth="3" strokeLinecap="round"
-                      strokeDasharray={C} strokeDashoffset={C * (1 - frac)}
-                      transform="rotate(-90 22 22)"
-                      style={{ transition: 'stroke-dashoffset 0.1s linear' }}
-                    />
-                  </svg>
-                </div>
-              );
-            })()}
+            {/* PR 9: the fixed-cadence countdown ring is gone with the metronome
+                that drove it — only the retired 'Turbo' preset had a cadence, so
+                captureCountdown was permanently null and this never rendered. */}
 
             {/* Outline Box Guides */}
             <div className="camera-overlay">
@@ -1103,7 +1184,21 @@ function CameraScanner({ onAddSuccess, showToast }) {
 
                 let text;
                 if (!scanSetCodes.length) {
-                  text = 'Highly recommended: pick your set(s) below. Scans are far more accurate scoped to your sets — without it we search every set and may misidentify the card.';
+                  // PR 9: this banner used to open with a strong recommendation
+                  // to pick set(s) first, warning that unscoped scanning could
+                  // identify the wrong card. That was true before a global index
+                  // existed. It is now FALSE — unscoped card identification
+                  // measured 12/12 and 10/10 in two separate runs against the
+                  // live route, at every upload width from 400px to 1600px.
+                  //
+                  // Leaving it up steered Zach away from the exact workflow he
+                  // asked for ("any card, no set first") on the strength of a
+                  // fact that no longer holds. Set scoping is still a real
+                  // option — it makes a known box faster — so it is presented as
+                  // a SPEED choice, which is what it now is, rather than as a
+                  // correctness warning.
+                  text = t('scan.setOptionalHint');
+
                 } else if (setPrep === 'building') {
                   text = isFetching
                     ? `Preparing ${setLabelJoined}… fetching card list. Scans work meanwhile.`
@@ -1116,7 +1211,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   text = setLabelJoined;
                 }
                 const textColor = setPrep === 'error' ? 'var(--accent-red)'
-                  : !scanSetCodes.length ? 'var(--accent-yellow)'
+                  // No set selected is a NORMAL, fully supported state now, so it
+                  // is styled as ordinary secondary text. It used to be yellow —
+                  // a warning colour saying "you are doing this wrong" about the
+                  // workflow Zach actually asked for.
+                  : !scanSetCodes.length ? 'var(--text-secondary)'
                   : setPrep === 'ready' ? 'var(--type-grass)'
                   : 'var(--text-secondary)';
                 return (
@@ -1212,27 +1311,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
               )}
             </div>
 
-            {/* Scan Detail: quick↔accurate tradeoff. Lower = faster upload,
-                shorter cooldown, shallower server match; higher = more accurate. */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('scan.detail')}</span>
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-red)' }}>{profile.label}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max={SCAN_PROFILES.length - 1}
-                step="1"
-                value={scanDetail}
-                onChange={(e) => { const v = parseInt(e.target.value, 10); setScanDetail(v); localStorage.setItem('scan_detail', String(v)); }}
-                style={{ width: '100%', accentColor: 'var(--accent-red)' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)' }}>
-                <span>{t('scan.detailQuick')}</span>
-                <span>{t('scan.detailSlow')}</span>
-              </div>
-            </div>
+            {/* PR 9: the Scan Detail slider is REMOVED. Measured, its axis did
+                not exist — recallK scored 8/8 card identity at 250/100/50/25/10
+                and moved only latency, and card identity was 10/10 at every
+                upload width down to 400px. Capture now uses one fixed profile
+                (SCAN_UPLOAD_W = 1280), chosen for the collector-number strip,
+                which is the only consumer that needs the resolution. */}
 
             {/* Manual exposure: only rendered when the camera track supports it
                 (Android Chrome back cams). Auto-exposure stays default until you
@@ -1309,6 +1393,31 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 </div>
               )}
             </div>
+          )}
+
+          {/* PENDING REVIEW BANNER. Shown DURING scanning so the queue is never
+              a surprise at the end of a stack — Zach needs to know that cards
+              are accumulating decisions while he works, not discover forty of
+              them later.
+              It states plainly that these are NOT in the collection yet, because
+              the whole safety property of the queue is that a pending decision
+              is not a card he owns. Tapping is the ONLY way to the review
+              screen; nothing opens it automatically mid-scan. */}
+          {queuePending > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowReviewQueue(true)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
+                width: '100%', minHeight: 44, padding: '0.5rem 0.75rem', marginBottom: '0.5rem',
+                background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)',
+                borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)', cursor: 'pointer',
+                fontSize: '0.75rem', fontWeight: 700,
+              }}
+            >
+              <span>{t('scan.pendingReview', { count: queuePending })}</span>
+              <span style={{ color: 'var(--accent-yellow)' }}>{t('scan.pendingReviewCta')}</span>
+            </button>
           )}
 
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
@@ -1830,6 +1939,18 @@ function CameraScanner({ onAddSuccess, showToast }) {
           </div>
         )}
       </div>
+
+      {/* The review screen. Rendered LAST so it overlays the scanner, and only
+          on an explicit tap — never opened by a scan. Resolving an entry adds
+          the card through the server, so onAddSuccess refreshes the collection
+          totals that the queue was deliberately excluded from. */}
+      {showReviewQueue && (
+        <ScanReviewQueue
+          queue={reviewQueue}
+          onClose={() => setShowReviewQueue(false)}
+          onResolved={() => { if (onAddSuccess) onAddSuccess(); }}
+        />
+      )}
     </div>
   );
 }
