@@ -10,7 +10,7 @@ import ScanReviewQueue from './ScanReviewQueue';
 import { createScanReviewQueue } from './scanReviewQueue';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { laplacianVarianceScore, decideCapture } from '../utils/frameSharpness';
+import { laplacianVarianceScore, decideCapture, newGateState } from '../utils/frameSharpness';
 
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
@@ -170,16 +170,41 @@ function CameraScanner({ onAddSuccess, showToast }) {
 
   // BUG 2 (auto-scan blur): the sharpness gate's rolling state.
   //
-  // A PLAIN OBJECT IN A REF, deliberately — { skips, bestScore }, no timer
-  // handles, no DOM nodes, nothing with a lifecycle. An earlier PR shipped an
-  // iOS Safari crash by packing bare setTimeout handles into an object on this
-  // screen, so this state is kept to values that are safe to drop at any moment.
-  // Losing it costs at most one extra skipped frame.
+  // A PLAIN OBJECT IN A REF, deliberately — { skips, bestScore, recent }, no
+  // timer handles, no DOM nodes, nothing with a lifecycle. An earlier PR
+  // shipped an iOS Safari crash by packing bare setTimeout handles into an
+  // object on this screen, so this state is kept to values that are safe to
+  // drop at any moment. `recent` is a bounded array of at most
+  // SHARPNESS_WINDOW plain numbers, so it cannot grow.
+  //
+  // Losing it costs at most a few frames captured ungated while the baseline
+  // relearns — which is the SAFE direction to fail.
   //
   // It is a REF and not state on purpose: updating it must NOT re-render the
   // scanner. It changes on every auto tick, and a re-render per tick would
   // restart the capture effect below and disturb the very cadence it gates.
-  const sharpnessRef = useRef({ skips: 0, bestScore: 0 });
+  const sharpnessRef = useRef(newGateState());
+
+  // The last few gate decisions, kept ONLY so Zach can read the numbers.
+  //
+  // BUG 2 was a guessed threshold that nobody could check against a real
+  // camera: it took him scanning a stack and reporting "hold steady showed on
+  // like every card" to discover it. A ratio cannot go wrong the same way, but
+  // if the gate misbehaves again the next fix must be MEASURED. So the
+  // observed score and the baseline it was judged against are surfaced in the
+  // scanner's existing debug panel rather than living only in a variable.
+  //
+  // Bounded to the last 12 entries of plain numbers and short strings.
+  //
+  // THE REF IS THE SOURCE OF TRUTH; the state below is a display MIRROR.
+  //
+  // Why both: the ref must be updated on every auto tick without re-rendering,
+  // because a re-render per tick restarts the capture effect and disturbs the
+  // very cadence the gate is measuring. But the panel can only show what is in
+  // state. So the ref is written every tick, and the state is synced only when
+  // a scan actually proceeds — at which point a render is happening anyway.
+  const gateLogRef = useRef([]);
+  const [gateLog, setGateLog] = useState([]);
 
   const beepCtxRef = useRef(null); // reused AudioContext for the scan cue
   const handleCaptureRef = useRef(null); // always the latest handleCapture, for timers
@@ -769,7 +794,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // edge energy, so it does not need full resolution, and the downscale keeps
     // the check at a fraction of a millisecond.
     if (auto) {
-      let decision = { capture: true, reason: 'unmeasured' };
+      let decision = { capture: true, reason: 'unmeasured', score: null, baseline: null };
       try {
         const gate = document.createElement('canvas');
         const gs = Math.min(1, 160 / framedCanvas.width);
@@ -788,8 +813,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // gate that swallows every frame would silently stop auto-scan, and a
         // card missing from a scanned stack is the failure this app cannot
         // afford.
-        decision = { capture: true, reason: 'gate-unavailable' };
+        decision = { capture: true, reason: 'gate-unavailable', score: null, baseline: null };
       }
+
+      // RECORD THE OBSERVED NUMBERS. See gateLogRef: BUG 2 was an unvalidated
+      // threshold that only a real phone could disprove, and it cost a release
+      // to find. Whatever happens next, the numbers are visible.
+      gateLogRef.current = [
+        ...gateLogRef.current,
+        {
+          t: Date.now(),
+          score: decision.score == null ? null : Math.round(decision.score * 100) / 100,
+          baseline: decision.baseline == null ? null : Math.round(decision.baseline * 100) / 100,
+          reason: decision.reason,
+          captured: decision.capture,
+        },
+      ].slice(-12);
 
       if (!decision.capture) {
         // Skip WITHOUT signalling. No click, no flash, no vibrate: from Zach's
@@ -803,6 +842,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // Clear a lingering "hold steady" so the status line reflects the scan
       // that is actually now running.
       setScanStatus('');
+      // Sync the display mirror. Only on a capture: a render is happening here
+      // regardless, so this adds no extra re-render to the tick loop.
+      setGateLog(gateLogRef.current);
     }
 
     // Picture is now taken — fire the instant cue (click + vibrate + flash) so
@@ -1458,6 +1500,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* BUG 2: THE FOCUS GATE'S OBSERVED NUMBERS.
+                  The previous threshold was a guess tuned against synthetic
+                  blur, and the only way it got disproved was Zach scanning a
+                  stack and reporting that "hold steady" showed on every card.
+                  Showing the real scores here means the next adjustment is
+                  measured rather than guessed. Rendered inside the EXISTING
+                  diagnostics panel, in its existing type scale — no new screen
+                  and no new layout. */}
+              {gateLog.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                    {t('scan.focusGateDebug')}
+                  </span>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {gateLog.slice(-6).map((g, i) => (
+                      <span key={i} style={{ marginRight: '0.5rem', color: g.captured ? 'var(--type-grass)' : 'var(--accent-red)' }}>
+                        {g.score == null ? '—' : g.score}
+                        {g.baseline == null ? '' : `/${g.baseline}`}
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}

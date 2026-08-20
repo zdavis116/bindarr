@@ -277,6 +277,98 @@ pre-sorted owned-first (PR 6I banding), so the common case is the first row.
 **Finish is never inferred.** `/scan-resolve` passes the client's explicit finish
 through; nothing reads pixels to decide it.
 
+---
+
+## CORRECTION (2026-08-20): the set code is a tie-breaker, not a filter
+
+Zach scanned Avatar Aang (`tla` #207) on an iPhone 16. The queue said:
+
+```
+Could not read the collector number.
+Read: #M0207 · TAA
+```
+
+Two separate defects, and only one of them was the one first suspected.
+
+### The real root cause: the RARITY LETTER, not the set
+
+The card prints `0207/0286 M`. The `M` is the **rarity**, not part of the
+number, and OCR returned it glued to the front. The parser accepted `M0207` as
+a well-formed token (the same shape that exists for real values like `GR1`), so
+it looked like a confident read — but **no printing has collector number
+`M0207`**, so the catalogue lookup returned zero rows and the card queued as
+`unreadable`. That is why the entry said "could not read the number" while
+displaying the correct digits underneath.
+
+The set filter was **not** what discarded it. `scanPrintingResolver` already
+discarded a set filter that emptied the list. The number never survived long
+enough for the set to matter.
+
+**The fix is a second candidate reading, never a correction.** The parser now
+also returns `numberAlt` — the rarity-letter-stripped reading — but leaves
+`number` exactly as read. The resolver tries `numberAlt` **only** when the
+number as read matched nothing at all. This matters: some cards genuinely carry
+letter-prefixed collector numbers, so silently "fixing" one of those would turn
+a correct read into a different printing of the same card. The catalogue, not
+the parser, decides which reading was real. `F8P-TC12`'s rule stands.
+
+### Is the set worth reading at all? YES, but only to disambiguate
+
+Measured on the same corpus: number **12/15**, set **7/15**. The set is by some
+way the least reliable thing OCR produces here, so it must never overrule the
+two signals that are better than it.
+
+The rule now implemented:
+
+- **Name + collector number is the primary key.**
+- The set is consulted **only when the number alone matched more than one
+  printing**. When the number already yields exactly one row there is nothing
+  to disambiguate, so a misread set has no way to do damage.
+- A set filter that empties the list is discarded as a misread.
+- A number matching nothing still never adds. The catalogue is still the
+  validator.
+
+Dropping the set entirely was considered and rejected: at 7/15 it is right
+about half the time, and its *only* remaining job is choosing between printings
+that already share a number — precisely the case where nothing else can
+decide. Restricting it to that case keeps its upside and removes its downside.
+
+## CORRECTION (2026-08-20): the focus gate is relative, not absolute
+
+The sharpness gate shipped with an absolute threshold of 12, tuned against
+synthetic box blur and flagged in the report as the one unvalidated number. On
+a real iPhone 16 it rejected essentially every frame — Zach: *"hold steady
+showed on like every card"* — so auto-scan stalled for three ticks and then
+sent the best frame anyway, adding delay for nothing.
+
+**An absolute constant cannot be right.** The score depends on sensor, optics,
+lighting and the card's own art: a dark full-art card legitimately carries less
+high-frequency detail than a white-bordered one. Any single number is
+simultaneously too high for some legitimate frames and too low for others.
+
+Replaced with a **rolling per-device baseline**: keep the last 8 scores, take
+the **median** (unmoved by the blurred frames we are trying to detect, unlike a
+mean), and reject only frames below **0.6x** that baseline. Until 4 samples
+exist the gate **captures unconditionally** rather than guessing — that is the
+key safety property, and it is exactly what the old version got wrong.
+
+The no-stall bound is unchanged and is now a tested property rather than a
+hope: `FSHARP-TC5b` drives the gate with adversarial score sequences and
+asserts the gap between captures never exceeds `SHARPNESS_MAX_SKIPS`.
+
+Observed scores and baselines are recorded and rendered in the scanner's
+**existing** diagnostics panel, so if the gate misbehaves again the next fix is
+measured rather than guessed.
+
+**The manual scan button remains completely ungated** (`FGATE-TC4`).
+
+### What only Zach's phone can confirm
+
+Nothing in this repo runs a browser, a canvas or a camera, so every frame in
+these tests is synthetic and every frontend assertion is a **source contract**.
+The ratio removes the failure mode that a constant had, but only real use can
+confirm that auto-scan now captures promptly on his iPhone 16.
+
 ### What the UI PR must do — and what needs Zach's eyes
 
 Nothing in this repo runs a browser, so none of the above proves any frontend

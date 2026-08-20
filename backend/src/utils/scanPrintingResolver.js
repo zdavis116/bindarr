@@ -216,15 +216,47 @@ async function resolveScannedPrinting({ matchedName, ocrText, userId }) {
     };
   }
 
-  // Narrow by number, then by set code when one was read. The set code is only
-  // ever used to NARROW an already-matching list — never to widen it, and never
-  // to pick between non-matching rows.
-  let matches = all.filter(r => sameNumber(r.number, ocr.number));
-  if (ocr.set) {
+  // NUMBER FIRST. THE SET IS ONLY EVER A TIE-BREAKER.
+  //
+  // The primary key is the matched card NAME plus the collector NUMBER. Image
+  // matching gets the name right 100% of the time and the number measured
+  // 12/15; the SET measured only 7/15 on the same corpus, so it is by some way
+  // the least reliable thing OCR produces here and must never be able to
+  // OVERRULE the two signals that are better than it.
+  //
+  // Concretely, the set may do exactly one job: choose between printings that
+  // the NUMBER has already matched. It may not eliminate the last candidate,
+  // and it may not promote a row the number did not match.
+  let byNumber = all.filter(r => sameNumber(r.number, ocr.number));
+
+  // THE RARITY-LETTER FALLBACK, and it runs ONLY when the number as read
+  // matched nothing at all.
+  //
+  // Zach's Avatar Aang read as 'M0207': the printed rarity letter glued to the
+  // front of a CORRECT number. The parser deliberately does not "correct" that
+  // — some cards genuinely carry letter-prefixed numbers, and rewriting one of
+  // those would silently record a different printing. So the catalogue decides:
+  // if the number AS READ matches no printing of this card, and the
+  // rarity-stripped reading matches some, the stripped reading was the real
+  // one. If both match nothing, the card queues exactly as it does today.
+  //
+  // This can only ever turn a QUEUE into an ADD when a real catalogue row backs
+  // it. It can never change WHICH row a successful read selected, because it
+  // does not run when the read already matched.
+  if (!byNumber.length && ocr.numberAlt) {
+    byNumber = all.filter(r => sameNumber(r.number, ocr.numberAlt));
+  }
+
+  let matches = byNumber;
+  if (ocr.set && byNumber.length > 1) {
+    // Only consulted when there is a genuine ambiguity to break. When the
+    // number already yields exactly one printing there is nothing to
+    // disambiguate, so a misread set has no way to do damage.
     const bySet = matches.filter(r => String(r.set_id || '').toLowerCase() === ocr.set);
-    // Only apply the set filter if it leaves something. A misread set code that
-    // eliminated every candidate would otherwise turn a resolvable card into an
-    // unresolvable one.
+    // A set filter that empties the list is a MISREAD, not a signal. Zach's
+    // Avatar Aang read as set 'taa' when the catalogue stores 'tla' — one
+    // letter. Letting that veto the candidates would discard a correct number
+    // and queue a card that should have been added.
     if (bySet.length) matches = bySet;
   }
 

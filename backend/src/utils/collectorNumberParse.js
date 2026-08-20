@@ -51,6 +51,54 @@ const RARITY = new Set(['c', 'u', 'r', 'm', 's', 't', 'l', 'p']);
 // artist names and "Illus." out.
 const NUMBER_TOKEN = /^(?:[A-Z]{1,3}-)?\d{1,5}[a-z]?$|^[A-Z]{1,3}\d{1,4}$/;
 
+// THE RARITY LETTER IS PRINTED RIGHT NEXT TO THE NUMBER, and on a real photo
+// the gap between them frequently does not survive OCR.
+//
+// OBSERVED, Zach's iPhone 16, Avatar Aang (tla #207). The review queue read:
+//
+//     Could not read the collector number.
+//     Read: #M0207 · TAA
+//
+// The card prints "0207/0286 M" — the M is the RARITY (mythic), not part of
+// the number. Tesseract returned it glued to the front, so the parser handed
+// back number='M0207'. That is a shape NUMBER_TOKEN accepts (the `GR1` arm,
+// which exists for real values like 'GR1'), so it looked like a perfectly
+// confident read. No printing has collector number 'M0207', so the catalogue
+// lookup returned zero rows and a CORRECTLY READ number was discarded.
+//
+// THIS IS OFFERED AS AN ALTERNATIVE, NEVER AS A CORRECTION, and the
+// distinction is the whole safety argument.
+//
+// F8P-TC12 forbids silently rewriting 'M1508' into '1508', and it is right to:
+// some cards really do carry a letter-prefixed collector number, so a parser
+// that "fixed" them would turn a CORRECT read into a different printing of the
+// same card — a silent wrong printing, the exact failure this file exists to
+// prevent, and one Zach could never reconcile against the physical card.
+//
+// So `number` is left exactly as read. `numberAlt` carries the
+// rarity-letter-stripped reading as a SECOND candidate, and the resolver may
+// only use it when the number as read matched NOTHING in the catalogue and the
+// alternative matches exactly one row. The catalogue, not this parser, decides
+// which reading was real.
+//
+// The conditions are all load-bearing:
+//   1. Exactly ONE leading letter. 'GR1' is untouched — 'R1' is not a
+//      rarity-plus-number reading of it.
+//   2. That letter must be an actual RARITY letter (c/u/r/m/s/t/l/p).
+//   3. What remains must be ALL DIGITS and non-empty.
+const RARITY_PREFIXED_NUMBER = /^([cumrstlp])(\d{1,5})$/i;
+
+// Returns the alternative reading, or null when there is no plausible one.
+// Leading zeros are stripped for the same reason beforeSlash does it: the card
+// prints '0207' and card_cache stores '207'.
+function rarityStrippedAlternative(number) {
+  if (number == null) return null;
+  const m = RARITY_PREFIXED_NUMBER.exec(String(number));
+  if (!m) return null;
+  const digits = m[2].replace(/^0+/, '') || '0';
+  return digits === String(number) ? null : digits;
+}
+
 function normalise(raw) {
   return String(raw || '')
     // OCR routinely reads the bullet between set code and language as junk.
@@ -135,7 +183,15 @@ function parseCollectorStrip(raw) {
   // bonus that NARROWS the lookup; its absence does not by itself make the
   // read untrustworthy, because name+number is often already unique.
   const confident = number != null;
-  return { number, set, confident, raw: String(raw || '') };
+  // `numberAlt` is a SECOND CANDIDATE READING, not a correction (see
+  // RARITY_PREFIXED_NUMBER above). `number` is always exactly what was read.
+  return {
+    number,
+    numberAlt: rarityStrippedAlternative(number),
+    set,
+    confident,
+    raw: String(raw || ''),
+  };
 }
 
-module.exports = { parseCollectorStrip, beforeSlash, NUMBER_TOKEN };
+module.exports = { parseCollectorStrip, beforeSlash, NUMBER_TOKEN, rarityStrippedAlternative };
