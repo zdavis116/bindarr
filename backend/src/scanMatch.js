@@ -284,20 +284,121 @@ function detectCard(rgbaData, w, h) {
   return out;
 }
 
-// Produce the card image to match on: auto-crop + deskew to the detected card
-// outline (works on light and dark backgrounds via dual-polarity thresholding),
-// else fall back to the client's framed guide-box capture.
-async function preprocessCard(imageBuffer) {
+// The width detection runs at. Detection is TUNED at this size (crop.test.js
+// scores against it) so it is deliberately NOT a parameter — see rectifyCard.
+const DETECT_W = 1200;
+
+// Detect once and return BOTH the matcher's rectified card and the geometry that
+// produced it. Split out of preprocessCard so the OCR path can re-warp the SAME
+// quad at a larger size WITHOUT paying for a second detection: detectCard is
+// ~350ms of the ~1.1s scan, and running it twice was by far the largest part of
+// the OCR surcharge.
+//
+// `detect` is null when no card was found, which is how the caller distinguishes
+// "rectified to the detected card" from "fell back to the whole photo".
+async function preprocessCardWithDetection(imageBuffer) {
   try {
-    const { data, info } = await sharp(imageBuffer).resize({ width: 1200, withoutEnlargement: true }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { data, info } = await sharp(imageBuffer).resize({ width: DETECT_W, withoutEnlargement: true }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const card = detectCard(new Uint8ClampedArray(data), info.width, info.height);
     if (card) {
-      return await sharp(card.data, { raw: { width: card.width, height: card.height, channels: 4 } }).png().toBuffer();
+      const buf = await sharp(card.data, { raw: { width: card.width, height: card.height, channels: 4 } }).png().toBuffer();
+      return { buf, detect: { quad: card.quad, detW: info.width, detH: info.height } };
     }
   } catch (e) {
     console.warn('preprocessCard failed:', e.message);
   }
-  return await sharp(imageBuffer).png().toBuffer();
+  return { buf: await sharp(imageBuffer).png().toBuffer(), detect: null };
+}
+
+// Produce the card image to match on: auto-crop + deskew to the detected card
+// outline (works on light and dark backgrounds via dual-polarity thresholding),
+// else fall back to the client's framed guide-box capture.
+//
+// Unchanged contract: still returns just the PNG buffer, still 500x700.
+async function preprocessCard(imageBuffer) {
+  return (await preprocessCardWithDetection(imageBuffer)).buf;
+}
+
+// Cap on the source image the OCR warp samples from, in pixels of width.
+//
+// NOT for accuracy — for the wasm heap. cv.matFromImageData copies the whole
+// frame into the opencv-wasm heap, which never shrinks; a 12MP phone photo is
+// ~48MB of RGBA per scan and that is the exact failure shape that used to kill
+// scanning after ~67 cards. 2000px still leaves the card itself far larger than
+// the 750x1050 the warp writes out, so this bounds memory without costing
+// detail: it is a downsample of the strip, not an upsample.
+const OCR_SRC_MAX_W = 2000;
+
+// Rectify the detected card at an ARBITRARY output size, sampling from the
+// ORIGINAL upload rather than from the matcher's output.
+//
+// WHY THIS EXISTS, and why it is not just `preprocessCard(buf, { width, height })`.
+//
+// The collector-number strip is ~5% of the card's height. preprocessCard warps
+// to 500x700, so that strip leaves this module ~8px tall and already blurred;
+// collectorNumberOcr then upscaled it 1.5x, which cannot put back detail that
+// was thrown away. Measured through the real route, EVERY crop offset from 0.86
+// to 0.96 scored 0/4 — and the offsets where the text half-appeared produced
+// FABRICATED numbers that still reported confident=true.
+//
+// An option on preprocessCard would NOT have fixed it. preprocessCard detects on
+// a 1200px downscale, so with the card at ~35% of the frame it is only ~420px
+// wide there; warping THAT to 750x1050 is the identical upsample one layer down.
+// The pixels have to come from the original buffer or nothing changes.
+//
+// So: reuse the SAME detected quad the matcher already found (pass it in as
+// `detection`; card identification cannot move because detection is not re-run
+// and its input is untouched), scale that quad back into original-image
+// coordinates, and warp from the full-resolution source. Same card, same region,
+// same crop fractions — just sampled with real pixels.
+//
+// Returns null if no card is known, so the caller can decline to OCR rather than
+// read a number off the background.
+async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
+  const outW = Math.max(1, Math.round(width || WARP_W));
+  const outH = Math.max(1, Math.round(height || WARP_H));
+  let srcMat = null, srcTri = null, dstTri = null, M = null, warped = null;
+  try {
+    let det = detection;
+    if (!det) {
+      // No detection supplied: do it ourselves, on EXACTLY the input
+      // preprocessCard feeds detectCard. Do not "improve" this by detecting at a
+      // higher resolution — the thresholds, morphology kernel sizes and area
+      // floor are all tuned to 1200px.
+      const d = await sharp(imageBuffer).resize({ width: DETECT_W, withoutEnlargement: true })
+        .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const card = detectCard(new Uint8ClampedArray(d.data), d.info.width, d.info.height);
+      if (!card) return null;
+      det = { quad: card.quad, detW: d.info.width, detH: d.info.height };
+    }
+    if (!det.quad || !det.detW) return null;
+
+    const src = await sharp(imageBuffer).resize({ width: OCR_SRC_MAX_W, withoutEnlargement: true })
+      .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    // The quad is in DETECTION coordinates. Both images came from the same
+    // original with aspect preserved, so one scalar maps between them.
+    const k = src.info.width / det.detW;
+    const [tl, tr, br, bl] = det.quad;
+
+    srcMat = cv.matFromImageData({ data: new Uint8ClampedArray(src.data), width: src.info.width, height: src.info.height });
+    srcTri = cv.matFromArray(4, 1, cv.CV_32FC2,
+      [tl.x * k, tl.y * k, tr.x * k, tr.y * k, br.x * k, br.y * k, bl.x * k, bl.y * k]);
+    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, outW, 0, outW, outH, 0, outH]);
+    M = cv.getPerspectiveTransform(srcTri, dstTri);
+    warped = new cv.Mat();
+    cv.warpPerspective(srcMat, warped, M, new cv.Size(outW, outH));
+    return await sharp(Buffer.from(warped.data), { raw: { width: outW, height: outH, channels: 4 } }).png().toBuffer();
+  } catch (e) {
+    // Never throws: OCR is an enhancement. A failure here must degrade to "no
+    // read" (review queue), never to a failed scan that loses a card Zach
+    // physically scanned.
+    console.warn('rectifyCard failed:', e.message);
+    return null;
+  } finally {
+    for (const m of [srcMat, srcTri, dstTri, M, warped]) {
+      if (m) { try { m.delete(); } catch { /* already freed */ } }
+    }
+  }
 }
 
 const orbDbs = {};         // game -> { map: Map(key->{name,offset,count}), descFd, kpFd } | null
@@ -432,7 +533,14 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
   const recallK = Math.max(10, Math.min(RECALL_K, opts.recallK || RECALL_K));
   const orbN = Math.max(150, Math.min(800, opts.orb || 500));
   // Auto-crop + deskew the card once; everything matches on the rectified image.
-  const cardBuf = await preprocessCard(imageBuffer);
+  //
+  // The DETECTION GEOMETRY is kept, not just the image. Callers that want a
+  // different rendering of the same card (the OCR path needs the collector strip
+  // at 750x1050, sampled from the original upload) can re-warp this exact quad
+  // instead of running detectCard a second time — which costs ~350ms, a third of
+  // the whole scan. `detection` is returned on the result and is inert for every
+  // caller that ignores it.
+  const { buf: cardBuf, detect } = await preprocessCardWithDetection(imageBuffer);
   const crop = 'data:image/jpeg;base64,' + (await sharp(cardBuf).resize({ width: 220 }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
 
   // Query ORB features are game-independent — extract once, reuse everywhere.
@@ -448,13 +556,13 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
       const qHash = await setIndex.dhash(cardBuf); // cheap recall pre-filter within the set
       const perSet = await Promise.all(readySets.map(s => setIndex.matchSet(q, requestedGame, s, topK, qHash, lang)));
       const merged = perSet.filter(Boolean).flat().sort((a, b) => b.inliers - a.inliers).slice(0, topK);
-      if (merged.length) return { game: requestedGame, verified: true, candidates: merged, crop, scoped: true, lang };
+      if (merged.length) return { game: requestedGame, verified: true, candidates: merged, crop, scoped: true, lang, detection: detect };
     }
 
     // Nothing built for this language: the global fallback below would only ever
     // answer in English, so say why instead of handing back a wrong card.
     if (lang !== 'en') {
-      return { game: requestedGame, verified: false, candidates: [], crop, lang, englishOnly: true };
+      return { game: requestedGame, verified: false, candidates: [], crop, lang, englishOnly: true, detection: detect };
     }
 
     const order = ['mtg'];
@@ -466,8 +574,8 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
       if (!best || r.top > best.top) best = { ...r, game: g };
       if (best.top >= STRONG_INLIERS) break; // confident — no need to try the other game
     }
-    if (!best) return { game: requestedGame, verified: false, candidates: [], crop };
-    return { game: best.game, verified: best.verified, candidates: best.candidates, crop };
+    if (!best) return { game: requestedGame, verified: false, candidates: [], crop, detection: detect };
+    return { game: best.game, verified: best.verified, candidates: best.candidates, crop, detection: detect };
   } finally {
     q.desc.delete(); bf.delete(); orb.delete();
   }
@@ -481,4 +589,4 @@ function reload(game) {
   delete orbDbs[game];
 }
 
-module.exports = { match, reload, preprocessCard, detectCard };
+module.exports = { match, reload, preprocessCard, preprocessCardWithDetection, detectCard, rectifyCard };

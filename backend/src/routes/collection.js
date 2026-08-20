@@ -239,24 +239,50 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       result.candidates = hydrated;
     }
 
-    // OCR runs on the RECTIFIED crop the matcher already produced, not on the
-    // raw photo — the strip's position is only predictable once the card has
-    // been deskewed to a known rectangle.
+    // OCR gets its OWN rectification of the card, from the ORIGINAL upload.
     //
-    // Wrapped so OCR can never fail a scan: if it throws, the card simply has
-    // no read and will go to the review queue, which is a normal outcome rather
-    // than an error. Losing a card Zach physically scanned would be worse than
-    // asking him about it.
+    // It used to reuse `preprocessCard(buf)` — the matcher's 500x700 — and that
+    // was the bug. The collector-number strip is ~5% of the card's height, so
+    // at 500x700 it arrives ~8px tall and blurred; upscaling it 1.5x inside the
+    // OCR module could not put back detail already thrown away. Measured through
+    // this exact route, every crop offset from 0.86 to 0.96 read 0/4 correct,
+    // and the near-misses returned FABRICATED numbers with confident=true —
+    // which would silently record a printing Zach does not own.
+    //
+    // rectifyCard warps the SAME detected quad (same card, same region, same
+    // crop fractions) sampled from the full-resolution buffer instead. The
+    // MATCHER IS UNTOUCHED: it still calls preprocessCard and still gets its
+    // tuned 500x700, and card identification is unchanged.
+    //
+    // Cost is a second WARP only — ~160ms on top of a ~1.1s scan — because the
+    // detection is REUSED from the match above rather than re-run. Detecting the
+    // card twice cost ~350ms and bought nothing: it is the same photo, so it
+    // finds the same quad.
     if (ocr) {
       const t0 = Date.now();
       try {
-        const raw = await collectorNumberOcr.readCollectorStrip(await scanMatch.preprocessCard(buf));
+        const rectified = await scanMatch.rectifyCard(buf, {
+          width: collectorNumberOcr.OCR_W,
+          height: collectorNumberOcr.OCR_H,
+          detection: result.detection,
+        });
+        // No card found -> no read. Reading the strip position off a photo that
+        // was never rectified would OCR the background, and a confident number
+        // from the background is worse than no number: the review queue exists
+        // for "we don't know", it cannot catch "we're sure and wrong".
+        const raw = rectified ? await collectorNumberOcr.readCollectorStrip(rectified) : '';
         result.ocr = { ...parseCollectorStrip(raw), ms: Date.now() - t0 };
       } catch (e) {
         console.warn('scan-match OCR failed:', e.message);
         result.ocr = { number: null, set: null, confident: false, raw: '', ms: Date.now() - t0 };
       }
     }
+
+    // Internal geometry, in DETECTION-image pixel coordinates. It exists to let
+    // the OCR path re-warp without re-detecting; it means nothing to a client and
+    // would only invite one to depend on an internal coordinate space, so it is
+    // deleted rather than shipped.
+    delete result.detection;
 
     res.json(result);
   } catch (error) {

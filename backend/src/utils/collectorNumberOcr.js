@@ -21,11 +21,26 @@
 // option, it is a non-option.
 //
 // CROP SIZE: 750x1050 for the OCR crop only. The matcher keeps its tuned
-// 500x700 (scanMatch.js:47) untouched. Rectifying the OCR crop larger moved
-// collector-number accuracy 10/15 -> 12/15 and, more importantly, took
-// fabricated reads from 5/21 down to 1/21. A 2x upscale on top was tested and
-// made things WORSE (3/21 fabricated) while costing another 55ms, so it is not
-// used.
+// 500x700 (scanMatch.js:47) untouched.
+//
+// WHERE THOSE PIXELS COME FROM IS THE WHOLE STORY. This module only ever
+// RESIZES what it is handed, and a resize cannot invent detail. For two PRs the
+// route handed it `preprocessCard(buf)` — the matcher's 500x700 output — so the
+// "750x1050 crop" was a 1.5x UPSCALE of an already-discarded strip: ~8px of
+// blurred text stretched to look like 12. The route now calls
+// scanMatch.rectifyCard(buf, { width: OCR_W, height: OCR_H }), which warps the
+// SAME detected quad out of the ORIGINAL upload, so the resize below is an exact
+// no-op and the strip arrives with real pixels. See the band-sweep note further
+// down for what that cost.
+//
+// THE REMAINING CEILING IS THE CLIENT, not this module. CameraScanner caps its
+// upload at SCAN_UPLOAD_W = 1280px. Measured, this fix only beats the old
+// upscaling path once the CARD ITSELF exceeds ~500px wide in the uploaded image;
+// below that the matcher's 500x700 warp is already an upscale and there is no
+// detail left to recover. At a 1280px upload a card filling ~35% of the frame is
+// ~690px wide (fine) but a card held back is ~400px (not fine, and identical on
+// both paths). If distant cards still misread on real hardware, raise
+// SCAN_UPLOAD_W — do not re-sweep the crop fractions below.
 const path = require('path');
 const sharp = require('sharp');
 
@@ -57,7 +72,30 @@ const sharp = require('sharp');
 // A fabricated number silently records a printing Zach does not own, which the
 // review queue cannot protect him from because OCR never admits doubt.
 //
-// Do not nudge these values without re-running the band sweep.
+// THE SWEEP ABOVE WAS VALID. THE ROUTE WAS NOT. Read this before you touch the
+// numbers, because the obvious conclusion is the wrong one.
+//
+// That sweep rectified its own images FROM THE ORIGINAL PHOTO, and against
+// those images 0.924 is correct. But the route did not do that: it passed
+// `preprocessCard(buf)`, the matcher's 500x700, and this module upscaled it 1.5x.
+// So live scans were reading a blurred ~8px strip while the sweep read a sharp
+// one, and the same offset behaved completely differently in the two places.
+// Measured through the REAL route on that degraded input, EVERY offset from
+// 0.86 to 0.96 scored 0/4 correct, and the offsets where the text half-appeared
+// produced fabricated-but-confident reads ("SEI 39/302 M", "53 U 1 > [ol NY]").
+//
+// The instinct at that point is to re-sweep and move the offset. That would
+// have been fitting the crop to a broken input and would have BAKED THE BUG IN:
+// the winning offset would only work on blur. The fix was upstream — give OCR
+// its own rectification from the original buffer (scanMatch.rectifyCard) — after
+// which the same 0.924 reads 4/4 with 0 fabrications, exactly as the sweep said
+// it would.
+//
+// The lesson, which is the same one PR 8 and PR 9 each learned separately: a
+// sweep or benchmark that PREPARES ITS OWN INPUT proves nothing about the route.
+// Whatever you measure next, measure it by POSTing to /api/scan-match.
+//
+// Do not nudge these values without re-running the band sweep THROUGH THE ROUTE.
 //
 // Width is 0.28, not 0.42: on modern frames the artist credit sits immediately
 // right of the number and a wider window drags it into the same text block.
@@ -75,6 +113,11 @@ const CARD_ASPECT = 2.5 / 3.5;
 const MATCH_W = 500, MATCH_H = Math.round(500 / CARD_ASPECT);
 // The OCR crop is rectified 1.5x larger. Measured: fewer fabricated reads.
 const OCR_SCALE = 1.5;
+// The size the CALLER should rectify at. Exported so the route asks
+// scanMatch.rectifyCard for exactly this and the resize in cropCollectorStrip
+// is a no-op — one source of truth instead of two constants drifting apart.
+const OCR_W = Math.round(MATCH_W * OCR_SCALE);   // 750
+const OCR_H = Math.round(MATCH_H * OCR_SCALE);   // 1050
 
 let workerPromise = null;
 
@@ -105,9 +148,15 @@ function getWorker() {
 }
 
 // Cut the collector-number strip out of a card image.
+//
+// The resize is a NO-OP when the caller rectified at OCR_W x OCR_H (which the
+// route does). It stays because this function must still be correct for a
+// caller that hands it a differently-sized rectified card — but note that if
+// that image was rectified SMALLER, this resize UPSCALES it and OCR will read
+// blur. That was the production bug. Rectify at the target size.
 async function cropCollectorStrip(imageBuffer) {
-  const w = Math.round(MATCH_W * OCR_SCALE);
-  const h = Math.round(MATCH_H * OCR_SCALE);
+  const w = OCR_W;
+  const h = OCR_H;
   const rect = await sharp(imageBuffer).resize(w, h, { fit: 'fill' }).toBuffer();
   return sharp(rect)
     .extract({
@@ -145,4 +194,4 @@ async function shutdown() {
   try { (await p).terminate(); } catch { /* already gone */ }
 }
 
-module.exports = { readCollectorStrip, cropCollectorStrip, shutdown, STRIP, OCR_SCALE };
+module.exports = { readCollectorStrip, cropCollectorStrip, shutdown, STRIP, OCR_SCALE, OCR_W, OCR_H };
