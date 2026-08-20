@@ -12,6 +12,9 @@ const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, d
 const { splitPrice } = require('../utils/splitPrice');
 const commanderRules = require('../utils/commanderRules');
 const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
+const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
+const collectorNumberOcr = require('../utils/collectorNumberOcr');
+const { parseCollectorStrip } = require('../utils/collectorNumberParse');
 const {
   InvariantError,
   requireOwnedCompartment,
@@ -198,9 +201,17 @@ router.get('/search', searchLimiter, async (req, res) => {
 });
 
 // 1b. Identify a scanned card image by CLIP embedding similarity.
+//
+// PR 8: optionally also OCR the collector-number strip (`ocr: true`). It is
+// OPT-IN so the existing scan path keeps its measured ~1.1s exactly as PR 22
+// left it; a client that does not ask for OCR pays nothing.
+//
+// The OCR read is RETURNED, not acted upon. This route stays READ-ONLY — it
+// identifies, it does not add. The client passes the read to /scan-resolve,
+// which is the only place that decides between adding and queueing.
 router.post('/scan-match', searchLimiter, async (req, res) => {
   try {
-    const { image, set = '', recallK, orb } = req.body || {};
+    const { image, set = '', recallK, orb, ocr } = req.body || {};
     const game = 'mtg';
     const lang = 'en';
     if (!image || typeof image !== 'string') return res.status(400).json({ error: 'Missing image' });
@@ -227,10 +238,242 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       }));
       result.candidates = hydrated;
     }
+
+    // OCR runs on the RECTIFIED crop the matcher already produced, not on the
+    // raw photo — the strip's position is only predictable once the card has
+    // been deskewed to a known rectangle.
+    //
+    // Wrapped so OCR can never fail a scan: if it throws, the card simply has
+    // no read and will go to the review queue, which is a normal outcome rather
+    // than an error. Losing a card Zach physically scanned would be worse than
+    // asking him about it.
+    if (ocr) {
+      const t0 = Date.now();
+      try {
+        const raw = await collectorNumberOcr.readCollectorStrip(await scanMatch.preprocessCard(buf));
+        result.ocr = { ...parseCollectorStrip(raw), ms: Date.now() - t0 };
+      } catch (e) {
+        console.warn('scan-match OCR failed:', e.message);
+        result.ocr = { number: null, set: null, confident: false, raw: '', ms: Date.now() - t0 };
+      }
+    }
+
     res.json(result);
   } catch (error) {
     console.error('scan-match failed:', error.message);
     res.status(500).json({ error: 'Scan match failed' });
+  }
+});
+
+// --- PR 8: collector-number OCR and the scan review queue -------------------
+
+// Persist one unresolved scan. SERVER-SIDE ON PURPOSE: the queue must survive a
+// page reload and a session end. Zach scans stacks of hundreds; losing the
+// queue to a dropped connection or a backgrounded Safari tab would be worse
+// than prompting inline, which is the design this replaces.
+//
+// The candidate list is SNAPSHOTTED as JSON rather than recomputed on read. It
+// is stored already sorted owned-first, so the queue renders in the order that
+// makes the common case a single tap without re-querying ownership per entry.
+async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates, crop }) {
+  // Only the fields the review UI needs. Storing whole card_cache rows would
+  // bloat the table and, worse, freeze prices into it.
+  const slim = (candidates || []).map(c => ({
+    id: c.id,
+    name: c.name,
+    set_id: c.set_id,
+    set_name: c.set_name,
+    number: c.number,
+    image_url: c.image_url,
+    finishes: c.finishes,
+    owned_qty: c.owned_qty || 0,
+  }));
+  const result = await db.run(
+    `INSERT INTO scan_review_queue
+      (user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident, ocr_raw, candidates_json, crop_data_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId, matchedName, reason,
+      ocr?.number ?? null, ocr?.set ?? null, ocr?.confident ? 1 : 0,
+      (ocr?.raw ?? '').slice(0, 500),
+      JSON.stringify(slim),
+      crop || null,
+    ]
+  );
+  return { id: result.lastID };
+}
+
+// Resolve one scanned card.
+//
+// Scanning must not stop to ask questions. Zach, 2026-08-20: "maybe when
+// scanning hold the unknown cards till im done scanning and then let me go
+// through all the unknown cards and update them correctly that way it doesnt
+// slow scanning down."
+//
+// So this route makes exactly one decision per scanned card:
+//   - the OCR read narrowed the catalogue to EXACTLY ONE printing -> add it
+//   - anything else -> put it in the review queue and move on
+// There is no third branch and no "most likely" fallback.
+router.post('/scan-resolve', async (req, res) => {
+  try {
+    const { name, ocr_text = '', crop, quantity } = req.body || {};
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    // Bound the free-text fields. `name` is a card name and `ocr_text` is two
+    // short lines of recognised text; anything far larger is a malformed or
+    // hostile client, and an unbounded string here would be stored verbatim in
+    // the queue row. The crop is a data URL and is bounded too — the client
+    // sends a ~220px JPEG thumbnail, so 512KB is generous.
+    if (name.length > 300) {
+      return res.status(400).json({ error: 'name is too long' });
+    }
+    if (typeof ocr_text !== 'string' || ocr_text.length > 2000) {
+      return res.status(400).json({ error: 'ocr_text must be a string under 2000 characters' });
+    }
+    if (crop != null && (typeof crop !== 'string' || crop.length > 512 * 1024)) {
+      return res.status(400).json({ error: 'crop must be a data URL under 512KB' });
+    }
+    const qty = positiveInteger(quantity === undefined ? 1 : quantity, { name: 'quantity', max: 1000 });
+
+    const outcome = await resolveScannedPrinting({
+      matchedName: name,
+      ocrText: ocr_text,
+      userId: req.user.id,
+    });
+
+    if (outcome.action === 'add') {
+      // FINISH IS NEVER INFERRED FROM THE IMAGE (plan task G2). Special
+      // treatments share artwork AND collector numbers with the standard
+      // printing, so no still image can tell them apart. The finish used is
+      // whatever the CLIENT explicitly supplied; when it supplies nothing the
+      // app's declared default applies. Nothing here looks at pixels to decide
+      // it, and the request body is passed through unchanged so
+      // finishColumnsFromBody stays the single place that interprets a finish.
+      const added = await addCardToCollection(req.user, {
+        ...req.body,
+        card_id: outcome.printing.id,
+        quantity: qty,
+      });
+      return res.json({
+        action: 'added',
+        entry_id: added.id,
+        card: parseCardRow(outcome.printing),
+        ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
+      });
+    }
+
+    // Queued. The card is NOT in the collection and must not be counted as
+    // owned anywhere until Zach resolves it.
+    const entry = await enqueueScanReview({
+      userId: req.user.id,
+      matchedName: name,
+      reason: outcome.reason,
+      ocr: outcome.ocr,
+      candidates: outcome.candidates,
+      crop,
+    });
+    return res.json({
+      action: 'queued',
+      queue_id: entry.id,
+      reason: outcome.reason,
+      candidates: outcome.candidates.map(parseCardRow),
+      ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
+    });
+  } catch (error) {
+    if (error instanceof AddCardError || error instanceof RequestBoundsError
+        || error instanceof InvariantError || error instanceof FinishError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('scan-resolve failed:', error);
+    res.status(500).json({ error: 'Failed to resolve scanned card' });
+  }
+});
+
+// The pending queue, oldest first — the order he scanned the stack in, which is
+// the order the physical pile is still in.
+router.get('/scan-queue', async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT * FROM scan_review_queue WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
+      [req.user.id]
+    );
+    res.json({
+      entries: rows.map(r => ({
+        id: r.id,
+        matched_name: r.matched_name,
+        reason: r.reason,
+        ocr: { number: r.ocr_number, set: r.ocr_set, confident: !!r.ocr_confident, raw: r.ocr_raw },
+        candidates: JSON.parse(r.candidates_json || '[]'),
+        crop: r.crop_data_url || null,
+        created_at: r.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('scan-queue failed:', error);
+    res.status(500).json({ error: 'Failed to load review queue' });
+  }
+});
+
+// Resolve one entry: Zach picked a printing (and a finish, explicitly).
+//
+// The card moves from the queue INTO the collection through the SAME
+// addCardToCollection path a manual add uses, so placement, finish
+// canonicalisation and the capacity invariants all apply identically. The queue
+// row is deleted in the same transaction-shaped sequence, so a card is never in
+// both states and never in neither.
+router.post('/scan-queue/:id/resolve', async (req, res) => {
+  try {
+    // Route params are strings; parse before validating. A non-numeric id is a
+    // client bug, not a missing row, so it is a 400 rather than a 404.
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const entry = await db.get(
+      `SELECT * FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!entry) return res.status(404).json({ error: 'Queue entry not found' });
+
+    const { card_id } = req.body || {};
+    if (!card_id) return res.status(400).json({ error: 'card_id is required' });
+
+    // The chosen printing must be one the queue actually offered. Without this
+    // the endpoint would add ANY card id a client sent while claiming it came
+    // from a scan.
+    const offered = JSON.parse(entry.candidates_json || '[]').map(c => c.id);
+    if (offered.length && !offered.includes(card_id)) {
+      return res.status(400).json({ error: 'Chosen printing was not among the scanned candidates' });
+    }
+
+    const added = await addCardToCollection(req.user, { ...req.body, card_id });
+    await db.run(`DELETE FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    res.json({ resolved: true, entry_id: added.id, card_id });
+  } catch (error) {
+    if (error instanceof AddCardError || error instanceof RequestBoundsError
+        || error instanceof InvariantError || error instanceof FinishError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('scan-queue resolve failed:', error);
+    res.status(500).json({ error: 'Failed to resolve queue entry' });
+  }
+});
+
+// Discard an entry: it was a misscan, or he does not want the card. Deleting
+// from the queue is safe precisely BECAUSE the queue is not the collection —
+// nothing is removed from what he owns.
+router.delete('/scan-queue/:id', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const result = await db.run(
+      `DELETE FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!result.changes) return res.status(404).json({ error: 'Queue entry not found' });
+    res.json({ discarded: true });
+  } catch (error) {
+    console.error('scan-queue delete failed:', error);
+    res.status(500).json({ error: 'Failed to discard queue entry' });
   }
 });
 

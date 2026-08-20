@@ -64,6 +64,13 @@ TEST_READY.md
 # Prebuilt scan-match data (embeddings, ORB indexes, per-set caches) — large, regenerable
 backend/data/
 
+# Tesseract language data (PR 8 collector-number OCR). ~5MB, downloaded on
+# first use and cached. It normally lands in backend/data/ocr (already ignored
+# above via backend/data/), but tesseract.js falls back to the process CWD when
+# it cannot write there, so this catches the stray copy rather than letting a
+# 5MB binary blob into a commit.
+*.traineddata
+
 # Capacitor: build artifacts + web copies are handled by the per-platform
 # .gitignore files under frontend/android and frontend/ios. Only add here what
 # they miss: never commit a release signing keystore.
