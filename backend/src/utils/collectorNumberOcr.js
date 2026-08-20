@@ -30,8 +30,45 @@ const path = require('path');
 const sharp = require('sharp');
 
 // Fractions of the rectified card. The strip holds two lines:
-//   "263/281 U"  then  "C21 * EN  <artist>"
-const STRIP = { left: 0.03, top: 0.885, width: 0.42, height: 0.085 };
+//   "263 U"  or  "267/303 U"   then   "C21 * EN  <artist>"
+//
+// MEASURED, NOT GUESSED - and deliberately placed at the CENTRE of the safe
+// band rather than anywhere that merely works.
+//
+// The original 0.885 landed on FLAVOUR TEXT, and a 0.42-wide window pulled the
+// artist credit into the same block, so live scans read "ZACKSTELLA" and
+// "ring of purest cold." while the module's own benchmark scored 12/15 - the
+// benchmark fed it a different crop than the route does.
+//
+// Every offset from 0.880 to 0.944 was scored against five modern cards,
+// counting correct reads AND confident-but-wrong reads separately:
+//
+//   0.880-0.892   0/5 correct   0 fabricated   (above the line)
+//   0.896         4/5           0
+//   0.900-0.908   5/5           0
+//   0.912         4/5           1 FABRICATED
+//   0.916-0.936   5/5           0              <- clean run
+//   0.940         2/5           3 FABRICATED
+//   0.944         0/5           4 FABRICATED
+//
+// 0.924 is the middle of the clean 0.916-0.936 run. THE CLIFF AT 0.940 IS THE
+// REASON THIS IS CENTRED: past it the line clips and digits merge into numbers
+// that still report confident=true - Sol Ring reads "20635" instead of "263".
+// A fabricated number silently records a printing Zach does not own, which the
+// review queue cannot protect him from because OCR never admits doubt.
+//
+// Do not nudge these values without re-running the band sweep.
+//
+// Width is 0.28, not 0.42: on modern frames the artist credit sits immediately
+// right of the number and a wider window drags it into the same text block.
+//
+// TUNED FOR MODERN FRAMES ONLY. Cards from ~2007 and earlier (tested: LRW, 10E)
+// place their bottom text differently and are not found anywhere in 0.86-0.97.
+// They return no read and go to the review queue, which is correct and safe.
+// Zach's collection is 90%+ post-2007, so a second crop position for old frames
+// would be real work for a tenth of the cards; revisit only if the queue proves
+// tedious in practice.
+const STRIP = { left: 0.02, top: 0.924, width: 0.28, height: 0.055 };
 
 // The matcher's rectified size (scanMatch.js). NOT changed here.
 const CARD_ASPECT = 2.5 / 3.5;
