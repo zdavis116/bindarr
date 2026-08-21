@@ -536,7 +536,7 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
   //
   // The DETECTION GEOMETRY is kept, not just the image. Callers that want a
   // different rendering of the same card (the OCR path needs the collector strip
-  // at 750x1050, sampled from the original upload) can re-warp this exact quad
+  // at collectorNumberOcr.OCR_W x OCR_H, sampled from the original upload) can re-warp this exact quad
   // instead of running detectCard a second time — which costs ~350ms, a third of
   // the whole scan. `detection` is returned on the result and is inert for every
   // caller that ignores it.

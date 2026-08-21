@@ -111,13 +111,39 @@ const STRIP = { left: 0.02, top: 0.924, width: 0.28, height: 0.055 };
 // The matcher's rectified size (scanMatch.js). NOT changed here.
 const CARD_ASPECT = 2.5 / 3.5;
 const MATCH_W = 500, MATCH_H = Math.round(500 / CARD_ASPECT);
-// The OCR crop is rectified 1.5x larger. Measured: fewer fabricated reads.
-const OCR_SCALE = 1.5;
+// THE OCR RECTIFY SCALE. Raised 1.5 -> 3.0. THIS WAS A DOWNSCALE IN DISGUISE.
+//
+// THE ARITHMETIC, which is the whole justification:
+//   a card is 88mm tall; the collector number's cap height is ~1.2mm
+//   at OCR_H=1050  -> 11.9 px/mm -> the number lands ~14px tall
+//   tesseract needs ~20px of cap height to read small print reliably
+// So every scan was handed a strip BELOW the engine's floor, and the engine
+// did exactly what that implies: it returned empty. Measured on Zach's stack —
+// every queue row read ocr_number=NULL, ocr_set=NULL, raw='' — including
+// UNIQUE lands, which is what made it obvious the strip was never legible
+// rather than merely ambiguous. At 3.0 the number lands ~29px, clear of the
+// floor with margin for a hand-held frame.
+//
+// WHY IT LOOKED FINE BEFORE. 1.5 was tuned when the guide-box crop delivered a
+// ~660px card: 750 was then an UPSCALE, so this constant read as generous. The
+// capture work since (fullscreen preview, full-resolution request, lens pin,
+// ImageCapture stills) now delivers a 1400-2600px card, and the SAME constant
+// silently became a DOWNSCALE that discarded every pixel those changes bought.
+// This is the identical trap as SCAN_UPLOAD_W one layer deeper: a cap that is
+// invisible while the input is small, and binding the moment it is not.
+//
+// COST. Rectify and OCR both scale with area, so 3.0 is 4x the pixels of 1.5.
+// Measured on the dev box, the OCR call itself runs in ~870ms at 750x1050 and
+// the warp is ~160ms; the extra area is worth it because the alternative is an
+// OCR that CANNOT read at any speed. Not raised further: past ~3.0 the gain is
+// resampling a phone frame that has no more real detail, and both costs keep
+// climbing. Re-measure before moving it again.
+const OCR_SCALE = 3.0;
 // The size the CALLER should rectify at. Exported so the route asks
 // scanMatch.rectifyCard for exactly this and the resize in cropCollectorStrip
 // is a no-op — one source of truth instead of two constants drifting apart.
-const OCR_W = Math.round(MATCH_W * OCR_SCALE);   // 750
-const OCR_H = Math.round(MATCH_H * OCR_SCALE);   // 1050
+const OCR_W = Math.round(MATCH_W * OCR_SCALE);   // 1500
+const OCR_H = Math.round(MATCH_H * OCR_SCALE);   // 2100
 
 let workerPromise = null;
 
