@@ -215,6 +215,75 @@ async function main() {
     pass('FUNIQ-TC4', 'an unknown card name still queues and adds nothing');
   }
 
+  // --- FUNIQ-TC5: THE ALT-ART CASE. The artwork named the printing ---------
+  //
+  // Zach: "some should be auto matches like legend of Roku and dai li agents
+  // because they are alt arts of the card so image alone should be enough."
+  //
+  // The scan index is per-ARTWORK, so a confident match identifies ONE printing.
+  // The client used to send only the name, so this queued all three printings
+  // and asked a question the matcher had already answered.
+  {
+    const beforeOwned = await ownedCount();
+    const beforeQueue = await queueCount();
+    const { status, body } = await scanResolve({
+      name: "Captain America's Shield",
+      ocr_text: '',                                  // strip still unreadable
+      printing_hint: { set: 'msh', number: '317' },  // but the ART knew
+    });
+    assert.strictEqual(status, 200, `scan-resolve failed: ${JSON.stringify(body)}`);
+    assert.strictEqual(body.action, 'added',
+      'THE ALT-ART CASE: the artwork identified one printing, so it must be added');
+    assert.strictEqual(body.card.number, '317',
+      `the HINTED printing must be the one added, got ${body.card.number}`);
+    assert.strictEqual(await ownedCount(), beforeOwned + 1);
+    assert.strictEqual(await queueCount(), beforeQueue, 'nothing may queue when the art resolved it');
+    pass('FUNIQ-TC5', 'an artwork-identified printing is added without needing the collector number');
+  }
+
+  // --- FUNIQ-TC6: A HINT THAT MATCHES NOTHING IS DISCARDED -----------------
+  //
+  // The hint is VALIDATED, never trusted. A stale client, a renamed set or a
+  // plain bug must not be able to add a printing that does not exist — it falls
+  // through to the normal number-then-queue path.
+  {
+    const beforeOwned = await ownedCount();
+    const { status, body } = await scanResolve({
+      name: "Captain America's Shield",
+      ocr_text: '',
+      printing_hint: { set: 'zzz', number: '999' },  // no such printing
+    });
+    assert.strictEqual(status, 200, `scan-resolve failed: ${JSON.stringify(body)}`);
+    assert.strictEqual(body.action, 'queued',
+      'a hint matching no catalogue row must be discarded, not invented');
+    assert.strictEqual(await ownedCount(), beforeOwned,
+      'a bogus hint must never add anything');
+    pass('FUNIQ-TC6', 'a printing hint that matches no catalogue row is discarded and the scan queues');
+  }
+
+  // --- FUNIQ-TC7: A HINT FOR A DIFFERENT CARD CANNOT CROSS OVER ------------
+  //
+  // The hint is filtered against THIS card's printings only. A hint naming a
+  // real printing of some OTHER card must not pull that card in — that would be
+  // the silent-wrong-card failure the resolver exists to prevent.
+  {
+    const beforeOwned = await ownedCount();
+    const { body } = await scanResolve({
+      name: "Captain America's Shield",
+      ocr_text: '',
+      printing_hint: { set: 'msh', number: '244' },  // real, but Solitary Relic's row too
+    });
+    // msh 244 IS a Captain America's Shield printing, so this one resolves —
+    // the point is that it resolved to the SHIELD, never to Solitary Relic,
+    // which shares that exact set and number.
+    assert.strictEqual(body.action, 'added');
+    assert.strictEqual(body.card.name, "Captain America's Shield",
+      `the hint must be scoped to THIS card's printings, got ${body.card.name}`);
+    assert.strictEqual(body.card.id, 'shield-244');
+    assert.strictEqual(await ownedCount(), beforeOwned + 1);
+    pass('FUNIQ-TC7', 'a printing hint is scoped to the matched card and cannot pull in another card');
+  }
+
   console.log(`\nscan_unique_printing.test.js: ${passed} cases passed`);
 }
 

@@ -76,10 +76,18 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
   // only falls back to the CLIP `name`, so a scan whose artwork was blown out
   // by a torch reflection can still be identified. Either identifier may be
   // empty; the server refuses only when BOTH are.
-  async function submitScan({ name, titleText = '', ocrText = '', crop = null, quantity = 1, printing, condition, location_id }) {
+  async function submitScan({ name, titleText = '', ocrText = '', crop = null, quantity = 1, printingHint = null, printing, condition, location_id }) {
     try {
       const body = { name: name || '', title_text: titleText || '', ocr_text: ocrText || '', quantity };
       if (crop) body.crop = crop;
+      // WHICH PRINTING the artwork matched, when the artwork could tell the
+      // printings apart. Distinct from `printing` below, which is the FINISH
+      // (nonfoil/foil/etched) — different concept, confusingly similar name.
+      // The server validates this against the catalogue and ignores it unless
+      // it resolves to exactly one real printing.
+      if (printingHint && printingHint.set && printingHint.number) {
+        body.printing_hint = { set: printingHint.set, number: printingHint.number };
+      }
       // Finish is NEVER inferred from the image (plan task G2). Whatever the
       // scanner explicitly holds is passed through; nothing here reads pixels.
       if (printing !== undefined) body.printing = printing;
