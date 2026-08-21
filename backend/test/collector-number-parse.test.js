@@ -141,5 +141,42 @@ check('F8P-TC15', 'numberAlt NEVER replaces the primary read', () => {
     'a misread must NOT be "corrected" into a real printing — that is the guess we forbid');
 });
 
+check('F8P-TC16', 'the OCR rectify size keeps the collector number above the engine floor', () => {
+  // THE ARITHMETIC BUG THIS PINS. rectifyCard warps every scan to a FIXED
+  // OCR_W x OCR_H before reading. At the old 750x1050 the numbers were:
+  //
+  //   card height 88mm, collector-number cap height ~1.2mm
+  //   1050px / 88mm = 11.9 px/mm  ->  the number lands ~14px tall
+  //
+  // Tesseract needs ~20px of cap height for small print, so every scan was
+  // handed a strip BELOW the floor and returned EMPTY — measured on Zach's
+  // stack, every queue row had ocr_number=NULL and raw=''. Unique LANDS failing
+  // is what made it unmistakable: those have nothing to disambiguate, so the
+  // only explanation was that the strip was never legible at all.
+  //
+  // This was invisible for months because 750 was an UPSCALE when the capture
+  // delivered a ~660px card. The capture work since (fullscreen, full-res
+  // request, lens pin, ImageCapture stills) delivers 1400-2600px, at which
+  // point the SAME constant became a downscale discarding all of it — the same
+  // dead-clamp trap as SCAN_UPLOAD_W, one layer deeper.
+  //
+  // Pinned as ARITHMETIC rather than as a magic number so the reason survives:
+  // if someone lowers OCR_SCALE for speed, this fails and says why.
+  const { OCR_W, OCR_H } = require('../src/utils/collectorNumberOcr');
+  const CARD_HEIGHT_MM = 88;
+  const NUMBER_CAP_MM = 1.2;
+  const OCR_FLOOR_PX = 20;
+
+  const numberPx = (OCR_H / CARD_HEIGHT_MM) * NUMBER_CAP_MM;
+  assert.ok(numberPx >= OCR_FLOOR_PX,
+    `the collector number must reach the OCR floor: OCR_H=${OCR_H} gives ${numberPx.toFixed(1)}px, need >=${OCR_FLOOR_PX}px`);
+
+  // Aspect must stay card-shaped, or the strip crop fractions point at the
+  // wrong part of the card and a bigger image reads nothing at all.
+  const aspect = OCR_W / OCR_H;
+  assert.ok(Math.abs(aspect - (2.5 / 3.5)) < 0.01,
+    `the rectify target must keep the card aspect, got ${aspect.toFixed(3)}`);
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);
