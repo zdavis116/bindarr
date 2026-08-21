@@ -308,6 +308,33 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId 
   // physically absent from the card.
   const anyFramePrints = all.some(r => framePrintsNumber(r.release_date));
 
+  // THE ART ALREADY DECIDED IT. Zach's rule:
+  //
+  //   "I'm fine if it's right card wrong printing, fix with the queue — but I
+  //    would like for that to be the case only if the art isn't unique and we
+  //    couldn't get set number."
+  //
+  // When the name resolves to exactly ONE printing in the catalogue there is no
+  // ambiguity for the collector number to resolve. Nothing is being guessed:
+  // this is the only printing that exists, so reading the number could not
+  // change the answer, only fail to produce it.
+  //
+  // This ran AFTER the `ocr.confident` gate below, which meant a card with one
+  // printing and an unreadable strip was queued as 'unreadable' — asking Zach
+  // to choose from a list of one. Measured on his 7-scan session: every entry
+  // queued with a CONFIDENT, CORRECT art match and an OCR read of '—' or ''.
+  // The collector number is 6pt text at the card's edge; making the whole scan
+  // depend on it put the hardest signal on the critical path, which is why the
+  // scanner needed 7 attempts to add one card.
+  //
+  // Ordering matters and is the entire fix: uniqueness is checked BEFORE
+  // legibility, so the strip is only consulted when it can actually change the
+  // outcome. Multi-printing cards are untouched — they still require the number
+  // and still queue without it, so no printing is ever silently guessed.
+  if (all.length === 1) {
+    return { action: 'add', printing: all[0], ocr, titleName, usedName };
+  }
+
   if (!ocr.confident || ocr.number == null) {
     return {
       action: 'queue',

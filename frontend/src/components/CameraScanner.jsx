@@ -1524,6 +1524,91 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 {isTorchOn ? <Zap size={18} /> : <ZapOff size={18} />}
               </button>
 
+            {/* IN-FRAME STATUS. Fullscreen made the existing status line (far
+                below the camera, ~line 1940) unreachable: the preview covers the
+                viewport, so every message the scanner produced — "Matching card
+                image…", "Hold steady", the queued/added result — was rendered
+                off-screen. Zach's report was that fullscreen looked better but
+                it was "hard to see what it's doing", which is exactly this.
+
+                So the SAME scanStatus string is mirrored INSIDE the frame while
+                fullscreen is on. Not a new message set and not a second source
+                of truth: one state, shown where the user is actually looking.
+                Only rendered in fullscreen, so the boxed desktop layout keeps
+                its production appearance and does not get a duplicate line. */}
+            {fullscreenScan && (scanStatus || loading) && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  bottom: `calc(5.5rem + env(safe-area-inset-bottom))`,
+                  zIndex: 21,
+                  maxWidth: '86%',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.72)',
+                  border: '1px solid rgba(255,255,255,0.28)',
+                  color: 'var(--text-strong)',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  textAlign: 'center',
+                  pointerEvents: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                }}
+              >
+                {/* A moving indicator distinguishes "working" from "idle and
+                    stuck". A static string cannot: an auto-scan that has quietly
+                    stopped and one mid-lookup look identical without it. */}
+                {loading && (
+                  <span
+                    style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      border: '2px solid rgba(255,255,255,0.35)',
+                      borderTopColor: 'var(--accent-red)',
+                      animation: 'scan-status-spin 0.8s linear infinite',
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+                <span>{scanStatus || t('scan.working')}</span>
+              </div>
+            )}
+
+            {/* QUEUE COUNT, in frame. The review banner also lives below the
+                camera (~line 1940) and is equally invisible in fullscreen — so
+                the queue silently grew to 6 entries during Zach's session with
+                no on-screen sign. A count badge is enough here: it says
+                something needs attention without stealing the frame, and the
+                full banner is one tap away via the fullscreen exit. Tapping it
+                leaves fullscreen rather than opening review directly, so the
+                camera is never torn down underneath an unrelated screen. */}
+            {fullscreenScan && queuePending > 0 && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setFullscreenScan(false); }}
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  top: `calc(1rem + env(safe-area-inset-top))`,
+                  zIndex: 21,
+                  padding: '0.35rem 0.8rem',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.72)',
+                  border: '1px solid var(--accent-yellow)',
+                  color: 'var(--accent-yellow)',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {t('scan.queuedBadge', { count: queuePending })}
+              </button>
+            )}
+
             {/* PR 9: the fixed-cadence countdown ring is gone with the metronome
                 that drove it — only the retired 'Turbo' preset had a cadence, so
                 captureCountdown was permanently null and this never rendered. */}
@@ -1542,6 +1627,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 @keyframes border-flash-capture {
                   0%, 100% { border-color: rgba(255, 255, 255, 0.4); box-shadow: none; }
                   50% { border-color: #fff; box-shadow: 0 0 30px rgba(255, 255, 255, 0.9); }
+                }
+                @keyframes scan-status-spin {
+                  to { transform: rotate(360deg); }
                 }
               `}</style>
               <div

@@ -150,16 +150,45 @@ async function main() {
     pass('F8-TC2', 'a read matching several printings queues rather than choosing');
   }
 
-  // --- F8-TC3: a card whose frame prints no number queues, reason recorded ---
+  // --- F8-TC3: a card whose frame prints no number, and only one printing ---
+  //
+  // REVISED for the art-first ordering. Black Lotus here has exactly ONE
+  // printing in the catalogue (lea 232), so there is nothing for a collector
+  // number to disambiguate — and its pre-2015 frame does not print one anyway.
+  // Queueing it was doubly unactionable: the review screen offered a list of
+  // one, for information that is physically absent from the card.
+  //
+  // Uniqueness is now checked before legibility, so this adds. The 'no_number'
+  // reason still exists and is still recorded — F8-TC3b covers it on a card
+  // where the printing is genuinely ambiguous, which is the only situation in
+  // which the reason can actually change what the user does.
   {
+    const before = await db.get(`SELECT COUNT(*) n FROM collection WHERE user_id = ?`, [user.id]);
     const res = await api(user.token, '/api/scan-resolve', {
       method: 'POST',
       body: { name: 'Black Lotus', ocr_text: 'Illus. (c) Christopher Rush' },
     });
-    assert.strictEqual(res.body.action, 'queued');
-    assert.strictEqual(res.body.reason, 'no_number',
-      `a pre-2015 frame carries no number; reason must say so, got ${res.body.reason}`);
-    pass('F8-TC3', 'card with no printed number queues with the reason recorded');
+    assert.strictEqual(res.body.action, 'added',
+      `one printing exists, so no number is needed to identify it. got ${JSON.stringify(res.body)}`);
+    const after = await db.get(`SELECT COUNT(*) n FROM collection WHERE user_id = ?`, [user.id]);
+    assert.strictEqual(after.n, before.n + 1, 'the card must reach the collection');
+    pass('F8-TC3', 'a single-printing card with no printed number is added, not queued');
+  }
+
+  // --- F8-TC3b: the 'no_number' reason survives where it still matters ------
+  //
+  // Sol Ring has three printings, so the number genuinely decides between them.
+  // A read that yields no number must queue with the reason recorded, exactly
+  // as before — the art-first shortcut must not swallow the ambiguous case.
+  {
+    const res = await api(user.token, '/api/scan-resolve', {
+      method: 'POST',
+      body: { name: 'Sol Ring', ocr_text: 'Illus. (c) Someone' },
+    });
+    assert.strictEqual(res.body.action, 'queued',
+      'several printings + no readable number -> must still queue');
+    assert.ok(res.body.candidates.length > 1, 'the competing printings must be offered');
+    pass('F8-TC3b', 'an ambiguous card with no readable number still queues with candidates');
   }
 
   // --- F8-TC4: NEVER GUESS — a fabricated read resolves to nothing ----------
