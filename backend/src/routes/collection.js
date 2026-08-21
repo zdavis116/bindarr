@@ -357,7 +357,7 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
 // There is no third branch and no "most likely" fallback.
 router.post('/scan-resolve', async (req, res) => {
   try {
-    const { name, title_text = '', ocr_text = '', crop, quantity } = req.body || {};
+    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity } = req.body || {};
     // NAME IS NO LONGER REQUIRED, and that is the point of PR 11.
     //
     // It used to be, because CLIP's match was the only way to identify a card.
@@ -396,10 +396,26 @@ router.post('/scan-resolve', async (req, res) => {
     }
     const qty = positiveInteger(quantity === undefined ? 1 : quantity, { name: 'quantity', max: 1000 });
 
+    // BOUND THE PRINTING HINT. Same treatment as every other free-text field:
+    // it reaches a SQL comparison, so its shape is checked here rather than
+    // trusted. A malformed hint is DROPPED, not rejected — it is an optimisation
+    // (the artwork already named the printing), and refusing the whole scan over
+    // it would turn a bad hint into a lost card. The resolver validates the
+    // surviving value against the catalogue anyway, so the worst a bogus hint
+    // can do is fail to match and fall through to the normal path.
+    let hint = null;
+    if (printing_hint && typeof printing_hint === 'object'
+        && typeof printing_hint.set === 'string' && typeof printing_hint.number === 'string'
+        && printing_hint.set.length > 0 && printing_hint.set.length <= 20
+        && printing_hint.number.length > 0 && printing_hint.number.length <= 20) {
+      hint = { set: printing_hint.set, number: printing_hint.number };
+    }
+
     const outcome = await resolveScannedPrinting({
       matchedName: name || '',
       titleText: title_text,
       ocrText: ocr_text,
+      printingHint: hint,
       userId: req.user.id,
     });
 

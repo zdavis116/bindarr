@@ -1180,6 +1180,34 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 // gets ASKED, not what gets added.
                 const titleText = (ocr?.title || '').trim();
                 const clipName = confident && top?.name ? top.name : '';
+                // THE PRINTING THE ARTWORK ACTUALLY MATCHED.
+                //
+                // The scan index is built per ARTWORK, so a confident match does
+                // not merely name the card — it names one specific printing
+                // (top.set + top.number). That was computed and then thrown
+                // away: only `name` was sent, so the server re-looked-up EVERY
+                // printing of that name, found several, and queued as
+                // 'ambiguous'. Zach's stack shows the cost — 'The Legend of
+                // Roku' (tla 357) and 'Dai Li Agents' (tla 214) are ALT ARTS
+                // with artwork unique to one printing, and both were queued
+                // asking him a question the matcher had already answered.
+                //
+                // Only sent when the image can actually tell the printings
+                // apart. `ambiguousPrinting` (computed above) flags the case
+                // where a same-name runner-up scores nearly as well — basic
+                // lands and other low-art cards, where every printing shares one
+                // frame and ORB near-ties across all of them. In that case the
+                // artwork genuinely does NOT identify the printing, so the hint
+                // is withheld and the collector number / the queue decides, as
+                // before.
+                //
+                // This is a HINT, not an instruction: the server validates it
+                // against the catalogue and ignores it if it does not resolve to
+                // exactly one real printing. Nothing is added on the strength of
+                // the client's say-so.
+                const printingHint = (clipName && !ambiguousPrinting && top?.set && top?.number)
+                  ? { set: String(top.set), number: String(top.number) }
+                  : null;
                 if (autoScan && (clipName || titleText)) {
                   // The dedup key must survive CLIP being wrong, so it keys on
                   // whichever identifier we actually have. Without this a stack
@@ -1202,6 +1230,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     // would be a second, divergent implementation of the one
                     // rule that keeps a misread from becoming a wrong card.
                     ocrText: ocr?.raw || '',
+                    // WHICH PRINTING the artwork matched, when the artwork can
+                    // tell them apart. See printingHint above. The server
+                    // validates it against the catalogue before trusting it.
+                    printingHint,
                     // The server's rectified crop, so the queue shows the card
                     // he actually photographed rather than a catalogue image.
                     crop: crop || null,

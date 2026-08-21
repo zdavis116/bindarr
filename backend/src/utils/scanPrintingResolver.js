@@ -262,7 +262,7 @@ async function nameFromTitle(titleText) {
 //   3. CLIP is the FALLBACK, used when the title is unreadable — which is
 //      today's behaviour, unchanged, and still 100% on clean images.
 //   4. A title matching nothing NEVER adds. The catalogue is still the validator.
-async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId }) {
+async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId, printingHint = null }) {
   const ocr = parseCollectorStrip(ocrText);
 
   // STEP 1: the title decides the card, when it can.
@@ -333,6 +333,37 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId 
   // and still queue without it, so no printing is ever silently guessed.
   if (all.length === 1) {
     return { action: 'add', printing: all[0], ocr, titleName, usedName };
+  }
+
+  // THE ARTWORK NAMED A SPECIFIC PRINTING — the alt-art case.
+  //
+  // The scan index is built per ARTWORK, so a confident match identifies one
+  // printing, not just a card. Zach: "some should be auto matches like legend
+  // of Roku and dai li agents because they are alt arts of the card so image
+  // alone should be enough for them." He is right, and the client was throwing
+  // that answer away: it sent only the NAME, so this resolver re-looked-up all
+  // three printings of 'The Legend of Roku' and queued the very question the
+  // matcher had already answered.
+  //
+  // THE HINT IS VALIDATED, NEVER TRUSTED. It must select exactly one row of the
+  // printings this card actually has. A hint that matches nothing, or somehow
+  // matches several, is discarded and the normal number-then-queue path runs —
+  // so a stale or malformed client can widen nothing.
+  //
+  // The client only sends this when the ARTWORK CAN tell the printings apart.
+  // Where a same-name runner-up scores nearly as well (basic lands and other
+  // low-art cards, which share one frame across every printing) it withholds
+  // the hint, because there the image genuinely does not identify the printing.
+  // That check lives client-side because the ORB scores live there; this side
+  // enforces only that whatever arrives is a real, unique printing.
+  if (printingHint && printingHint.set && printingHint.number) {
+    const hintSet = String(printingHint.set).toLowerCase();
+    const hintNumber = String(printingHint.number);
+    const hinted = all.filter(r =>
+      String(r.set_id || '').toLowerCase() === hintSet && sameNumber(r.number, hintNumber));
+    if (hinted.length === 1) {
+      return { action: 'add', printing: hinted[0], ocr, titleName, usedName, resolvedBy: 'artwork' };
+    }
   }
 
   if (!ocr.confident || ocr.number == null) {
