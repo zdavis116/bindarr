@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine } from 'lucide-react';
+import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine, Maximize, Minimize } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
@@ -43,7 +43,78 @@ const SCAN_MATCH_MIN_INLIERS = 12;
 // exact printing. 1280 is therefore chosen for the OCR strip, the only consumer
 // that can tell the difference. Zach: "it may be worth removing the slider and
 // just having uploadW be the 1280."
-const SCAN_UPLOAD_W = 1280;
+//
+// --- PR 12: RAISED 1280 -> 2000, AND WHY THAT EXACT NUMBER -------------------
+//
+// THIS CAP AND THE getUserMedia RESOLUTION BELOW MUST MOVE TOGETHER OR NEITHER
+// DOES ANYTHING. At the old geometry (720x1280 stream, guide box 72% of a small
+// boxed preview) the guide-box crop was ~660px wide, so `Math.min(1, 1280/660)`
+// clamped to 1 and this cap was a NO-OP. The moment the sensor request and the
+// fullscreen preview raise that crop past 1280px, this line becomes the BINDING
+// constraint and throws away exactly the pixels the other two changes bought.
+// Raising only the camera request would have been a pure no-op with extra
+// battery cost; that is the whole reason this constant is touched here.
+//
+// MEASURED, through the REAL /api/scan-match route (express + real DB + real
+// tesseract OCR), on staged photos of 4 real cards taken as a full-res
+// guide-box crop 2281px wide, softened with a 1.6px blur to stand in for lens
+// MTF that a composite scene does not have:
+//
+//   cap    q     avg KB   number   fabricated   median ms
+//   660    0.85     99     4/4         0          544
+//   1280   0.85    274     4/4         0          846
+//   1600   0.85    375     4/4         0          841
+//   2000   0.85    514     4/4         0          838
+//   2600   0.85    560     4/4         0          881
+//   1280   0.80    234     4/4         0          796
+//   2000   0.80    437     4/4         0          829
+//
+// TWO HONEST READINGS OF THAT TABLE, and the second is the one that decides it.
+//
+// 1. On THIS fixture accuracy is already 4/4 everywhere, so the sweep does NOT
+//    show a cap that "fixes" OCR. A composite has no sensor noise, and the
+//    production failure is precisely a noise-plus-resolution one. Nobody should
+//    later cite this table as proof of an accuracy win. It is not.
+// 2. What it DOES decide is the PRICE. Latency is essentially FLAT from 1280 to
+//    2600 (846 -> 881ms median, ~4%), so "a bigger upload will make the already
+//    slow scanner slower" does not survive contact with the numbers — the cost
+//    here is BYTES, not seconds, and bytes over Tailscale are the real budget.
+//
+// So the choice is the KNEE OF THE BYTE CURVE, not the peak. 2000 keeps ~3x the
+// linear detail of 1280 on the collector-number strip (the only consumer that
+// can tell the difference) while 2600 costs another ~9% of payload for pixels
+// the server cannot use: it rectifies to 750x1050, and the strip is ~5% of card
+// height, so past ~2000px of card width the warp is already downsampling.
+// An UNBOUNDED upload was rejected outright — a modern iPhone would send
+// ~4000px and trade a resolution complaint for a data-and-latency one.
+const SCAN_UPLOAD_W = 2000;
+// JPEG quality, deliberately LOWERED from 0.85 to 0.80 as the width went up.
+//
+// Measured above: at 2000px, q=0.80 is 437KB against q=0.85's 514KB — 15% fewer
+// bytes — with the SAME 4/4 read and zero fabrications. More pixels at slightly
+// lower per-pixel fidelity beats fewer pixels at higher fidelity for small
+// printed text, because the sampling already records the digit strokes
+// redundantly. 0.80 is treated as the FLOOR and not lowered further: below it
+// JPEG ringing starts landing on the thin strokes the OCR reads, and this
+// pipeline's one unforgivable outcome is a confident WRONG number, not a miss.
+const SCAN_UPLOAD_Q = 0.80;
+// What we ASK the camera for. Deliberately `ideal`, never `exact`.
+//
+// `exact` on an unsupported resolution makes getUserMedia REJECT with
+// OverconstrainedError, and the catch in startCamera turns any rejection into
+// "check your camera permissions" — leaving the user with NO CAMERA AT ALL.
+// That failure is far worse than a lower-resolution one: a scanner stuck at
+// 1280 still scans; a scanner that will not open scans nothing. `ideal` lets
+// every browser negotiate DOWN to its best available mode instead of failing
+// closed, so the failure mode matters more here than the peak.
+//
+// 4032x3024 is an iPhone-16-class main camera ceiling. Asking for more than a
+// device can give is harmless under `ideal`; what matters is that the ACTUAL
+// negotiated numbers are recorded into the diagnostics panel (see cameraInfo),
+// because no browser and no camera runs in this repo and only Zach's phone can
+// report what his hardware actually handed back.
+const SCAN_CAPTURE_IDEAL_W = 4032;
+const SCAN_CAPTURE_IDEAL_H = 3024;
 // Kept from the old 'Accurate' preset. Deliberately NOT collapsed to Turbo's
 // values: countdown 2 leaves a window to cancel a mis-scan, and the cooldown
 // paces a physical stack. Neither is an accuracy setting.
@@ -205,6 +276,42 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // a scan actually proceeds — at which point a render is happening anyway.
   const gateLogRef = useRef([]);
   const [gateLog, setGateLog] = useState([]);
+
+  // THE NEGOTIATED CAMERA MODE, and the size of the last upload.
+  //
+  // Both exist for the same reason gateLogRef does: this repo runs no browser
+  // and no camera, so what the phone actually delivered is unknowable from here
+  // and the only way to make the NEXT adjustment measured instead of guessed is
+  // to put the real numbers where Zach can read them back to us. Rendered in
+  // the EXISTING diagnostics panel, in its existing type scale — no new screen.
+  //
+  // null means "we could not determine it", which is displayed as such rather
+  // than as a zero. A fabricated diagnostic is worse than a missing one.
+  const [cameraInfo, setCameraInfo] = useState(null);
+  const [uploadInfo, setUploadInfo] = useState(null);
+
+  // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
+  // of the change is that a phone preview must fill the screen: the guide box is
+  // 72% of the preview's height and the crop is driven by its rendered rect, so
+  // preview size translates DIRECTLY into how many pixels land on the collector
+  // number. Desktop keeps the existing boxed layout, which is the production
+  // look on a big screen and has no reason to change.
+  //
+  // It is a MODE ON THE EXISTING SCREEN, not a new screen: the same JSX, the
+  // same controls, the same diagnostics panel, the same review-queue banner —
+  // only the container class changes. That keeps the drag/rotate/pinch guide
+  // adjustment, the settings panel and the queue reachable exactly as before.
+  const [fullscreenScan, setFullscreenScan] = useState(() => {
+    try {
+      // matchMedia is guarded: it is absent in some embedded webviews and this
+      // must never be the thing that stops the scanner rendering.
+      return typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(max-width: 900px)').matches;
+    } catch {
+      return false;
+    }
+  });
 
   const beepCtxRef = useRef(null); // reused AudioContext for the scan cue
   const handleCaptureRef = useRef(null); // always the latest handleCapture, for timers
@@ -557,16 +664,104 @@ function CameraScanner({ onAddSuccess, showToast }) {
       return;
     }
     try {
+      // ASK BIG, ACCEPT WHATEVER COMES BACK. See SCAN_CAPTURE_IDEAL_W: every
+      // constraint here is `ideal`, so a device that cannot deliver negotiates
+      // DOWN instead of rejecting. There is no `exact` anywhere in this object
+      // and there must never be one — an OverconstrainedError lands in the catch
+      // below and the user is told their permissions are broken when they are
+      // fine, ending with no camera at all.
+      //
+      // The old request was 1280x720. Held in portrait that is a 720px-wide
+      // frame; with the guide box at 72% of a boxed preview the cropped card was
+      // ~660px, which puts the printed collector number at roughly 6-8px tall —
+      // the floor of OCR legibility, and the reason the scanner works in good
+      // light and collapses when noise is added.
       const constraints = {
         video: {
           facingMode: 'environment', // Use back camera on phones
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { ideal: SCAN_CAPTURE_IDEAL_W },
+          height: { ideal: SCAN_CAPTURE_IDEAL_H },
         },
         audio: false
       };
-      
+
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // PIN THE LENS TO THE MAIN WIDE CAMERA.
+      //
+      // On a multi-lens iPhone WebKit hands the page a VIRTUAL camera whose web
+      // zoom domain is [0.5, 10] (cameraZoomScaleFactor() is 2.0 for
+      // BuiltInTripleCamera / BuiltInDualWideCamera, and minZoom is 1/scale).
+      // Anything BELOW 1.0 is the ULTRA-WIDE lens: softer, lower resolution,
+      // and the single most common cause of "the web capture is mysteriously
+      // blurrier than the native camera app". Leaving zoom unset inherits
+      // whatever factor the device happens to be sitting at, and worse, iOS
+      // hands off to the ultra-wide for MACRO when the subject is close — i.e.
+      // exactly when a card is filling the frame, which is every scan.
+      //
+      // applyConstraints (not getUserMedia) because zoom must be applied after
+      // the resolution preset has settled; WebKit re-derives the zoom range from
+      // the chosen preset and clamps into it.
+      //
+      // `advanced` makes this a BEST-EFFORT constraint: a device without zoom
+      // support ignores the block instead of failing the whole call. Guarded on
+      // getCapabilities() as well, since it is optional in the spec, and wrapped
+      // because a lens preference must never be the reason the camera fails to
+      // open — a scanner on the wrong lens still scans.
+      try {
+        const zoomTrack = mediaStream.getVideoTracks?.()[0];
+        const caps = typeof zoomTrack?.getCapabilities === 'function' ? (zoomTrack.getCapabilities() || {}) : {};
+        if (caps.zoom && typeof zoomTrack.applyConstraints === 'function') {
+          // Clamp into the device's real range: min can exceed 1.0 on hardware
+          // that has no ultra-wide, and asking below min is an error there.
+          const target = Math.min(Math.max(1.0, caps.zoom.min ?? 1.0), caps.zoom.max ?? 1.0);
+          await zoomTrack.applyConstraints({ advanced: [{ zoom: target }] });
+        }
+      } catch {
+        // Ignore: the stream is live and usable, just possibly on a softer lens.
+        // The negotiated zoom is reported in the diagnostics panel below, so a
+        // failure here is visible rather than silent.
+      }
+      // RECORD WHAT THE DEVICE ACTUALLY GAVE US.
+      //
+      // This is the single most important line for the next round of this
+      // problem. Nothing in this repo runs a camera, so the negotiated mode is
+      // unknowable from here — asking for 4032x3024 does not mean receiving it,
+      // and iOS Safari in particular is free to hand back something else
+      // entirely. Surfacing getSettings() in the diagnostics panel means the
+      // next adjustment is MEASURED off Zach's real phone rather than guessed,
+      // which is exactly the mistake the focus gate already cost a release to
+      // learn (see gateLogRef).
+      //
+      // Defensive on every field: getSettings is optional in the spec, and a
+      // browser that returns an empty object or omits width/height must degrade
+      // to "unknown" rather than crash the only screen that opens the camera.
+      try {
+        const track = mediaStream.getVideoTracks?.()[0];
+        const s = typeof track?.getSettings === 'function' ? (track.getSettings() || {}) : {};
+        const w = Number.isFinite(s.width) ? s.width : null;
+        const h = Number.isFinite(s.height) ? s.height : null;
+        setCameraInfo({
+          width: w,
+          height: h,
+          // Portrait use rotates the frame, so the SHORT side is what ends up
+          // across the card. That is the number that decides how many pixels
+          // land on the collector number, so it is shown explicitly rather than
+          // left for someone to infer from WxH.
+          shortSide: w && h ? Math.min(w, h) : null,
+          frameRate: Number.isFinite(s.frameRate) ? Math.round(s.frameRate) : null,
+          // The negotiated zoom, which is how we tell WHICH LENS we ended up on.
+          // < 1.0 means the soft ultra-wide and explains a blurry capture on its
+          // own; null means the device does not report zoom at all. Shown rather
+          // than assumed, because the applyConstraints above is best-effort.
+          zoom: Number.isFinite(s.zoom) ? Math.round(s.zoom * 100) / 100 : null,
+          requestedW: SCAN_CAPTURE_IDEAL_W,
+          requestedH: SCAN_CAPTURE_IDEAL_H,
+        });
+      } catch {
+        // A browser that will not describe its own track is not a reason to
+        // refuse the camera. Diagnostics are a nice-to-have; scanning is not.
+        setCameraInfo(null);
+      }
       setStream(mediaStream);
       setCameraActive(true);
     } catch (err) {
@@ -588,6 +783,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setCameraActive(false);
     setAutoScan(false); // Reset autoScan on camera stop
     setIsTorchOn(false);
+    // The negotiated mode belongs to the track that just stopped. Leaving it on
+    // screen would show a resolution no live camera is producing, and a stale
+    // diagnostic is exactly the kind of confidently-wrong state this app refuses
+    // everywhere else.
+    setCameraInfo(null);
+    setUploadInfo(null);
     setDebugHashImg('');
     setDebugCandidates([]);
     setDebugScoped(null);
@@ -884,12 +1085,29 @@ function CameraScanner({ onAddSuccess, showToast }) {
         {
           // Downscale the frame for upload; server auto-crops the card. Keep it
           // fairly high-res so a far/small card still has enough pixels to match.
+          //
+          // SCAN_UPLOAD_W is 2000 and this is the line that makes it matter. It
+          // was a no-op at the old ~660px crop; with the fullscreen preview and
+          // the full-resolution capture request the crop is larger than the cap,
+          // so this is now a REAL downscale and the constant above is the thing
+          // deciding how many pixels reach the collector-number strip.
           const up = document.createElement('canvas');
           const s = Math.min(1, SCAN_UPLOAD_W / framedCanvas.width);
           up.width = Math.round(framedCanvas.width * s);
           up.height = Math.round(framedCanvas.height * s);
           up.getContext('2d').drawImage(framedCanvas, 0, 0, up.width, up.height);
-          const imageData = up.toDataURL('image/jpeg', 0.85);
+          const imageData = up.toDataURL('image/jpeg', SCAN_UPLOAD_Q);
+          // WHAT WE ACTUALLY SENT, for the diagnostics panel. The crop width
+          // before the cap is the number that says whether the resolution work
+          // reached this point at all: if it reads ~660 on his phone, the camera
+          // request or the fullscreen layout did not take effect and the upload
+          // cap is irrelevant. KB is the Tailscale cost, measured rather than
+          // predicted. Base64 is ~4/3 of the bytes, so that factor is removed.
+          setUploadInfo({
+            cropW: framedCanvas.width,
+            sentW: up.width,
+            kb: Math.round((imageData.length - imageData.indexOf(',') - 1) * 0.75 / 1024),
+          });
           setDebugHashImg(imageData);
           try {
             const resp = await fetch('/api/scan-match', {
@@ -1250,7 +1468,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
         </div>
       ) : (
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <div className="camera-preview-wrapper camera-active">
+          <div className={`camera-preview-wrapper camera-active${fullscreenScan ? ' camera-fullscreen' : ''}`}>
             <video
               ref={videoRef}
               autoPlay
@@ -1258,14 +1476,40 @@ function CameraScanner({ onAddSuccess, showToast }) {
               muted
               className="camera-video"
             />
-            
+
+            {/* Fullscreen toggle. Fullscreen is the DEFAULT on phones because it
+                is what puts pixels on the card (see .camera-fullscreen in
+                index.css), but it must be escapable: the boxed layout is the
+                production look and the only way to see the rest of the page. */}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              aria-label={t(fullscreenScan ? 'scan.exitFullscreen' : 'scan.enterFullscreen')}
+              title={t(fullscreenScan ? 'scan.exitFullscreen' : 'scan.enterFullscreen')}
+              style={{
+                position: 'absolute',
+                top: `calc(1rem + ${fullscreenScan ? 'env(safe-area-inset-top)' : '0px'})`,
+                left: '1rem',
+                zIndex: 20,
+                borderRadius: '50%',
+                padding: '0.6rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+              }}
+              onClick={(e) => { e.stopPropagation(); setFullscreenScan((v) => !v); }}
+            >
+              {fullscreenScan ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+
             {/* Torch Toggle Overlay Button */}
             <button
                 type="button"
                 className={`btn ${isTorchOn ? 'btn-primary' : 'btn-secondary'}`}
                 style={{
                   position: 'absolute',
-                  top: '1rem',
+                  top: `calc(1rem + ${fullscreenScan ? 'env(safe-area-inset-top)' : '0px'})`,
                   right: '1rem',
                   zIndex: 20,
                   borderRadius: '50%',
@@ -1518,9 +1762,51 @@ function CameraScanner({ onAddSuccess, showToast }) {
           )}
 
           {/* Scan crop + candidate diagnostics — only render when we actually have
-              a crop/candidates, so an empty dashed box doesn't eat vertical space on phone. */}
-          {cameraActive && (debugHashImg || debugCandidates.length > 0) && (
+              a crop/candidates, so an empty dashed box doesn't eat vertical space on phone.
+              PR 12 adds cameraInfo to the render condition: the NEGOTIATED CAMERA
+              MODE must be visible BEFORE the first scan, because if the phone
+              silently handed back 1280x720 then nothing downstream can help and
+              that is the first thing Zach needs to be able to tell us. */}
+          {cameraActive && (cameraInfo || debugHashImg || debugCandidates.length > 0) && (
             <div className="glass-panel" style={{ width: '100%', padding: '0.75rem 1rem', background: 'rgba(0,0,0,0.3)', border: '1px dashed var(--border-glass-hover)', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.25rem' }}>
+              {/* PR 12: WHAT THE CAMERA ACTUALLY GAVE US, and what we actually
+                  sent. Asking getUserMedia for 4032x3024 is a request, not a
+                  result — iOS Safari negotiates freely and no browser runs in
+                  this repo, so these numbers cannot be known from here. They are
+                  the same lesson as the focus gate's scores one panel down: put
+                  the measurement on screen so the NEXT change is measured. */}
+              {cameraInfo && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                    {t('scan.cameraModeDebug')}
+                  </span>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>
+                      {cameraInfo.width && cameraInfo.height
+                        ? `${cameraInfo.width}×${cameraInfo.height}`
+                        : t('scan.cameraModeUnknown')}
+                    </span>
+                    {cameraInfo.shortSide ? <span> · card side {cameraInfo.shortSide}px</span> : null}
+                    {cameraInfo.frameRate ? <span> · {cameraInfo.frameRate}fps</span> : null}
+                    {/* Lens indicator. Below 1.0 is the ultra-wide, which is a
+                        complete explanation for a soft capture on its own, so it
+                        is called out in the warning colour rather than left as a
+                        number to interpret. */}
+                    {cameraInfo.zoom != null ? (
+                      <span style={{ color: cameraInfo.zoom < 1 ? 'var(--accent-yellow)' : undefined }}>
+                        {' '}· zoom {cameraInfo.zoom}
+                        {cameraInfo.zoom < 1 ? ' (ULTRA-WIDE)' : ''}
+                      </span>
+                    ) : null}
+                    <span style={{ color: 'var(--text-muted)' }}> (asked {cameraInfo.requestedW}×{cameraInfo.requestedH})</span>
+                  </div>
+                  {uploadInfo && (
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      {t('scan.uploadDebug', { crop: uploadInfo.cropW, sent: uploadInfo.sentW, kb: uploadInfo.kb })}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Hash-match diagnostics: what was cropped + the ranked candidates. */}
               {(debugHashImg || debugCandidates.length > 0) && (
                 <div style={{ display: 'flex', gap: '0.75rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)', marginTop: '0.25rem' }}>

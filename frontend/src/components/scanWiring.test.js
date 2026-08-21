@@ -102,8 +102,44 @@ test('F9S-TC11', 'one fixed capture profile is used, at the width the collector 
   // Card identity was 10/10 even at 400px, but the collector number needs
   // resolution to be legible at all — so width is chosen for OCR, which is the
   // only consumer that can tell the difference.
-  assert.match(src, /SCAN_UPLOAD_W\s*=\s*1280/);
+  //
+  // PR 12 raised this 1280 -> 2000. The old value was a DEAD CLAMP: the
+  // guide-box crop was ~660px, so Math.min(1, 1280/660) was always 1. Once the
+  // fullscreen preview and the full-resolution capture request enlarge the crop
+  // past the cap, this constant becomes the binding constraint on how many
+  // pixels reach the collector-number strip — which is why it had to move in
+  // the SAME change rather than a follow-up.
+  assert.match(src, /SCAN_UPLOAD_W\s*=\s*2000/);
   assert.match(src, /SCAN_UPLOAD_W/);
+});
+
+test('F9S-TC12', 'the capture request and the upload cap move together', () => {
+  // The pixel budget has three terms and they are only meaningful jointly:
+  // ask the sensor for a big frame, give the card a big share of that frame
+  // (fullscreen), and do not throw the result away at the upload cap. Any one
+  // of these alone is a near-no-op, so all three are asserted here — a future
+  // change that reverts one of them should fail this test rather than silently
+  // reinstate the starved pipeline.
+  assert.match(src, /SCAN_CAPTURE_IDEAL_W\s*=\s*4032/);
+  assert.match(src, /width:\s*\{\s*ideal:\s*SCAN_CAPTURE_IDEAL_W\s*\}/);
+  assert.match(src, /camera-fullscreen/);
+
+  // `exact` would make getUserMedia REJECT on a device that cannot serve the
+  // requested mode, and the catch in startCamera reports that as a permissions
+  // failure — leaving the user with no camera at all. A lower-resolution
+  // scanner still scans; a scanner that will not open does not.
+  assert.equal(/exact:\s*SCAN_CAPTURE_IDEAL/.test(src), false);
+});
+
+test('F9S-TC13', 'the lens is pinned so iOS cannot hand us the ultra-wide', () => {
+  // On multi-lens iPhones WebKit's web zoom domain is [0.5, 10] where anything
+  // below 1.0 is the soft ultra-wide, and iOS auto-switches to it at macro
+  // distance — i.e. exactly when a card fills the frame. Unset zoom is how a
+  // web capture silently ends up blurrier than the native camera app.
+  assert.match(src, /applyConstraints\(\{\s*advanced:\s*\[\{\s*zoom:/);
+  // Best-effort only: guarded on capabilities and wrapped, because a lens
+  // preference must never be the reason the camera fails to open.
+  assert.match(src, /caps\.zoom/);
 });
 
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);
