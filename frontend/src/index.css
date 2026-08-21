@@ -1321,6 +1321,48 @@ button, input, select, textarea {
     height: auto;
   }
 
+  /* FULLSCREEN SCAN MODE (PR 12) — THE BINDING TERM OF THE PIXEL BUDGET.
+     The rule above sizes the preview at min(68vw, 40dvh): on a phone that is
+     ~40% of screen height, and .scan-card-guide is 72% of THAT, so the card
+     arrived ~660px wide and the collector number landed ~6-8px tall — under
+     OCR's floor. Raising the camera request without this rule is a near-no-op,
+     because sensor pixels only help if the subject's share of the frame holds.
+     Here the preview takes the whole viewport, so the same guide fraction maps
+     to roughly 2.5x the linear card size.
+
+     Deliberately a MODE ON THE EXISTING SCREEN: same JSX, same controls, same
+     diagnostics, same guide drag/rotate/pinch. Only the container geometry
+     changes, so the production look is preserved everywhere else. */
+  .camera-preview-wrapper.camera-active.camera-fullscreen {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    aspect-ratio: auto;
+    margin: 0;
+    z-index: 1000;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* In fullscreen the viewport is portrait and tall, so a height-driven guide
+     would overflow horizontally. Drive from width and let height follow the
+     card ratio, keeping the same generous share of the frame. */
+  .camera-fullscreen .scan-card-guide {
+    height: auto;
+    width: 88%;
+    max-width: 88%;
+  }
+
+  /* Keep the app's own chrome from sitting under the notch / home indicator
+     once the preview is edge-to-edge. */
+  .camera-fullscreen .camera-overlay {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
   .quick-add-grid {
     grid-template-columns: 1fr !important;
     gap: 0.5rem !important;

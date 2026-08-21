@@ -1096,5 +1096,10 @@
   "deck.importRefusedHeading.one": "{count} card will not be imported:",
   "deck.importRefusedHeading.other": "{count} cards will not be imported:",
   "deck.importRefusedToast.one": "{count} card was refused and not imported.",
-  "deck.importRefusedToast.other": "{count} cards were refused and not imported."
+  "deck.importRefusedToast.other": "{count} cards were refused and not imported.",
+  "scan.cameraModeDebug": "Camera mode (what the device actually gave us)",
+  "scan.cameraModeUnknown": "unknown",
+  "scan.uploadDebug": "Crop {{crop}}px → sent {{sent}}px · {{kb}} KB",
+  "scan.enterFullscreen": "Fullscreen scan",
+  "scan.exitFullscreen": "Exit fullscreen"
 }
