@@ -118,8 +118,48 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 // Kept from the old 'Accurate' preset. Deliberately NOT collapsed to Turbo's
 // values: countdown 2 leaves a window to cancel a mis-scan, and the cooldown
 // paces a physical stack. Neither is an accuracy setting.
-const SCAN_COOLDOWN_MS = 3000;
-const SCAN_COUNTDOWN = 2;
+// HOW LONG TO WAIT BEFORE THE NEXT AUTO-SCAN ATTEMPT, by what just happened.
+//
+// The old code waited a flat SCAN_COOLDOWN_MS after EVERY tick, including ticks
+// that captured nothing. Measured against real work, that is where Zach's
+// "3 to 4 secs" per card actually goes:
+//
+//   3.0s  flat cooldown before the next attempt
+//   2.0s  auto-add cancel countdown
+//   1.1s  the capture + server round trip   <- the only real work
+//
+// So the app spent ~5s waiting and ~1s working, and the cooldown alone capped
+// throughput at 20 cards/min however fast the pipeline got.
+//
+// The three outcomes are not the same and must not wait the same:
+//
+// REJECTED (the sharpness gate skipped the frame). Nothing was captured, no
+// card was added, no server call was made. This is the app saying "hold
+// steady" — and then ignoring the card for three seconds, so a card that
+// steadied instantly still waited out the full penalty. Retry fast; the gate
+// is cheap and rejecting again costs almost nothing.
+//
+// SETTLE (a scan ran and resolved). A real pause belongs here, because Zach is
+// physically swapping the next card in and re-firing immediately would just
+// re-scan the one still in frame. But 3s is longer than that takes.
+//
+// ERROR (the scan threw). Back off further: hammering a failing server makes
+// it worse, and the failure is unlikely to clear within one tick.
+const SCAN_RETRY_REJECTED_MS = 350;
+const SCAN_RETRY_SETTLE_MS = 900;
+const SCAN_RETRY_ERROR_MS = 2500;
+// THE CANCEL WINDOW before an auto-add commits. Lowered 2 -> 1.
+//
+// Two seconds per card is 33 seconds across a 100-card stack, spent watching a
+// countdown that is almost never used: it exists to catch a mis-scan before it
+// enters the collection, and the scan either looked right or it did not — that
+// judgement takes a glance, not two seconds.
+//
+// It is not removed, because it is the only pre-commit undo on the auto path
+// and Zach's standing rule is that silent state changes are unacceptable for
+// software tracking physical objects. One second still shows the card name and
+// still accepts a tap to cancel.
+const SCAN_COUNTDOWN = 1;
 const SCAN_ORB = 500;
 // Server-side default after PR 22's latency work; sent explicitly so the value
 // in play is visible here rather than implied.
@@ -230,6 +270,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // resolvedDupId = a repeat we already settled; skip it silently until a
   // different card appears (stops a re-prompt loop while it stays in view).
   const lastAddedIdRef = useRef(null);
+  // WHAT THE LAST AUTO TICK DID, so the scheduler can wait proportionally:
+  // 'rejected' (gate skipped, nothing captured), 'settle' (a scan ran), or
+  // 'error'. A ref rather than state on purpose — the capture path writes it
+  // mid-tick and the scheduler reads it on the next run, so it must not trigger
+  // a re-render or race with one.
+  const lastTickOutcomeRef = useRef('settle');
   const resolvedDupIdRef = useRef(null);
   // PR 9: the auto-scan queue path guards on the matched card NAME, because
   // that path never resolves a printing itself — the server does — so it has no
@@ -551,8 +597,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAddCountdown, autoAddTargetCard, autoAddEditing]);
 
-  // Capture scheduler: fire the next capture SCAN_COOLDOWN_MS after the previous
-  // scan finishes (loading drops).
+  // Capture scheduler: fire the next capture after the previous scan finishes
+  // (loading drops), waiting an amount PROPORTIONAL TO WHAT JUST HAPPENED.
+  //
+  // See SCAN_RETRY_* — a frame the sharpness gate skipped captured nothing and
+  // must not be punished with the same pause as a completed scan. That flat
+  // 3s-after-everything is the bulk of the per-card time Zach measured.
   //
   // PR 9: the fixed-cadence metronome that used to sit here is gone with the
   // scan-detail slider. It only ever ran for the 'Turbo' preset (the sole
@@ -563,9 +613,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
   useEffect(() => {
     let timerId;
     if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard) {
+      const outcome = lastTickOutcomeRef.current;
+      const delay = outcome === 'rejected' ? SCAN_RETRY_REJECTED_MS
+        : outcome === 'error' ? SCAN_RETRY_ERROR_MS
+        : SCAN_RETRY_SETTLE_MS;
       timerId = setTimeout(() => {
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
-      }, SCAN_COOLDOWN_MS);
+      }, delay);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
@@ -1161,8 +1215,14 @@ function CameraScanner({ onAddSuccess, showToast }) {
       if (!decision.capture) {
         // Skip WITHOUT signalling. No click, no flash, no vibrate: from Zach's
         // side nothing happened, the card is still in frame, and the next tick
-        // comes around in SCAN_COOLDOWN_MS. Dropping `loading` back to false is
-        // what reschedules it — the capture effect keys on `loading`.
+        // comes around quickly. Dropping `loading` back to false is what
+        // reschedules it — the capture effect keys on `loading`.
+        //
+        // Marked 'rejected' so the scheduler retries in SCAN_RETRY_REJECTED_MS
+        // rather than the full settle pause: nothing was captured and no server
+        // call was made, so there is nothing to pace. Waiting the long cooldown
+        // here meant a card that steadied instantly still sat out three seconds.
+        lastTickOutcomeRef.current = 'rejected';
         setScanStatus(t('scan.holdSteady'));
         setLoading(false);
         return;
@@ -1198,6 +1258,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
       still.close?.();
     }
     setCaptureSource(still ? 'photo' : 'video');
+
+    // Past the gate: a real scan is now running. Default the tick outcome to
+    // 'settle' so the scheduler paces the next attempt for a physical card
+    // swap. The catch below overrides this to 'error' if the scan throws.
+    lastTickOutcomeRef.current = 'settle';
 
     // Picture is now taken — fire the instant cue (click + vibrate + flash) so
     // the user can move the card immediately, before the server lookup runs.
@@ -1485,6 +1550,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
       signal('error');
     } catch (err) {
       console.error('Scan match failed:', err);
+      // A thrown scan backs off further — see SCAN_RETRY_ERROR_MS. Retrying
+      // hard against a failing server makes it worse, and the cause (a dropped
+      // request, a restart) rarely clears inside one fast tick.
+      lastTickOutcomeRef.current = 'error';
       if (scanId === currentScanId.current) setScanStatus('Scan failed. Please search manually.');
     } finally {
       if (scanId === currentScanId.current) setLoading(false);
