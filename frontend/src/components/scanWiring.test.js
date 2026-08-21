@@ -188,4 +188,43 @@ test('F9S-TC16', 'which capture path fired is reported, not assumed', () => {
   assert.match(src, /captureSource === 'photo' \? ' · still photo' : ' · video frame'/);
 });
 
+test('F9S-TC17', 'the retry delay is proportional to what the tick actually did', () => {
+  // The flat 3s-after-everything cooldown was the bulk of Zach's measured
+  // 3-4s per card: real work is ~1.1s, the rest was the app waiting on a timer.
+  // A tick the sharpness gate SKIPPED captured nothing and called no server, so
+  // punishing it with the same pause as a completed scan meant a card that
+  // steadied instantly still sat out three seconds.
+  assert.match(src, /SCAN_RETRY_REJECTED_MS\s*=\s*350/);
+  assert.match(src, /SCAN_RETRY_SETTLE_MS\s*=\s*900/);
+  assert.match(src, /SCAN_RETRY_ERROR_MS\s*=\s*2500/);
+
+  // A rejected frame must retry FAST and a thrown scan must back off SLOW —
+  // if those two were ever equal the distinction would be pointless.
+  const rejected = Number(src.match(/SCAN_RETRY_REJECTED_MS\s*=\s*(\d+)/)[1]);
+  const settle = Number(src.match(/SCAN_RETRY_SETTLE_MS\s*=\s*(\d+)/)[1]);
+  const error = Number(src.match(/SCAN_RETRY_ERROR_MS\s*=\s*(\d+)/)[1]);
+  assert.ok(rejected < settle && settle < error,
+    `retry delays must be ordered rejected < settle < error, got ${rejected}/${settle}/${error}`);
+
+  // The flat constant is gone, not merely unused — a dead timer constant on a
+  // screen Zach uses for long stretches invites someone to wire it back up.
+  assert.equal(/SCAN_COOLDOWN_MS\s*=\s*\d+/.test(src), false,
+    'the flat cooldown constant must be removed, not left dangling');
+
+  // The scheduler has to actually READ the outcome, or the constants are decoration.
+  assert.match(src, /lastTickOutcomeRef\.current = 'rejected'/);
+  assert.match(src, /lastTickOutcomeRef\.current = 'settle'/);
+  assert.match(src, /lastTickOutcomeRef\.current = 'error'/);
+});
+
+test('F9S-TC18', 'the auto-add cancel window is shortened but not removed', () => {
+  // 2s per card is ~33s across a 100-card stack. One second still shows the
+  // card and still accepts a tap to cancel.
+  assert.match(src, /SCAN_COUNTDOWN\s*=\s*1/);
+  // NOT zero. It is the only pre-commit undo on the auto-add path, and a silent
+  // state change is the one thing this app must not do to a physical collection.
+  assert.equal(/SCAN_COUNTDOWN\s*=\s*0/.test(src), false,
+    'the cancel window must survive — removing it makes auto-add irreversible');
+});
+
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);
