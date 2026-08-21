@@ -1101,5 +1101,7 @@
   "scan.cameraModeUnknown": "unknown",
   "scan.uploadDebug": "Crop {{crop}}px → sent {{sent}}px · {{kb}} KB",
   "scan.enterFullscreen": "Fullscreen scan",
-  "scan.exitFullscreen": "Exit fullscreen"
+  "scan.exitFullscreen": "Exit fullscreen",
+  "scan.working": "Working…",
+  "scan.queuedBadge": "{{count}} waiting for review"
 }

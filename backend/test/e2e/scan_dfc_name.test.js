@@ -236,15 +236,24 @@ async function main() {
   // or applied unconditionally, this scan would return Weatherlight's 'Bind'.
   // That is the silent-wrong-card failure the whole resolver exists to
   // prevent, so it gets its own case rather than riding on TC4.
+  //
+  // REVISED for the art-first ordering: 'Bind // Liberate' has exactly ONE
+  // printing, so it is now ADDED rather than queued. The property under test
+  // is unchanged and is the only one that matters here — WHICH card was
+  // identified. Asserting on the added printing is in fact a stronger check
+  // than asserting on a candidate list, because it proves the wrong card did
+  // not merely fail to be offered, but never reached the collection.
   {
+    const before = await ownedCount();
     const { body } = await scanResolve({ name: 'Bind // Liberate', ocr_text: '' });
-    assert.strictEqual(body.action, 'queued');
-    assert.strictEqual(body.candidates.length, 1,
-      `only the combined-name printing may match, got ${body.candidates.map(c => `${c.name}(${c.set_id})`).join(',')}`);
-    assert.strictEqual(body.candidates[0].id, 'bind-liberate');
-    assert.strictEqual(body.candidates[0].name, 'Bind // Liberate');
-    assert.ok(!body.candidates.some(c => c.id === 'bind-solo'),
-      'the unrelated card named "Bind" must NEVER be offered — the combined name matched, so no fallback may run');
+    assert.strictEqual(body.action, 'added',
+      `one printing exists for the combined name, so it resolves outright. got ${JSON.stringify(body)}`);
+    assert.strictEqual(body.card.id, 'bind-liberate',
+      `the COMBINED-name printing must be the one added, got ${body.card.id}`);
+    assert.strictEqual(body.card.name, 'Bind // Liberate');
+    assert.notStrictEqual(body.card.id, 'bind-solo',
+      'the unrelated card named "Bind" must NEVER be added — the combined name matched, so no fallback may run');
+    assert.strictEqual(await ownedCount(), before + 1);
     pass('FDFC-TC5', 'the combined name is tried FIRST; the fallback never runs when it matches');
   }
 
