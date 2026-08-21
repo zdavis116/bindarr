@@ -490,9 +490,32 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // `advanced: [{ torch }]` constraint and surfaces the real reason on-screen —
   // the user can't open a phone console. iOS Safari never reports caps.torch,
   // so those users get a clear "not supported" instead of a dead button.
+  // THE TORCH IS DEFAULT-OFF AND MUST STAY THAT WAY (PR 11).
+  //
+  // `isTorchOn` initialises to false and nothing in this component ever turns
+  // it on by itself — verified by FTORCH-TC1/TC2. That is not a stylistic
+  // choice, it is the fix for a measured failure:
+  //
+  //   clean Scryfall image  ->  MATCH Fated Firepower tla#132
+  //   Zach's phone photo    ->  noise: Transpose 9, Outpace Oblivion 8, ...
+  //
+  // The card was neither foil nor sleeved. A phone torch is a small, intense
+  // source inches from glossy modern card stock, so it produces a SPECULAR
+  // HIGHLIGHT — a blown-out patch where pixels saturate and the information
+  // under them is destroyed, not merely brightened. That patch sits on the
+  // artwork, which is exactly what the CLIP matcher reads. Ambient room light
+  // is diffuse and spreads its energy over the whole face instead.
+  //
+  // So the torch actively HARMS the thing it looks like it should help, and
+  // that is deeply counter-intuitive — "it's dark, turn on the light" is the
+  // obvious move, and it is the wrong one here. Leaving that unsaid means the
+  // next person to hit a dim room rediscovers the failure the hard way, so
+  // enabling it warns ONCE rather than silently degrading matching.
   const toggleTorch = async () => {
     const track = stream?.getVideoTracks()[0];
     if (!track) { showToast(t('scan.errCameraNotReady')); return; }
+    // iOS Safari never reports caps.torch, so those users get a clear
+    // "not supported" instead of a dead button. Degrade silently, never throw.
     const caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : {};
     if (!caps.torch) {
       showToast(t('scan.errNoTorch'));
@@ -502,6 +525,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     try {
       await track.applyConstraints({ advanced: [{ torch: next }] });
       setIsTorchOn(next);
+      if (next) showToast(t('scan.torchGlareWarning'));
     } catch (err) {
       showToast(t('scan.errTorch', { error: err.name || err.message || t('scan.unknownError') }));
     }
@@ -921,15 +945,40 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 // one printing; everything else queues. Nothing here inspects
                 // the OCR read to second-guess that, because the catalogue is
                 // the validator and this component is not.
-                if (autoScan && confident && top?.name) {
-                  const identified = top.name;
+                // PR 11: A CONFIDENT CLIP MATCH IS NO LONGER REQUIRED TO
+                // SUBMIT, and this gate was the real single point of failure.
+                //
+                // `confident` is a threshold on the ARTWORK match. On Zach's
+                // glared Fated Firepower the top candidate was noise (9 inliers,
+                // wrong card), so this gate returned early and the scan was
+                // never sent — even though the title and collector number were
+                // both plainly legible in the very same photo. The backend
+                // could not rescue a request it never received.
+                //
+                // So the condition is now "we have SOMETHING to identify with":
+                // a confident CLIP name, or an OCR'd title. The server still
+                // makes the whole decision and still adds only when the
+                // catalogue narrows to exactly one printing — this widens what
+                // gets ASKED, not what gets added.
+                const titleText = (ocr?.title || '').trim();
+                const clipName = confident && top?.name ? top.name : '';
+                if (autoScan && (clipName || titleText)) {
+                  // The dedup key must survive CLIP being wrong, so it keys on
+                  // whichever identifier we actually have. Without this a stack
+                  // of glared cards with no CLIP name would all share the key ''
+                  // and every card after the first would be silently skipped.
+                  const identified = clipName || titleText;
                   if (identified === lastQueuedNameRef.current) {
                     setScanStatus(t('scan.sameCardAgain'));
                     return;
                   }
                   setScanStatus('');
                   const outcome = await reviewQueue.submitScan({
-                    name: identified,
+                    name: clipName,
+                    // The OCR'd TITLE. The server fuzzy-matches it against the
+                    // catalogue and prefers it over the CLIP name — the title
+                    // survives a torch highlight, the artwork does not.
+                    titleText,
                     // The RAW OCR text, not a parsed number. The server owns the
                     // parse (collectorNumberParse.js) and re-parsing it here
                     // would be a second, divergent implementation of the one

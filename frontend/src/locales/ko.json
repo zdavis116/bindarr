@@ -259,7 +259,6 @@
   "card.purchasePrice": "구매 가격($)",
   "card.condition": "상태",
   "card.printing": "인쇄",
-
   "deck.addToDeck": "덱에 추가…",
   "deck.filterPlaceholder": "이름이나 설명으로 덱 필터...",
   "deck.allStatuses": "모든 상태",
@@ -532,6 +531,7 @@
   "scan.errCameraAccess": "카메라 접근이 거부되었거나 사용할 수 없습니다.",
   "scan.errNoTorch": "이 기기나 브라우저에서는 손전등을 쓸 수 없습니다(iPhone Safari에는 웹 손전등이 없습니다).",
   "scan.errTorch": "손전등 작동에 실패했습니다: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "{name}을(를) 자동으로 추가할 수 없습니다",
   "scan.errAutoAddGeneric": "카드를 자동으로 추가하는 중 오류가 발생했습니다.",
   "scan.errSaveCard": "카드를 저장하는 중 오류가 발생했습니다.",
@@ -808,7 +808,6 @@
   "inspector.viewOnTcgplayer": "TCGplayer에서 보기",
   "inspector.specCondition": "상태:",
   "inspector.specPrinting": "인쇄:",
-
   "inspector.specSupertype": "상위 타입:",
   "inspector.viewInStorage": "클릭하면 보관함에서 봅니다",
   "inspector.locationLabel": "위치:",

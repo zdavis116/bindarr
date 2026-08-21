@@ -259,7 +259,6 @@
   "card.purchasePrice": "購入価格（$）",
   "card.condition": "状態",
   "card.printing": "印刷",
-
   "deck.addToDeck": "デッキに追加…",
   "deck.filterPlaceholder": "デッキ名や説明で絞り込む...",
   "deck.allStatuses": "すべての状態",
@@ -532,6 +531,7 @@
   "scan.errCameraAccess": "カメラへのアクセスが拒否されたか、利用できません。",
   "scan.errNoTorch": "この端末・ブラウザではライトを使えません（iPhone の Safari には Web 用のライト機能がありません）。",
   "scan.errTorch": "ライトの操作に失敗しました: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "{name} の自動追加に失敗しました",
   "scan.errAutoAddGeneric": "カードの自動追加でエラーが発生しました。",
   "scan.errSaveCard": "カードの保存でエラーが発生しました。",
@@ -808,7 +808,6 @@
   "inspector.viewOnTcgplayer": "TCGplayer で見る",
   "inspector.specCondition": "状態:",
   "inspector.specPrinting": "印刷:",
-
   "inspector.specSupertype": "スーパータイプ:",
   "inspector.viewInStorage": "クリックすると保管場所を表示します",
   "inspector.locationLabel": "場所:",

@@ -263,7 +263,6 @@
   "card.purchasePrice": "Kaufpreis ($)",
   "card.condition": "Zustand",
   "card.printing": "Druck",
-
   "deck.addToDeck": "Zu Deck hinzufügen…",
   "deck.filterPlaceholder": "Decks nach Name oder Beschreibung filtern...",
   "deck.allStatuses": "Alle Status",
@@ -537,6 +536,7 @@
   "scan.errCameraAccess": "Kamerazugriff verweigert oder nicht verfügbar.",
   "scan.errNoTorch": "Taschenlampe auf diesem Gerät/Browser nicht verfügbar (Safari auf dem iPhone hat keine Web-Taschenlampe).",
   "scan.errTorch": "Taschenlampe fehlgeschlagen: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "{name} konnte nicht automatisch hinzugefügt werden",
   "scan.errAutoAddGeneric": "Fehler beim automatischen Hinzufügen der Karte.",
   "scan.errSaveCard": "Fehler beim Speichern der Karte.",
@@ -820,7 +820,6 @@
   "inspector.viewOnTcgplayer": "Auf TCGplayer ansehen",
   "inspector.specCondition": "Zustand:",
   "inspector.specPrinting": "Druck:",
-
   "inspector.specSupertype": "Übertyp:",
   "inspector.viewInStorage": "Klicken, um im Lager anzusehen",
   "inspector.locationLabel": "Ort:",
