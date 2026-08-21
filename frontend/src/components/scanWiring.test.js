@@ -142,4 +142,50 @@ test('F9S-TC13', 'the lens is pinned so iOS cannot hand us the ultra-wide', () =
   assert.match(src, /caps\.zoom/);
 });
 
+test('F9S-TC14', 'the still-photo path is used, and only after the sharpness gate', () => {
+  // ImageCapture.takePhoto() routes through AVCapturePhotoOutput — Apple's real
+  // still pipeline — instead of a frame off the realtime preview, which iOS
+  // deliberately keeps cheap. That is the ManaBox gap Zach measured.
+  assert.match(src, /new window\.ImageCapture\(track\)/);
+  assert.match(src, /takePhoto\(\{\s*imageWidth: 9999, imageHeight: 9999\s*\}\)/);
+
+  // ORDER: the shutter costs ~0.3-1s, and auto-scan deliberately discards
+  // blurred frames. Taking a still BEFORE the gate would pay that cost on every
+  // rejected tick, making the scanner slower exactly when conditions are poor.
+  // So the gate block must appear before the takeStillPhoto call site.
+  const gateAt = src.indexOf('THE SHARPNESS GATE');
+  const stillAt = src.indexOf('const still = await takeStillPhoto(video)');
+  assert.ok(gateAt > 0 && stillAt > 0, 'both the gate and the still capture must exist');
+  assert.ok(gateAt < stillAt,
+    'the sharpness gate must run BEFORE the still-photo shutter, not after');
+});
+
+test('F9S-TC15', 'an unusable still degrades to the video frame instead of failing', () => {
+  // Every rejection path returns null, and null means "use the preview crop" —
+  // the pre-existing behaviour. A scanner that stops scanning is far worse than
+  // a slightly soft one, so this can only add quality, never remove capture.
+  assert.match(src, /typeof window\.ImageCapture !== 'function'\) return null/);
+  assert.match(src, /track\.readyState !== 'live'\) return null/);
+
+  // GEOMETRY IS THE REAL RISK. The crop maps preview CSS pixels onto the
+  // captured frame assuming a matching aspect ratio. A 4:3 still from a 16:9
+  // video mode would silently crop the WRONG REGION — no card at all, which
+  // fails without looking like a failure. So a mismatched photo is refused.
+  assert.match(src, /Math\.abs\(photoAR - videoAR\) \/ videoAR > 0\.02/);
+
+  // The rotation decision must stay keyed to the VIDEO track: it compares the
+  // stream shape against the on-screen layout, which is a fact about the
+  // preview, not the still.
+  assert.match(src, /const isRotated = isMobile &&/);
+});
+
+test('F9S-TC16', 'which capture path fired is reported, not assumed', () => {
+  // takeStillPhoto falls back SILENTLY by design, so without this the
+  // difference between "the still path works" and "it degraded on every scan"
+  // is invisible — and no browser or camera runs in this repo, so Zach's phone
+  // is the only place that can answer it.
+  assert.match(src, /setCaptureSource\(still \? 'photo' : 'video'\)/);
+  assert.match(src, /captureSource === 'photo' \? ' · still photo' : ' · video frame'/);
+});
+
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);

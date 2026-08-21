@@ -289,6 +289,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // than as a zero. A fabricated diagnostic is worse than a missing one.
   const [cameraInfo, setCameraInfo] = useState(null);
   const [uploadInfo, setUploadInfo] = useState(null);
+  // WHICH CAPTURE PATH ACTUALLY FIRED: 'photo' (ImageCapture.takePhoto, Apple's
+  // still pipeline) or 'video' (a frame off the preview). takeStillPhoto falls
+  // back silently by design, so without this the difference between "the still
+  // path is working" and "it silently degraded on every scan" is invisible —
+  // and that is precisely the question this change has to answer on Zach's
+  // phone, since no browser runs in this repo.
+  const [captureSource, setCaptureSource] = useState(null);
 
   // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
   // of the change is that a phone preview must fill the screen: the guide box is
@@ -789,6 +796,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // everywhere else.
     setCameraInfo(null);
     setUploadInfo(null);
+    setCaptureSource(null);
     setDebugHashImg('');
     setDebugCandidates([]);
     setDebugScoped(null);
@@ -861,9 +869,84 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // It creates a canvas matching the visual orientation on the user's screen.
   // Pass maxW to downscale the output (cheap enough to run every frame for the
   // live detection loop); omit it for a full-resolution capture.
-  const getOrientedVideoCanvas = (video, maxW = 0) => {
+  // THE STILL-PHOTO PATH. ImageCapture.takePhoto() (Safari 18.4+) routes through
+  // AVCapturePhotoOutput — Apple's real still pipeline, with the multi-frame
+  // processing the native Camera app uses — instead of grabbing a frame off the
+  // realtime video preview, which iOS deliberately keeps cheap (no Smart HDR, no
+  // Deep Fusion). That difference is exactly what Zach reported: on an identical
+  // setup ManaBox looks clear and our preview looks soft, because a native app
+  // previews the processed feed and a web page does not.
+  //
+  // Returns an ImageBitmap on success, or null to use the video frame. Null is a
+  // normal outcome, not an error: iOS < 18.4 has no ImageCapture at all.
+  //
+  // GEOMETRY IS THE RISK, NOT QUALITY. The guide-box crop maps preview CSS pixels
+  // onto the captured frame assuming the frame has the SAME ASPECT RATIO as the
+  // video track. A photo can legitimately come back at a different aspect (a 4:3
+  // still from a 16:9 video mode), and using it blind would silently crop the
+  // WRONG REGION — no card, or half a card, which is worse than a soft image
+  // because it fails without looking like a failure. So the photo must prove it
+  // is geometrically compatible before it is used; anything else falls back.
+  const takeStillPhoto = async (video) => {
+    const track = stream?.getVideoTracks?.()[0];
+    if (!track || typeof window === 'undefined' || typeof window.ImageCapture !== 'function') return null;
+    if (track.readyState !== 'live') return null;
+    try {
+      const cap = new window.ImageCapture(track);
+      // Ask for more than any sensor has: WebKit clamps to the largest supported
+      // photo size. getPhotoCapabilities() is NOT consulted because WebKit fills
+      // its imageWidth/imageHeight from the TRACK capabilities, which under-report
+      // what takePhoto can actually deliver — so it would cap us at video
+      // resolution, defeating the entire point.
+      const blob = await cap.takePhoto({ imageWidth: 9999, imageHeight: 9999 });
+      if (!blob || blob.size < 1024) return null;
+      const bmp = await createImageBitmap(blob);
+
+      // Compare aspect ratios ORIENTATION-INDEPENDENTLY: the still and the video
+      // track can disagree about portrait/landscape while describing the same
+      // framing, so both are normalised to long/short before comparing.
+      const norm = (w, h) => (w >= h ? w / h : h / w);
+      const photoAR = norm(bmp.width, bmp.height);
+      const videoAR = norm(video.videoWidth || 1, video.videoHeight || 1);
+      // 2% tolerance absorbs rounding between preset dimensions; a genuine
+      // aspect change (4:3 vs 16:9 is 33%) is nowhere near this.
+      if (!Number.isFinite(photoAR) || !Number.isFinite(videoAR)
+          || Math.abs(photoAR - videoAR) / videoAR > 0.02) {
+        bmp.close?.();
+        return null;
+      }
+      // A still SMALLER than the video frame carries no more detail and costs a
+      // shutter round-trip, so there is nothing to gain by using it.
+      if (bmp.width * bmp.height <= (video.videoWidth || 0) * (video.videoHeight || 0)) {
+        bmp.close?.();
+        return null;
+      }
+      return bmp;
+    } catch {
+      // takePhoto rejects on an unready device, a concurrent capture, or a
+      // watchdog timeout. All of these must degrade to the video frame — a
+      // slightly soft scan is fine, a scanner that stops scanning is not.
+      return null;
+    }
+  };
+
+  const getOrientedVideoCanvas = (video, maxW = 0, source = null) => {
+    // ORIENTATION IS DECIDED BY THE VIDEO, PIXELS COME FROM `source`.
+    //
+    // `source` is an optional higher-resolution still of the SAME SCENE (see
+    // takeStillPhoto, which refuses anything with a different aspect ratio).
+    // The rotation decision below must stay keyed to the VIDEO track, because it
+    // compares the stream's shape against how the preview is laid out on screen
+    // — that is a fact about the preview, not about the still. Using the still's
+    // own dimensions here would re-derive the same answer on a compatible photo
+    // and a WRONG one on any photo that slipped through, so the video stays
+    // authoritative and the still only supplies pixels.
     const videoWidth = video.videoWidth;
     const videoHeight = video.videoHeight;
+    // Draw dimensions come from whichever image is actually being sampled.
+    const src = source || video;
+    const srcW = source ? source.width : videoWidth;
+    const srcH = source ? source.height : videoHeight;
     const canvas = document.createElement('canvas');
 
     const videoRect = video.getBoundingClientRect();
@@ -877,8 +960,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
     const isRotated = isMobile && ((streamRatio > 1.0 && visualRatio < 1.0) || (streamRatio < 1.0 && visualRatio > 1.0));
 
     // Oriented output dimensions, then an optional uniform downscale.
-    const outW = isRotated ? videoHeight : videoWidth;
-    const outH = isRotated ? videoWidth : videoHeight;
+    // Driven by the SOURCE size so a high-resolution still produces a
+    // correspondingly larger canvas — that extra detail is the entire point.
+    const outW = isRotated ? srcH : srcW;
+    const outH = isRotated ? srcW : srcH;
     const scale = (maxW && outW > maxW) ? maxW / outW : 1;
     canvas.width = Math.max(1, Math.round(outW * scale));
     canvas.height = Math.max(1, Math.round(outH * scale));
@@ -888,9 +973,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
     if (isRotated) {
       ctx.translate(outW / 2, outH / 2);
       ctx.rotate(90 * Math.PI / 180);
-      ctx.drawImage(video, -videoWidth / 2, -videoHeight / 2, videoWidth, videoHeight);
+      ctx.drawImage(src, -srcW / 2, -srcH / 2, srcW, srcH);
     } else {
-      ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
+      ctx.drawImage(src, 0, 0, srcW, srcH);
     }
 
     return canvas;
@@ -966,43 +1051,61 @@ function CameraScanner({ onAddSuccess, showToast }) {
       return;
     }
 
-    // 1. Capture and correctly orient the video frame onto a canvas
-    const orientedCanvas = getOrientedVideoCanvas(video);
+    // 1. Capture and correctly orient the frame onto a canvas.
+    //
+    // ORDER MATTERS: the sharpness gate runs on the CHEAP video frame, and the
+    // still-photo shutter only fires once that gate has passed.
+    //
+    // takePhoto() costs a real shutter (~0.3-1s on iOS). Auto-scan ticks every
+    // SCAN_COOLDOWN_MS and DELIBERATELY discards blurred frames, so taking a
+    // still before the gate would pay that shutter on every rejected tick —
+    // turning a fast reject into a slow one and making the scanner feel worse
+    // than before precisely when conditions are poor. Gating first means the
+    // expensive capture happens only for frames that were going to be uploaded.
+    const previewCanvas = getOrientedVideoCanvas(video);
 
     // Map the dashed guide box's rendered rect into oriented-canvas pixels through
     // the preview's object-fit:cover transform, then pad it: the box is an aim
     // hint, but a card can overhang it, so crop wider so a frame-filling card
     // isn't clipped. Server auto-detects/deskews the card inside this region.
+    //
+    // Factored into a helper because it now runs TWICE: once on the preview
+    // frame to score sharpness, then again on the still. `k` derives from
+    // oc.width/oc.height, so a larger source canvas rescales the mapping
+    // automatically and BOTH calls crop the same region of the scene.
     const CROP_PAD = 0.05; // 5% tight margin around guide box
-    const oc = orientedCanvas;
     const videoRect = video.getBoundingClientRect();
     const guideRect = guideElement.getBoundingClientRect();
-    // Cover-transform mapping from displayed video px to oriented-canvas px
-    // (matches object-fit:cover on the preview; overflow crop offsets handled below).
-    const k = Math.max(videoRect.width / oc.width, videoRect.height / oc.height);
-    const offX = (videoRect.width - oc.width * k) / 2;
-    const offY = (videoRect.height - oc.height * k) / 2;
-    // Box center (rotation is about the element center, so the rotated AABB
-    // center from getBoundingClientRect is still the true center) and unrotated
-    // size (offsetWidth/Height ignore the CSS transform).
-    const cx = ((guideRect.left + guideRect.width / 2) - videoRect.left - offX) / k;
-    const cy = ((guideRect.top + guideRect.height / 2) - videoRect.top - offY) / k;
-    // offsetWidth/Height are the unscaled layout size; the CSS scale transform
-    // doesn't change them, so fold guideScale in here.
-    const destW = Math.max(1, Math.round((guideElement.offsetWidth * guideScale / k) * (1 + 2 * CROP_PAD)));
-    const destH = Math.max(1, Math.round((guideElement.offsetHeight * guideScale / k) * (1 + 2 * CROP_PAD)));
-    const rad = (guideAngle * Math.PI) / 180;
-    const framedCanvas = document.createElement('canvas');
-    framedCanvas.width = destW;
-    framedCanvas.height = destH;
-    const fctx = framedCanvas.getContext('2d');
-    // Sample the (possibly rotated, off-center) box region upright: dest center
-    // maps to the box center, undo the box rotation, draw the frame. Pixels past
-    // the box (pad / frame overhang) come through black; server auto-detects the card.
-    fctx.translate(destW / 2, destH / 2);
-    fctx.rotate(-rad);
-    fctx.translate(-cx, -cy);
-    fctx.drawImage(oc, 0, 0);
+    const cropGuideRegion = (oc) => {
+      // Cover-transform mapping from displayed video px to oriented-canvas px
+      // (matches object-fit:cover on the preview; overflow crop offsets handled below).
+      const k = Math.max(videoRect.width / oc.width, videoRect.height / oc.height);
+      const offX = (videoRect.width - oc.width * k) / 2;
+      const offY = (videoRect.height - oc.height * k) / 2;
+      // Box center (rotation is about the element center, so the rotated AABB
+      // center from getBoundingClientRect is still the true center) and unrotated
+      // size (offsetWidth/Height ignore the CSS transform).
+      const cx = ((guideRect.left + guideRect.width / 2) - videoRect.left - offX) / k;
+      const cy = ((guideRect.top + guideRect.height / 2) - videoRect.top - offY) / k;
+      // offsetWidth/Height are the unscaled layout size; the CSS scale transform
+      // doesn't change them, so fold guideScale in here.
+      const destW = Math.max(1, Math.round((guideElement.offsetWidth * guideScale / k) * (1 + 2 * CROP_PAD)));
+      const destH = Math.max(1, Math.round((guideElement.offsetHeight * guideScale / k) * (1 + 2 * CROP_PAD)));
+      const rad = (guideAngle * Math.PI) / 180;
+      const out = document.createElement('canvas');
+      out.width = destW;
+      out.height = destH;
+      const c = out.getContext('2d');
+      // Sample the (possibly rotated, off-center) box region upright: dest center
+      // maps to the box center, undo the box rotation, draw the frame. Pixels past
+      // the box (pad / frame overhang) come through black; server auto-detects the card.
+      c.translate(destW / 2, destH / 2);
+      c.rotate(-rad);
+      c.translate(-cx, -cy);
+      c.drawImage(oc, 0, 0);
+      return out;
+    };
+    let framedCanvas = cropGuideRegion(previewCanvas);
 
     // --- BUG 2: THE SHARPNESS GATE ------------------------------------------
     //
@@ -1071,6 +1174,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // regardless, so this adds no extra re-render to the tick loop.
       setGateLog(gateLogRef.current);
     }
+
+    // THE GATE HAS PASSED (or this is a manual tap). Only now pay for the real
+    // shutter.
+    //
+    // ImageCapture.takePhoto() routes through AVCapturePhotoOutput — Apple's
+    // still pipeline, with the multi-frame processing the native Camera app
+    // uses — rather than a frame off the realtime preview, which iOS
+    // deliberately keeps cheap (no Smart HDR, no Deep Fusion). That is the gap
+    // Zach measured: identical setup, ManaBox clear, ours soft, because a
+    // native app previews the processed feed and a web page cannot.
+    //
+    // takeStillPhoto returns null for every unsuitable case — no ImageCapture
+    // (iOS < 18.4), a rejected or timed-out shutter, or a photo whose aspect
+    // ratio does not match the preview. Null keeps the already-computed preview
+    // crop, which is exactly the pre-existing behaviour, so this can only add
+    // quality and never remove the ability to scan.
+    const still = await takeStillPhoto(video);
+    if (still) {
+      framedCanvas = cropGuideRegion(getOrientedVideoCanvas(video, 0, still));
+      // ImageBitmaps hold decoded pixels outside the JS heap; on a bulk scan
+      // these add up fast, so release it as soon as it has been drawn.
+      still.close?.();
+    }
+    setCaptureSource(still ? 'photo' : 'video');
 
     // Picture is now taken — fire the instant cue (click + vibrate + flash) so
     // the user can move the card immediately, before the server lookup runs.
@@ -1923,6 +2050,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   {uploadInfo && (
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                       {t('scan.uploadDebug', { crop: uploadInfo.cropW, sent: uploadInfo.sentW, kb: uploadInfo.kb })}
+                      {/* WHICH capture path produced that crop. 'video' after a
+                          scan means the still path fell back — the crop width
+                          alone cannot show that, and a silent permanent fallback
+                          would otherwise look identical to success. */}
+                      {captureSource && (
+                        <span style={{ color: captureSource === 'photo' ? 'var(--type-grass)' : 'var(--accent-yellow)' }}>
+                          {captureSource === 'photo' ? ' · still photo' : ' · video frame'}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
