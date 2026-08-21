@@ -259,7 +259,6 @@
   "card.purchasePrice": "购买价格（$）",
   "card.condition": "品相",
   "card.printing": "印刷",
-
   "deck.addToDeck": "添加到套牌…",
   "deck.filterPlaceholder": "按名称或说明筛选套牌...",
   "deck.allStatuses": "所有状态",
@@ -532,6 +531,7 @@
   "scan.errCameraAccess": "摄像头权限被拒绝或不可用。",
   "scan.errNoTorch": "这个设备或浏览器无法使用手电筒（iPhone 上的 Safari 没有网页手电筒）。",
   "scan.errTorch": "手电筒操作失败：{error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "无法自动添加 {name}",
   "scan.errAutoAddGeneric": "自动添加卡牌时出错。",
   "scan.errSaveCard": "保存卡牌时出错。",
@@ -808,7 +808,6 @@
   "inspector.viewOnTcgplayer": "在 TCGplayer 上查看",
   "inspector.specCondition": "品相：",
   "inspector.specPrinting": "印刷：",
-
   "inspector.specSupertype": "超类型：",
   "inspector.viewInStorage": "点击可在存放处查看",
   "inspector.locationLabel": "位置：",

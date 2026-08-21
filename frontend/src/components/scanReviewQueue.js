@@ -70,9 +70,15 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
   // matcher's top candidate was, and the index is built from unique_artwork so
   // the correct printing was frequently not even a candidate. Here the server
   // adds ONLY when the OCR read narrowed the catalogue to exactly one row.
-  async function submitScan({ name, ocrText = '', crop = null, quantity = 1, printing, condition, location_id }) {
+  //
+  // PR 11: `titleText` is the OCR'd card TITLE, and it is now a first-class
+  // identifier rather than a hint. The server resolves title+number FIRST and
+  // only falls back to the CLIP `name`, so a scan whose artwork was blown out
+  // by a torch reflection can still be identified. Either identifier may be
+  // empty; the server refuses only when BOTH are.
+  async function submitScan({ name, titleText = '', ocrText = '', crop = null, quantity = 1, printing, condition, location_id }) {
     try {
-      const body = { name, ocr_text: ocrText || '', quantity };
+      const body = { name: name || '', title_text: titleText || '', ocr_text: ocrText || '', quantity };
       if (crop) body.crop = crop;
       // Finish is NEVER inferred from the image (plan task G2). Whatever the
       // scanner explicitly holds is passed through; nothing here reads pixels.

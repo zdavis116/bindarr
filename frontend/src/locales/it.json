@@ -267,7 +267,6 @@
   "card.purchasePrice": "Prezzo di acquisto ($)",
   "card.condition": "Stato",
   "card.printing": "Stampa",
-
   "deck.addToDeck": "Aggiungi a un mazzo…",
   "deck.filterPlaceholder": "Filtra i mazzi per nome o descrizione...",
   "deck.allStatuses": "Tutti gli stati",
@@ -542,6 +541,7 @@
   "scan.errCameraAccess": "Accesso alla fotocamera negato o non disponibile.",
   "scan.errNoTorch": "La torcia non è disponibile su questo dispositivo o browser (Safari su iPhone non ha la torcia web).",
   "scan.errTorch": "Torcia non riuscita: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "Impossibile aggiungere {name} automaticamente",
   "scan.errAutoAddGeneric": "Errore durante l'aggiunta automatica della carta.",
   "scan.errSaveCard": "Errore durante il salvataggio della carta.",
@@ -832,7 +832,6 @@
   "inspector.viewOnTcgplayer": "Vedi su TCGplayer",
   "inspector.specCondition": "Stato:",
   "inspector.specPrinting": "Stampa:",
-
   "inspector.specSupertype": "Supertipo:",
   "inspector.viewInStorage": "Clicca per vederla nell'archivio",
   "inspector.locationLabel": "Posizione:",

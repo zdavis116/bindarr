@@ -571,6 +571,7 @@
   "scan.errCameraAccess": "Camera access denied or unavailable.",
   "scan.errNoTorch": "Flashlight not available on this device/browser (iPhone Safari has no web torch).",
   "scan.errTorch": "Flashlight failed: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "Failed to auto-add {name}",
   "scan.errAutoAddGeneric": "Error auto-adding card.",
   "scan.errSaveCard": "Error saving card.",

@@ -271,7 +271,6 @@
   "card.purchasePrice": "Цена покупки ($)",
   "card.condition": "Состояние",
   "card.printing": "Печать",
-
   "deck.addToDeck": "Добавить в колоду…",
   "deck.filterPlaceholder": "Фильтр колод по названию или описанию...",
   "deck.allStatuses": "Все статусы",
@@ -547,6 +546,7 @@
   "scan.errCameraAccess": "Доступ к камере запрещён или недоступен.",
   "scan.errNoTorch": "Фонарик недоступен на этом устройстве или в этом браузере (в Safari на iPhone нет веб-фонарика).",
   "scan.errTorch": "Не удалось включить фонарик: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "Не удалось автоматически добавить {name}",
   "scan.errAutoAddGeneric": "Ошибка при автоматическом добавлении карты.",
   "scan.errSaveCard": "Ошибка при сохранении карты.",
@@ -844,7 +844,6 @@
   "inspector.viewOnTcgplayer": "Посмотреть на TCGplayer",
   "inspector.specCondition": "Состояние:",
   "inspector.specPrinting": "Печать:",
-
   "inspector.specSupertype": "Супертип:",
   "inspector.viewInStorage": "Нажмите, чтобы посмотреть в хранении",
   "inspector.locationLabel": "Место:",

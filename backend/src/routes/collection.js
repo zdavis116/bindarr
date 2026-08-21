@@ -14,6 +14,7 @@ const commanderRules = require('../utils/commanderRules');
 const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
 const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
 const collectorNumberOcr = require('../utils/collectorNumberOcr');
+const cardTitleOcr = require('../utils/cardTitleOcr');
 const { parseCollectorStrip } = require('../utils/collectorNumberParse');
 const {
   InvariantError,
@@ -271,10 +272,24 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // from the background is worse than no number: the review queue exists
         // for "we don't know", it cannot catch "we're sure and wrong".
         const raw = rectified ? await collectorNumberOcr.readCollectorStrip(rectified) : '';
-        result.ocr = { ...parseCollectorStrip(raw), ms: Date.now() - t0 };
+        // PR 11: THE TITLE, from the SAME rectified image.
+        //
+        // One rectification, two crops. The expensive parts of the OCR path are
+        // the detection (~350ms, already reused from the match above) and the
+        // warp (~160ms); a second crop off the buffer we already hold costs
+        // only the recognition itself, and the title band is a single short
+        // line so it is the cheaper of the two reads.
+        //
+        // This is the signal that survives a torch highlight. CLIP reads the
+        // ARTWORK, which is exactly what a specular reflection blows out; the
+        // printed title is still legible in the same photo. Reading it here
+        // means /scan-resolve can identify the card even when the match above
+        // returned noise.
+        const titleRaw = rectified ? await cardTitleOcr.readCardTitle(rectified) : '';
+        result.ocr = { ...parseCollectorStrip(raw), title: titleRaw.trim(), ms: Date.now() - t0 };
       } catch (e) {
         console.warn('scan-match OCR failed:', e.message);
-        result.ocr = { number: null, set: null, confident: false, raw: '', ms: Date.now() - t0 };
+        result.ocr = { number: null, set: null, confident: false, raw: '', title: '', ms: Date.now() - t0 };
       }
     }
 
@@ -342,17 +357,36 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
 // There is no third branch and no "most likely" fallback.
 router.post('/scan-resolve', async (req, res) => {
   try {
-    const { name, ocr_text = '', crop, quantity } = req.body || {};
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({ error: 'name is required' });
+    const { name, title_text = '', ocr_text = '', crop, quantity } = req.body || {};
+    // NAME IS NO LONGER REQUIRED, and that is the point of PR 11.
+    //
+    // It used to be, because CLIP's match was the only way to identify a card.
+    // On a glare-hit photo CLIP returns noise, so requiring its name meant the
+    // scan could not be resolved at all — even when the title and collector
+    // number were both plainly legible in the same image. Now EITHER signal can
+    // identify the card, so the requirement is that AT LEAST ONE is present.
+    //
+    // This is a widening, not a loosening: whichever name is used still has to
+    // be backed by a real catalogue printing before anything is added.
+    if (typeof name !== 'string' && name != null) {
+      return res.status(400).json({ error: 'name must be a string' });
     }
-    // Bound the free-text fields. `name` is a card name and `ocr_text` is two
-    // short lines of recognised text; anything far larger is a malformed or
-    // hostile client, and an unbounded string here would be stored verbatim in
-    // the queue row. The crop is a data URL and is bounded too — the client
-    // sends a ~220px JPEG thumbnail, so 512KB is generous.
-    if (name.length > 300) {
+    if (typeof title_text !== 'string') {
+      return res.status(400).json({ error: 'title_text must be a string' });
+    }
+    if (!name && !title_text) {
+      return res.status(400).json({ error: 'name or title_text is required' });
+    }
+    // Bound the free-text fields. `name` is a card name, `title_text` is one
+    // short line of recognised text and `ocr_text` is two; anything far larger
+    // is a malformed or hostile client, and an unbounded string here would be
+    // stored verbatim in the queue row. The crop is a data URL and is bounded
+    // too — the client sends a ~220px JPEG thumbnail, so 512KB is generous.
+    if (name && name.length > 300) {
       return res.status(400).json({ error: 'name is too long' });
+    }
+    if (title_text.length > 300) {
+      return res.status(400).json({ error: 'title_text is too long' });
     }
     if (typeof ocr_text !== 'string' || ocr_text.length > 2000) {
       return res.status(400).json({ error: 'ocr_text must be a string under 2000 characters' });
@@ -363,7 +397,8 @@ router.post('/scan-resolve', async (req, res) => {
     const qty = positiveInteger(quantity === undefined ? 1 : quantity, { name: 'quantity', max: 1000 });
 
     const outcome = await resolveScannedPrinting({
-      matchedName: name,
+      matchedName: name || '',
+      titleText: title_text,
       ocrText: ocr_text,
       userId: req.user.id,
     });
@@ -386,6 +421,10 @@ router.post('/scan-resolve', async (req, res) => {
         entry_id: added.id,
         card: parseCardRow(outcome.printing),
         ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
+        // Which signal identified the card. Diagnostic only — it exists so the
+        // scanner's existing debug panel can show whether the title or CLIP
+        // carried a scan, which is the measurement this PR will be judged on.
+        resolved_by: outcome.titleName && outcome.usedName === outcome.titleName ? 'title' : 'clip',
       });
     }
 
@@ -393,7 +432,15 @@ router.post('/scan-resolve', async (req, res) => {
     // owned anywhere until Zach resolves it.
     const entry = await enqueueScanReview({
       userId: req.user.id,
-      matchedName: name,
+      // THE NAME THE RESOLVER ACTUALLY USED, not the one CLIP guessed.
+      //
+      // The queue entry is what Zach reads when deciding, so it must name the
+      // card the candidates below it belong to. With text-first resolution the
+      // title routinely identifies a card CLIP got wrong (that is the whole
+      // point), and labelling the entry with CLIP's discarded guess would show
+      // him 'Avatar Aang' above a list of Fated Firepower printings. Falling
+      // back to `name` covers the case where the title read nothing.
+      matchedName: outcome.usedName || name || '',
       reason: outcome.reason,
       ocr: outcome.ocr,
       candidates: outcome.candidates,

@@ -267,7 +267,6 @@
   "card.purchasePrice": "Precio de compra ($)",
   "card.condition": "Estado",
   "card.printing": "Impresión",
-
   "deck.addToDeck": "Añadir a un mazo…",
   "deck.filterPlaceholder": "Filtrar mazos por nombre o descripción...",
   "deck.allStatuses": "Todos los estados",
@@ -542,6 +541,7 @@
   "scan.errCameraAccess": "Acceso a la cámara denegado o no disponible.",
   "scan.errNoTorch": "La linterna no está disponible en este dispositivo o navegador (Safari en iPhone no tiene linterna web).",
   "scan.errTorch": "Error con la linterna: {error}",
+  "scan.torchGlareWarning": "Flashlight on. Glare on glossy cards can stop them matching — ambient light usually scans better.",
   "scan.errAutoAdd": "No se ha podido añadir {name} automáticamente",
   "scan.errAutoAddGeneric": "Error al añadir la carta automáticamente.",
   "scan.errSaveCard": "Error al guardar la carta.",
@@ -832,7 +832,6 @@
   "inspector.viewOnTcgplayer": "Ver en TCGplayer",
   "inspector.specCondition": "Estado:",
   "inspector.specPrinting": "Impresión:",
-
   "inspector.specSupertype": "Supertipo:",
   "inspector.viewInStorage": "Pulsa para verla en el almacenamiento",
   "inspector.locationLabel": "Sitio:",

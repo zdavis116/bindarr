@@ -369,7 +369,181 @@ these tests is synthetic and every frontend assertion is a **source contract**.
 The ratio removes the failure mode that a constant had, but only real use can
 confirm that auto-scan now captures promptly on his iPhone 16.
 
-### What the UI PR must do — and what needs Zach's eyes
+---
+
+## REDESIGN (2026-08-21): TEXT-FIRST — the artwork is no longer the primary key
+
+Zach, looking at his own card: *"get name of card and set number and find it,
+it should be unique majority of the time."*
+
+He is right, and it reframes everything above. The design so far identified the
+CARD by CLIP artwork matching and used OCR only for the collector number, which
+made the **artwork a single point of failure**. Measured on his real photos:
+
+```
+clean Scryfall image  ->  MATCH Fated Firepower tla#132
+his phone photo       ->  noise: Transpose 9 inliers, Outpace Oblivion 8,
+                          Furnace Celebration 7
+```
+
+The card is **not foil and not sleeved** — he confirmed both. The cause is a
+specular reflection from the **phone torch**: a small, intense source inches
+from glossy modern card stock produces a blown-out patch where pixels SATURATE
+and the information under them is destroyed, not merely brightened. That patch
+sits on the artwork, which is exactly what CLIP reads.
+
+In the SAME photo the title `Fated Firepower` and the bottom line
+`M 0132 / TLA . EN` are both plainly legible to the eye. **The identifying
+information on a Magic card is printed text, and printed text survives a
+highlight that destroys artwork matching.**
+
+### Resolution order (implemented)
+
+1. **Title + collector number** is the primary key. Exactly one printing -> ADD.
+2. **The set NARROWS ties. It never vetoes.** (measured: number 12/15, set 7/15)
+3. **CLIP is the fallback and cross-check**, not the primary identifier. When a
+   confident title+number resolves uniquely it is preferred even if CLIP
+   disagrees — CLIP is what fails on a glared card.
+4. An unreadable title falls back to today's behaviour: CLIP + number.
+5. A title matching nothing NEVER adds. Unresolved still queues, owned first.
+
+### Title band — MEASURED, not guessed
+
+Same rectify-from-full-upload geometry as the number crop (`rectifyCard` at
+750x1050 from the ORIGINAL buffer — never the matcher's 500x700 downscale).
+15 real Scryfall cards, dom(2018)..tla(2025), ground truth from the API.
+
+```
+OFFSET sweep (left 0.06, width 0.64, height 0.060)
+  0.030-0.034    0-2/15    above the title, in the border
+  0.038          9/15
+  0.042         14/15
+  0.046-0.058   15/15  0 fabricated   <- clean run, centre 0.052
+  0.062         13/15
+  0.070+         0/15                 below the title, into the art
+```
+
+**WIDTH was the real discovery.** At width 0.80 the band scored 13/15 — but the
+two failures were not misreads. The title read PERFECTLY and the **mana cost**,
+right-aligned in the same band, came with it: `Fated Firepower X ee`,
+`(a) Avatar Aang eP`. Mana symbols OCR as garbage letters, and that garbage is
+edit distance the fuzzy matcher then has to pay for.
+
+```
+WIDTH sweep     0.58-0.70  ->  15/15  0 fabricated   <- clean run, centre 0.64
+                0.74       ->  14/15
+                0.78       ->  12/15
+HEIGHT          flat 0.048-0.068 (all 15/15); centre 0.060
+```
+
+Final: `{ left: 0.06, top: 0.052, width: 0.64, height: 0.060 }`. Same lesson as
+the number crop's 0.42 window dragging in the artist credit: **crop to the text
+you want, not the region it sits in.**
+
+**Zero fabrications at EVERY offset**, including those scoring 0/15 — when the
+band misses, OCR returns border noise and the fuzzy matcher REFUSES it. The
+number crop could not claim that; it had a cliff at 0.940 where digits merged
+into confident wrong numbers.
+
+Cost: **+125ms median** per scan (title read only, worker warm).
+
+### Fuzzy tolerance — why 2 and not 3
+
+```
+real OCR reads resolved:  d=1 -> 14/15   d=2 -> 15/15   d=3+ -> 15/15
+closest pairs of REAL Scryfall names:
+  'Avatar of Woe'  <-> 'Avatar of Hope'   d=2
+  'Sol Ring'       <-> 'The Ring'         d=3
+  'Counterspell'   <-> 'Countersquall'    d=3
+```
+
+2 already buys full accuracy; 3 buys nothing measurable and lands in the range
+where **distinct, simultaneously-legal cards collide**. `MIN_MARGIN = 2` over
+the runner-up is the gate that does the real work — the hazard is not "bad read"
+but "good read, two cards named almost the same".
+
+### The truncation guard — found by the harness, not by reasoning
+
+Under heavy glare `Sandstalker Moloch` read as `Sandstalker A`. That is 2 edits
+from the real card **Sandstalker** and 5 from the true name, so plain distance
+confidently picked the WRONG card with no runner-up close enough for the margin
+gate. It was the single false add in 270 trials.
+
+Edit distance **cannot** see this: a truncated read is genuinely nearer the
+shorter name. The signal is structural — the winner being a strict prefix of
+another candidate means the read is equally consistent with "the short card" and
+"the long card with its tail destroyed". Those are different cards, so it
+refuses. Exact reads are exempt, or short cards would be unscannable.
+
+### Glare comparison — the evidence
+
+Real cards, real OCR, real geometry; the glare and the CLIP degradation are
+modelled (the 1.2GB global index lives only on the dev box). CLIP is modelled as
+failing once >35% of the art region saturates, calibrated to the one real data
+point: Zach's photo.
+
+```
+position     core   blown%   CLIP-only   text-first   text WRONG   rescued
+centre-art   0        0.0%   15/15       15/15         0            0
+centre-art   0.38    29.0%   15/15       14/15         0            0
+centre-art   0.50    49.2%    0/15        6/15         0            6
+centre-art   0.62    69.3%    0/15        3/15         0            3
+upper        0.22     6.9%   15/15        1/15         0            0
+upper        0.50    29.5%   15/15        0/15         0            0
+lower        0.38     0.0%   15/15       15/15         0            0
+lower        0.50     0.0%   15/15        2/15         0            0
+TOTAL                        195/270     118/270       0            9
+```
+
+**Read the aggregate with care — it is the wrong question.** The two routes read
+DIFFERENT PARTS of the card, so they fail under different geometry: glare on the
+art destroys CLIP and leaves the title intact; glare on the nameplate does the
+reverse. Summing across positions measures the mix of positions chosen, not a
+property of the system.
+
+The decision-relevant number is **RESCUED: 9** — cards CLIP alone loses that
+text-first recovers, with **0 false adds**. Text-first is a FALLBACK CHAIN, not
+a replacement, so it can only add identification routes: an unreadable title
+still falls back to CLIP, which is why "text-first scores lower overall" is not
+a regression.
+
+**The first run of this harness was invalid** and it is recorded because the
+shape recurs: the intensity range stopped below the threshold where the CLIP
+model degrades at all, so CLIP scored a flawless 225/225 and the harness printed
+"TEXT-FIRST DOES NOT BEAT CLIP". It had compared a damaged route against an
+undamaged one. A comparison that never stresses the baseline ranks nothing.
+
+### The gate that was the real single point of failure
+
+The backend could not rescue a request it never received. `CameraScanner` gated
+submission on `autoScan && confident && top?.name`, where `confident` is a
+threshold on the ARTWORK match — so a glared card whose CLIP match collapsed
+into noise was **never sent at all**, no matter how legible its text. Now the
+condition is "we have something to identify with": a confident CLIP name OR an
+OCR'd title.
+
+### The torch
+
+**The premise that the scanner turns the torch on was wrong.** `isTorchOn`
+already initialised to `false` and no code path ever enabled it automatically
+(now pinned by FTORCH-TC1/TC2). The actionable gap was different: nothing told
+the user that enabling it **causes** the failure. "It's dark, turn on the light"
+is the obvious move and the wrong one, so enabling it now warns once.
+
+iOS Safari does not report `torch` in `getCapabilities()`, so it degrades to a
+plain message rather than a dead button — **unverified here; no browser runs in
+this repo.**
+
+### What only Zach's phone can confirm
+
+Nothing in this repo runs a browser, a camera or a MediaStreamTrack. Every
+frontend assertion is a **source contract**, and the glare is synthetic. Only
+real use on the iPhone 16 can confirm: that the title actually reads off his
+camera at 1280px upload; that text-first recovers his Fated Firepower; that the
+torch toggle behaves; and that the scanner screen still fits, given its iOS
+Safari crash history.
+
+### What the earlier UI PR required — and what still needs Zach's eyes
 
 Nothing in this repo runs a browser, so none of the above proves any frontend
 behaviour. An iOS Safari crash shipped through green tests this week. The UI PR
