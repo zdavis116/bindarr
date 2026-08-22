@@ -1103,5 +1103,22 @@
   "scan.enterFullscreen": "Fullscreen scan",
   "scan.exitFullscreen": "Exit fullscreen",
   "scan.working": "Working…",
-  "scan.queuedBadge": "{{count}} waiting for review"
+  "scan.queuedBadge": "{{count}} waiting for review",
+  "scan.stagingTitle": "Scan session ({{count}})",
+  "scan.stagingSubtitle": "Nothing has been added to your collection yet.",
+  "scan.stagingFlagged": "{{count}} need a look before you add",
+  "scan.stagingEmpty": "Nothing scanned yet. Cards you scan will wait here.",
+  "scan.stagingAddAll": "Add all {{count}} to collection",
+  "scan.stagingAdding": "Adding…",
+  "scan.stagingDiscardAll": "Discard all",
+  "scan.stagingDiscardOne": "Remove this scan",
+  "scan.stagingQtyUp": "Increase quantity",
+  "scan.stagingQtyDown": "Decrease quantity",
+  "scan.stagingCommitted": "Added {{count}} cards to your collection.",
+  "scan.stagingCommitFailed": "Nothing was added — {{error}}. Your scans are still here.",
+  "scan.stagingOpen": "Review scan session",
+  "scan.stagedToast": "{{name}} — waiting in this session",
+  "scan.stagedFlaggedToast": "{{name}} — needs a look before adding",
+  "scan.stagingBadge": "{{count}} scanned",
+  "scan.stagingBadgeFlagged": "{{count}} scanned · {{flagged}} to check"
 }

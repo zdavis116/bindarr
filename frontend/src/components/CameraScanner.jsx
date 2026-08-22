@@ -9,6 +9,8 @@ import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import ScanReviewQueue from './ScanReviewQueue';
 import { createScanReviewQueue } from './scanReviewQueue';
+import ScanStagingReview from './ScanStagingReview';
+import { createScanStaging } from './scanStaging';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import { laplacianVarianceScore, decideCapture, newGateState } from '../utils/frameSharpness';
@@ -222,6 +224,28 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // session (or a reload mid-stack) shows its real size immediately rather than
   // appearing empty until something new is queued.
   useEffect(() => { reviewQueue.refresh(); }, [reviewQueue]);
+
+  // THE SCAN SESSION. Same controller shape and the same reasoning as the review
+  // queue above: created once so its count survives re-renders, mirrored into
+  // React state purely for rendering, with the SERVER as the source of truth.
+  //
+  // Zach: "instead of auto putting in my collection. Just putting aside and at
+  // the end letting me add all. That way I can ensure no weirdness occurred or
+  // ensure there isn't any dupes."
+  const [showStaging, setShowStaging] = useState(false);
+  const [stagedCount, setStagedCount] = useState(0);
+  const [stagedFlagged, setStagedFlagged] = useState(0);
+  const stagingRef = useRef(null);
+  if (!stagingRef.current) {
+    stagingRef.current = createScanStaging({
+      onChange: (s) => { setStagedCount(s.stagedCount); setStagedFlagged(s.flaggedCount); },
+    });
+  }
+  const staging = stagingRef.current;
+  // Reconcile on mount so a session left over from a previous visit (or a reload
+  // mid-stack) shows its real size immediately instead of appearing empty —
+  // which would look exactly like having lost it.
+  useEffect(() => { staging.refresh(); }, [staging]);
   // Torch/Flashlight control
   const [isTorchOn, setIsTorchOn] = useState(false);
   // Manual exposure: caps ({min,max,step}) if the track exposes
@@ -1581,6 +1605,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     // would be a second, divergent implementation of the one
                     // rule that keeps a misread from becoming a wrong card.
                     ocrText: ocr?.raw || '',
+                    // STAGE, DO NOT ADD. Zach reviews the whole session and
+                    // presses Add All; nothing reaches the collection before
+                    // that. The resolution rules are unchanged — only the
+                    // destination moves.
+                    stage: true,
+                    // So the server can flag a weak match as worth a look.
+                    match_inliers: Number.isFinite(top?.inliers) ? top.inliers : null,
                     // WHICH PRINTING the artwork matched, when the artwork can
                     // tell them apart. See printingHint above. The server
                     // validates it against the catalogue before trusting it.
@@ -1592,7 +1623,24 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   });
                   if (scanId !== currentScanId.current) return;
 
-                  if (outcome.action === 'added') {
+                  if (outcome.action === 'staged') {
+                    // RESOLVED, BUT NOT OWNED. It waits in the session until he
+                    // presses Add All. The badge moves; the collection does not.
+                    //
+                    // No countdown and no cancel modal on this path: staging is
+                    // already the undo. Interrupting every scan to confirm a
+                    // reversible action would be the slowness he asked me to fix.
+                    staging.refresh();
+                    setRecentScans(prev => [{
+                      ...outcome.card, card_id: outcome.card?.id, entry_id: null,
+                      quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
+                      staged: true,
+                    }, ...prev].slice(0, 10));
+                    showToast(outcome.flag
+                      ? t('scan.stagedFlaggedToast', { name: outcome.card?.name || identified })
+                      : t('scan.stagedToast', { name: outcome.card?.name || identified }));
+                    signal('success');
+                  } else if (outcome.action === 'added') {
                     lastAddedIdRef.current = outcome.card?.id;
                     setRecentScans(prev => [{
                       ...outcome.card, card_id: outcome.card?.id, entry_id: outcome.entry_id,
@@ -1993,6 +2041,41 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 }}
               >
                 {t('scan.queuedBadge', { count: queuePending })}
+              </button>
+            )}
+
+            {/* THE SESSION BADGE — how many cards are waiting, and the way in.
+                Placed in-frame because in fullscreen the camera covers the
+                screen: a count rendered below the preview is invisible, which
+                is how the review queue silently reached six entries without
+                Zach seeing it. A session he cannot see is a session he cannot
+                trust holds his stack.
+
+                Green when everything is clean, amber when something is flagged,
+                so the colour alone answers "does this need me?". */}
+            {stagedCount > 0 && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowStaging(true); }}
+                aria-label={t('scan.stagingOpen')}
+                style={{
+                  position: 'absolute',
+                  right: '1rem',
+                  top: `calc(1rem + env(safe-area-inset-top))`,
+                  zIndex: 21,
+                  padding: '0.35rem 0.8rem',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.72)',
+                  border: `1px solid ${stagedFlagged ? 'var(--accent-yellow)' : 'var(--type-grass)'}`,
+                  color: stagedFlagged ? 'var(--accent-yellow)' : 'var(--type-grass)',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {stagedFlagged
+                  ? t('scan.stagingBadgeFlagged', { count: stagedCount, flagged: stagedFlagged })
+                  : t('scan.stagingBadge', { count: stagedCount })}
               </button>
             )}
 
@@ -2932,6 +3015,18 @@ function CameraScanner({ onAddSuccess, showToast }) {
           </div>
         )}
       </div>
+
+      {/* The scan session review. Rendered LAST so it overlays the scanner, and
+          only on an explicit tap of the session badge — never opened by a scan,
+          because interrupting a stack to show a list is the opposite of what
+          staging is for. */}
+      {showStaging && (
+        <ScanStagingReview
+          staging={staging}
+          onClose={() => setShowStaging(false)}
+          onCommitted={() => { if (onAddSuccess) onAddSuccess(); }}
+        />
+      )}
 
       {/* The review screen. Rendered LAST so it overlays the scanner, and only
           on an explicit tap — never opened by a scan. Resolving an entry adds
