@@ -227,4 +227,27 @@ test('F9S-TC18', 'the auto-add cancel window is shortened but not removed', () =
     'the cancel window must survive — removing it makes auto-add irreversible');
 });
 
+test('F9S-TC19', 'the capture crop leaves margin around the card for edge detection', () => {
+  // Zach: "mana box auto outlines the card ... so we get the whole card
+  // including the border." That is the mechanism, not a preference: detectCard
+  // locates the card by its BORDER against the surface behind it, so a crop
+  // that starts at the card's edge contains nothing to detect.
+  //
+  // MEASURED through the real /api/scan-match route on real card art, varying
+  // ONLY the margin: 0% -> 1/8 collector numbers (one card undetectable),
+  // 4% -> 2/8 (three undetectable), 6% -> 8/8, 10% -> 8/8. No code change.
+  //
+  // This regressed silently as capture improved: the pad applies to the GUIDE
+  // BOX, and every change that got the card filling more of the frame squeezed
+  // the incidental margin toward zero. Better photos, worse detection.
+  const pad = Number(src.match(/const CROP_PAD = ([\d.]+)/)[1]);
+  assert.ok(pad >= 0.10,
+    `CROP_PAD must stay well past the measured 6% detection knee, got ${pad}. ` +
+    'Below it, cards stop being detected at all and every downstream fix is moot.');
+
+  // The crop must actually APPLY the pad on both axes — a pad that is computed
+  // and then not used is the same as no pad, and reads as intentional.
+  assert.match(src, /\(1 \+ 2 \* CROP_PAD\)/);
+});
+
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);

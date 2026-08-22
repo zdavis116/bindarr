@@ -1127,7 +1127,39 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // frame to score sharpness, then again on the still. `k` derives from
     // oc.width/oc.height, so a larger source canvas rescales the mapping
     // automatically and BOTH calls crop the same region of the scene.
-    const CROP_PAD = 0.05; // 5% tight margin around guide box
+    // MARGIN AROUND THE CARD IS NOT COSMETIC — THE DETECTOR NEEDS IT.
+    //
+    // Zach: "mana box auto outlines the card I think we need something like that
+    // so we get the whole card including the border." Exactly right, and it is
+    // the mechanism: detectCard finds the card by locating its BORDER against
+    // the surface behind it. If the crop starts at the card's edge there is no
+    // border in the image, so there is nothing to detect.
+    //
+    // MEASURED through the real /api/scan-match route, on real card art,
+    // varying ONLY the margin around the card:
+    //
+    //   margin  0%   1/8 collector numbers   (one card failed to detect at all)
+    //   margin  4%   2/8                     (three failed to detect)
+    //   margin  6%   8/8                     <- clean
+    //   margin 10%   8/8
+    //
+    // No code change in that sweep. The detector was never short — it was being
+    // handed images with no visible card edge, and it did the only sensible
+    // thing. Three earlier attempts to "correct" the quad were fixing a bug that
+    // did not exist.
+    //
+    // WHY THIS GOT WORSE RECENTLY. The old value was 0.05, but it padded the
+    // GUIDE BOX, not the card — and the guide box is an aim hint the card sits
+    // inside, so margin was incidental. Every capture improvement that got the
+    // card filling more of the frame (fullscreen preview, full-resolution
+    // request, ImageCapture stills) squeezed that accidental margin toward zero.
+    // Better photographs, worse detection.
+    //
+    // 0.14 is deliberately past the 6% knee. The guide box is card-shaped and
+    // the card can OVERHANG it, so the pad must cover both the detector's need
+    // and the overhang; and the sweep is flat from 6% to 10%, so overshooting
+    // costs a little background while undershooting costs the whole scan.
+    const CROP_PAD = 0.14;
     const videoRect = video.getBoundingClientRect();
     const guideRect = guideElement.getBoundingClientRect();
     const cropGuideRegion = (oc) => {
