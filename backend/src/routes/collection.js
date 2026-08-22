@@ -566,6 +566,216 @@ router.delete('/scan-queue/:id', async (req, res) => {
   }
 });
 
+// --- THE SCAN STAGING AREA -------------------------------------------------
+//
+// Zach: "instead of auto putting in my collection. Just putting aside and at the
+// end letting me add all. That way I can ensure no weirdness occurred or ensure
+// there isn't any dupes." And on presentation: flag what is suspicious, because
+// a flat list of sixty rows gets skimmed, not reviewed.
+//
+// Staged scans are NOT owned. They live in their own table so that is true by
+// construction rather than by every caller remembering to filter — the same
+// property the review queue relies on.
+
+// Stage a scanned card. Returns the row plus its flag, so the client can show
+// immediately that something wants a second look.
+router.post('/scan-stage', async (req, res) => {
+  try {
+    const { card_id, quantity, finish, condition, location_id, crop, match_inliers } = req.body || {};
+    if (!card_id || typeof card_id !== 'string') {
+      return res.status(400).json({ error: 'card_id is required' });
+    }
+    const qty = positiveInteger(quantity === undefined ? 1 : quantity, { name: 'quantity', max: 1000 });
+
+    // The card must exist in the catalogue. Staging an unknown id would defer
+    // the failure to commit time, when he has already scanned the whole stack
+    // and put the physical cards away — the worst possible moment to find out.
+    const card = await db.get(`SELECT id, name FROM card_cache WHERE id = ?`, [card_id]);
+    if (!card) return res.status(400).json({ error: 'Unknown card_id' });
+
+    // WORK OUT WHETHER THIS ROW DESERVES ATTENTION, at stage time.
+    //
+    // Computed now and stored rather than derived when the list renders: the
+    // answer depends on the state of the session AT THE MOMENT OF THE SCAN
+    // ("was this already staged when I scanned it?"), and recomputing later
+    // against a mutated session would silently change what he is being told.
+    let flag = null;
+    const dup = await db.get(
+      `SELECT id FROM scan_staging WHERE user_id = ? AND card_id = ? AND finish = ?`,
+      [req.user.id, card_id, finish || 'nonfoil']);
+    if (dup) {
+      flag = 'duplicate_in_session';
+    } else {
+      const owned = await db.get(
+        `SELECT id FROM collection WHERE user_id = ? AND card_id = ? AND finish = ? AND list_type = 'collection'`,
+        [req.user.id, card_id, finish || 'nonfoil']);
+      if (owned) flag = 'already_owned';
+    }
+    // A weak match outranks the others: it questions whether this is even the
+    // right card, where the others only say "you have one already", which is
+    // perfectly normal for a collection.
+    if (Number.isFinite(match_inliers) && match_inliers < 25) flag = 'low_confidence';
+
+    const ins = await db.run(
+      `INSERT INTO scan_staging
+         (user_id, card_id, quantity, finish, condition, location_id, flag, match_inliers, crop_data_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, card_id, qty, finish || 'nonfoil', condition || 'Near Mint',
+       location_id || null, flag, Number.isFinite(match_inliers) ? match_inliers : null,
+       typeof crop === 'string' ? crop.slice(0, 200000) : null]);
+
+    res.json({ staged: true, id: ins.lastID, card_id, name: card.name, flag });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('scan-stage failed:', error);
+    res.status(500).json({ error: 'Failed to stage scanned card' });
+  }
+});
+
+// The staged session, oldest first — the order he scanned, which is the order
+// the physical stack is in. Flagged rows are counted separately so the UI can
+// lead with "3 need a look" instead of making him find them.
+router.get('/scan-stage', async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT s.*, c.name, c.set_id, c.number, c.image_url
+         FROM scan_staging s
+         LEFT JOIN card_cache c ON c.id = s.card_id
+        WHERE s.user_id = ?
+        ORDER BY s.created_at ASC, s.id ASC`,
+      [req.user.id]);
+    res.json({
+      entries: rows.map(r => ({
+        id: r.id,
+        card_id: r.card_id,
+        name: r.name,
+        set_id: r.set_id,
+        number: r.number,
+        image_url: r.image_url,
+        quantity: r.quantity,
+        finish: r.finish,
+        condition: r.condition,
+        location_id: r.location_id,
+        flag: r.flag,
+        match_inliers: r.match_inliers,
+        crop: r.crop_data_url || null,
+        created_at: r.created_at,
+      })),
+      total: rows.length,
+      flagged: rows.filter(r => r.flag).length,
+    });
+  } catch (error) {
+    console.error('scan-stage list failed:', error);
+    res.status(500).json({ error: 'Failed to load staged scans' });
+  }
+});
+
+// Update one staged row before committing — quantity, finish, condition,
+// location. This is the whole point of staging: fixing a scan BEFORE it becomes
+// collection data, rather than hunting it down afterwards.
+router.patch('/scan-stage/:id', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const row = await db.get(`SELECT * FROM scan_staging WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!row) return res.status(404).json({ error: 'Staged entry not found' });
+
+    const { quantity, finish, condition, location_id } = req.body || {};
+    const qty = quantity === undefined ? row.quantity
+      : positiveInteger(quantity, { name: 'quantity', max: 1000 });
+
+    await db.run(
+      `UPDATE scan_staging SET quantity = ?, finish = ?, condition = ?, location_id = ?
+        WHERE id = ? AND user_id = ?`,
+      [qty, finish || row.finish, condition || row.condition,
+       location_id === undefined ? row.location_id : location_id, id, req.user.id]);
+    res.json({ updated: true, id });
+  } catch (error) {
+    if (error instanceof RequestBoundsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('scan-stage patch failed:', error);
+    res.status(500).json({ error: 'Failed to update staged scan' });
+  }
+});
+
+// Drop one staged row — a mis-scan he does not want.
+router.delete('/scan-stage/:id', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const out = await db.run(`DELETE FROM scan_staging WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!out.changes) return res.status(404).json({ error: 'Staged entry not found' });
+    res.json({ discarded: true, id });
+  } catch (error) {
+    console.error('scan-stage delete failed:', error);
+    res.status(500).json({ error: 'Failed to discard staged scan' });
+  }
+});
+
+// COMMIT THE SESSION — "add all".
+//
+// ALL OR NOTHING. Every row is added inside one transaction, and any failure
+// rolls the whole thing back and leaves staging untouched. A partial commit is
+// the worst outcome available here: Zach would have some unknown subset of a
+// physical stack in his collection with no way to tell which, and no way to
+// reconcile it against the pile in his hand. Refusing loudly and changing
+// nothing is always recoverable; a silent partial commit is not.
+router.post('/scan-stage/commit', async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT * FROM scan_staging WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
+      [req.user.id]);
+    if (!rows.length) return res.json({ committed: 0, entries: [] });
+
+    const added = [];
+    // db.withTransaction, not raw BEGIN/COMMIT: addCardToCollection opens its
+    // own transaction, and this helper makes a nested call JOIN the outer one
+    // instead of failing with "cannot start a transaction within a transaction".
+    // That nesting is exactly what makes the batch atomic — every card is added
+    // inside ONE transaction, so a failure on card 40 unwinds cards 1-39 too.
+    await db.withTransaction(async () => {
+      for (const r of rows) {
+        const entry = await addCardToCollection(req.user, {
+          card_id: r.card_id,
+          quantity: r.quantity,
+          finish: r.finish,
+          condition: r.condition,
+          location_id: r.location_id,
+        });
+        added.push({ staged_id: r.id, entry_id: entry.id, card_id: r.card_id });
+      }
+      await db.run(`DELETE FROM scan_staging WHERE user_id = ?`, [req.user.id]);
+    });
+    res.json({ committed: added.length, entries: added });
+  } catch (error) {
+    if (error instanceof AddCardError || error instanceof RequestBoundsError
+        || error instanceof InvariantError || error instanceof FinishError) {
+      // The staging table is intact — he can fix the offending row and retry.
+      return res.status(error.status).json({ error: error.message, committed: 0 });
+    }
+    console.error('scan-stage commit failed:', error);
+    res.status(500).json({ error: 'Failed to commit staged scans', committed: 0 });
+  }
+});
+
+// Abandon the whole session without adding anything.
+router.delete('/scan-stage', async (req, res) => {
+  try {
+    const out = await db.run(`DELETE FROM scan_staging WHERE user_id = ?`, [req.user.id]);
+    res.json({ discarded: out.changes || 0 });
+  } catch (error) {
+    console.error('scan-stage clear failed:', error);
+    res.status(500).json({ error: 'Failed to clear staged scans' });
+  }
+});
+
 // Build/verify a per-set ORB index
 router.post('/prepare-set', searchLimiter, async (req, res) => {
   try {
