@@ -289,4 +289,33 @@ test('F9S-TC21', 'the session is visible IN FRAME, not below the camera', () => 
   assert.match(src, /setShowStaging\(true\)/, 'the badge must open the review screen');
 });
 
+test('F9S-TC22', 'the lens is zoomed in for scanning, but never below 1.0', () => {
+  // Zach: "I think our zoom needs to mimic mana boxes I think we are zoomed to
+  // far out." Measured on his screenshot, the card filled 41% of the preview's
+  // width and 18% of its AREA — four fifths of every captured pixel was desk,
+  // and that is the budget the matcher and the collector-number OCR live on.
+  const m = src.match(/const SCAN_ZOOM = ([\d.]+);/);
+  assert.ok(m, 'SCAN_ZOOM must be a named constant, not a literal in the call');
+  const zoom = parseFloat(m[1]);
+
+  // BELOW 1.0 IS THE ULTRA-WIDE LENS on iOS: softer, lower resolution. That was
+  // the bug fixed in PR #32 and this must never reintroduce it.
+  assert.ok(zoom >= 1.0, `SCAN_ZOOM ${zoom} would select the ultra-wide lens`);
+
+  // And it must actually be an increase, or the change does nothing.
+  assert.ok(zoom > 1.0, `SCAN_ZOOM ${zoom} is the widest setting — no zoom applied`);
+
+  // NOT SO FAR THAT THE CARD FILLS THE FRAME. The detector needs margin around
+  // the card to find its border: PR #38 measured collector-number reads
+  // collapsing from 8/8 to 1/8 with no margin. At 41% of width, a zoom above
+  // ~2.4x would leave nothing to spare.
+  assert.ok(zoom <= 2.2,
+    `SCAN_ZOOM ${zoom} leaves the detector no margin around the card (see PR #38)`);
+
+  // The constant has to actually reach applyConstraints, clamped to the device.
+  assert.match(src, /Math\.max\(lo, SCAN_ZOOM\)/,
+    'SCAN_ZOOM must be clamped into the device range, never applied raw');
+  assert.match(src, /advanced: \[\{ zoom: target \}\]/);
+});
+
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);
