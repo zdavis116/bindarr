@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
+import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import ScanReviewQueue from './ScanReviewQueue';
@@ -342,6 +343,19 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // and that is precisely the question this change has to answer on Zach's
   // phone, since no browser runs in this repo.
   const [captureSource, setCaptureSource] = useState(null);
+  // THE LIVE CARD OUTLINE. Zach: "I want live drawing going green when it has
+  // it." null = nothing found; otherwise { x, y, w, h, confidence } in PREVIEW
+  // element coordinates, ready to position a div over the video.
+  //
+  // State rather than a ref because the outline must RE-RENDER as the card
+  // moves — that motion is the entire feature.
+  const [liveDetect, setLiveDetect] = useState(null);
+  const detectCanvasRef = useRef(null);
+  // MIRRORED INTO A REF for the capture path. handleCapture is invoked from a
+  // timer closure, so reading the state variable there can see a stale value
+  // from a previous render — and cropping to a stale detection would frame the
+  // card's PREVIOUS position. The ref always holds the latest.
+  const liveDetectRef = useRef(null);
 
   // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
   // of the change is that a phone preview must fill the screen: the guide box is
@@ -627,6 +641,73 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // The dep list is now exhaustive on its own: dropping `scanDetail` (which the
   // effect never actually read) removed the reason this needed a suppression.
   }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard]);
+
+  // THE LIVE DETECTION LOOP — the outline Zach sees.
+  //
+  // Runs on an interval rather than requestAnimationFrame: this competes with
+  // the video pipeline for main-thread time, and the outline only has to feel
+  // live, not hit 60fps. ~7/sec tracks a hand-held card smoothly at a fraction
+  // of the cost.
+  //
+  // Detection happens on a SMALL greyscale copy (160px wide). The card's edges
+  // and its interior texture both survive that downscale, and it keeps a whole
+  // pass well under a frame budget on a phone.
+  useEffect(() => {
+    if (!cameraActive) { liveDetectRef.current = null; setLiveDetect(null); return undefined; }
+    let cancelled = false;
+
+    const tick = () => {
+      if (cancelled) return;
+      const video = videoRef.current;
+      if (!video || !video.videoWidth) return;
+      try {
+        const DW = 160;
+        const DH = Math.max(1, Math.round(DW * (video.videoHeight / video.videoWidth)));
+        let c = detectCanvasRef.current;
+        if (!c) { c = document.createElement('canvas'); detectCanvasRef.current = c; }
+        if (c.width !== DW || c.height !== DH) { c.width = DW; c.height = DH; }
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, DW, DH);
+        const { data } = ctx.getImageData(0, 0, DW, DH);
+
+        // Luma, not a channel average: it weights green the way the eye does,
+        // which keeps card art and text separable from a pale surface.
+        const gray = new Uint8ClampedArray(DW * DH);
+        for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
+          gray[i] = (data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114) | 0;
+        }
+
+        const det = detectCardInFrame(gray, DW, DH);
+        if (cancelled) return;
+        if (!det) { liveDetectRef.current = null; setLiveDetect(null); return; }
+
+        // Map from detection pixels to the PREVIEW ELEMENT's box. The video is
+        // object-fit: cover, so it is centre-cropped: the scale is the LARGER
+        // of the two ratios and the overflow is split evenly. Getting this wrong
+        // draws the outline offset from the card, which would be worse than no
+        // outline at all — it would look like the app is locked onto thin air.
+        const rect = video.getBoundingClientRect();
+        const scale = Math.max(rect.width / DW, rect.height / DH);
+        const offX = (rect.width - DW * scale) / 2;
+        const offY = (rect.height - DH * scale) / 2;
+        const mapped = {
+          x: det.x * scale + offX,
+          y: det.y * scale + offY,
+          w: det.w * scale,
+          h: det.h * scale,
+          confidence: det.confidence,
+        };
+        liveDetectRef.current = mapped;
+        setLiveDetect(mapped);
+      } catch {
+        // A detection failure must never break the preview.
+        if (!cancelled) { liveDetectRef.current = null; setLiveDetect(null); }
+      }
+    };
+
+    const id = setInterval(tick, 140);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [cameraActive]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {
     try {
@@ -1192,6 +1273,52 @@ function CameraScanner({ onAddSuccess, showToast }) {
       return out;
     };
     let framedCanvas = cropGuideRegion(previewCanvas);
+
+    // CROP TO THE DETECTED CARD WHEN WE HAVE ONE.
+    //
+    // This is the fix for Zach's white box. Cropping to the static guide box
+    // hands the server a frame that is ~72% container — box corners, walls and
+    // shadowed interior — and the server's own detectCard then picks the BOX,
+    // because the box interior is a bigger, equally rectangular, equally centred
+    // candidate than the card. His four failed basic lands came back with
+    // matched_name = '': never identified at all.
+    //
+    // The live detector has already found the card by SHAPE and INTERIOR DETAIL,
+    // which a flat container floor fails. Cropping to that detection (plus a
+    // margin, so the card's own border is still visible for the server to
+    // deskew against) removes the container from the picture entirely.
+    //
+    // ONLY WHEN LOCKED. A low-confidence detection is a guess, and cropping to a
+    // guess would throw away a card that the guide-box path would have caught.
+    // Unlocked falls through to the existing behaviour — strictly no worse than
+    // today.
+    if (isLocked(liveDetectRef.current)) {
+      const d = liveDetectRef.current;
+      const vw = previewCanvas.width, vh = previewCanvas.height;
+      // The detection is in preview-element pixels; convert back to canvas
+      // pixels using the same object-fit: cover mapping the overlay used.
+      const vr = video.getBoundingClientRect();
+      const s = Math.max(vr.width / vw, vr.height / vh);
+      const ox = (vr.width - vw * s) / 2;
+      const oy = (vr.height - vh * s) / 2;
+      // Margin around the CARD (not the guide box) so the border survives —
+      // this is what CROP_PAD was always trying to achieve.
+      const pad = 0.10;
+      const cw = (d.w / s) * (1 + 2 * pad);
+      const ch = (d.h / s) * (1 + 2 * pad);
+      const cxd = (d.x - ox) / s - (d.w / s) * pad;
+      const cyd = (d.y - oy) / s - (d.h / s) * pad;
+      // Clamp inside the frame: a card near the edge would otherwise sample
+      // outside the canvas and come through black.
+      const sx = Math.max(0, Math.min(vw - 1, Math.round(cxd)));
+      const sy = Math.max(0, Math.min(vh - 1, Math.round(cyd)));
+      const sw = Math.max(1, Math.min(vw - sx, Math.round(cw)));
+      const sh = Math.max(1, Math.min(vh - sy, Math.round(ch)));
+      const out = document.createElement('canvas');
+      out.width = sw; out.height = sh;
+      out.getContext('2d').drawImage(previewCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      framedCanvas = out;
+    }
 
     // --- BUG 2: THE SHARPNESS GATE ------------------------------------------
     //
@@ -1892,6 +2019,41 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   to { transform: rotate(360deg); }
                 }
               `}</style>
+              {/* THE LIVE CARD OUTLINE — drawn where the card WAS FOUND.
+                  Zach: "mana box ... just draws a line around the entire and it
+                  auto detects that", "I want live drawing going green when it
+                  has it."
+
+                  This is the inversion that matters: the old dashed box was an
+                  INPUT (aim here) and the app then had to guess which rectangle
+                  inside it was the card — which is why a card in a white box
+                  failed, the box being the bigger, better-centred rectangle.
+                  This outline is OUTPUT: it shows what the app has actually
+                  locked onto, so "green" is a promise backed by a detection
+                  rather than a hint that something might be there. */}
+              {liveDetect && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    left: `${liveDetect.x}px`,
+                    top: `${liveDetect.y}px`,
+                    width: `${liveDetect.w}px`,
+                    height: `${liveDetect.h}px`,
+                    border: `3px solid ${isLocked(liveDetect) ? 'var(--type-grass)' : 'rgba(255,255,255,0.55)'}`,
+                    boxShadow: isLocked(liveDetect)
+                      ? '0 0 18px rgba(74, 222, 128, 0.55)'
+                      : 'none',
+                    borderRadius: '10px',
+                    pointerEvents: 'none',
+                    // Snappy enough to feel attached to the card, slow enough
+                    // that per-frame jitter does not read as a shaking box.
+                    transition: 'left 90ms linear, top 90ms linear, width 90ms linear, height 90ms linear, border-color 120ms linear',
+                    zIndex: 3,
+                  }}
+                />
+              )}
+
               <div
                 className="scan-card-guide"
                 onPointerDown={onGuidePointerDown}
