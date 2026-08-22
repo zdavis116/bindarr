@@ -374,8 +374,14 @@ router.post('/scan-resolve', async (req, res) => {
     if (typeof title_text !== 'string') {
       return res.status(400).json({ error: 'title_text must be a string' });
     }
-    if (!name && !title_text) {
-      return res.status(400).json({ error: 'name or title_text is required' });
+    // A scan has to carry SOMETHING identifying. Before the OCR fallback that
+    // meant a name or a title, because those were the only two routes to a card.
+    // The collector strip is now a third: set code + number is the printing's
+    // own catalogue address, so a scan that read it is identifiable even when
+    // image matching and the title both came up empty — which is exactly the
+    // shape of Zach's queue entries 113 and 114.
+    if (!name && !title_text && !ocr_text) {
+      return res.status(400).json({ error: 'name, title_text or ocr_text is required' });
     }
     // Bound the free-text fields. `name` is a card name, `title_text` is one
     // short line of recognised text and `ocr_text` is two; anything far larger

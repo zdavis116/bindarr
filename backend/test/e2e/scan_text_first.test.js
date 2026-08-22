@@ -178,12 +178,30 @@ async function main() {
   //
   // The catalogue is still the validator. A title that resolves to no card must
   // not add, and must not be allowed to drag CLIP's answer in behind it either.
+  //
+  // REVISED FOR THE OCR FALLBACK. This case originally supplied a clean
+  // '0132 . TLA . EN' alongside the gibberish title, and asserted 'queued'
+  // because at the time a name and a title were the ONLY two routes to a card —
+  // so a scan with neither had no legitimate answer.
+  //
+  // The collector strip is now a third route (Zach: "If we have both set and
+  // number we should just use OCR as the fallback"), and tla/132 is not an
+  // inference drawn from the bad title — it is the card's own printed catalogue
+  // address. That scenario therefore HAS a right answer now, and asserting
+  // 'queued' would be asserting the old sequence rather than a rule.
+  //
+  // The property this case exists to protect is unchanged and is what is tested
+  // here: a garbage title must not pull a card in on its own. So the collector
+  // strip is removed, leaving the title as the only signal — and it must queue.
+  // The anti-guessing rules around the new route are pinned separately in
+  // scan_ocr_fallback.test.js (a number with no set code, and an address that
+  // matches nothing, both queue).
   {
     const before = await owned();
     const out = await scanResolve({
       name: '',
       title_text: 'Qwzzx Vermilion Nonesuch',
-      ocr_text: '0132 . TLA . EN',
+      ocr_text: '',                        // nothing readable on the strip
     });
     assert.strictEqual(out.action, 'queued',
       `a title matching nothing must never add. got ${JSON.stringify(out)}`);
@@ -211,12 +229,19 @@ async function main() {
   //
   // Far enough from every name that accepting it would be a guess. It must
   // queue rather than pick the nearest thing.
+  //
+  // REVISED FOR THE OCR FALLBACK, same reasoning as FTF-TC4: the collector strip
+  // is now an independent route to the card, so leaving a clean
+  // '0132 . TLA . EN' in this request would resolve legitimately and the case
+  // would be asserting the old sequence instead of the rule. The property under
+  // test — a title too far from every name must not fuzzy-match its way in — is
+  // isolated by removing the strip.
   {
     const before = await owned();
     const out = await scanResolve({
       name: '',
       title_text: 'Fxtxd Fxrxpxwxr',
-      ocr_text: '0132 . TLA . EN',
+      ocr_text: '',                        // nothing readable on the strip
     });
     assert.strictEqual(out.action, 'queued',
       `a title outside tolerance must NOT match. got ${JSON.stringify(out)}`);
@@ -229,12 +254,18 @@ async function main() {
   // 'Avatar of Woe' and 'Avatar of Hope' are 2 edits apart — the measured floor
   // for distinct real card names. A read sitting between them has identified a
   // NEIGHBOURHOOD, not a card, and must not pick one.
+  //
+  // REVISED FOR THE OCR FALLBACK, same reasoning as FTF-TC4 and FTF-TC6. With a
+  // clean 'TSP 0105' on the strip the scan is no longer ambiguous at all — the
+  // card states its own catalogue address, and refusing would be discarding a
+  // definite answer because a DIFFERENT signal was unclear. The strip is removed
+  // so the margin gate is what the case actually exercises.
   {
     const before = await owned();
     const out = await scanResolve({
       name: '',
       title_text: 'Avatar of Wope',
-      ocr_text: '0105 . TSP . EN',
+      ocr_text: '',                        // nothing readable on the strip
     });
     assert.strictEqual(out.action, 'queued',
       `a read between two real close names must refuse. got ${JSON.stringify(out)}`);
@@ -375,12 +406,20 @@ async function main() {
   // A truncated read is equally consistent with "the short card" and with "the
   // long card with its tail blown out". Those are different cards, so it must
   // queue rather than pick.
+  //
+  // REVISED FOR THE OCR FALLBACK, same reasoning as FTF-TC4/6/7. This case is
+  // about a TRUNCATED TITLE being unresolvable, and it stays exactly that — but
+  // with 'MOM 0203' also on the strip the scan is not unresolvable at all, since
+  // the card states its own catalogue address. Refusing then would be throwing
+  // away a definite answer because a different signal was damaged, which is the
+  // opposite of what the glare harness was protecting against. The strip is
+  // removed so the truncation rule is what the case exercises.
   {
     const before = await owned();
     const out = await scanResolve({
       name: '',
       title_text: 'Sandstalker A',
-      ocr_text: '0203 . MOM . EN',
+      ocr_text: '',                        // nothing readable on the strip
     });
     assert.strictEqual(out.action, 'queued',
       `a truncated title must not resolve to the shorter card. got ${JSON.stringify(out)}`);
