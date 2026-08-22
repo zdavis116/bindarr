@@ -162,7 +162,9 @@ const SCAN_RETRY_ERROR_MS = 2500;
 // the art matcher's features, and the collector number, which is a ~2mm-tall
 // line of text that has to survive all the way to OCR.
 //
-// 0.75 / 0.41 is ~1.8x to put the card across three quarters of the short axis.
+// 0.65 / 0.41 is ~1.6x. Zach tested 1.8x on his phone and asked to back it out
+// "just a tad" — at 1.8x the crop came out 2872px and was downscaled to the
+// 2000px upload, so the extra zoom was being thrown away at the wire anyway.
 //
 // WHY NOT MORE. The detector needs visible margin AROUND the card to find its
 // border — that was PR #38, where a card filling the crop dropped collector
@@ -172,7 +174,7 @@ const SCAN_RETRY_ERROR_MS = 2500;
 //
 // WHY NOT LESS THAN 1.0, EVER: below 1.0 iOS switches to the ULTRA-WIDE lens,
 // which is softer and lower resolution. See the lens pin in startCamera.
-const SCAN_ZOOM = 1.8;
+const SCAN_ZOOM = 1.6;
 
 // THE CANCEL WINDOW before an auto-add commits. Lowered 2 -> 1.
 //
