@@ -93,6 +93,50 @@ function frontFaceName(name) {
   return i === -1 ? null : name.slice(0, i);
 }
 
+// Look up ONE printing by its printed set code and collector number.
+//
+// THE OCR FALLBACK. Zach: "If we have both set and number we should just use
+// OCR as the fallback."
+//
+// WHY THIS IS SAFE, AND WHY IT IS NOT A GUESS. Every other route in this file
+// identifies the CARD and then has to work out WHICH PRINTING. This one is the
+// other way round: the set code and collector number printed on the card ARE the
+// printing's primary key. If both are read and they resolve to exactly one row,
+// there is nothing left to infer. It is a stronger identification than an art
+// match, not a weaker one — the card is telling us its own catalogue address.
+//
+// THE FAILURE THIS FIXES. Zach's queue entries 113 and 114:
+//   matched_name : ''                              (the matcher found nothing)
+//   ocr_number   : '295'   ocr_set : 'msh'
+//   raw          : 'L 0295 / MSH * EN % DOMENICO CAVA'
+// A clean, complete, correct read of the strip. We knew exactly which printing
+// it was, and it queued anyway, because add-or-queue was driven entirely by the
+// art matcher and matched_name was empty. Two independent bugs were masking
+// each other: the crop was cutting the strip off on the scans where the matcher
+// worked, and the matcher was failing on the scans where the crop was right.
+//
+// EXACTLY ONE ROW OR NOTHING. A set+number pair that matches several rows (or
+// none) falls straight through to the existing queue path. Nothing is added on
+// a partial or ambiguous read.
+async function printingBySetNumber(setCode, number) {
+  if (!setCode || !number) return null;
+  // Collector numbers are strings ('123a', 'A-12', 'GR1') and are printed
+  // zero-padded ('0295' for #295), so compare on the numeric-stripped form as
+  // well as verbatim rather than trusting one shape.
+  const bare = String(number).replace(/^0+(?=\d)/, '');
+  const rows = await db.all(
+    `SELECT c.*, s.release_date AS release_date
+       FROM card_cache c
+       LEFT JOIN sets s ON s.id = c.set_id
+      WHERE LOWER(c.set_id) = LOWER(?)
+        AND (c.number = ? OR c.number = ?)`,
+    [setCode, String(number), bare]
+  );
+  // Ambiguity here would mean the catalogue has two rows at one address, which
+  // should not happen — but if it does, ASK rather than pick.
+  return rows.length === 1 ? rows[0] : null;
+}
+
 // Look up every catalogue printing of a card by NAME.
 //
 // Name is the join key because image matching identifies the card reliably
@@ -293,10 +337,26 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
     if (all.length) usedName = matchedName;
   }
 
-  // Neither the title nor CLIP found a card in the catalogue. Not a printing
-  // problem, and nothing to offer — this queues with no candidates exactly as
-  // it did before.
+  // Neither the title nor CLIP found a card in the catalogue.
+  //
+  // THE OCR FALLBACK (Zach: "If we have both set and number we should just use
+  // OCR as the fallback"). Before giving up, try the card's own printed
+  // catalogue address. See printingBySetNumber: when the set code AND the
+  // collector number are both read and resolve to exactly ONE row, the card has
+  // told us precisely which printing it is — that is a stronger identification
+  // than an art match, not a weaker one, because there is nothing left to infer.
+  //
+  // THIS IS THE PATH THAT RESCUES QUEUE ENTRIES 113 AND 114: matched_name was
+  // empty, OCR had read 'L 0295 / MSH * EN' cleanly, and the card queued anyway
+  // because add-or-queue was driven entirely by the matcher.
   if (!all.length) {
+    if (ocr.set && ocr.number) {
+      const exact = await printingBySetNumber(ocr.set, ocr.number);
+      if (exact) {
+        return { action: 'add', printing: exact, ocr, titleName, usedName: exact.name, resolvedBy: 'ocr' };
+      }
+    }
+    // Still nothing to offer. Queues with no candidates exactly as before.
     return { action: 'queue', reason: 'unreadable', candidates: [], ocr, titleName, usedName };
   }
 
