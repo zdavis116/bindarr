@@ -1013,6 +1013,58 @@ async function initDb() {
     )
   `);
 
+  // --- THE SCAN STAGING AREA ---------------------------------------------
+  //
+  // Zach: "instead of auto putting in my collection. Just putting aside and at
+  // the end letting me add all. That way I can ensure no weirdness occurred or
+  // ensure there isn't any dupes." Plus, on presentation: the list should flag
+  // anything suspicious so he knows where to look, rather than handing him a
+  // flat list of sixty rows he will skim.
+  //
+  // SAME SAFETY PROPERTY AS THE REVIEW QUEUE, AND FOR THE SAME REASON. A staged
+  // scan is NOT owned, and a separate table makes that true by construction:
+  // every query that reads `collection` cannot see this data even by accident.
+  // Committing a staged row moves it into `collection` through the normal add
+  // path and deletes it here, so a card is in exactly one state and never both.
+  //
+  // WHY THIS IS NOT JUST A CLIENT-SIDE ARRAY. The scan session must survive a
+  // backgrounded tab, a locked phone, a dropped connection and an accidental
+  // reload. Losing forty scanned cards to a browser event is exactly the silent
+  // data loss this app cannot afford — Zach cannot reconcile a missing card
+  // against a physical stack he has already put away.
+  await run(`
+    CREATE TABLE IF NOT EXISTS scan_staging (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      -- The resolved printing. Unlike the review queue this IS a concrete card:
+      -- staging holds scans we are confident about, and the queue continues to
+      -- hold the ones we are not. Two different questions, two different tables.
+      card_id TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
+      finish TEXT NOT NULL DEFAULT 'nonfoil',
+      condition TEXT NOT NULL DEFAULT 'Near Mint',
+      location_id INTEGER,
+      -- WHY THIS ROW MIGHT DESERVE A SECOND LOOK, or NULL when nothing is odd.
+      -- Computed at stage time and stored, so the review list can lead with the
+      -- rows that need attention instead of making him find them:
+      --   'duplicate_in_session'  the same printing was already staged
+      --   'already_owned'         he already has this printing already
+      --   'low_confidence'        the match was weak enough to be worth a look
+      flag TEXT CHECK(flag IN ('duplicate_in_session', 'already_owned', 'low_confidence')),
+      -- Match confidence at scan time (ORB inliers), kept so the list can sort
+      -- weakest-first and so a bad batch is diagnosable after the fact.
+      match_inliers INTEGER,
+      -- The scan thumbnail. Same reasoning as the review queue: a list of forty
+      -- rows he cannot see the cards for is not reviewable.
+      crop_data_url TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  // Read as "this user's staged scans, oldest first" — the order he scanned
+  // them, which is the order the physical stack is in.
+  await run(`CREATE INDEX IF NOT EXISTS idx_scan_staging_user ON scan_staging(user_id, created_at)`);
+
   // --- PERFORMANCE INDEXES ---
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_comp_user_qty ON collection(compartment_id, user_id, quantity)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_loc_pos ON collection(location_id, position)`);
