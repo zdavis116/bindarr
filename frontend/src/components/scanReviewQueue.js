@@ -76,7 +76,7 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
   // only falls back to the CLIP `name`, so a scan whose artwork was blown out
   // by a torch reflection can still be identified. Either identifier may be
   // empty; the server refuses only when BOTH are.
-  async function submitScan({ name, titleText = '', ocrText = '', crop = null, quantity = 1, printingHint = null, printing, condition, location_id }) {
+  async function submitScan({ name, titleText = '', ocrText = '', crop = null, quantity = 1, printingHint = null, printing, condition, location_id, stage = false, matchInliers = null }) {
     try {
       const body = { name: name || '', title_text: titleText || '', ocr_text: ocrText || '', quantity };
       if (crop) body.crop = crop;
@@ -93,6 +93,10 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
       if (printing !== undefined) body.printing = printing;
       if (condition !== undefined) body.condition = condition;
       if (location_id !== undefined) body.location_id = location_id;
+      // STAGE INSTEAD OF ADD. The resolution is identical; only the destination
+      // changes, so a resolved scan waits in the session until Zach adds it.
+      if (stage) body.stage = true;
+      if (Number.isFinite(matchInliers)) body.match_inliers = matchInliers;
 
       const res = await fetchImpl('/api/scan-resolve', {
         method: 'POST',
@@ -111,6 +115,18 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
         error = null;
         emit();
         return { action: 'added', added: true, card: data.card, entry_id: data.entry_id, ocr: data.ocr };
+      }
+
+      // STAGED: resolved to an exact printing, but NOT in the collection. It
+      // waits in the session for Zach's Add All. `added` stays false so no
+      // caller can mistake a staged card for an owned one.
+      if (data.action === 'staged') {
+        error = null;
+        emit();
+        return {
+          action: 'staged', added: false, card: data.card,
+          staged_id: data.staged_id, flag: data.flag || null, ocr: data.ocr,
+        };
       }
 
       // Queued: NOT in the collection. The badge moves, the collection does not.

@@ -250,4 +250,43 @@ test('F9S-TC19', 'the capture crop leaves margin around the card for edge detect
   assert.match(src, /\(1 \+ 2 \* CROP_PAD\)/);
 });
 
+test('F9S-TC20', 'auto-scan STAGES the card instead of adding it to the collection', () => {
+  // Zach: "instead of auto putting in my collection. Just putting aside and at
+  // the end letting me add all. That way I can ensure no weirdness occurred or
+  // ensure there isn't any dupes."
+  //
+  // The auto path must ask the server to STAGE. Without this flag the server
+  // adds directly and the whole feature is invisible — the session badge would
+  // sit at zero while cards silently entered the collection, which is the exact
+  // behaviour he asked to be rid of.
+  assert.match(src, /stage: true/,
+    'the auto-scan path must send stage:true or resolved cards go straight into the collection');
+
+  // The staged outcome has to be handled, or a staged scan falls through to the
+  // error branch and looks like a failed scan.
+  assert.match(src, /outcome\.action === 'staged'/);
+
+  // Match strength travels with the scan so the server can flag a weak match.
+  assert.match(src, /match_inliers:/);
+});
+
+test('F9S-TC21', 'the session is visible IN FRAME, not below the camera', () => {
+  // The review queue silently reached six entries because its banner rendered
+  // below the preview, and in fullscreen the camera covers the screen. A
+  // session Zach cannot see is one he cannot trust is holding his stack.
+  const badge = src.indexOf("t('scan.stagingBadge'");
+  assert.ok(badge > 0, 'the session badge must exist');
+
+  // It must live inside the PREVIEW WRAPPER — the element that becomes
+  // fullscreen — alongside the in-frame status pill and the queue badge.
+  // Anything rendered after that wrapper closes is off-screen on a phone.
+  const wrapper = src.indexOf('camera-preview-wrapper camera-active');
+  const reviewScreen = src.indexOf('<ScanStagingReview');
+  assert.ok(wrapper > 0, 'the fullscreen preview wrapper must exist');
+  assert.ok(badge > wrapper && badge < reviewScreen,
+    'the session badge must render inside the fullscreen preview wrapper');
+
+  assert.match(src, /setShowStaging\(true\)/, 'the badge must open the review screen');
+});
+
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);

@@ -357,7 +357,7 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
 // There is no third branch and no "most likely" fallback.
 router.post('/scan-resolve', async (req, res) => {
   try {
-    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity } = req.body || {};
+    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity, stage } = req.body || {};
     // NAME IS NO LONGER REQUIRED, and that is the point of PR 11.
     //
     // It used to be, because CLIP's match was the only way to identify a card.
@@ -420,6 +420,35 @@ router.post('/scan-resolve', async (req, res) => {
     });
 
     if (outcome.action === 'add') {
+      // STAGE INSTEAD OF ADDING, when the client asks for it.
+      //
+      // Zach: "instead of auto putting in my collection. Just putting aside and
+      // at the end letting me add all. That way I can ensure no weirdness
+      // occurred or ensure there isn't any dupes."
+      //
+      // The RESOLUTION is unchanged — the same identity rules decide the same
+      // printing. Only the destination moves: `scan_staging` instead of
+      // `collection`, so nothing is owned until he presses Add All. Opt-in via
+      // the request rather than a server default so the existing direct-add
+      // behaviour, and every test that covers it, is untouched.
+      if (stage) {
+        const staged = await stageScannedCard({
+          userId: req.user.id,
+          body: req.body,
+          cardId: outcome.printing.id,
+          quantity: qty,
+          crop,
+          matchInliers: Number.isFinite(req.body?.match_inliers) ? req.body.match_inliers : null,
+        });
+        return res.json({
+          action: 'staged',
+          staged_id: staged.id,
+          flag: staged.flag,
+          card: parseCardRow(outcome.printing),
+          ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
+          resolved_by: outcome.titleName && outcome.usedName === outcome.titleName ? 'title' : 'clip',
+        });
+      }
       // FINISH IS NEVER INFERRED FROM THE IMAGE (plan task G2). Special
       // treatments share artwork AND collector numbers with the standard
       // printing, so no still image can tell them apart. The finish used is
@@ -593,38 +622,18 @@ router.post('/scan-stage', async (req, res) => {
     const card = await db.get(`SELECT id, name FROM card_cache WHERE id = ?`, [card_id]);
     if (!card) return res.status(400).json({ error: 'Unknown card_id' });
 
-    // WORK OUT WHETHER THIS ROW DESERVES ATTENTION, at stage time.
-    //
-    // Computed now and stored rather than derived when the list renders: the
-    // answer depends on the state of the session AT THE MOMENT OF THE SCAN
-    // ("was this already staged when I scanned it?"), and recomputing later
-    // against a mutated session would silently change what he is being told.
-    let flag = null;
-    const dup = await db.get(
-      `SELECT id FROM scan_staging WHERE user_id = ? AND card_id = ? AND finish = ?`,
-      [req.user.id, card_id, finish || 'nonfoil']);
-    if (dup) {
-      flag = 'duplicate_in_session';
-    } else {
-      const owned = await db.get(
-        `SELECT id FROM collection WHERE user_id = ? AND card_id = ? AND finish = ? AND list_type = 'collection'`,
-        [req.user.id, card_id, finish || 'nonfoil']);
-      if (owned) flag = 'already_owned';
-    }
-    // A weak match outranks the others: it questions whether this is even the
-    // right card, where the others only say "you have one already", which is
-    // perfectly normal for a collection.
-    if (Number.isFinite(match_inliers) && match_inliers < 25) flag = 'low_confidence';
+    // Flagging lives in stageScannedCard so this endpoint and /scan-resolve's
+    // stage mode cannot drift apart on what a flag means.
+    const staged = await stageScannedCard({
+      userId: req.user.id,
+      body: { finish, condition, location_id },
+      cardId: card_id,
+      quantity: qty,
+      crop,
+      matchInliers: Number.isFinite(match_inliers) ? match_inliers : null,
+    });
 
-    const ins = await db.run(
-      `INSERT INTO scan_staging
-         (user_id, card_id, quantity, finish, condition, location_id, flag, match_inliers, crop_data_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, card_id, qty, finish || 'nonfoil', condition || 'Near Mint',
-       location_id || null, flag, Number.isFinite(match_inliers) ? match_inliers : null,
-       typeof crop === 'string' ? crop.slice(0, 200000) : null]);
-
-    res.json({ staged: true, id: ins.lastID, card_id, name: card.name, flag });
+    res.json({ staged: true, id: staged.id, card_id, name: card.name, flag: staged.flag });
   } catch (error) {
     if (error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });
@@ -775,6 +784,50 @@ router.delete('/scan-stage', async (req, res) => {
     res.status(500).json({ error: 'Failed to clear staged scans' });
   }
 });
+
+// Put a resolved scan into the staging session, and work out whether the row
+// deserves a second look.
+//
+// SHARED by /scan-stage and by /scan-resolve's stage mode, so the flag rules
+// exist in exactly one place. Two copies would drift, and a flag that means
+// something different depending on which endpoint created it is worse than no
+// flag at all.
+//
+// FLAGS ARE COMPUTED NOW AND STORED, not derived when the list renders: the
+// answer depends on the state of the session AT THE MOMENT OF THE SCAN ("was
+// this already staged when I scanned it?"), and recomputing later against a
+// mutated session would silently change what Zach is being told.
+async function stageScannedCard({ userId, body = {}, cardId, quantity, crop, matchInliers }) {
+  const finish = body.finish || body.printing || 'nonfoil';
+  const condition = body.condition || 'Near Mint';
+  const locationId = body.location_id || null;
+
+  let flag = null;
+  const dup = await db.get(
+    `SELECT id FROM scan_staging WHERE user_id = ? AND card_id = ? AND finish = ?`,
+    [userId, cardId, finish]);
+  if (dup) {
+    flag = 'duplicate_in_session';
+  } else {
+    const owned = await db.get(
+      `SELECT id FROM collection WHERE user_id = ? AND card_id = ? AND finish = ? AND list_type = 'collection'`,
+      [userId, cardId, finish]);
+    if (owned) flag = 'already_owned';
+  }
+  // A weak match outranks the others: it questions whether this is even the
+  // right card, where the others only say "you have one already" — which is a
+  // perfectly normal thing for a collector to do on purpose.
+  if (Number.isFinite(matchInliers) && matchInliers < 25) flag = 'low_confidence';
+
+  const ins = await db.run(
+    `INSERT INTO scan_staging
+       (user_id, card_id, quantity, finish, condition, location_id, flag, match_inliers, crop_data_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, cardId, quantity, finish, condition, locationId, flag,
+     Number.isFinite(matchInliers) ? matchInliers : null,
+     typeof crop === 'string' ? crop.slice(0, 200000) : null]);
+  return { id: ins.lastID, flag };
+}
 
 // Build/verify a per-set ORB index
 router.post('/prepare-set', searchLimiter, async (req, res) => {
