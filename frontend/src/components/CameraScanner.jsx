@@ -151,6 +151,29 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 const SCAN_RETRY_REJECTED_MS = 350;
 const SCAN_RETRY_SETTLE_MS = 900;
 const SCAN_RETRY_ERROR_MS = 2500;
+// HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
+//
+// Zach: "I think our zoom needs to mimic mana boxes I think we are zoomed to
+// far out."
+//
+// MEASURED, NOT PICKED. On the real preview pixels from his screenshot the card
+// filled 41% of the width and 18% OF THE FRAME AREA — four fifths of every
+// captured pixel was desk. Everything downstream lives on that pixel budget:
+// the art matcher's features, and the collector number, which is a ~2mm-tall
+// line of text that has to survive all the way to OCR.
+//
+// 0.75 / 0.41 is ~1.8x to put the card across three quarters of the short axis.
+//
+// WHY NOT MORE. The detector needs visible margin AROUND the card to find its
+// border — that was PR #38, where a card filling the crop dropped collector
+// number reads from 8/8 to 1/8. Filling the frame edge to edge would trade this
+// bug for that one. 1.8x leaves roughly an eighth of the frame as margin on
+// each side.
+//
+// WHY NOT LESS THAN 1.0, EVER: below 1.0 iOS switches to the ULTRA-WIDE lens,
+// which is softer and lower resolution. See the lens pin in startCamera.
+const SCAN_ZOOM = 1.8;
+
 // THE CANCEL WINDOW before an auto-add commits. Lowered 2 -> 1.
 //
 // Two seconds per card is 33 seconds across a 100-card stack, spent watching a
@@ -852,7 +875,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       };
 
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      // PIN THE LENS TO THE MAIN WIDE CAMERA.
+      // PIN THE LENS TO THE MAIN WIDE CAMERA, AND ZOOM IN TO FILL THE FRAME.
       //
       // On a multi-lens iPhone WebKit hands the page a VIRTUAL camera whose web
       // zoom domain is [0.5, 10] (cameraZoomScaleFactor() is 2.0 for
@@ -863,6 +886,23 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // whatever factor the device happens to be sitting at, and worse, iOS
       // hands off to the ultra-wide for MACRO when the subject is close — i.e.
       // exactly when a card is filling the frame, which is every scan.
+      //
+      // WHY 1.0 WAS NOT ENOUGH. Pinning to exactly 1.0 fixed the lens but left
+      // us at the WIDEST non-ultra-wide setting, and Zach: "I think our zoom
+      // needs to mimic mana boxes I think we are zoomed to far out." Measured on
+      // his screenshot, the card filled 41% of the preview's width and 18% OF
+      // ITS AREA — so more than four fifths of every captured pixel was desk.
+      // That is the pixel budget the art matcher and the collector-number OCR
+      // both have to live on, and it is why the number kept coming back short.
+      //
+      // SCAN_ZOOM targets the card filling ~75% of the short axis: 0.75 / 0.41
+      // is ~1.8x. It deliberately stops short of filling the frame because the
+      // detector NEEDS margin around the card to find its border at all — that
+      // was PR #38, and cranking zoom to the point where the card is edge to
+      // edge would reintroduce exactly that bug.
+      //
+      // Clamped into the device's real range, and never below 1.0, so the lens
+      // pin still holds on hardware with a narrower zoom range.
       //
       // applyConstraints (not getUserMedia) because zoom must be applied after
       // the resolution preset has settled; WebKit re-derives the zoom range from
@@ -879,7 +919,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
         if (caps.zoom && typeof zoomTrack.applyConstraints === 'function') {
           // Clamp into the device's real range: min can exceed 1.0 on hardware
           // that has no ultra-wide, and asking below min is an error there.
-          const target = Math.min(Math.max(1.0, caps.zoom.min ?? 1.0), caps.zoom.max ?? 1.0);
+          const lo = Math.max(1.0, caps.zoom.min ?? 1.0);
+          const hi = caps.zoom.max ?? lo;
+          const target = Math.min(Math.max(lo, SCAN_ZOOM), hi);
           await zoomTrack.applyConstraints({ advanced: [{ zoom: target }] });
         }
       } catch {
