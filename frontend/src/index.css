@@ -1009,12 +1009,26 @@ button, input, select, textarea {
 }
 
 /* Card-shaped aim box, centered by .camera-overlay's flex. Height-driven at card
-   ratio so it stays card-shaped whatever the preview box aspect is, with margin
-   so the card doesn't sit tight against the frame. */
+   ratio so it stays card-shaped whatever the preview box aspect is.
+
+   THE BOX OUTLINES THE CARD ITSELF, and the ratio is the real one. 5/7 (0.714)
+   was close but a Magic card is 63x88mm = 0.716; at this size that is under a
+   pixel, but the same constant is used to reason about the crop so it is worth
+   being the true number rather than an approximation that invites drift.
+
+   WHY IT IS BIGGER THAN IT WAS (72% -> 86% of height). Zach's scan screenshot
+   measured the card at 46% of frame width inside a box at 87% — the card was
+   filling barely half the box, so "it's inside the dashed lines" read as
+   correctly framed while actually throwing away half the available resolution.
+   A box the size of a card makes the instruction honest: fill it.
+
+   The MARGIN the detector needs does NOT come from this box being loose — it is
+   added at crop time (CROP_PAD in CameraScanner.jsx), so the user can fill the
+   outline completely and the uploaded image still contains the card's border. */
 .scan-card-guide {
-  height: 72%;
-  aspect-ratio: 5 / 7;
-  max-width: 88%;
+  height: 86%;
+  aspect-ratio: 63 / 88;
+  max-width: 92%;
   border: 2px dashed rgba(255, 255, 255, 0.4);
   border-radius: var(--radius-md);
   position: relative;
