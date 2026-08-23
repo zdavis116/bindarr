@@ -993,7 +993,11 @@ async function initDb() {
       --   'unreadable'   OCR could not read a number it expected to find
       --   'no_number'    the card's frame prints no collector number at all
       --   'ambiguous'    the read matched several catalogue printings
-      reason TEXT NOT NULL CHECK(reason IN ('unreadable', 'no_number', 'ambiguous')),
+      -- 'disagreement' is the newest: the art matched one card and the printed
+      -- collector strip resolved to a DIFFERENT real one. Zach: "it should flag
+      -- with the option to chose the set+number". Both readings go in front of
+      -- him and he picks; the app does not silently prefer either.
+      reason TEXT NOT NULL CHECK(reason IN ('unreadable', 'no_number', 'ambiguous', 'disagreement')),
       -- The OCR read, kept verbatim for debugging and so the UI can show what
       -- it thought it saw. TEXT, never INTEGER: Scryfall collector numbers are
       -- strings ('123a', 'A-12', 'GR1', '1508').
@@ -1064,6 +1068,58 @@ async function initDb() {
   // Read as "this user's staged scans, oldest first" — the order he scanned
   // them, which is the order the physical stack is in.
   await run(`CREATE INDEX IF NOT EXISTS idx_scan_staging_user ON scan_staging(user_id, created_at)`);
+
+  // --- MIGRATION: allow the 'disagreement' queue reason -------------------
+  //
+  // The CHECK constraint above is only applied when the table is CREATED, and
+  // every existing database already has one that lists three reasons. Writing a
+  // 'disagreement' row against those would fail the insert — and the scan path
+  // catches insert failures, so the card would vanish instead of reaching the
+  // queue. A schema change that silently drops a scanned card is worse than the
+  // bug it was meant to fix.
+  //
+  // SQLite cannot ALTER a CHECK constraint, so the table is rebuilt: create the
+  // new shape, copy every row across, swap. Guarded on the constraint text so it
+  // runs exactly once and is a no-op on a fresh database.
+  try {
+    const existing = await get(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='scan_review_queue'`);
+    if (existing?.sql && !existing.sql.includes('disagreement')) {
+      await run('PRAGMA foreign_keys=OFF');
+      await run(`
+        CREATE TABLE scan_review_queue_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          matched_name TEXT NOT NULL,
+          reason TEXT NOT NULL CHECK(reason IN ('unreadable', 'no_number', 'ambiguous', 'disagreement')),
+          ocr_number TEXT,
+          ocr_set TEXT,
+          ocr_confident INTEGER NOT NULL DEFAULT 0,
+          ocr_raw TEXT,
+          candidates_json TEXT NOT NULL,
+          crop_data_url TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await run(`
+        INSERT INTO scan_review_queue_new
+          (id, user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident,
+           ocr_raw, candidates_json, crop_data_url, created_at)
+        SELECT id, user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident,
+               ocr_raw, candidates_json, crop_data_url, created_at
+          FROM scan_review_queue
+      `);
+      await run('DROP TABLE scan_review_queue');
+      await run('ALTER TABLE scan_review_queue_new RENAME TO scan_review_queue');
+      await run('PRAGMA foreign_keys=ON');
+      console.log('Migrated scan_review_queue to allow the disagreement reason.');
+    }
+  } catch (e) {
+    // A failed migration must not stop the app booting: the old constraint still
+    // works for the three existing reasons, and a disagreement would queue as
+    // ambiguous instead of being lost.
+    console.warn('scan_review_queue reason migration skipped:', e.message);
+  }
 
   // --- PERFORMANCE INDEXES ---
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_comp_user_qty ON collection(compartment_id, user_id, quantity)`);

@@ -111,18 +111,59 @@ async function main() {
 
   // --- FOF-TC4: THE FALLBACK IS A FALLBACK, NOT AN OVERRIDE ----------------
   //
-  // When the matcher DOES identify the card, the existing path must decide.
-  // 100% of clean-image identification depends on that route, and this change
-  // must not be able to move it.
+  // When the matcher DOES identify the card, the existing path decides. 100% of
+  // clean-image identification depends on that route.
+  //
+  // REVISED FOR THE DISAGREEMENT RULE. This case originally sent a matcher hit
+  // for Canyon Crawler alongside a strip reading 'MSH 0295' — a DIFFERENT real
+  // card — and asserted 'added', because at the time the strip could not
+  // contradict the matcher at all.
+  //
+  // That is exactly the bug Zach hit: he scanned H.E.R.B.I.E. Scout Unit
+  // (msh #247) and the app staged Jeskai Windscout (ktk #44). Two blue fliers,
+  // the strip said msh, nothing compared them, and the wrong card entered
+  // staging looking as clean as the right ones. His rule: "it should flag with
+  // the option to chose the set+number."
+  //
+  // So a strip pointing at a different real card must now QUEUE with both
+  // readings, and that is asserted in FOF-TC5. What this case still protects is
+  // the property in its title: OCR does not override a successful match. Here
+  // the strip AGREES with the matcher, and agreement must add without asking.
   {
     const r = await api('/api/scan-resolve', {
       name: 'Canyon Crawler',                     // matcher worked
-      ocr_text: 'L 0295\nMSH \u2022 EN',           // OCR says something ELSE
+      ocr_text: 'L 0090\nTLA \u2022 EN',           // and the strip says the same card
     });
-    assert.strictEqual(r.body.action, 'added');
+    assert.strictEqual(r.body.action, 'added', JSON.stringify(r.body));
     assert.strictEqual(r.body.card.id, 'tla-090',
-      'the matcher\'s card must win when it identified one — OCR is only the fallback');
-    pass('FOF-TC4', 'the OCR fallback never overrides a successful match');
+      'when the strip agrees with the matcher, the card is added without asking');
+    pass('FOF-TC4', 'a strip that agrees with the match adds without a prompt');
+  }
+
+  // --- FOF-TC5: A DISAGREEMENT IS FLAGGED, NOT DECIDED --------------------
+  //
+  // THE H.E.R.B.I.E. CASE. The art matched one card; the printed collector strip
+  // resolves to a different REAL one. Neither silently wins:
+  //
+  //   - overriding would swap one card for another with no visible trace, and a
+  //     silent swap cannot be reconciled against a physical stack.
+  //   - ignoring the strip is what put the wrong card in staging.
+  //
+  // Both go in front of Zach, strip answer first, and he picks in one tap.
+  {
+    const r = await api('/api/scan-resolve', {
+      name: 'Canyon Crawler',                     // the art says this
+      ocr_text: 'L 0295\nMSH \u2022 EN',           // the CARD says this
+    });
+    assert.strictEqual(r.body.action, 'queued',
+      `a strip pointing at a different real card must not add silently: ${JSON.stringify(r.body)}`);
+    assert.strictEqual(r.body.reason, 'disagreement');
+    const ids = (r.body.candidates || []).map(c => c.id);
+    assert.strictEqual(ids[0], 'msh-295',
+      'the strip’s answer is offered FIRST — the card stating its own catalogue address');
+    assert.ok(ids.includes('tla-090'),
+      'and the art match is still offered, so he can choose it');
+    pass('FOF-TC5', 'art vs printed number disagreement queues with both, strip first');
   }
 
   console.log(`\nscan_ocr_fallback.test.js: ${passed} cases passed`);

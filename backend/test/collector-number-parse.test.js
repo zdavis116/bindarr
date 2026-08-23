@@ -178,5 +178,62 @@ check('F8P-TC16', 'the OCR rectify size keeps the collector number above the eng
     `the rectify target must keep the card aspect, got ${aspect.toFixed(3)}`);
 });
 
+check('F8P-TC17', 'a read that cannot be a collector number is never confident', () => {
+  // FROM ZACH'S REAL SCANS. Both of these came back confident=true:
+  //     'D294'   (a Marvel land, the L misread as D)
+  //     'M0069'  (mythic 69, rarity letter glued to the digits)
+  //
+  // Neither is a collector number. The danger is not the misread itself — it is
+  // reporting it as CONFIDENT, because the OCR fallback adds a card outright on
+  // a confident set+number. The review queue exists for "we don't know"; it
+  // cannot catch "we're sure and wrong".
+  //
+  // The two cases are genuinely different and must behave differently:
+  //   M0069 is RECOVERABLE — M is a real rarity, so numberAlt offers 69 and the
+  //         resolver tries both readings against the catalogue.
+  //   D294  is NOT — D is not a rarity, so there is no alternative reading and
+  //         the literal 'D294' can never match a row.
+  const bad = parseCollectorStrip('D294\nRvryg Sat');
+  assert.strictEqual(bad.confident, false,
+    `'D294' has no recoverable reading and must not be confident, got ${JSON.stringify(bad)}`);
+  assert.strictEqual(bad.numberAlt, null);
+
+  const recoverable = parseCollectorStrip('M0069\nMSH EN CHRIS');
+  assert.strictEqual(recoverable.confident, true,
+    'a rarity-prefixed number IS recoverable via numberAlt and stays confident');
+  assert.strictEqual(recoverable.numberAlt, '69');
+
+  // And the ordinary shapes must be untouched by the guard.
+  assert.strictEqual(parseCollectorStrip('L 0295\nMSH EN').confident, true);
+  assert.strictEqual(parseCollectorStrip('0287').confident, true);
+  assert.strictEqual(parseCollectorStrip('263a').confident, true,
+    'letter SUFFIXES are real collector numbers (263a) and must stay confident');
+});
+
+check('F8P-TC18', 'a truncated read is reported but not trusted', () => {
+  // Caught by the distant-card fixture when the strip window was widened: a
+  // Sol Ring #263 read as '26} \' and reported number=26, confident=true.
+  // '26' is a real collector number, so nothing downstream could tell it was
+  // wrong. The tell is the debris glued to the digits.
+  const clipped = parseCollectorStrip('26} \\\nC21 + EN Mint Burris');
+  assert.strictEqual(clipped.number, '26', 'the number is still REPORTED — it is evidence');
+  assert.strictEqual(clipped.confident, false, 'but nothing may act on it alone');
+});
+
+check('F8P-TC19', 'every set-shaped token is offered, not just the first', () => {
+  // Zach: "You should use all information possible."
+  //
+  // Measured on 20 real scans, the FIRST set-shaped token is wrong on five:
+  // 'turn' off the rules text, 'wml'/'stey'/'dan' off the artist line, 'teens'
+  // out of noise. The parser has no catalogue and cannot judge, so it returns
+  // everything it saw and the RESOLVER validates against real printings.
+  const p = parseCollectorStrip('turn.\nR 0213\nMSH + EN he DAN Bi');
+  assert.ok(Array.isArray(p.setCandidates));
+  assert.ok(p.setCandidates.includes('msh'),
+    `the real set must be among the candidates, got ${JSON.stringify(p.setCandidates)}`);
+  assert.ok(p.setCandidates.length > 1,
+    'and the wrong first guess must not be the only option offered');
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);

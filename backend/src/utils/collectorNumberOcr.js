@@ -106,7 +106,36 @@ const sharp = require('sharp');
 // Zach's collection is 90%+ post-2007, so a second crop position for old frames
 // would be real work for a tenth of the cards; revisit only if the queue proves
 // tedious in practice.
-const STRIP = { left: 0.02, top: 0.924, width: 0.28, height: 0.055 };
+// WHERE THE COLLECTOR NUMBER SITS on a rectified card, as fractions.
+//
+// MEASURED ON 20 REAL FULL-RESOLUTION SCANS from Zach's phone, swept through the
+// REAL production path (rectifyCard at OCR_W x OCR_H, then this crop, then
+// tesseract). Scored on whether a plausible collector number came back:
+//
+//     top=0.900 h=0.090   17/20   <- this
+//     top=0.920 h=0.070   15/20
+//     top=0.930 h=0.055   14/20
+//     top=0.924 h=0.055   12/20   <- what shipped before
+//     top=0.955 h=0.040    4/20
+//
+// WHY IT IS TALL RATHER THAN TIGHT. The rectify lands the strip at a slightly
+// different height on every photo — it depends on where detectCard put the quad,
+// which depends on the angle, the lighting and the card. A tall window catches
+// the strip wherever it lands; a narrow one is only correct for the average card
+// and misses on either side of it, however well its centre is chosen. The extra
+// height costs a few milliseconds of OCR and buys five more cards in twenty.
+//
+// HOW THE PREVIOUS NUMBERS GOT THERE, AND THE TRAP TO AVOID. They were measured
+// on the 220x308 REVIEW-QUEUE THUMBNAIL, upscaled — a ninth of the resolution
+// the phone actually uploads. That measurement said the text sat at 0.969-0.999
+// and pointed at top=0.955, which scores 4/20: THREE TIMES WORSE than what it
+// would have replaced. A worse compounding error hid underneath it: the test
+// harness called rectifyCard(buf, 1500, 2100) positionally against a function
+// that takes an options object, so every sweep silently ran against the 500x700
+// default while production used 1500x2100.
+//
+// Measure through the real route, on real input, or do not measure.
+const STRIP = { left: 0.02, top: 0.920, width: 0.28, height: 0.075 };
 
 // The matcher's rectified size (scanMatch.js). NOT changed here.
 const CARD_ASPECT = 2.5 / 3.5;
@@ -184,13 +213,18 @@ async function cropCollectorStrip(imageBuffer) {
   const w = OCR_W;
   const h = OCR_H;
   const rect = await sharp(imageBuffer).resize(w, h, { fit: 'fill' }).toBuffer();
+  // CLAMPED TO THE IMAGE, and this is not defensive padding — it is a real bug
+  // that has already cost a day. A window whose top+height rounds past the last
+  // row makes sharp throw 'extract_area: bad extract area', readCollectorStrip
+  // catches it and returns '', and the queue row then reads ocr_raw='' — which
+  // is INDISTINGUISHABLE from "the text was there but unreadable". A crash that
+  // disguises itself as a bad photograph sends you looking at the camera.
+  const top = Math.min(Math.round(STRIP.top * h), h - 1);
+  const left = Math.min(Math.round(STRIP.left * w), w - 1);
+  const height = Math.max(1, Math.min(Math.round(STRIP.height * h), h - top));
+  const width = Math.max(1, Math.min(Math.round(STRIP.width * w), w - left));
   return sharp(rect)
-    .extract({
-      left: Math.round(STRIP.left * w),
-      top: Math.round(STRIP.top * h),
-      width: Math.round(STRIP.width * w),
-      height: Math.round(STRIP.height * h),
-    })
+    .extract({ left, top, width, height })
     // Small white-on-black text; contrast normalisation measurably helps.
     .greyscale().normalise().sharpen().png().toBuffer();
 }

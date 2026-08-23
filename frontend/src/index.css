@@ -1025,14 +1025,31 @@ button, input, select, textarea {
    The MARGIN the detector needs does NOT come from this box being loose — it is
    added at crop time (CROP_PAD in CameraScanner.jsx), so the user can fill the
    outline completely and the uploaded image still contains the card's border. */
+/* THE AIM BOX IS INVISIBLE.
+   Zach: "please remove the dotted lines from appearing at this point."
+
+   The ELEMENT stays and is deliberately not deleted. It defines the crop region
+   (cropGuideRegion measures this node) and it carries the drag/rotate/scale
+   gestures, so removing it would take the capture geometry with it. Only its
+   PAINT is removed.
+
+   Why it should not be drawn: a fixed dashed rectangle is an INSTRUCTION —
+   "put the card here" — and it was lying. Zach's card sat at 46% of the frame
+   width inside a box drawn at 87%, so "it's inside the lines" looked correct
+   while throwing away half the resolution. The live outline is the honest
+   signal because it reports what the app actually found, and showing both at
+   once means one of them is always wrong.
+
+   The dimming shadow goes with it: with nothing drawn to dim towards, a dark
+   vignette over a live camera is just a worse preview. */
 .scan-card-guide {
   height: 86%;
   aspect-ratio: 63 / 88;
   max-width: 92%;
-  border: 2px dashed rgba(255, 255, 255, 0.4);
+  border: none;
   border-radius: var(--radius-md);
   position: relative;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); /* Dim outside scanner */
+  background: transparent;
 }
 
 
