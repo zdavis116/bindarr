@@ -200,10 +200,27 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
     }
   }
 
+  // Record that the server staged a card, WITHOUT re-reading the session.
+  //
+  // The scanner used to call refresh() after every scan, which pulled every
+  // staged row and its thumbnail back over the network — a second round trip per
+  // card that got slower as the stack grew. The badge only needs a COUNT, and
+  // the server already told us the row was created in the scan response, so this
+  // is bookkeeping on a fact rather than a local guess.
+  //
+  // refresh() still reconciles against the server whenever the review screen
+  // opens, which is the only moment the contents are actually looked at.
+  function noteStaged(flag) {
+    stagedCount += 1;
+    if (flag) flaggedCount += 1;
+    emit();
+  }
+
   return {
     getState: state,
     refresh,
     stage,
+    noteStaged,
     updateEntry,
     discardEntry,
     commitAll,

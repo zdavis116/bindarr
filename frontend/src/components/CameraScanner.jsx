@@ -149,7 +149,7 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 // ERROR (the scan threw). Back off further: hammering a failing server makes
 // it worse, and the failure is unlikely to clear within one tick.
 const SCAN_RETRY_REJECTED_MS = 350;
-const SCAN_RETRY_SETTLE_MS = 900;
+const SCAN_RETRY_SETTLE_MS = 400;
 const SCAN_RETRY_ERROR_MS = 2500;
 // HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
 //
@@ -1674,7 +1674,20 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     // No countdown and no cancel modal on this path: staging is
                     // already the undo. Interrupting every scan to confirm a
                     // reversible action would be the slowness he asked me to fix.
-                    staging.refresh();
+                    // THE BADGE MOVES WITHOUT RE-READING THE LIST.
+                    //
+                    // This used to call staging.refresh(), which pulled EVERY
+                    // staged row and its thumbnail back over Tailscale after
+                    // every single scan — a second round trip that grows with
+                    // the stack, so scan sixty was slower than scan two. The
+                    // list itself is only looked at when the review screen
+                    // opens, and it re-reads on mount.
+                    //
+                    // noteStaged bumps the counter from what the server already
+                    // told us in THIS response, so the badge stays honest for
+                    // free. It is not a local guess: the row exists because the
+                    // server said 'staged'.
+                    staging.noteStaged(outcome.flag);
                     setRecentScans(prev => [{
                       ...outcome.card, card_id: outcome.card?.id, entry_id: null,
                       quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,

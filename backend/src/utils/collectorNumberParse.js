@@ -133,6 +133,8 @@ function parseCollectorStrip(raw) {
 
   let number = null;
   let set = null;
+  // Every set-shaped token seen, in reading order. See the collection loop.
+  const setCandidates = [];
 
   for (const line of lines) {
     const tokens = line.split(/[\s,]+/).filter(Boolean);
@@ -173,22 +175,82 @@ function parseCollectorStrip(raw) {
       if (/^\d+$/.test(tok)) continue;          // all digits = a number, not a set
       if (!/[a-z]/i.test(tok)) continue;        // a set code has letters
       if (number != null && tok === number) continue;
-      set = low;
-      break;
+      if (!set) set = low;
+      // COLLECT EVERY PLAUSIBLE SET CODE, not just the first one.
+      //
+      // Zach: "You should use all information possible."
+      //
+      // Measured on 20 real scans, the first set-shaped token is WRONG on 5 of
+      // them: 'wml' and 'turn' were lifted off the artist line, 'mma' out of
+      // noise, 'msi' is 'MSH' misread and 'mshen' is 'MSH*EN' glued together.
+      // Returning only the first means those five are indistinguishable from a
+      // correct read — and 'mma' is a REAL set, so the OCR fallback would add a
+      // genuine card that is not the one in his hand.
+      //
+      // The parser cannot tell which token is the set: it has no catalogue. So
+      // it stops guessing and hands back everything it saw, in reading order.
+      // The RESOLVER picks, because it is the layer that can ask whether
+      // set+number actually resolves to a card. This is the same division of
+      // labour the rest of the file already uses — parse here, validate there.
+      if (!setCandidates.includes(low)) setCandidates.push(low);
     }
-    if (set) break;
   }
 
   // Confidence: a number was found in a recognised shape. The set code is a
   // bonus that NARROWS the lookup; its absence does not by itself make the
   // read untrustworthy, because name+number is often already unique.
-  const confident = number != null;
+  //
+  // ...BUT A TRUNCATED READ IS NOT CONFIDENT.
+  //
+  // Caught by FOCR-TC0 when the strip window was made taller: a distant Sol Ring
+  // (#263) read as "26} \" and reported number=26, confident=true. The taller
+  // window catches the strip on more cards, and the cost is that it sometimes
+  // catches it PARTIALLY — clipping the last digit and misreading the sliced
+  // glyph as punctuation.
+  //
+  // "26" is a real collector number, so nothing downstream can tell it is wrong,
+  // and a confident wrong number is the one failure this pipeline must not
+  // produce: the review queue exists for "we don't know", it cannot catch "we're
+  // sure and wrong".
+  //
+  // THE TELL is that the digits came glued to junk. A clean read is "0288" or
+  // "L 0295"; a clipped one is "26}" or "26} \". So when the token the number
+  // came from carried non-alphanumeric debris directly against the digits, the
+  // number is still REPORTED — it is real information and the resolver may still
+  // find it useful — but it is not marked confident, so nothing adds on it
+  // alone.
+  const digitsGluedToJunk = number != null
+    && new RegExp(`${number}[^0-9a-zA-Z\\s/]`).test(String(raw || ''));
+  // ...AND A NUMBER THAT IS NOT A NUMBER IS NOT CONFIDENT EITHER.
+  //
+  // Measured on Zach's real scans: 'D294' and 'M0069' were both reported with
+  // confident=true. Neither is a collector number — the rarity letter came back
+  // glued to the digits with no space, which OCR does routinely.
+  //
+  // 'M0069' is recoverable: M is a real rarity (mythic), so numberAlt offers 69
+  // and the resolver tries both. 'D294' is NOT: D is not a rarity at all, it is
+  // a misread of the L on a Marvel land, so there is no alternative reading and
+  // the literal 'D294' will never match a catalogue row.
+  //
+  // Rather than special-case D — the next scan will invent a different letter —
+  // the rule is structural: if the token still carries a non-digit head after
+  // the rarity strip has had its chance, we did not actually read a number.
+  // Report it, because the raw text is still evidence, but do not let anything
+  // act on it alone.
+  const numberIsClean = number == null
+    || /^\d+[a-z]?$/i.test(String(number))
+    || rarityStrippedAlternative(number) != null;
+  const confident = number != null && !digitsGluedToJunk && numberIsClean;
   // `numberAlt` is a SECOND CANDIDATE READING, not a correction (see
   // RARITY_PREFIXED_NUMBER above). `number` is always exactly what was read.
   return {
     number,
     numberAlt: rarityStrippedAlternative(number),
     set,
+    // EVERY set-shaped token, for the resolver to validate against the
+    // catalogue. `set` stays as the first one so existing callers are
+    // unchanged; setCandidates is what lets a caller do better.
+    setCandidates,
     confident,
     raw: String(raw || ''),
   };

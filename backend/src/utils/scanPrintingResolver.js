@@ -350,10 +350,55 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   // empty, OCR had read 'L 0295 / MSH * EN' cleanly, and the card queued anyway
   // because add-or-queue was driven entirely by the matcher.
   if (!all.length) {
-    if (ocr.set && ocr.number) {
-      const exact = await printingBySetNumber(ocr.set, ocr.number);
-      if (exact) {
-        return { action: 'add', printing: exact, ocr, titleName, usedName: exact.name, resolvedBy: 'ocr' };
+    // THE OCR FALLBACK, using EVERY set code the strip offered.
+    //
+    // Zach: "If we have both set and number we should just use OCR as the
+    // fallback", and "You should use all information possible."
+    //
+    // parseCollectorStrip cannot tell which token is the set — it has no
+    // catalogue — so it hands back every set-shaped token it saw. Measured on 20
+    // real scans the FIRST one is wrong on five: 'wml' and 'turn' came off the
+    // artist line, 'mma' out of noise, 'msi' is 'MSH' misread, 'mshen' is
+    // 'MSH*EN' glued together. Taking the first would have fed 'mma 213' to the
+    // catalogue — and mma IS a real set, so that resolves to a REAL CARD THAT IS
+    // NOT THE ONE IN HIS HAND.
+    //
+    // So every candidate is tried and the catalogue is the judge. The safety
+    // property is unchanged and is what makes trying several safe: a candidate
+    // only wins if set+number resolves to EXACTLY ONE printing, and if two
+    // different candidates each resolve, that is ambiguity and it queues rather
+    // than picking. More signal, not looser rules.
+    if (ocr.number) {
+      const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+      const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
+      const hits = [];
+      for (const code of codes) {
+        for (const num of numbers) {
+          const exact = await printingBySetNumber(code, num);
+          if (exact && !hits.some(h => h.id === exact.id)) hits.push(exact);
+        }
+      }
+      if (hits.length === 1) {
+        return {
+          action: 'add',
+          printing: hits[0],
+          ocr,
+          titleName,
+          usedName: hits[0].name,
+          resolvedBy: 'ocr',
+        };
+      }
+      // Two or more real printings matched different readings of the same strip.
+      // That is genuinely ambiguous — offer them rather than pick.
+      if (hits.length > 1) {
+        return {
+          action: 'queue',
+          reason: 'ambiguous',
+          candidates: await sortOwnedFirst(hits, userId),
+          ocr,
+          titleName,
+          usedName,
+        };
       }
     }
     // Still nothing to offer. Queues with no candidates exactly as before.
@@ -361,6 +406,54 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   }
 
   const candidates = await sortOwnedFirst(all, userId);
+
+  // DOES THE PRINTED NUMBER AGREE WITH THE ART MATCH?
+  //
+  // Zach scanned H.E.R.B.I.E. Scout Unit (msh #247) and the app staged Jeskai
+  // Windscout (ktk #44) — two blue fliers with similar composition. The collector
+  // strip said msh, nothing compared the two, and the wrong card entered staging
+  // looking exactly as clean as the right ones.
+  //
+  // Until now the strip was only ever a FALLBACK: it ran when the matcher found
+  // nothing, and never got to contradict a match the matcher was confident about.
+  // So a confident wrong match was unchallengeable even though the card itself
+  // was stating its own catalogue address.
+  //
+  // His rule, and it is better than either option I offered him:
+  //
+  //   "it should flag with the option to chose the set+number"
+  //
+  // Not an override — silently swapping one card for another is a state change
+  // he cannot reconcile against a physical stack. And not a bare warning either,
+  // which says something is wrong without saying what. Both readings are put in
+  // front of him and he picks in one tap. That is what the review queue is FOR.
+  if (ocr.number) {
+    const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+    const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
+    const matchedIds = new Set(all.map(r => r.id));
+    const strip = [];
+    for (const code of codes) {
+      for (const num of numbers) {
+        const hit = await printingBySetNumber(code, num);
+        // Only a DISAGREEMENT matters. A strip that resolves to one of the
+        // printings the matcher already offered is agreement, and agreement
+        // needs no decision from him.
+        if (hit && !matchedIds.has(hit.id) && !strip.some(s => s.id === hit.id)) strip.push(hit);
+      }
+    }
+    if (strip.length === 1) {
+      return {
+        action: 'queue',
+        reason: 'disagreement',
+        // The strip's answer FIRST: it is the card telling us its own catalogue
+        // address, which is stronger evidence than an art similarity score.
+        candidates: [strip[0], ...candidates],
+        ocr,
+        titleName,
+        usedName,
+      };
+    }
+  }
 
   // Does this card's frame even print a number? If every printing of it
   // predates the 2015 frame there is nothing to read, and saying "unreadable"

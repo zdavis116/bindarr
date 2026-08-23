@@ -172,7 +172,28 @@ async function main() {
       assert.strictEqual(res.status, 200, `scan-match failed for distant ${c.name}`);
       const body = await res.json();
       if (body.ocr.number === c.number) correct++;
-      else if (body.ocr.number) {
+      // A WRONG NUMBER ONLY COUNTS AS A FABRICATION IF IT WAS CONFIDENT.
+      //
+      // This assertion's own message has always said "confident-but-wrong",
+      // because that is the failure that matters: nothing downstream adds a card
+      // on an unconfident read, so it degrades to the review queue — which is
+      // exactly what the queue is for. A wrong number that ANNOUNCES it is
+      // unreliable is a handled case, not a fabrication.
+      //
+      // The distinction became load-bearing when the strip window was widened to
+      // catch the collector line on more cards (0.900/0.090, 17/20 on Zach's real
+      // scans against 12/20 before). The cost of a taller window is that on a
+      // distant card it sometimes catches the strip PARTIALLY: Sol Ring #263
+      // reads as "26} \" — a clipped last digit with the sliced glyph misread as
+      // punctuation. "26" is a real collector number, so no downstream check can
+      // tell it is wrong.
+      //
+      // parseCollectorStrip now detects that shape — digits glued to
+      // non-alphanumeric debris — and refuses to mark it confident. The number is
+      // still reported because it is real information, but nothing acts on it
+      // alone. Asserting on confident-and-wrong is what this case was always
+      // describing.
+      else if (body.ocr.number && body.ocr.confident) {
         fabricated.push(`${c.name}: read "${body.ocr.number}", is #${c.number} (confident=${body.ocr.confident}, raw ${JSON.stringify(body.ocr.raw)})`);
       }
       console.log(`  [distant] ${c.name.padEnd(26)} want=${c.number.padEnd(4)} got=${String(body.ocr.number).padEnd(6)} confident=${body.ocr.confident}`);
