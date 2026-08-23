@@ -1,4 +1,6 @@
 const express = require('express');
+const fsp = require('fs').promises;
+const path = require('path');
 const db = require('../db');
 const scryfallApi = require('../scryfallApi');
 const scanMatch = require('../scanMatch');
@@ -219,6 +221,34 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     const base64 = image.includes(',') ? image.slice(image.indexOf(',') + 1) : image;
     const buf = Buffer.from(base64, 'base64');
     if (buf.length < 100) return res.status(400).json({ error: 'Invalid image data' });
+
+    // FULL-RESOLUTION SCAN DUMP — diagnostics only, OFF unless explicitly asked
+    // for by environment variable.
+    //
+    // WHY THIS EXISTS. The review queue stores a 220x308 THUMBNAIL, which is all
+    // that survives for later inspection. Tuning the OCR strip window against
+    // that thumbnail means tuning against blur: it is a ninth of the resolution
+    // the phone actually uploads, and it has already produced two "fixes" that
+    // measured well and failed on the real thing. This writes the exact bytes
+    // the pipeline received, so a window can be verified against the real input
+    // instead of a proxy for it.
+    //
+    // Fire-and-forget and fully swallowed: a diagnostics feature must never be
+    // able to fail a scan of a card Zach is physically holding.
+    if (process.env.SCAN_DUMP_DIR) {
+      (async () => {
+        try {
+          const dir = process.env.SCAN_DUMP_DIR;
+          await fsp.mkdir(dir, { recursive: true });
+          const files = await fsp.readdir(dir).catch(() => []);
+          // Bounded: this is a debugging aid on a 25GB dev box, not a log.
+          if (files.filter(f => f.endsWith('.jpg')).length < 40) {
+            await fsp.writeFile(path.join(dir, `scan-${Date.now()}.jpg`), buf);
+          }
+        } catch { /* diagnostics must never affect a scan */ }
+      })();
+    }
+
     const result = await scanMatch.match(buf, game, 8, set, { recallK, orb, lang });
     if (result.candidates && result.candidates.length > 0) {
       const hydrated = await Promise.all(result.candidates.map(async (cand) => {
