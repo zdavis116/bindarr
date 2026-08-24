@@ -33,3 +33,12 @@ head -c2 yolo11n.onnx | od -An -tx1 | grep -q '08 09' \
 
 ls -la
 echo "OK"
+
+# Smaller variants, to test whether quantisation is a cheaper speed lever than
+# input size. NOTE: all three graphs are FIXED at 640x640 -- yolo11n rejects any
+# other input, which is why the spike varies the MODEL and not the size.
+echo "fetching yolov10n fp16 + int8"
+curl -sLf -o yolov10n-fp16.onnx \
+  "https://huggingface.co/onnx-community/yolov10n/resolve/main/onnx/model_fp16.onnx"
+curl -sLf -o yolov10n-int8.onnx \
+  "https://huggingface.co/onnx-community/yolov10n/resolve/main/onnx/model_quantized.onnx"
