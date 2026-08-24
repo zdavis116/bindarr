@@ -192,11 +192,11 @@ vs the current **1.1GB ORB index + 336MB CLIP model**.
 │  ② WARP — perspective transform to 488x680 (canvas/WebGL)            │
 │      │                                                               │
 │      ▼                                                               │
-│  ③ RECALL — rgbArt 378-bit hash, Hamming vs IndexedDB (~5MB)         │
+│  ③ RECALL — rgbArt 378-bit hash, Hamming vs IndexedDB (~2MB)         │
 │      ~1ms. Returns top-K candidates + sigma confidence.              │
 │      │                                                               │
 │      ▼                                                               │
-│  ④ VERIFY — only when sigma is marginal or top-2 are close           │
+│  ④ VERIFY — SAFETY NET, only when sigma is marginal / top-2 close    │
 │      (a) collector-number OCR on the warped crop, OR                 │
 │      (b) small embedding model over the top-K                        │
 │      │                                                               │
@@ -226,7 +226,7 @@ vs the current **1.1GB ORB index + 336MB CLIP model**.
 | ① YOLO OBB | Contours measurably fail (0.611–0.732 aspect). Gates capture on a card being present — kills blind scans. | `detectCard` + timer loop |
 | ② Client warp | Removes the upload from the hot path. | server `rectifyCard` |
 | ③ rgbArt recall | 12/12 on real photos, 5MB, ~1ms, no model. | CLIP recall + ORB search |
-| ④ Verify | Hashing alone collides at 110k scale (§3.3). | ORB verify (kept in spirit) |
+| ④ Verify | Safety net for genuine same-art reprints. NOT for collisions — those were Arena digital-only (§3.3). | ORB verify (kept in spirit) |
 | ⑤ Local decide | No round trip; stack is the single surface. | review queue |
 
 ---
