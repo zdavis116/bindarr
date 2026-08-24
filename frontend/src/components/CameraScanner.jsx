@@ -1624,8 +1624,41 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 // against the catalogue and ignores it if it does not resolve to
                 // exactly one real printing. Nothing is added on the strength of
                 // the client's say-so.
-                const printingHint = (clipName && !ambiguousPrinting && top?.set && top?.number)
-                  ? { set: String(top.set), number: String(top.number) }
+                // THE SET IS SENT EVEN WHEN THE PRINTING IS AMBIGUOUS.
+                //
+                // Zach: "ManaBox had no issues with basic lands", and his stack
+                // kept queueing Forests the matcher had already identified.
+                //
+                // MEASURED on 22 basic lands from his real scans: the matcher got
+                // the card right EVERY TIME (Forest->Forest, Plains->Plains,
+                // Mountain->Mountain, 0 misidentified) and OCR read the number
+                // reliably -- Forest #295 seven times, Plains #288 five times,
+                // Mountain #293 three times, the same answer on every repeat.
+                // The ONLY unreliable signal was the OCR'd SET CODE: 'rvryg',
+                // 'nard', 'rrr', 'ere', 'mshen', null.
+                //
+                // The old condition withheld the hint whenever `ambiguousPrinting`
+                // was true -- which is ALWAYS true for a basic land, because every
+                // printing of a Forest shares the art and ties on inliers. So on
+                // exactly the cards that were failing, we threw away the set we
+                // already knew and left the resolver holding a garbage one.
+                //
+                // TWO DIFFERENT QUESTIONS WERE BEING CONFLATED:
+                //   which CARD     -- Forest, in msh. The matcher knows this.
+                //   which PRINTING -- #295 or #296. The art genuinely cannot say.
+                // Ambiguity about the second is not a reason to discard the first.
+                //
+                // So the SET always goes, and the NUMBER only goes when the image
+                // could actually tell the printings apart. The collector number --
+                // the signal that IS reliable -- then picks within the set. Still
+                // a HINT: the server validates against the catalogue and ignores
+                // it unless it resolves to exactly one real printing, so nothing
+                // is added on the client's say-so and a wrong guess still queues.
+                const printingHint = (clipName && top?.set)
+                  ? {
+                    set: String(top.set),
+                    number: (!ambiguousPrinting && top?.number) ? String(top.number) : null,
+                  }
                   : null;
                 if (autoScan && (clipName || titleText)) {
                   // The dedup key must survive CLIP being wrong, so it keys on

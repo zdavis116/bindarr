@@ -85,8 +85,13 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
       // (nonfoil/foil/etched) — different concept, confusingly similar name.
       // The server validates this against the catalogue and ignores it unless
       // it resolves to exactly one real printing.
-      if (printingHint && printingHint.set && printingHint.number) {
-        body.printing_hint = { set: printingHint.set, number: printingHint.number };
+      // A SET-ONLY HINT IS VALID AND MUST SURVIVE. When the art cannot tell two
+      // printings apart (every basic land), the scanner sends the set WITHOUT a
+      // number so the collector-number read can pick within it. Requiring both
+      // here silently dropped exactly the hint the ambiguous case depends on.
+      if (printingHint && printingHint.set) {
+        body.printing_hint = { set: printingHint.set };
+        if (printingHint.number) body.printing_hint.number = printingHint.number;
       }
       // Finish is NEVER inferred from the image (plan task G2). Whatever the
       // scanner explicitly holds is passed through; nothing here reads pixels.

@@ -519,6 +519,42 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
     }
   }
 
+  // THE HINT'S SET + THE READ NUMBER. This is the basic-land case, and it is
+  // the one that has been sending Zach's Forests to the queue.
+  //
+  // MEASURED on 22 basic lands from his real scans: the matcher identified the
+  // card correctly EVERY time and OCR read the number reliably (Forest #295
+  // seven times, Plains #288 five, Mountain #293 three — identical on repeats).
+  // The single unreliable signal was the OCR'd SET CODE, which came back as
+  // 'rvryg', 'nard', 'rrr', 'ere', 'mshen', null. So the resolver held a good
+  // name, a good number and a garbage set, and refused.
+  //
+  // The artwork hint carries the set the MATCHER saw, which is not a guess: it
+  // matched a specific catalogue row. Combining that trustworthy set with the
+  // trustworthy number resolves the printing without ever consulting the one
+  // signal that fails.
+  //
+  // SAFETY IS UNCHANGED, and rests on the same rule as every other path: this
+  // only fires when set+number resolve to EXACTLY ONE printing of the card the
+  // matcher already named. Two matches is ambiguity and falls through to the
+  // queue; zero matches falls through as well. Nothing is added on the strength
+  // of the hint alone.
+  if (printingHint && printingHint.set && ocr.confident && ocr.number != null) {
+    const hintSet = String(printingHint.set).toLowerCase();
+    const inHintSet = all.filter(r =>
+      String(r.set_id || '').toLowerCase() === hintSet && sameNumber(r.number, ocr.number));
+    if (inHintSet.length === 1) {
+      return {
+        action: 'add',
+        printing: inHintSet[0],
+        ocr,
+        titleName,
+        usedName,
+        resolvedBy: 'artwork-set+ocr-number',
+      };
+    }
+  }
+
   if (!ocr.confident || ocr.number == null) {
     return {
       action: 'queue',

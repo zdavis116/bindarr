@@ -58,6 +58,17 @@ async function main() {
      'dmu-295', 'o-swamp-dmu', 'Swamp', 'dmu', '295',
      'tla-090', 'o-crawler', 'Canyon Crawler', 'tla', '90']);
 
+  // THREE FORESTS IN ONE SET, exactly like msh. Their art is identical, so the
+  // matcher ties across all three and can only say "a Forest, in msh" — which
+  // is the whole basic-land problem in one fixture.
+  await db.run(
+    `INSERT INTO card_cache (id, oracle_id, name, set_id, number)
+     VALUES (?,?,?,?,?), (?,?,?,?,?), (?,?,?,?,?), (?,?,?,?,?)`,
+    ['msh-294', 'o-forest', 'Forest', 'msh', '294',
+     'msh-295f', 'o-forest', 'Forest', 'msh', '2951',
+     'msh-296', 'o-forest', 'Forest', 'msh', '296',
+     'tla-296', 'o-forest', 'Forest', 'tla', '296']);
+
   const app = express();
   app.use(express.json({ limit: '15mb' }));
   app.use('/api', collectionRoutes);
@@ -164,6 +175,56 @@ async function main() {
     assert.ok(ids.includes('tla-090'),
       'and the art match is still offered, so he can choose it');
     pass('FOF-TC5', 'art vs printed number disagreement queues with both, strip first');
+  }
+
+  // --- FOF-TC6: THE BASIC LAND CASE ---------------------------------------
+  //
+  // Zach: "ManaBox had no issues with basic lands." His stack kept queueing
+  // Forests the matcher had already identified.
+  //
+  // MEASURED on 22 basic lands from his real scans: the matcher named the card
+  // correctly EVERY time, and OCR read the number reliably (Forest #295 seven
+  // times, Plains #288 five, Mountain #293 three — identical on every repeat).
+  // The ONE unreliable signal was the OCR'd set code: 'rvryg', 'nard', 'rrr',
+  // 'ere', 'mshen', null.
+  //
+  // So the resolver held a good name, a good number, and a garbage set — and
+  // refused. Meanwhile the matcher already knew the set, and the client was
+  // deliberately withholding it because the PRINTING was ambiguous.
+  //
+  // Two different questions were being conflated:
+  //   which CARD     — Forest, in msh. The matcher knows this.
+  //   which PRINTING — #294, #296 or another. The art genuinely cannot say.
+  // Ambiguity about the second is not a reason to discard the first.
+  {
+    const r = await api('/api/scan-resolve', {
+      name: 'Forest',
+      // The set the MATCHER saw, with NO number: the art cannot pick a printing.
+      printing_hint: { set: 'msh' },
+      // A garbage set code, exactly as his scans produced, plus a good number.
+      ocr_text: '0296\nrvryg',
+    });
+    assert.strictEqual(r.body.action, 'added',
+      `a land the matcher identified must not queue over a bad set code: ${JSON.stringify(r.body)}`);
+    assert.strictEqual(r.body.card.id, 'msh-296',
+      'the matcher\'s SET plus the read NUMBER identifies the printing');
+    pass('FOF-TC6', 'a set-only hint plus the read number resolves a basic land');
+  }
+
+  // --- FOF-TC7: THE HINT IS STILL NOT A LICENCE TO GUESS -------------------
+  //
+  // The safety property that makes TC6 safe: the hint only wins when set+number
+  // resolve to EXACTLY ONE printing. A number that matches nothing in the hinted
+  // set must still queue rather than fall back to "something in that set".
+  {
+    const r = await api('/api/scan-resolve', {
+      name: 'Forest',
+      printing_hint: { set: 'msh' },
+      ocr_text: '0999\nrvryg',          // no msh Forest #999 exists
+    });
+    assert.strictEqual(r.body.action, 'queued',
+      `a number matching nothing in the hinted set must queue: ${JSON.stringify(r.body)}`);
+    pass('FOF-TC7', 'a hinted set with an unmatched number still queues');
   }
 
   console.log(`\nscan_ocr_fallback.test.js: ${passed} cases passed`);
