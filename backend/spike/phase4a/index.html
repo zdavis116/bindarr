@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Phase 4a detector spike</title>
+<!--
+  PHASE 4a SPIKE — GATE BEFORE ANY TRAINING WORK.
+
+  The plan (SCANNER_REBUILD_PLAN.md, Phase 4a) says: prove onnxruntime-web can
+  run YOLO on Zach's ACTUAL iPhone 16 before spending days on training data.
+  The risk is not hypothetical -- there are confirmed open bugs:
+
+    - WebGPU is unsupported on iOS in every browser (onnxruntime #22776)
+    - severe CPU/memory problems in Safari/WebKit 26 with JSEP (#26827)
+    - large WASM files crash the tab (WebKit #314551)
+
+  GATE 4a: >=15fps sustained and no tab crash over 5 minutes.
+  If this fails, Phase 4 is ABANDONED and detection stays server-side.
+
+  This page deliberately uses a STOCK COCO YOLO11n. It is not trained on cards
+  and will not detect them -- that is fine and is not what is being measured.
+  This spike answers exactly one question: CAN THE PHONE RUN THE MODEL FAST
+  ENOUGH? Accuracy is Phase 4b's problem and is worthless to know if the answer
+  here is no.
+-->
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0b0b0d; color:#e8e8ea; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  header { padding:12px 16px; border-bottom:1px solid #26262b; }
+  h1 { font-size:15px; margin:0 0 2px; font-weight:600; }
+  .sub { color:#8a8a93; font-size:12px; }
+  #wrap { position:relative; width:100%; background:#000; }
+  video, canvas { width:100%; display:block; }
+  canvas { position:absolute; inset:0; }
+  #stats { padding:12px 16px; }
+  .row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid #1c1c21; }
+  .k { color:#8a8a93; } .v { font-variant-numeric:tabular-nums; font-weight:600; }
+  .big { font-size:26px; }
+  .ok { color:#4ade80; } .bad { color:#f87171; } .warn { color:#fbbf24; }
+  button { width:100%; padding:14px; margin:8px 0; font-size:15px; font-weight:600;
+           border:0; border-radius:10px; background:#2563eb; color:#fff; }
+  button:disabled { background:#33333a; color:#7a7a83; }
+  #log { padding:10px 16px; font:11px/1.45 ui-monospace,Menlo,monospace; color:#9a9aa3;
+         white-space:pre-wrap; border-top:1px solid #26262b; max-height:34vh; overflow:auto; }
+  #verdict { margin:10px 16px; padding:12px; border-radius:10px; background:#17171b; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Phase 4a — detector spike</h1>
+  <div class="sub">Can this phone run YOLO fast enough? Nothing else is being tested.</div>
+</header>
+
+<div style="padding:0 16px">
+  <button id="start">Start camera + model</button>
+  <button id="run" disabled>Run 5-minute gate test</button>
+</div>
+
+<div id="wrap"><video id="v" playsinline muted></video><canvas id="c"></canvas></div>
+
+<div id="stats">
+  <div class="row"><span class="k">FPS (detector)</span><span class="v big" id="fps">—</span></div>
+  <div class="row"><span class="k">inference p50 / p95</span><span class="v" id="lat">—</span></div>
+  <div class="row"><span class="k">frames processed</span><span class="v" id="frames">0</span></div>
+  <div class="row"><span class="k">elapsed</span><span class="v" id="elapsed">0s</span></div>
+  <div class="row"><span class="k">JS heap</span><span class="v" id="mem">—</span></div>
+  <div class="row"><span class="k">backend</span><span class="v" id="backend">—</span></div>
+  <div class="row"><span class="k">camera stream</span><span class="v" id="cam">—</span></div>
+</div>
+
+<div id="verdict">Gate 4a: ≥15fps sustained, no crash over 5 minutes.</div>
+<div id="log"></div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const log = (m) => { $('log').textContent += m + '\n'; $('log').scrollTop = 1e9; };
+
+// ---- state ---------------------------------------------------------------
+let session = null, ort = null, stream = null;
+let running = false, frames = 0, lats = [], t0 = 0, rafId = null;
+const SIZE = 640;                       // model input, fixed by the ONNX graph
+const off = document.createElement('canvas');
+off.width = SIZE; off.height = SIZE;
+const octx = off.getContext('2d', { willReadFrequently: true });
+
+// ---- boot ----------------------------------------------------------------
+$('start').onclick = async () => {
+  $('start').disabled = true;
+  try {
+    log('loading onnxruntime-web (local)...');
+    // VENDORED LOCALLY, NOT FROM A CDN. The app's CSP allows scripts and
+    // connections from 'self' only (server.js), so a CDN import is blocked
+    // outright. Weakening the production CSP for a throwaway spike would be
+    // the wrong trade -- the files are checked in beside this page instead.
+    //
+    // Pinned to 1.20.x: the last line widely reported working on iOS WebKit.
+    // Newer JSEP builds are implicated in onnxruntime #26827.
+    ort = await import('./ort.webgpu.min.mjs');
+    ort.env.wasm.wasmPaths = './';
+    // THREADS OFF ON PURPOSE. Cross-origin isolation is not configured, so
+    // SharedArrayBuffer is unavailable and asking for threads fails in a
+    // confusing way rather than an obvious one.
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.simd = true;
+
+    // WebGPU first, WASM fallback. On iOS this is EXPECTED to land on wasm --
+    // that is the measurement, not a failure.
+    let backend = 'unknown';
+    log('creating session (this downloads ~10MB)...');
+    const tryOrder = [['webgpu'], ['wasm']];
+    for (const ep of tryOrder) {
+      try {
+        session = await ort.InferenceSession.create('./yolo11n.onnx', {
+          executionProviders: ep, graphOptimizationLevel: 'all',
+        });
+        backend = ep[0];
+        break;
+      } catch (e) { log(`  ${ep[0]} unavailable: ${String(e).slice(0, 90)}`); }
+    }
+    if (!session) throw new Error('no execution provider could load the model');
+    $('backend').textContent = backend;
+    $('backend').className = 'v ' + (backend === 'webgpu' ? 'ok' : 'warn');
+    log(`session ready on ${backend}`);
+
+    log('requesting camera...');
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    const v = $('v');
+    v.srcObject = stream;
+    await v.play();
+    const s = stream.getVideoTracks()[0].getSettings();
+    // The NEGOTIATED stream, not what we asked for -- these differ constantly
+    // and the difference silently changes every pixel budget downstream.
+    $('cam').textContent = `${s.width}x${s.height} @${s.frameRate || '?'}fps`;
+    log(`camera: ${s.width}x${s.height}`);
+
+    $('c').width = v.videoWidth; $('c').height = v.videoHeight;
+    $('run').disabled = false;
+    log('READY — press "Run 5-minute gate test"');
+  } catch (e) {
+    log('FAILED: ' + e.message);
+    $('verdict').innerHTML = '<span class="bad">SETUP FAILED — ' + e.message + '</span>';
+  }
+};
+
+// ---- the measurement -----------------------------------------------------
+$('run').onclick = () => {
+  if (running) { stop(); return; }
+  running = true; frames = 0; lats = []; t0 = performance.now();
+  $('run').textContent = 'Stop';
+  log('running... keep the phone pointed at a card, screen on');
+  loop();
+};
+
+function stop() {
+  running = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  $('run').textContent = 'Run 5-minute gate test';
+  verdict();
+}
+
+async function loop() {
+  if (!running) return;
+  const v = $('v');
+  if (v.readyState >= 2) {
+    // Letterbox into the model's square input, preserving aspect. Squashing
+    // instead would distort every box the model returns.
+    const scale = Math.min(SIZE / v.videoWidth, SIZE / v.videoHeight);
+    const w = v.videoWidth * scale, h = v.videoHeight * scale;
+    octx.fillStyle = '#000'; octx.fillRect(0, 0, SIZE, SIZE);
+    octx.drawImage(v, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+
+    const img = octx.getImageData(0, 0, SIZE, SIZE).data;
+    const chw = new Float32Array(3 * SIZE * SIZE);
+    const px = SIZE * SIZE;
+    for (let i = 0; i < px; i++) {
+      chw[i] = img[i * 4] / 255;
+      chw[px + i] = img[i * 4 + 1] / 255;
+      chw[2 * px + i] = img[i * 4 + 2] / 255;
+    }
+
+    const t = performance.now();
+    try {
+      await session.run({ images: new ort.Tensor('float32', chw, [1, 3, SIZE, SIZE]) });
+      lats.push(performance.now() - t);
+      if (lats.length > 400) lats.shift();
+      frames++;
+    } catch (e) {
+      log('INFERENCE FAILED: ' + e.message);
+      stop();
+      $('verdict').innerHTML = '<span class="bad">GATE 4a FAIL — inference threw: ' + e.message + '</span>';
+      return;
+    }
+    render();
+  }
+  rafId = requestAnimationFrame(loop);
+}
+
+function pct(a, p) { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p / 100))] || 0; }
+
+function render() {
+  const el = (performance.now() - t0) / 1000;
+  const fps = frames / el;
+  $('fps').textContent = fps.toFixed(1);
+  $('fps').className = 'v big ' + (fps >= 15 ? 'ok' : fps >= 8 ? 'warn' : 'bad');
+  $('lat').textContent = `${pct(lats, 50).toFixed(0)} / ${pct(lats, 95).toFixed(0)} ms`;
+  $('frames').textContent = frames;
+  $('elapsed').textContent = el.toFixed(0) + 's';
+  if (performance.memory) {
+    // Chrome-only; absent on iOS Safari. Its absence is not a failure.
+    $('mem').textContent = (performance.memory.usedJSHeapSize / 1e6).toFixed(0) + ' MB';
+  }
+  if (el >= 300 && running) { log('5 minutes reached'); stop(); }
+}
+
+function verdict() {
+  const el = (performance.now() - t0) / 1000;
+  const fps = frames / el;
+  const p95 = pct(lats, 95);
+  let html;
+  if (el < 60) {
+    html = `<span class="warn">TOO SHORT (${el.toFixed(0)}s)</span> — run the full 5 minutes for a real verdict.`;
+  } else if (fps >= 15) {
+    html = `<span class="ok">GATE 4a PASS</span> — ${fps.toFixed(1)}fps over ${el.toFixed(0)}s, p95 ${p95.toFixed(0)}ms, no crash. On-device detection is viable.`;
+  } else if (fps >= 8) {
+    html = `<span class="warn">MARGINAL</span> — ${fps.toFixed(1)}fps. Below the 15fps gate but not hopeless: a smaller input (416 or 320) may clear it. Worth one retry before abandoning.`;
+  } else {
+    html = `<span class="bad">GATE 4a FAIL</span> — ${fps.toFixed(1)}fps. Per the plan, on-device detection is abandoned and detection stays server-side.`;
+  }
+  html += `<br><br>Report to Hermes: fps ${fps.toFixed(1)}, p50 ${pct(lats, 50).toFixed(0)}ms, p95 ${p95.toFixed(0)}ms, ${frames} frames, ${el.toFixed(0)}s, backend ${$('backend').textContent}, camera ${$('cam').textContent}`;
+  $('verdict').innerHTML = html;
+  log('--- verdict written above ---');
+}
+</script>
+</body>
+</html>

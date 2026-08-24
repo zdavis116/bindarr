@@ -246,6 +246,18 @@ app.use('/api/sets', setsRoutes);
 app.use('/api/decks', decksRoutes);
 app.use('/api/settings', settingsRoutes);
 
+// PHASE 4a SPIKE — throwaway detector benchmark, dev only.
+//
+// Mounted before the SPA catch-all so /spike/phase4a/ resolves to the spike
+// page rather than index.html. Off unless SPIKE_PHASE4A=1, so it cannot appear
+// in production by accident. Delete this block and backend/spike/ once Gate 4a
+// is decided — it is a measurement, not a feature.
+if (process.env.SPIKE_PHASE4A) {
+  const spikeDir = path.join(__dirname, '../spike/phase4a');
+  app.use('/spike/phase4a', express.static(spikeDir));
+  console.log('Phase 4a spike served at /spike/phase4a/');
+}
+
 // Serve production static assets from Frontend
 const frontendBuildPath = path.join(__dirname, '../../frontend/dist');
 app.use(express.static(frontendBuildPath));
