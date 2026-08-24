@@ -17,7 +17,7 @@ N_IMG = 90
 
 t0 = time.time()
 YOLO('yolo11n-obb.pt').train(
-    data=str(DATA), epochs=3, imgsz=640, batch=8, workers=2, device='cpu',
+    data=str(DATA), epochs=3, imgsz=640, batch=4, workers=0, device='cpu',
     project=str(Path.home() / 'bindarr-yolo-runs'), name='probe',
     exist_ok=True, val=False, plots=False, verbose=False,
 )
