@@ -82,3 +82,9 @@ asckey.b64
 
 # Card art cached by backend/test/crop.test.js (re-downloaded on demand)
 .bench-cache/
+
+# Scanner rebuild: build inputs and derived artefacts.
+# The bulk file (74MB) is a download; the index (16MB JSON) is derived and
+# will ship as a packed ~2MB binary in Phase 3. Neither belongs in git.
+hash-index/
+.hermes/
