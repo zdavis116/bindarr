@@ -323,4 +323,40 @@ test('F9S-TC22', 'the lens is zoomed in for scanning, but never below 1.0', () =
   assert.match(src, /advanced: \[\{ zoom: target \}\]/);
 });
 
+test('F9S-TC23', 'the matcher\'s set is only trusted when the match is strong', () => {
+  // Zach's stack, after the set was sent unconditionally:
+  //     Plains              inliers 52, 70   -> correct
+  //     Forest              inliers 9-15      -> staged as pal03 #5
+  //     Blightstep Pathway  inliers 12        -> not a land at all
+  //
+  // A queued card costs a tap. A wrong card in the collection cannot be
+  // reconciled against a physical stack, so the hint must be withheld exactly
+  // when the matcher is guessing.
+  const gate = src.match(/const MIN_TRUSTED_INLIERS = (\d+)/);
+  assert.ok(gate, 'the inlier gate must exist and be named, not inlined as a magic number');
+  const threshold = Number(gate[1]);
+  assert.ok(threshold >= 16 && threshold <= 30,
+    `the gate must sit between the wrong matches (9-15) and the right ones (52+), got ${threshold}`);
+
+  assert.match(src, /matchIsTrusted\s*=\s*matchInliers\s*!=\s*null\s*&&\s*matchInliers\s*>=\s*MIN_TRUSTED_INLIERS/,
+    'a missing inlier count must NOT count as trusted — unknown is not confident');
+  assert.match(src, /const printingHint = \(clipName && top\?\.set && matchIsTrusted\)/,
+    'the printing hint must be gated on the match being trusted');
+});
+
+test('F9S-TC24', 'the match strength is actually sent to the server', () => {
+  // THE DEAD-CODE BUG. The low_confidence flag, the scan_staging.match_inliers
+  // column, the submitScan parameter and the server-side threshold all already
+  // existed — and the flag had never once fired, because the SCANNER never sent
+  // the value. The whole chain was built and the first link was never connected.
+  //
+  // Every wrong card in Zach's session scored 9-15 inliers while the one correct
+  // land scored 52-70. The signal that would have flagged all of them was in the
+  // response the whole time, unused.
+  assert.match(src, /const matchInliers = Number\.isFinite\(top\?\.inliers\) \? top\.inliers : null/,
+    'the inlier count must be read off the match result');
+  assert.match(src, /submitScan\(\{[\s\S]{0,600}?matchInliers,/,
+    'submitScan must be given matchInliers, or the low_confidence flag stays dead code');
+});
+
 console.log(`CameraScanner source-contract self-check passed (${passed} cases)`);
