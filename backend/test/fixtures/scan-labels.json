@@ -1,0 +1,242 @@
+{
+  "scan-1787512967936.jpg": {
+    "name": "NO_CARD",
+    "note": "no detection; matcher fell back to Double-Faced Substitute Card at 0 inliers",
+    "number": null,
+    "set": null
+  },
+  "scan-1787512984652.jpg": {
+    "name": "NO_CARD",
+    "note": "no detection; matcher fell back to Forest at 88 inliers",
+    "number": null,
+    "set": null
+  },
+  "scan-1787512990132.jpg": {
+    "name": "NO_CARD",
+    "note": "no detection; matcher fell back to Forest at 123 inliers",
+    "number": null,
+    "set": null
+  },
+  "scan-1787512994090.jpg": {
+    "name": "HULK SMASH!",
+    "note": "ORB+rgbArt agree (inliers 88, sigma 6.01)",
+    "number": "135",
+    "set": "msh"
+  },
+  "scan-1787513001298.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 113, sigma 7.26)",
+    "number": "106",
+    "set": "e01"
+  },
+  "scan-1787513006540.jpg": {
+    "name": "Forest",
+    "note": "finger occludes card; strip reads L 0296; OCR misread as D294",
+    "number": "296",
+    "set": "msh"
+  },
+  "scan-1787513011271.jpg": {
+    "name": "The Kingpin of Crime",
+    "note": "ORB+rgbArt agree (inliers 72, sigma 5.69)",
+    "number": "220",
+    "set": "msh"
+  },
+  "scan-1787513016891.jpg": {
+    "name": "The Kingpin of Crime",
+    "note": "ORB+rgbArt agree (inliers 73, sigma 4.72)",
+    "number": "220",
+    "set": "msh"
+  },
+  "scan-1787513022002.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 152, sigma 6.37)",
+    "number": "288",
+    "set": "msh"
+  },
+  "scan-1787513027707.jpg": {
+    "name": "Daredevil, Man Without Fear",
+    "note": "ORB+rgbArt agree (inliers 103, sigma 3.73)",
+    "number": "213",
+    "set": "msh"
+  },
+  "scan-1787513033298.jpg": {
+    "name": "Daredevil, Man Without Fear",
+    "note": "ORB+rgbArt agree (inliers 75, sigma 6.16)",
+    "number": "432",
+    "set": "msh"
+  },
+  "scan-1787513038648.jpg": {
+    "name": "Namor the Sub-Mariner",
+    "note": "ORB+rgbArt agree (inliers 65, sigma 4.3)",
+    "number": "69",
+    "set": "msh"
+  },
+  "scan-1787513044510.jpg": {
+    "name": "Namor the Sub-Mariner",
+    "note": "ORB+rgbArt agree (inliers 80, sigma 4.6)",
+    "number": "69",
+    "set": "msh"
+  },
+  "scan-1787513049695.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 80, sigma 5.68)",
+    "number": "100",
+    "set": "sld"
+  },
+  "scan-1787513055271.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 109, sigma 6.32)",
+    "number": "264",
+    "set": "kld"
+  },
+  "scan-1787513059967.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 117, sigma 7.68)",
+    "number": "266",
+    "set": "eld"
+  },
+  "scan-1787513064832.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 76, sigma 4.63)",
+    "number": "255",
+    "set": "ori"
+  },
+  "scan-1787513069241.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 75, sigma 4.68)",
+    "number": "252",
+    "set": "kld"
+  },
+  "scan-1787513073113.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 148, sigma 6.84)",
+    "number": "295",
+    "set": "msh"
+  },
+  "scan-1787513077606.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 135, sigma 6.54)",
+    "number": "199",
+    "set": "hou"
+  },
+  "scan-1787513081623.jpg": {
+    "name": "Baron Strucker, HYDRA Overlord",
+    "note": "BORDERLESS printing under heavy glare, second card behind it",
+    "number": "315",
+    "set": "msh"
+  },
+  "scan-1787513086983.jpg": {
+    "name": "Baron Strucker, HYDRA Overlord",
+    "note": "ORB+rgbArt agree (inliers 148, sigma 4.46)",
+    "number": "315",
+    "set": "msh"
+  },
+  "scan-1787513091918.jpg": {
+    "name": "Mountain",
+    "note": "ORB+rgbArt agree (inliers 90, sigma 5.16)",
+    "number": "271",
+    "set": "dmu"
+  },
+  "scan-1787518192642.jpg": {
+    "name": "NO_CARD",
+    "note": "no detection; matcher fell back to Two Streams Facility at 0 inliers",
+    "number": null,
+    "set": null
+  },
+  "scan-1787518208596.jpg": {
+    "name": "Mountain",
+    "note": "ORB+rgbArt agree (inliers 98, sigma 6.49)",
+    "number": "268a",
+    "set": "bfz"
+  },
+  "scan-1787518214218.jpg": {
+    "name": "Mountain",
+    "note": "ORB+rgbArt agree (inliers 96, sigma 6.52)",
+    "number": "372",
+    "set": "stx"
+  },
+  "scan-1787518218322.jpg": {
+    "name": "NO_CARD",
+    "note": "no detection; matcher fell back to Grixis at 4 inliers",
+    "number": null,
+    "set": null
+  },
+  "scan-1787518256084.jpg": {
+    "name": "NO_CARD",
+    "note": "no detection; matcher fell back to Otaria at 5 inliers",
+    "number": null,
+    "set": null
+  },
+  "scan-1787518267540.jpg": {
+    "name": "Baron Strucker, HYDRA Overlord",
+    "note": "ORB+rgbArt agree (inliers 115, sigma 6.3)",
+    "number": "315",
+    "set": "msh"
+  },
+  "scan-1787518272380.jpg": {
+    "name": "Baron Strucker, HYDRA Overlord",
+    "note": "ORB+rgbArt agree (inliers 135, sigma 5.98)",
+    "number": "315",
+    "set": "msh"
+  },
+  "scan-1787518276195.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 114, sigma 4.34)",
+    "number": "295",
+    "set": "msh"
+  },
+  "scan-1787518280735.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 128, sigma 4.95)",
+    "number": "199",
+    "set": "hou"
+  },
+  "scan-1787518284650.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 80, sigma 4.96)",
+    "number": "287",
+    "set": "msh"
+  },
+  "scan-1787518289674.jpg": {
+    "name": "Forest",
+    "note": "ORB+rgbArt agree (inliers 115, sigma 5.71)",
+    "number": "350",
+    "set": "c16"
+  },
+  "scan-1787518294878.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 80, sigma 5.35)",
+    "number": "288",
+    "set": "msh"
+  },
+  "scan-1787518299199.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 70, sigma 5.66)",
+    "number": "288",
+    "set": "msh"
+  },
+  "scan-1787518302549.jpg": {
+    "name": "Namor the Sub-Mariner",
+    "note": "ORB+rgbArt agree (inliers 74, sigma 4.58)",
+    "number": "69",
+    "set": "msh"
+  },
+  "scan-1787518308049.jpg": {
+    "name": "Namor the Sub-Mariner",
+    "note": "ORB+rgbArt agree (inliers 73, sigma 4.59)",
+    "number": "69",
+    "set": "msh"
+  },
+  "scan-1787518312939.jpg": {
+    "name": "Daredevil, Man Without Fear",
+    "note": "ORB+rgbArt agree (inliers 89, sigma 3.44)",
+    "number": "213",
+    "set": "msh"
+  },
+  "scan-1787518318734.jpg": {
+    "name": "Plains",
+    "note": "ORB+rgbArt agree (inliers 133, sigma 5.71)",
+    "number": "44",
+    "set": "jmp"
+  }
+}
