@@ -14,6 +14,7 @@ const embedMatch = require('./embedMatch');
 const setIndex = require('./setIndex');
 const { parseSetList } = require('./utils/setQuery');
 const languages = require('./utils/languages');
+const scanProfile = require('./scanProfile');
 
 const DATA_DIR = process.env.INDEX_DATA_DIR || path.join(__dirname, '..', 'data');
 // CLIP candidates to geometrically verify.
@@ -528,6 +529,9 @@ function verifyGame(cardBuf, game, q, bf, recall, topK) {
 async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = {}) {
   requestedGame = 'mtg';
   const lang = 'en';
+  // Stage timing, no-op unless SCAN_PROFILE=1. `opts.prof` is passed by the
+  // route so one profiler spans the whole request; a bare call still works.
+  const prof = opts.prof || scanProfile.start();
   // Scan-detail knobs (client "Scan Detail" slider). Fewer CLIP candidates to
   // verify + fewer ORB features = faster, less accurate. Clamped to sane bounds.
   const recallK = Math.max(10, Math.min(RECALL_K, opts.recallK || RECALL_K));
@@ -540,13 +544,17 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
   // instead of running detectCard a second time — which costs ~350ms, a third of
   // the whole scan. `detection` is returned on the result and is inert for every
   // caller that ignores it.
-  const { buf: cardBuf, detect } = await preprocessCardWithDetection(imageBuffer);
-  const crop = 'data:image/jpeg;base64,' + (await sharp(cardBuf).resize({ width: 220 }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
+  const { buf: cardBuf, detect } = await prof.time('detect+preprocess',
+    () => preprocessCardWithDetection(imageBuffer));
+  // The 220px JPEG thumbnail returned to the client. Never timed before, and it
+  // is a full JPEG encode on every scan.
+  const crop = await prof.time('crop-thumb-jpeg', async () =>
+    'data:image/jpeg;base64,' + (await sharp(cardBuf).resize({ width: 220 }).jpeg({ quality: 70 }).toBuffer()).toString('base64'));
 
   // Query ORB features are game-independent — extract once, reuse everywhere.
   const orb = new cv.ORB(orbN);
   const bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
-  const q = await queryOrb(orb, cardBuf);
+  const q = await prof.time('orb-query-features', () => queryOrb(orb, cardBuf));
   try {
     // Set-scoped fast path: if the user gave set code(s) and their index is
     // built, match only within them (~300 cards each) — accurate, no global
@@ -568,9 +576,16 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
     const order = ['mtg'];
     let best = null;
     for (const g of order) {
-      const recall = await embedMatch.match(cardBuf, g, recallK); // CLIP recall for this game
+      // THE TWO HALVES OF THE GLOBAL PATH, timed separately. Together these are
+      // the ~1.6s "ORB matching", but they are very different work: recall is a
+      // CLIP embedding + vector search, verify is ORB geometric matching over
+      // recallK candidates. Which one dominates decides what to fix.
+      const recall = await prof.time('clip-recall', () => embedMatch.match(cardBuf, g, recallK));
       if (recall.length === 0) continue;
-      const r = verifyGame(cardBuf, g, q, bf, recall, topK);
+      const r = await prof.time('orb-verify', async () => verifyGame(cardBuf, g, q, bf, recall, topK));
+      prof.set('recallK', recallK);
+      prof.set('recallReturned', recall.length);
+      prof.set('orbN', orbN);
       if (!best || r.top > best.top) best = { ...r, game: g };
       if (best.top >= STRONG_INLIERS) break; // confident — no need to try the other game
     }

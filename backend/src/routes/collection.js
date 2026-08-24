@@ -19,6 +19,7 @@ const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
 const collectorNumberOcr = require('../utils/collectorNumberOcr');
 const cardTitleOcr = require('../utils/cardTitleOcr');
 const rgbArtMatch = require('../rgbArtMatch');
+const scanProfile = require('../scanProfile');
 const { parseCollectorStrip } = require('../utils/collectorNumberParse');
 const {
   InvariantError,
@@ -215,13 +216,21 @@ router.get('/search', searchLimiter, async (req, res) => {
 // identifies, it does not add. The client passes the read to /scan-resolve,
 // which is the only place that decides between adding and queueing.
 router.post('/scan-match', searchLimiter, async (req, res) => {
+  // STAGE PROFILING, off unless SCAN_PROFILE=1. See scanProfile.js: the stages
+  // we have measured only account for ~2.2s of a scan that runs 2.1-4.9s, so
+  // this times EVERY stage including the ones never looked at (base64 decode,
+  // DB hydration, JSON serialisation) and reports what is left over.
+  const prof = scanProfile.start();
   try {
     const { image, set = '', recallK, orb, ocr } = req.body || {};
     const game = 'mtg';
     const lang = 'en';
     if (!image || typeof image !== 'string') return res.status(400).json({ error: 'Missing image' });
+    prof.set('b64len', image.length);
     const base64 = image.includes(',') ? image.slice(image.indexOf(',') + 1) : image;
     const buf = Buffer.from(base64, 'base64');
+    prof.mark('base64-decode');
+    prof.set('bytes', buf.length);
     if (buf.length < 100) return res.status(400).json({ error: 'Invalid image data' });
 
     // FULL-RESOLUTION SCAN DUMP — diagnostics only, OFF unless explicitly asked
@@ -251,8 +260,10 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       })();
     }
 
-    const result = await scanMatch.match(buf, game, 8, set, { recallK, orb, lang });
+    const result = await scanMatch.match(buf, game, 8, set, { recallK, orb, lang, prof });
     if (result.candidates && result.candidates.length > 0) {
+      // DB HYDRATION — up to 8 candidates, each up to 2 queries, never timed.
+      await prof.time('db-hydrate-candidates', async () => {
       const hydrated = await Promise.all(result.candidates.map(async (cand) => {
         let row = null;
         if (cand.set && cand.number) {
@@ -270,6 +281,7 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         return row ? { ...cand, card: parseCardRow(row) } : cand;
       }));
       result.candidates = hydrated;
+      });
     }
 
     // OCR gets its OWN rectification of the card, from the ORIGINAL upload.
@@ -294,16 +306,18 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     if (ocr) {
       const t0 = Date.now();
       try {
-        const rectified = await scanMatch.rectifyCard(buf, {
+        const rectified = await prof.time('ocr-rectify-warp', () => scanMatch.rectifyCard(buf, {
           width: collectorNumberOcr.OCR_W,
           height: collectorNumberOcr.OCR_H,
           detection: result.detection,
-        });
+        }));
         // No card found -> no read. Reading the strip position off a photo that
         // was never rectified would OCR the background, and a confident number
         // from the background is worse than no number: the review queue exists
         // for "we don't know", it cannot catch "we're sure and wrong".
-        const raw = rectified ? await collectorNumberOcr.readCollectorStrip(rectified) : '';
+        const raw = rectified
+          ? await prof.time('ocr-collector-strip', () => collectorNumberOcr.readCollectorStrip(rectified))
+          : '';
 
         // SCAN TRACE. Off unless SCAN_TRACE=1.
         //
@@ -363,7 +377,9 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // printed title is still legible in the same photo. Reading it here
         // means /scan-resolve can identify the card even when the match above
         // returned noise.
-        const titleRaw = rectified ? await cardTitleOcr.readCardTitle(rectified) : '';
+        const titleRaw = rectified
+          ? await prof.time('ocr-card-title', () => cardTitleOcr.readCardTitle(rectified))
+          : '';
         result.ocr = { ...parseCollectorStrip(raw), title: titleRaw.trim(), ms: Date.now() - t0 };
 
         // PHASE 1b: rgbArt SHADOW MODE. Off unless RGBART_SHADOW=1.
@@ -387,6 +403,7 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // and rgbArt gets no turn at all. Those scans are logged as skipped
         // rather than as rgbArt failures, because they are not.
         if (process.env.RGBART_SHADOW) {
+          const tShadow = Date.now();
           try {
             const shadow = rectified ? await rgbArtMatch.identify(rectified, 3) : null;
             const orbTop = result.candidates?.[0] ?? null;
@@ -406,6 +423,9 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
                 : null,
             }));
           } catch { /* shadow mode must never affect a scan */ }
+          // Attribute shadow mode's own cost, so the profile shows what the
+          // scan would cost WITHOUT this measurement running.
+          prof.set('shadowMs', Date.now() - tShadow);
         }
       } catch (e) {
         console.warn('scan-match OCR failed:', e.message);
@@ -419,9 +439,17 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     // deleted rather than shipped.
     delete result.detection;
 
-    res.json(result);
+    // RESPONSE SERIALISATION. The payload carries a base64 JPEG thumbnail and
+    // up to 8 hydrated card rows, so this is not free and has never been timed.
+    prof.mark('pre-serialise');
+    const payload = JSON.stringify(result);
+    prof.mark('json-serialise');
+    prof.set('respBytes', payload.length);
+    res.type('application/json').send(payload);
+    prof.done();
   } catch (error) {
     console.error('scan-match failed:', error.message);
+    prof.done();
     res.status(500).json({ error: 'Scan match failed' });
   }
 });
