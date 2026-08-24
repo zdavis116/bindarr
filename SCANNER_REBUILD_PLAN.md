@@ -110,38 +110,65 @@ Greyscale → RGB fixed every basic land (three went from `Giant Growth`/`Suki` 
 correct `Plains`). Forest/Plains/Mountain differ chiefly by **colour**; greyscale
 deletes the only discriminating signal.
 
-### 3.3 The scale test — and the limit of hashing alone
+### 3.3 The scale test — and what it actually revealed
 
 ```
-378-bit rgbArt, 1199 cards. Distance to nearest DIFFERENT card:
-   min 12   p1 28   p5 92   median 110
+378-bit rgbArt, 849 DISTINCT cards. Distance to nearest different card:
+   min 12   p1 26   p5 82   median 108
 
 Zach's real photos land 26-64 bits from the CORRECT card.
 ```
 
-**These overlap.** For the closest ~1% of card pairs, a photo can land nearer a
-wrong card than the right one. And it degrades with catalogue size:
+At first reading these overlap and hashing looks unsafe at scale. **Then I
+printed the actual colliding pairs**:
 
 ```
-n=  119   closest pair 102 bits
-n=  299   closest pair 100 bits
-n=  599   closest pair  80 bits
-n= 1199   closest pair  12 bits
+d=12  A-Elven Bow                <-> Elven Bow
+d=22  A-Return Upon the Tide     <-> Return Upon the Tide
+d=24  A-Vega, the Watcher        <-> Vega, the Watcher
+...   17 pairs, ALL of this form
 ```
 
-10× more cards collapsed the closest pair from 102 → 12 bits. Production is
-110,000 printings — another 90×.
+**Every single collision is an Arena rebalanced card** (`A-` prefix) — a
+digital-only variant that reuses the paper card's artwork with tweaked rules
+text. **They do not exist as physical cardboard.** Zach can never scan one.
 
-> **CONCLUSION: pHash alone cannot be the whole answer.** It is an excellent
-> *recall* stage — tiny, phone-resident, ~1ms, reliably puts the right card in
-> the top few. It is not a *verifier*. Something must confirm the shortlist —
-> exactly the role ORB was designed for before it was asked to be a search engine.
+> **With `game:paper` applied, ZERO pairs collide within photo-noise range in an
+> 849-card index.** My earlier conclusion — "hashing collides at scale, verify is
+> mandatory" — came from comparing physical cards against digital-only cards that
+> cannot be scanned.
 
-### 3.4 Index size
+**Consequences for the design:**
+1. **The index filter is load-bearing, not housekeeping.** `game:paper`, exclude
+   digital-only. One filter removed 100% of observed collisions.
+2. The **verify stage (④) drops from mandatory to a safety net** for genuine
+   same-art reprints — which Zach's own rule already resolves via the collector
+   number.
+3. Recall-only may be sufficient. **Still to be proven at ~35k scale in Phase 1**,
+   but the outlook is far better than the raw 12-bit figure implied.
+
+### 3.4 Production scale is 3x smaller than assumed
+
+Measured from the dev database and Scryfall:
 
 ```
- 64-bit  x 110,000 printings = 0.9 MB
-378-bit  x 110,000 printings = 5.2 MB
+card_cache rows (printings)     : 104,535
+DISTINCT card names             :  34,524    <- recall's real target
+msh: 453 printings              ->  403 unique artworks (11% dedupe)
+observed sample: 1199 printings ->  849 distinct (29% dedupe)
+```
+
+Zach's rule — art identifies the **card**, the collector number picks the
+**printing** — means recall only has to separate ~35k distinct cards, not 105k
+printings. Printings of one card share artwork, so the duplicates are harmless
+by construction.
+
+### 3.5 Index size
+
+```
+ 64-bit  x 35,000 cards = 0.3 MB
+378-bit  x 35,000 cards = 1.7 MB
+378-bit  x 105,000 prints = 5.0 MB
 ```
 vs the current **1.1GB ORB index + 336MB CLIP model**.
 
@@ -216,13 +243,25 @@ Cannot claim improvement without a labelled set.
 - **Gate:** current pipeline produces a baseline number. Everything is compared
   to it from here on.
 
-### Phase 1 — rgbArt hashing, server-side, SHADOW MODE (1 day)
+### Phase 1 — rgbArt hashing, server-side, SHADOW MODE (1.5 days)
 Lowest risk. No client change, no behaviour change.
-- Add `hash_rgbart` to the card catalogue, generated from the existing Scryfall
-  image cache.
+
+**1a. Build the index — there is NO local image cache.** (corrected: the plan
+previously assumed one; the dev box has none *and* cannot reach the Scryfall CDN.)
+- Pull Scryfall bulk `default_cards`, filter **`game:paper`** and drop
+  digital-only printings. This filter is load-bearing — see §3.3, it eliminated
+  100% of observed hash collisions.
+- Deduplicate by `illustration_id`: printings sharing artwork share a hash.
+- Download images on a host that CAN reach Scryfall, rate-limited (~10/s,
+  ~1 hour unattended), hash them, and ship the finished **~2MB index** to dev.
+  Card images are never stored on the app host.
+- **Gate 1a:** index covers ≥99% of `card_cache` rows; measure the real
+  nearest-neighbour distribution at full scale and confirm §3.3 holds at 35k.
+
+**1b. Shadow mode.**
 - Compute the query hash on every scan; **log** its answer alongside ORB's.
-  Change nothing about what the user sees.
-- **Gate:** rgbArt ≥ ORB on the Phase-0 set over a real scanning session.
+  Change nothing the user sees.
+- **Gate 1b:** rgbArt ≥ ORB on the Phase-0 set over a real scanning session.
 
 ### Phase 2 — rgbArt primary, ORB retired (1 day)
 - Promote rgbArt to the identifier. Retire the 1.1GB ORB index and 336MB CLIP.
@@ -231,17 +270,32 @@ Lowest risk. No client change, no behaviour change.
 - **Gate:** accuracy ≥ Phase 1; server time ~1.6s → ~200ms.
 
 ### Phase 3 — Ship the index to the browser (2 days)
-- `/api/scan/index.bin` — versioned, gzipped, ~5MB.
+- `/api/scan/index.bin` — versioned, gzipped, ~2MB.
 - Client caches in IndexedDB; service worker for images.
+- **Request `navigator.storage.persist()`.** iOS evicts an origin's storage
+  wholesale after ~7 days without interaction, and Zach scans in bursts — so the
+  cache CANNOT be assumed durable. The scanner must fall back to the server path
+  transparently while the index re-downloads.
 - Identification moves to the phone. Server sees only the collection write.
-- **Gate:** accuracy identical to Phase 2; ~1.4s round trip disappears.
+- **Gate:** accuracy identical to Phase 2; ~1.4s round trip disappears; a cold
+  start with an evicted cache still scans (via fallback) rather than blocking.
 
 ### Phase 4 — YOLO OBB detection (3–4 days) — **the risky one**
 Fixes "5 tries" and "wrong part of the card".
+
+**4a. SPIKE FIRST — half a day, before any training work.**
+onnxruntime-web has confirmed open iOS bugs (WebGPU unsupported on iOS at all;
+CPU/memory blowups in WebKit 26; large WASM files crashing the tab). Ship a
+throwaway page that loads a stock YOLO11-nano ONNX on **Zach's actual iPhone 16**
+and reports per-frame latency and stability.
+- **Gate 4a:** ≥15fps sustained, no tab crash over 5 minutes. **If this fails,
+  Phase 4 is abandoned** and detection stays server-side — Phases 1–3 still stand.
+
+**4b. Train and integrate.**
 - Synthetic training data: composite real card images onto random backgrounds
   with random rotation/scale/perspective/blur/lighting. No manual labelling.
 - Train YOLO11-nano OBB → ONNX → onnxruntime-web.
-- **Gate:** detection ≥99% on the labelled set (currently ~85%); quad aspect
+- **Gate 4b:** detection ≥99% on the labelled set (currently ~85%); quad aspect
   distribution tightens around 0.716.
 
 ### Phase 5 — Presence-gated continuous scanning (1 day)
@@ -261,10 +315,11 @@ Fixes "5 tries" and "wrong part of the card".
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **Hashing collides at 110k scale** (§3.3, measured) | HIGH | Phase 2 gate is measured on the *full* catalogue, not a subset. Verify stage (④) exists precisely for this. If recall+verify cannot hit the bar, fall back to a trained embedding (reeshof: 98.8% on 58k). |
-| **WebGPU is iOS 26+ only** | MED | onnxruntime-web WASM+SIMD is the baseline path; WebGPU is an optimisation where present. Measure on Zach's actual iPhone before committing Phase 4. |
+| **Hashing collides at scale** | ~~HIGH~~ **LOW** | §3.3: every observed collision was an Arena digital-only card. `game:paper` removed 100% of them. Still gated on a real 35k-scale measurement in Phase 1. |
+| **iOS evicts the cached index** | MED | WebKit evicts *per origin, as a whole*, after ~7 days without interaction. Zach scans in bursts. Mitigations: call `navigator.storage.persist()` (usually granted to home-screen PWAs, **not guaranteed**); check `navigator.storage.estimate()`; **the scanner must work via server fallback while the index re-downloads**. "Cached once" was wrong — the correct framing is *cached opportunistically with a working fallback*. |
+| **onnxruntime-web is unreliable on iOS** | **HIGH** | Confirmed open bugs: WebGPU unsupported on iOS regardless of browser (#22776); severe CPU/memory issues in Safari/WebKit 26 with JSEP (#26827); large WASM files crash the tab (WebKit #314551). **Phase 4 must begin with a spike on Zach's actual iPhone before any training work.** Fallback: keep detection server-side, identification client-side. |
+| **No local image cache exists** | MED | §Phase 1 corrected: the plan previously assumed one. Build the index on a machine that can reach Scryfall, ship the finished ~2MB index. Images are never stored on the app host. |
 | YOLO training may not converge | MED | Phases 1–3 deliver most of the speed **without** it. Phase 4 can slip without blocking. |
-| 5MB index on mobile data | LOW | Versioned, cached once, delta updates per set release. |
 | Foils / glare | MED | Art-box hash is less exposed than whole-card; collector number as tie-break; ambiguous → picker, never a silent guess. |
 
 ---
