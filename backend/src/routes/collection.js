@@ -1,6 +1,7 @@
 const express = require('express');
 const fsp = require('fs').promises;
 const path = require('path');
+const sharp = require('sharp');
 const db = require('../db');
 const scryfallApi = require('../scryfallApi');
 const scanMatch = require('../scanMatch');
@@ -302,6 +303,52 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // from the background is worse than no number: the review queue exists
         // for "we don't know", it cannot catch "we're sure and wrong".
         const raw = rectified ? await collectorNumberOcr.readCollectorStrip(rectified) : '';
+
+        // SCAN TRACE. Off unless SCAN_TRACE=1.
+        //
+        // WHY THIS EXISTS. Zach's queue recorded ocr_raw='' / 'Pe' / 'CT ———' on
+        // cards that read 27/34 correctly when the SAME dumped bytes are pushed
+        // through the SAME functions offline. Detection, rectify, the strip
+        // window and the parser have each been measured and each works. So the
+        // difference is something about the LIVE REQUEST, and no amount of
+        // reasoning about the code has found it — three separate theories tonight
+        // were all disproved by measurement.
+        //
+        // This records what the live path ACTUALLY had in its hands, so the two
+        // runs can be compared field by field instead of argued about:
+        //   - was there a detection at all, and what shape was its quad
+        //   - did rectifyCard return an image, and what size
+        //   - what did OCR read from it
+        // A quad aspect far from ~0.7, or rectified=null, or a wildly different
+        // read for a file that reads fine offline, each point at a different
+        // culprit.
+        //
+        // Fire-and-forget and fully swallowed: diagnostics must never be able to
+        // fail a scan of a card Zach is physically holding.
+        if (process.env.SCAN_TRACE) {
+          try {
+            const q = result.detection?.quad;
+            let quadAr = null;
+            if (q?.length === 4) {
+              const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+              const w = (d(q[0], q[1]) + d(q[3], q[2])) / 2;
+              const h = (d(q[0], q[3]) + d(q[1], q[2])) / 2;
+              quadAr = h ? +(w / h).toFixed(3) : null;
+            }
+            const meta = rectified ? await sharp(rectified).metadata() : null;
+            console.log('SCAN_TRACE ' + JSON.stringify({
+              bytes: buf.length,
+              detection: !!result.detection,
+              quadAr,
+              detW: result.detection?.detW ?? null,
+              rectified: meta ? `${meta.width}x${meta.height}` : null,
+              rawOcr: raw.replace(/\n/g, '|').slice(0, 60),
+              topCandidate: result.candidates?.[0]?.name ?? null,
+              inliers: result.candidates?.[0]?.inliers ?? null,
+            }));
+          } catch { /* a trace must never affect a scan */ }
+        }
+
         // PR 11: THE TITLE, from the SAME rectified image.
         //
         // One rectification, two crops. The expensive parts of the OCR path are
@@ -439,12 +486,16 @@ router.post('/scan-resolve', async (req, res) => {
     // it would turn a bad hint into a lost card. The resolver validates the
     // surviving value against the catalogue anyway, so the worst a bogus hint
     // can do is fail to match and fall through to the normal path.
+    // THE NUMBER IS OPTIONAL. A set-only hint is the basic-land case: the art
+    // identifies the CARD and its set confidently, but cannot say which of
+    // several identical printings it is, so the collector-number read decides
+    // within that set. Requiring a number here rejected precisely the hint that
+    // case needs. Bounds are still enforced on whatever is present.
     let hint = null;
-    if (printing_hint && typeof printing_hint === 'object'
-        && typeof printing_hint.set === 'string' && typeof printing_hint.number === 'string'
-        && printing_hint.set.length > 0 && printing_hint.set.length <= 20
-        && printing_hint.number.length > 0 && printing_hint.number.length <= 20) {
-      hint = { set: printing_hint.set, number: printing_hint.number };
+    const okStr = (v) => typeof v === 'string' && v.length > 0 && v.length <= 20;
+    if (printing_hint && typeof printing_hint === 'object' && okStr(printing_hint.set)) {
+      hint = { set: printing_hint.set };
+      if (okStr(printing_hint.number)) hint.number = printing_hint.number;
     }
 
     const outcome = await resolveScannedPrinting({
