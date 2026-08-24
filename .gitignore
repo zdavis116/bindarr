@@ -94,3 +94,5 @@ hash-index/
 backend/spike/phase4a/*.wasm
 backend/spike/phase4a/*.onnx
 backend/spike/phase4a/*.mjs
+yolo11n-obb.pt
+*.pt

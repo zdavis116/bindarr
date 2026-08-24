@@ -112,22 +112,14 @@ def place_card(canvas, card, rng, in_case, sleeved):
     # PERSPECTIVE. Jitter each corner independently -- a card photographed at
     # an angle projects to a genuine non-rectangle.
     #
-    # THE CEILING IS 3%, AND IT IS MEASURED, NOT CHOSEN. YOLO OBB labels are
-    # (cx, cy, w, h, angle) -- a rotated RECTANGLE, which cannot represent a
-    # perspective quad. Encoding a warped quad into that form and decoding it
-    # back loses accuracy, and the loss grows with jitter:
-    #
-    #     jitter   p95 corner error (% of card width)
-    #      0.02          3.3%
-    #      0.03          4.9%     <- ceiling used here
-    #      0.05          7.7%
-    #      0.10         15.8%     <- the original setting
-    #
-    # At 10% the label was describing a box up to 30% of a card-width away from
-    # the actual card. A detector trained on that learns to place boxes badly,
-    # and nothing in a loss curve reveals it. The residual perspective is not
-    # lost -- rectifyCard undoes it downstream from the detected quad.
-    j = rng.uniform(0.005, 0.03)
+    # The full range is back. An earlier version capped this at 3% because the
+    # label format was (cx,cy,w,h,angle), a rotated RECTANGLE that could not
+    # represent a perspective quad -- at 10% jitter the label sat up to 30% of
+    # a card-width from the real card. The 8-corner format represents the quad
+    # EXACTLY, so the cap is no longer needed and real-world angles can be
+    # trained on. Per capture-pipeline-diagnosis: that deviation from 0.716 is
+    # not error, it is the payload the warp consumes.
+    j = rng.uniform(0.01, 0.10)
     corners = [(ox, oy), (ox + cw, oy), (ox + cw, oy + ch), (ox, oy + ch)]
     moved = [(x + rng.uniform(-j, j) * cw, y + rng.uniform(-j, j) * ch) for x, y in corners]
 
@@ -183,14 +175,25 @@ def visible_fraction(corners, later, W, H):
 
 
 def obb_label(corners, W, H):
-    """YOLO OBB: class cx cy w h angle, normalised. Derived from the corners we
-    placed, so the label is exact by construction rather than annotated."""
-    pts = np.array(corners, dtype=np.float64)
-    cx, cy = pts[:, 0].mean(), pts[:, 1].mean()
-    w = (np.linalg.norm(pts[0] - pts[1]) + np.linalg.norm(pts[3] - pts[2])) / 2
-    h = (np.linalg.norm(pts[0] - pts[3]) + np.linalg.norm(pts[1] - pts[2])) / 2
-    ang = math.atan2(pts[1][1] - pts[0][1], pts[1][0] - pts[0][0])
-    return f"0 {cx/W:.6f} {cy/H:.6f} {w/W:.6f} {h/H:.6f} {ang:.6f}"
+    """YOLO OBB label: class x1 y1 x2 y2 x3 y3 x4 y4, all normalised 0-1.
+
+    FOUR CORNERS, NOT (cx, cy, w, h, angle). I wrote the latter first and
+    ultralytics silently ignored every file -- training ran to completion and
+    reported "no labels found in obb set", having learned nothing. The format
+    is the DOTA-style 8-coordinate polygon; see
+    ultralytics.data.converter.convert_dota_to_yolo_obb.
+
+    This is strictly better for us anyway: four corners represent a PERSPECTIVE
+    QUAD exactly, whereas the rotated-rectangle form could not. The 3% jitter
+    ceiling that form forced is no longer needed -- the label can now say
+    precisely where the card's corners are, which is what rectifyCard consumes
+    downstream.
+    """
+    pts = []
+    for x, y in corners:
+        pts.append(f'{min(max(x / W, 0.0), 1.0):.6f}')
+        pts.append(f'{min(max(y / H, 0.0), 1.0):.6f}')
+    return '0 ' + ' '.join(pts)
 
 
 def main():
