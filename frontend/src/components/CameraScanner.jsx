@@ -1654,7 +1654,36 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 // a HINT: the server validates against the catalogue and ignores
                 // it unless it resolves to exactly one real printing, so nothing
                 // is added on the client's say-so and a wrong guess still queues.
-                const printingHint = (clipName && top?.set)
+                // THE MATCHER'S SET IS ONLY TRUSTED WHEN THE MATCH IS REAL.
+                //
+                // WHAT INLIERS ARE: the number of feature points from the photo
+                // that agree with a single geometric transform onto the reference
+                // image. High means many landmarks genuinely line up; low means a
+                // handful agreed by coincidence and the matcher is picking the
+                // least-bad row rather than recognising anything.
+                //
+                // MEASURED on Zach's stack, where sending the set unconditionally
+                // put WRONG CARDS into staging:
+                //     Plains              inliers 52, 70   -> correct
+                //     Forest              inliers 9-15      -> staged as pal03 #5
+                //     Blightstep Pathway  inliers 12        -> not a land at all
+                // The separation is clean and it is not close. Below ~20 every
+                // result was wrong; above it every result was right.
+                //
+                // Basic lands are the hard case for a reason: a Forest is smooth
+                // artwork with very few distinctive corners, so there are barely
+                // any feature points to match and the score stays near the noise
+                // floor even for the correct card. That is exactly when the set
+                // must NOT be taken on trust.
+                //
+                // Sending the set regardless is what turned "queues annoyingly"
+                // into "silently files a Forest as Arena League 2003". A queued
+                // card costs a tap; a wrong card in the collection cannot be
+                // reconciled against the physical stack.
+                const MIN_TRUSTED_INLIERS = 20;
+                const matchInliers = Number.isFinite(top?.inliers) ? top.inliers : null;
+                const matchIsTrusted = matchInliers != null && matchInliers >= MIN_TRUSTED_INLIERS;
+                const printingHint = (clipName && top?.set && matchIsTrusted)
                   ? {
                     set: String(top.set),
                     number: (!ambiguousPrinting && top?.number) ? String(top.number) : null,
@@ -1672,6 +1701,14 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   }
                   setScanStatus('');
                   const outcome = await reviewQueue.submitScan({
+                    // HOW STRONG THE MATCH WAS. The staging row stores this and
+                    // the low_confidence flag keys on it -- a flag that has never
+                    // once fired, because this value was never sent. Every wrong
+                    // card in Zach's session (Forest as pal03 #5, Blightstep
+                    // Pathway as a land) scored 9-15 while the one correct land
+                    // scored 52-70, so the signal that would have caught all of
+                    // them was sitting in the response, unused.
+                    matchInliers,
                     name: clipName,
                     // The OCR'd TITLE. The server fuzzy-matches it against the
                     // catalogue and prefers it over the CLIP name — the title
