@@ -198,8 +198,8 @@ def obb_label(corners, W, H):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--cards', default='/tmp/phash_test/img')
-    ap.add_argument('--out', default='/tmp/yolo-cards')
+    ap.add_argument('--cards', default=str(Path.home() / 'bindarr-cardart'))
+    ap.add_argument('--out', default=str(Path.home() / 'bindarr-yolo-data'))
     ap.add_argument('--n', type=int, default=2000)
     ap.add_argument('--size', type=int, default=640)
     ap.add_argument('--seed', type=int, default=7)
