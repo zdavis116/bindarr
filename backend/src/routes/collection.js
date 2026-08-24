@@ -18,6 +18,7 @@ const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
 const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
 const collectorNumberOcr = require('../utils/collectorNumberOcr');
 const cardTitleOcr = require('../utils/cardTitleOcr');
+const rgbArtMatch = require('../rgbArtMatch');
 const { parseCollectorStrip } = require('../utils/collectorNumberParse');
 const {
   InvariantError,
@@ -364,6 +365,48 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // returned noise.
         const titleRaw = rectified ? await cardTitleOcr.readCardTitle(rectified) : '';
         result.ocr = { ...parseCollectorStrip(raw), title: titleRaw.trim(), ms: Date.now() - t0 };
+
+        // PHASE 1b: rgbArt SHADOW MODE. Off unless RGBART_SHADOW=1.
+        //
+        // Computes the rgbArt hash of this scan and logs its answer ALONGSIDE
+        // the ORB answer. Nothing is returned to the client and nothing about
+        // the scan changes — Gate 1b is "rgbArt >= ORB on real scans", and that
+        // has to be measured on Zach's actual photos before rgbArt is trusted
+        // with an identification.
+        //
+        // It hashes the SAME rectified image the OCR path already produced, so
+        // it costs one hash (~30ms) and no extra detection or warp.
+        //
+        // WHY IT REUSES `rectified` RATHER THAN THE RAW UPLOAD. The index was
+        // built from Scryfall's flat card images. A raw phone photo is angled,
+        // cropped loose and lit unevenly; rectified is the warped, card-shaped
+        // version. Comparing like with like is the whole point — hashing the
+        // raw upload would measure the detector's failures, not rgbArt's.
+        //
+        // Consequence, stated honestly: when detection fails, rectified is null
+        // and rgbArt gets no turn at all. Those scans are logged as skipped
+        // rather than as rgbArt failures, because they are not.
+        if (process.env.RGBART_SHADOW) {
+          try {
+            const shadow = rectified ? await rgbArtMatch.identify(rectified, 3) : null;
+            const orbTop = result.candidates?.[0] ?? null;
+            console.log('RGBART_SHADOW ' + JSON.stringify({
+              ts: new Date().toISOString(),
+              skipped: rectified ? null : 'no-detection',
+              orb: orbTop ? { name: orbTop.name, set: orbTop.set, number: orbTop.number,
+                              inliers: orbTop.inliers ?? null } : null,
+              rgb: shadow ? { name: shadow.top.name, set: shadow.top.set,
+                              number: shadow.top.number, dist: shadow.top.dist,
+                              margin: shadow.margin, ms: shadow.ms } : null,
+              rgbRunners: shadow ? shadow.hits.slice(1).map(h => ({ name: h.name, dist: h.dist })) : null,
+              ocrNumber: result.ocr?.number ?? null,
+              ocrTitle: (result.ocr?.title || '').slice(0, 40),
+              agree: (shadow && orbTop)
+                ? shadow.top.name.toLowerCase() === String(orbTop.name || '').toLowerCase()
+                : null,
+            }));
+          } catch { /* shadow mode must never affect a scan */ }
+        }
       } catch (e) {
         console.warn('scan-match OCR failed:', e.message);
         result.ocr = { number: null, set: null, confident: false, raw: '', title: '', ms: Date.now() - t0 };
