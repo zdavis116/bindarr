@@ -59,6 +59,25 @@ def mem_limit_bytes():
 
 
 def mem_now():
+    """Memory that CANNOT be reclaimed under pressure.
+
+    NOT memory.current. That counter includes the page cache -- 753MB of it on
+    this box after reading 2000 training images -- which the kernel evicts for
+    free the moment anything needs RAM. The first version of this watchdog read
+    memory.current, saw 1857MB, and aborted a perfectly healthy training run
+    that was actually using ~680MB of real memory.
+
+    `anon` is the number that matters: heap and stacks, which must be swapped
+    or OOM-killed rather than dropped. Falls back to memory.current only if the
+    breakdown is unavailable, since a crude guard beats none.
+    """
+    try:
+        for line in Path('/sys/fs/cgroup/memory.stat').read_text().splitlines():
+            k, _, v = line.partition(' ')
+            if k == 'anon':
+                return int(v)
+    except Exception:
+        pass
     try:
         return int(CGROUP_CUR.read_text().strip())
     except Exception:
@@ -83,7 +102,7 @@ def watchdog(limit, frac, stop):
                   f'the system; resume from last.pt.', flush=True)
             os._exit(3)
         time.sleep(2)
-    print(f'watchdog: peak memory {peak/1e6:.0f}MB of {limit/1e6:.0f}MB cap', flush=True)
+    print(f'watchdog: peak anon memory {peak/1e6:.0f}MB of {limit/1e6:.0f}MB cap', flush=True)
 
 
 def main():
