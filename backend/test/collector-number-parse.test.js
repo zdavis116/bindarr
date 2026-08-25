@@ -327,5 +327,50 @@ check('F8P-TC25', 'with no legible set line, the old first-token behaviour remai
   assert.strictEqual(p.number, '213');
 });
 
+
+check('F8P-TC26', 'an artist name is not mistaken for the set line', () => {
+  // Zach: "evils thrall has set code and number but still didn't match not sure
+  // why."
+  //
+  // The strip read 'uv 0128 / MSH (R)EN % Mintav / Nemes 5 BE'. Candidates came
+  // back as ['msh', 'nemes', 'nem'] -- 'nem' is the artist's name 'Nemes' with
+  // its last letter stripped by the language-suffix rule added for glued tokens
+  // ('mshen' -> 'msh').
+  //
+  // 'nem' is a REAL set (Nemesis) and nem #128 is a REAL card (Complex
+  // Automaton). So msh #128 and nem #128 BOTH resolved, the resolver correctly
+  // called that ambiguous, and a card it had actually identified was queued.
+  //
+  // The set code is printed ON THE SET LINE; an artist name is not. The parser
+  // reports which candidates came from that line so the resolver can prefer
+  // them.
+  //
+  // NOTE the separator requirement: 'Nemes' is itself <3-5 chars><lang 'es'>
+  // with nothing between, so a permissive pattern matched the ARTIST line too.
+  const p = parseCollectorStrip('uv 0128\nMSH \u00aeEN \u00a5% Mintav\nNemes 5 BE\n');
+  assert.strictEqual(p.number, '128');
+  assert.ok(p.setCandidates.includes('msh'), 'the real set must still be offered');
+  assert.deepStrictEqual(p.setLineCandidates, ['msh'],
+    `only the set line's own candidates may be flagged, got `
+    + `${JSON.stringify(p.setLineCandidates)}`);
+});
+
+check('F8P-TC27', 'setLineCandidates is a subset of setCandidates', () => {
+  // The resolver tiers on this. If a set-line candidate were ever absent from
+  // the full list, the tiering would silently drop a real reading.
+  for (const raw of [
+    'uv 0128\nMSH \u00aeEN \u00a5% Mintav\nNemes 5 BE\n',
+    '| iil 63\nrR 0038\nMSH *EN be RAFAT\n',
+    '263/281 U\nC21 * EN MIKE BIEREK',
+    'RS S=,\nC 0247\nMSHAEN \u00a5% DAVID\n',
+  ]) {
+    const p = parseCollectorStrip(raw);
+    for (const c of p.setLineCandidates || []) {
+      assert.ok(p.setCandidates.includes(c),
+        `set-line candidate '${c}' missing from setCandidates for ${JSON.stringify(raw)}`);
+    }
+  }
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);

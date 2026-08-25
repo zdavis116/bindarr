@@ -442,14 +442,45 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
     // different candidates each resolve, that is ambiguity and it queues rather
     // than picking. More signal, not looser rules.
     if (ocr.number) {
-      const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+      // TRY THE SET LINE'S OWN CANDIDATES FIRST.
+      //
+      // Zach: "evils thrall has set code and number but still didn't match not
+      // sure why."
+      //
+      // The strip read 'uv 0128 / MSH ®EN ¥% Mintav / Nemes 5 BE'. Candidates
+      // came back as ['msh', 'nemes', 'nem'] -- 'nem' being the artist's name
+      // 'Nemes' with its last letter stripped by the language-suffix rule I
+      // added for glued tokens ('mshen' -> 'msh').
+      //
+      // 'nem' is a REAL set (Nemesis) and nem #128 is a REAL card (Complex
+      // Automaton). So msh #128 and nem #128 both resolved, the code correctly
+      // called that ambiguous, and a card it had actually identified went to
+      // the queue.
+      //
+      // The set code is printed ON THE SET LINE; an artist name is not. So try
+      // the set line's candidates first, and only fall back to the rest if none
+      // of them resolve. That keeps the extra candidates useful for genuinely
+      // mangled reads while stopping a stray word from manufacturing ambiguity.
+      //
+      // The safety property is unchanged: a winner still requires EXACTLY ONE
+      // printing, and two winners within the same tier still queue.
+      const all = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+      const onSetLine = new Set(ocr.setLineCandidates || []);
+      const tiers = onSetLine.size
+        ? [all.filter(c => onSetLine.has(c)), all.filter(c => !onSetLine.has(c))]
+        : [all];
       const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
-      const hits = [];
-      for (const code of codes) {
-        for (const num of numbers) {
-          const exact = await printingBySetNumber(code, num);
-          if (exact && !hits.some(h => h.id === exact.id)) hits.push(exact);
+      let hits = [];
+      for (const tier of tiers) {
+        if (!tier.length) continue;
+        hits = [];
+        for (const code of tier) {
+          for (const num of numbers) {
+            const exact = await printingBySetNumber(code, num);
+            if (exact && !hits.some(h => h.id === exact.id)) hits.push(exact);
+          }
         }
+        if (hits.length) break;   // this tier decided it, ambiguous or not
       }
       if (hits.length === 1) {
         return {

@@ -55,14 +55,20 @@ const LANG_SUFFIXES = ['en', 'de', 'fr', 'it', 'es', 'pt', 'ja', 'ko', 'ru', 'zh
 // HOW TO RECOGNISE THE SET LINE.
 //
 // The line carrying the set code has a distinctive shape: a 3-5 character code
-// followed by a two-letter language code, usually separated by a glyph OCR
-// mangles ('MSH*EN', 'MSH « EN', 'MSHAEN'). That pattern is what anchors the
-// card's own number, since the number is printed directly above it.
+// followed by a two-letter language code, separated by a glyph OCR mangles
+// ('MSH*EN', 'MSH « EN', 'MSHAEN').
 //
-// Deliberately loose about the separator and generous about surrounding noise:
-// it only has to identify WHICH LINE, not parse it.
+// THE SEPARATOR IS REQUIRED, and that requirement is load-bearing. A permissive
+// version matched the ARTIST line 'Nemes 5 BE' -- because 'Nemes' is itself
+// <3-5 chars><language code 'es'> with nothing between them. That made the
+// artist line look like the set line, which is exactly the confusion this
+// pattern exists to prevent.
+//
+// So: either an explicit separator character between the code and the language,
+// or whitespace. Two letters merely ending a word do not qualify.
 const SET_LINE_HINT = new RegExp(
-  `\\b[a-z0-9]{3,5}\\s*[^a-z0-9\\s]?\\s*(${LANG_SUFFIXES.join('|')})\\b`, 'i');
+  `\\b[a-z0-9]{3,5}\\s*[^a-z0-9\\s]\\s*(${LANG_SUFFIXES.join('|')})\\b`
+  + `|\\b[a-z0-9]{3,5}\\s+(${LANG_SUFFIXES.join('|')})\\b`, 'i');
 
 // A collector number token. Deliberately narrow:
 //   123        digits
@@ -158,6 +164,12 @@ function parseCollectorStrip(raw) {
   let set = null;
   // Every set-shaped token seen, in reading order. See the collection loop.
   const setCandidates = [];
+  // The subset of those found ON THE SET LINE itself. The set code is printed
+  // there; an artist name is not. Lets the resolver prefer real set codes over
+  // stems accidentally derived from surrounding words -- see the Evil's Thrall
+  // case, where the artist 'Nemes' produced 'nem', a real set whose #128 is a
+  // real card, manufacturing ambiguity for a card already identified.
+  const setLineCandidates = [];
   // Every number-shaped token seen, with the line it came from. See the
   // selection below: the FIRST one is not necessarily the card's own.
   const numberTokens = [];
@@ -293,8 +305,10 @@ function parseCollectorStrip(raw) {
           if (stem.length >= 4) stems.push(stem.slice(0, -1));
         }
       }
-      for (const s of stems) {
-        if (!setCandidates.includes(s)) setCandidates.push(s);
+      const onSetLine = SET_LINE_HINT.test(line);
+      for (const st of stems) {
+        if (!setCandidates.includes(st)) setCandidates.push(st);
+        if (onSetLine && !setLineCandidates.includes(st)) setLineCandidates.push(st);
       }
       continue;
       // COLLECT EVERY PLAUSIBLE SET CODE, not just the first one.
@@ -393,6 +407,7 @@ function parseCollectorStrip(raw) {
     // catalogue. `set` stays as the first one so existing callers are
     // unchanged; setCandidates is what lets a caller do better.
     setCandidates,
+    setLineCandidates,
     confident,
     raw: String(raw || ''),
   };
