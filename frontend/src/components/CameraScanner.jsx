@@ -1455,8 +1455,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // `auto` distinguishes the two callers, and it is the ONLY thing the
   // sharpness gate keys on. The metronome effect passes true; the scan BUTTON
   // passes nothing, so a manual tap is never gated and always produces a scan.
-  const handleCapture = async (auto = false) => {
-    if (loading || !videoRef.current || !cameraActive) return;
+  const handleCapture = async (auto = false, force = false) => {
+    // `loading` guards against two scans running at once. A MANUAL tap may
+    // override it, because a stuck `loading` is otherwise unrecoverable without
+    // restarting the camera -- Zach: "tapping didn't get it to scan again".
+    // Auto-scan never forces: only a deliberate tap does.
+    if ((loading && !force) || !videoRef.current || !cameraActive) return;
 
     setLoading(true);
     const scanId = ++currentScanId.current;
@@ -2108,7 +2112,29 @@ function CameraScanner({ onAddSuccess, showToast }) {
       lastTickOutcomeRef.current = 'error';
       if (scanId === currentScanId.current) setScanStatus('Scan failed. Please search manually.');
     } finally {
-      if (scanId === currentScanId.current) setLoading(false);
+      // ALWAYS CLEAR `loading`, EVEN FOR A SUPERSEDED SCAN.
+      //
+      // Zach: "it stopped scanning eventually and tapping didn't get it to scan
+      // again". This is why. `loading` gates BOTH auto-scan and the tap
+      // override (handleCapture's first line returns immediately when it is
+      // true), so if it is ever left stuck the scanner is dead until the camera
+      // is restarted -- and no amount of tapping recovers it.
+      //
+      // The guard used to be `if (scanId === currentScanId.current)`, which
+      // skips the reset whenever this scan was superseded: a cancel, or a new
+      // capture starting, bumps currentScanId. The NEW scan then owns `loading`
+      // and clears it on its own path -- but if that newer scan returned early
+      // (a stale-id check, an englishOnly bail, a missing guide element), the
+      // flag was never cleared by anyone. Terminal, and exactly the symptom he
+      // hit: works for a while, then stops forever.
+      //
+      // Clearing unconditionally is safe. A superseded scan setting `loading`
+      // to false at worst lets one extra capture start a moment early, which
+      // the stability gate then has to approve anyway. A stuck `true` is
+      // unrecoverable. Prefer the recoverable failure.
+      setLoading(false);
+      // The STATUS text still belongs to the newest scan only, so a stale scan
+      // cannot overwrite what the current one is saying.
     }
   };
   // Keep the ref pointing at the latest handleCapture so timers (metronome /
@@ -2331,13 +2357,39 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 wrong one, which is the worse outcome. Marking the period as
                 consumed prevents the auto path immediately firing a second
                 scan of the same card. */}
-            {fullscreenScan && cameraActive && autoScan && !loading && (
+            {/* RENDERED EVEN WHILE `loading`. If the tap target disappears
+                whenever the scanner thinks it is busy, then a wedged `loading`
+                flag removes the very control that exists to recover from it --
+                which is what Zach hit: "tapping didn't get it to scan again".
+                handleCapture still refuses to run two scans at once, so the
+                worst case of a tap during a real scan is that nothing
+                happens. */}
+            {fullscreenScan && cameraActive && autoScan && (
               <div
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!liveDetectRef.current) return;   // nothing to scan
+                  // TAP MUST ALSO RECOVER A WEDGED SCANNER.
+                  //
+                  // Zach: "it stopped scanning eventually and tapping didn't get
+                  // it to scan again". Two independent latches can wedge
+                  // auto-scan, and tap has to clear BOTH or it is not an escape
+                  // hatch at all -- it just fails the same way the auto path
+                  // did, which is precisely what he experienced.
+                  //
+                  //   stablePeriodConsumedRef  one-scan-per-stable-period latch
+                  //   currentScanId            bumped so any in-flight scan's
+                  //                            late callbacks cannot clobber
+                  //                            the state this tap is about to
+                  //                            set
+                  //
+                  // `loading` is the third, and it is cleared unconditionally
+                  // in handleCapture's finally now -- see the note there.
                   stablePeriodConsumedRef.current = true;
-                  handleCaptureRef.current?.(false);    // manual: skips the stability gate
+                  stableCountRef.current = 0;
+                  prevDetRef.current = null;
+                  currentScanId.current += 1;
+                  handleCaptureRef.current?.(false, true);  // manual + force past a stuck `loading`
                 }}
                 style={{
                   position: 'absolute',

@@ -154,14 +154,55 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
 {
   const i = src.indexOf("aria-label={t('scan.tapToScan')}");
   assert.ok(i > 0, 'tap-to-scan overlay not found');
-  const block = src.slice(Math.max(0, i - 900), i);
-  assert.ok(/handleCaptureRef\.current\?\.\(false\)/.test(block),
+  const block = src.slice(Math.max(0, i - 2400), i);
+  assert.ok(/handleCaptureRef\.current\?\.\(false, true\)/.test(block),
     'tap must call the capture path in MANUAL mode (auto=false) to skip the stability gate');
   assert.ok(/stablePeriodConsumedRef\.current = true;/.test(block),
     'tap must consume the stable period so auto does not immediately rescan');
   assert.ok(/if \(!liveDetectRef\.current\) return;/.test(block),
     'tap must do nothing when no card is in view');
   pass('FSTAB-TC8', 'tap-to-force scans on demand without bypassing the sharpness gate');
+}
+
+// 9. THE SCANNER CANNOT WEDGE ITSELF PERMANENTLY.
+//
+//    Zach: "the scanner started out good but it stopped scanning eventually and
+//    tapping didn't get it to scan again". `loading` gates BOTH auto-scan and
+//    the tap override, so if it is ever left true the scanner is dead until the
+//    camera is restarted.
+//
+//    The cause: `finally { if (scanId === currentScanId.current) setLoading(false); }`
+//    skipped the reset whenever a scan was superseded. The superseding scan
+//    then owned the flag -- but if IT returned early, nobody ever cleared it.
+{
+  const i = src.indexOf('} finally {');
+  assert.ok(i > 0, 'handleCapture finally block not found');
+  const block = src.slice(i, i + 1600);
+  assert.ok(/^\s*setLoading\(false\);\s*$/m.test(block),
+    'the finally block must clear `loading` UNCONDITIONALLY — a scoped reset '
+    + 'leaves the scanner permanently wedged when a scan is superseded');
+  assert.ok(!/if \(scanId === currentScanId\.current\) setLoading\(false\)/.test(src),
+    'the id-scoped setLoading(false) is back — that is the wedge bug');
+  pass('FSTAB-TC9', '`loading` is always cleared, so the scanner cannot wedge');
+}
+
+// 10. TAP RECOVERS A WEDGED SCANNER.
+//
+//     An escape hatch that fails the same way the auto path failed is not an
+//     escape hatch. Tap must (a) still be on screen while `loading` is true,
+//     and (b) be able to run despite it.
+{
+  const i = src.indexOf("aria-label={t('scan.tapToScan')}");
+  assert.ok(i > 0, 'tap-to-scan overlay not found');
+  const block = src.slice(Math.max(0, i - 1800), i);
+  assert.ok(/\{fullscreenScan && cameraActive && autoScan && \(/.test(block),
+    'the tap target must NOT be hidden by `loading` — that removes the very '
+    + 'control that recovers from a stuck `loading`');
+  assert.ok(/handleCaptureRef\.current\?\.\(false, true\)/.test(block),
+    'tap must force past a stuck `loading`');
+  assert.ok(/\(loading && !force\)/.test(src),
+    'handleCapture must honour the force flag for manual taps only');
+  pass('FSTAB-TC10', 'tap stays available and can force past a stuck loading flag');
 }
 
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);
