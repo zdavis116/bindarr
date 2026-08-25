@@ -210,4 +210,50 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
   pass('FSTAB-TC10', 'tap stays available and can force past a stuck loading flag');
 }
 
+// 11. THE TRAINED DETECTOR LEADS THE PREVIEW, AND ITS FAILURE IS SURVIVABLE.
+//
+//     Zach: "yeah I said this earlier about using the yolo detector for
+//     measuring this please build it."
+//
+//     Measured: the edge detector finds a card in 9/33 of his real scans (21 of
+//     the 24 misses fail the ASPECT test — it latches onto the strongest edges,
+//     which on a stack of cards are not the card's outline). The trained
+//     detector finds 31/33 of the same photos.
+//
+//     The load-bearing safety property is that a missing or broken model must
+//     degrade to today's behaviour, never to a frozen preview.
+{
+  const ui = fs.readFileSync(SRC, 'utf8');
+  assert.ok(/import \{ initCardDetector, detectCardOnDevice, detectorReady \}/.test(ui),
+    'the preview must import the on-device detector');
+  assert.ok(/if \(detectorReady\(\)\) det = await detectCardOnDevice\(data, DW, DH\);/.test(ui),
+    'the trained detector must run first when it is loaded');
+  assert.ok(/if \(!det\) det = detectCardInFrame\(gray, DW, DH\);/.test(ui),
+    'the edge detector must remain as the fallback');
+
+  const det = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'utils', 'onDeviceCardDetect.js'), 'utf8');
+  assert.ok(/if \(!session \|\| busy\) return null;/.test(det),
+    'inference must refuse to run when the model is absent or already running');
+  assert.ok(/catch \(e\) \{[\s\S]{0,200}return null;/.test(det),
+    'inference failures must return null, never throw into the preview loop');
+  assert.ok(/session = null;\s*\n\s*backendName = 'none';/.test(det),
+    'a failed load must be remembered as unavailable, not retried every frame');
+  pass('FSTAB-TC11', 'the trained detector leads the preview and fails safe to the old one');
+}
+
+// 12. THE PREVIEW LOOP CANNOT PILE UP ASYNC WORK.
+//
+//     Inference measured ~142ms on Zach's phone against a 140ms loop. With
+//     setInterval the ticks would overlap and queue behind each other, each
+//     holding a frame buffer, for as long as he keeps scanning.
+{
+  const ui = fs.readFileSync(SRC, 'utf8');
+  assert.ok(!/setInterval\(tick/.test(ui),
+    'the detection loop must not use setInterval — an async tick would overlap');
+  assert.ok(/const pump = async \(\) => \{[\s\S]{0,260}await tick\(\);/.test(ui),
+    'the loop must chain the next tick after the previous one completes');
+  pass('FSTAB-TC12', 'the detection loop is self-scheduling and cannot overlap');
+}
+
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);

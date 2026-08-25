@@ -5,6 +5,7 @@ import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
 import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
+import { initCardDetector, detectCardOnDevice, detectorReady } from '../utils/onDeviceCardDetect';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import ScanReviewQueue from './ScanReviewQueue';
@@ -867,7 +868,16 @@ function CameraScanner({ onAddSuccess, showToast }) {
     if (scanMatches.length > 0) return 'Waiting — pick a match';
     if (autoAddTargetCard) return 'Waiting — confirming a card';
     if (dupConfirmCard) return 'Waiting — confirming a duplicate';
-    if (!cardPresent) return t('scan.waitingForCard');
+    // NAME THE DETECTOR WHEN NOTHING IS FOUND.
+    //
+    // "Waiting for a card" is ambiguous between "point the camera at a card"
+    // and "the detector is broken again", and that ambiguity has cost several
+    // rounds of guessing. If the trained detector failed to load, the preview
+    // is running on the edge detector -- which finds 9/33 -- and Zach needs to
+    // see that on screen rather than have me infer it later.
+    if (!cardPresent) {
+      return detectorReady() ? t('scan.waitingForCard') : 'Waiting for a card (basic detector)';
+    }
     if (!steady) return t('scan.holdSteady');
     return '';
   })();
@@ -885,8 +895,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   useEffect(() => {
     if (!cameraActive) { liveDetectRef.current = null; setLiveDetect(null); return undefined; }
     let cancelled = false;
+    // Start loading the detector when the camera opens. Fire-and-forget: the
+    // loop runs on the edge detector until the model is ready, and for ever if
+    // it never loads.
+    initCardDetector();
 
-    const tick = () => {
+    const tick = async () => {
       if (cancelled) return;
       const video = videoRef.current;
       if (!video || !video.videoWidth) return;
@@ -907,7 +921,28 @@ function CameraScanner({ onAddSuccess, showToast }) {
           gray[i] = (data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114) | 0;
         }
 
-        const det = detectCardInFrame(gray, DW, DH);
+        // THE TRAINED DETECTOR LEADS; THE EDGE DETECTOR FALLS BACK.
+        //
+        // Zach: "yeah I said this earlier about using the yolo detector for
+        // measuring this please build it."
+        //
+        // Measured on his 33 real scans: the edge detector finds a card in
+        // 9/33, and 21 of the 24 misses fail the ASPECT test -- it latches onto
+        // the strongest edges, which on a STACK OF CARDS are not the card's
+        // outline. The trained detector finds 31/33 of the same photos, and
+        // Phase 4a measured it at 142ms on his iPhone over 2,195 inferences.
+        //
+        // YOLO needs COLOUR, so it gets the RGBA buffer; the edge detector
+        // keeps the greyscale copy it was written for. Both return the same
+        // { x, y, w, h, confidence } shape in detection-pixel space, so the
+        // outline mapping and stability logic below are untouched.
+        //
+        // detectCardOnDevice returns null for "no card" AND for every failure,
+        // including "model never loaded" -- so this degrades to exactly today's
+        // behaviour rather than to a frozen preview.
+        let det = null;
+        if (detectorReady()) det = await detectCardOnDevice(data, DW, DH);
+        if (!det) det = detectCardInFrame(gray, DW, DH);
         if (cancelled) return;
         if (!det) {
           liveDetectRef.current = null;
@@ -964,8 +999,26 @@ function CameraScanner({ onAddSuccess, showToast }) {
       }
     };
 
-    const id = setInterval(tick, 140);
-    return () => { cancelled = true; clearInterval(id); };
+    // SELF-SCHEDULING, NOT setInterval.
+    //
+    // The tick is now async: on-device inference measured ~142ms on Zach's
+    // iPhone, against a 140ms interval. setInterval does not wait, so ticks
+    // would overlap and pile up -- each one holding a frame buffer, on a phone,
+    // in a loop that runs for as long as he is scanning.
+    //
+    // Chaining the next tick from the end of the previous one makes the loop
+    // self-limiting: it runs as fast as inference allows and no faster, and it
+    // cannot queue work behind itself. The 140ms is a floor on the gap, not a
+    // deadline for the work.
+    let timer = null;
+    const pump = async () => {
+      if (cancelled) return;
+      await tick();
+      if (cancelled) return;
+      timer = setTimeout(pump, 140);
+    };
+    pump();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [cameraActive]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {

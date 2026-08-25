@@ -54,7 +54,22 @@ app.use(helmet({
     reportOnly: true,
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      // 'wasm-unsafe-eval' IS REQUIRED BY THE ON-DEVICE CARD DETECTOR.
+      //
+      // onnxruntime-web compiles a WebAssembly module, and every browser gates
+      // WASM compilation behind this directive. Without it the detector fails
+      // to load and the preview silently falls back to the edge detector --
+      // which finds a card in only 9 of 33 real scans, the exact bug this
+      // replaces.
+      //
+      // It is added NOW even though the policy is reportOnly, because the day
+      // someone enforces it the failure would be silent, remote, and would look
+      // like the scanner regressing for no reason.
+      //
+      // It is much narrower than it sounds: it permits WASM compilation ONLY.
+      // It does NOT enable eval() or any other JavaScript string execution --
+      // that would be 'unsafe-eval', which stays off.
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
       connectSrc: ["'self'"],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://cards.scryfall.io', 'https://c1.scryfall.com', 'https://img.scryfall.com'],
       styleSrc: ["'self'", "'unsafe-inline'"],
