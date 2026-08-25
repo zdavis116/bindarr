@@ -152,6 +152,104 @@ const SCAN_RETRY_REJECTED_MS = 350;
 const SCAN_RETRY_SETTLE_MS = 400;
 const SCAN_RETRY_ERROR_MS = 2500;
 
+// ---------------------------------------------------------------------------
+// STABILITY GATING — capture when the detection HOLDS STILL, never on a timer.
+//
+// Zach: "this scanner is not working it's just not getting any better.
+// Recommending researching the internet for the best way to scan cards by
+// detecting one is in the camera view."
+//
+// He was right that patching was not converging. Three attempts tried to answer
+// "is this a DIFFERENT card?" from a preview frame -- luma fingerprint, then
+// detector geometry, then match identity -- and all three skipped real cards.
+// That question is not answerable from a preview: he stacks each card in the
+// same position, so nothing moves, and two cards under the same light look
+// nearly identical at any coarse measure.
+//
+// WHAT EVERY MATURE SCANNER DOES INSTEAD (see SCANNER_CAPTURE_REDESIGN.md):
+// capture when the detected quad has held still across N consecutive frames.
+// Four independent implementations of the same rule --
+//   Dynamsoft QuadStabilizer   IoU 0.85, area delta 0.15, 3 stable frames
+//   docuSnap                   10 consecutive passing frames + hold-still
+//   CamScanner                 stability + occlusion + clarity before capture
+//   Scanbot                    sensitivity threshold + post-detect delay
+//
+// The question changes from one that cannot be answered to one that can: "has
+// the detection held still long enough to be a deliberate presentation?" A
+// stable quad IS a card sitting in view, observed rather than assumed.
+//
+// Zach's workflow decides the duplicate rule: "I just drop cards on top."
+// Dropping a card disturbs the quad, which resets the counter and produces a
+// FRESH stable period -- that is the new-card event, and it needs no "leave the
+// frame" requirement (option (a), his choice). The existing identity check
+// remains the backstop for true duplicates. This errs toward scanning, which is
+// the correct direction: a duplicate is visible and one tap to remove, while a
+// skipped card is only findable by recounting physical cardboard.
+
+// Overlap between two axis-aligned boxes, 0..1. The standard IoU that
+// Dynamsoft's stabilizer uses: it is scale-invariant, so it behaves the same
+// whether the card fills the frame or sits far away.
+function boxIoU(a, b) {
+  if (!a || !b) return 0;
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  if (inter <= 0) return 0;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+// Is this detection in the same place as the previous one?
+//
+// Both tests must pass. IoU alone accepts a box creeping steadily across the
+// frame if each step is small; the area check catches a card being moved
+// toward or away from the camera, which IoU is relatively insensitive to.
+const STABLE_IOU = 0.85;          // Dynamsoft's published default
+const STABLE_AREA_DELTA = 0.15;   // fractional area change allowed
+function detectionsAgree(a, b) {
+  if (!a || !b) return false;
+  if (boxIoU(a, b) < STABLE_IOU) return false;
+  const areaA = a.w * a.h, areaB = b.w * b.h;
+  if (areaA <= 0 || areaB <= 0) return false;
+  return Math.abs(areaA - areaB) / Math.max(areaA, areaB) <= STABLE_AREA_DELTA;
+}
+
+// How many consecutive agreeing frames before the card counts as presented.
+//
+// The live loop runs at ~7 fps (140ms), so 3 frames is ~420ms of stillness.
+// Long enough that a hand moving through the frame cannot trigger it, short
+// enough to feel immediate. Dynamsoft ships 3 at comparable frame rates.
+//
+// NOT A TIMER. Zach: "Nothing should be measured on time." This counts EVENTS
+// from the detector -- if the camera stalls, the count stalls with it, which is
+// the correct behaviour and is exactly what a wall-clock would get wrong.
+const STABLE_FRAMES_REQUIRED = 3;
+
+// THE LOAD-BEARING ASSUMPTION, STATED EXPLICITLY BECAUSE IT WAS MEASURED.
+//
+// Checked against Zach's 33 real scans: two DIFFERENT cards resting in the same
+// spot produce detections with IoU 0.98-1.00. Settled frames alone therefore
+// would NEVER break stability -- 0 of 4 consecutive pairs did.
+//
+// So re-arming does not depend on the new card looking different once it has
+// landed. It depends on the live loop OBSERVING THE DROP: the hand entering
+// frame, the card in motion, the momentary occlusion. At ~7 fps a hand movement
+// spans several frames, each of which fails the IoU or area test and resets the
+// counter.
+//
+// This is the same physical event barcode scanners key on ("remove and
+// re-present"), just observed as motion rather than as absence. It is why the
+// design should work where three attempts at "does this card LOOK different"
+// failed -- but it is an assumption about the live camera, and the only way to
+// confirm it is a real scanning session.
+//
+// IF IT PROVES WRONG, the fix is NOT to loosen these thresholds -- that would
+// rescan a still card forever. It is to require the frame to CLEAR between
+// cards (option (b) Zach declined), or to add his suggested tap-to-force.
+
+// ---------------------------------------------------------------------------
 // HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
 //
 // Zach: "I think our zoom needs to mimic mana boxes I think we are zoomed to
@@ -406,10 +504,24 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // from a previous render — and cropping to a stale detection would frame the
   // card's PREVIOUS position. The ref always holds the latest.
   const liveDetectRef = useRef(null);
+  // STABILITY GATING. `stableCountRef` counts consecutive frames whose
+  // detection agrees with the previous one; `prevDetRef` is that previous
+  // detection. Refs, not state: the live loop writes these ~7x/second and
+  // re-rendering on each frame would cost more than the detection itself.
+  const prevDetRef = useRef(null);
+  const stableCountRef = useRef(0);
+  // Set once a stable period has already fired a capture, so ONE stable period
+  // produces exactly ONE scan. Cleared when the detection is disturbed --
+  // which is what dropping the next card on the stack does.
+  const stablePeriodConsumedRef = useRef(false);
   // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
   // A scanner that has silently decided not to scan is indistinguishable from a
   // broken one.
   const [cardPresent, setCardPresent] = useState(false);
+  // Has the detection held still long enough to count as a deliberate
+  // presentation? Drives both the capture trigger and the on-screen status, so
+  // what Zach sees and what the scanner decides cannot disagree.
+  const [steady, setSteady] = useState(false);
 
   // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
   // of the change is that a phone preview must fill the screen: the guide box is
@@ -705,35 +817,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // re-checks continuously rather than deciding once. Failing a gate here
         // is NOT an error and must not back off: the moment he swaps cards the
         // signature changes and the next tick fires normally.
-        // ONE GATE: IS A CARD ACTUALLY IN VIEW?
+        // CAPTURE ON STABILITY. The detection must have held still for
+        // STABLE_FRAMES_REQUIRED consecutive frames, and this stable period
+        // must not have already produced a scan.
         //
-        // Zach: "We shouldn't capture a card until we know there is a card in
-        // view." That part works and stays -- auto-scan used to fire on a timer
-        // regardless, uploading empty mats and hands.
+        // This replaces three failed attempts to infer "is this a different
+        // card?" from a preview frame. That question is unanswerable; this one
+        // is not. See SCANNER_CAPTURE_REDESIGN.md and the constants above.
         //
-        // THE SAME-CARD BLOCKING GUARD IS GONE. I tried twice to infer "this is
-        // a new card" from the preview -- first a luma fingerprint, then
-        // detector geometry -- and both SKIPPED REAL CARDS Zach placed. The
-        // premise was wrong: he stacks each new card in the SAME POSITION on top
-        // of the last, so the box does not move, and two cards photographed
-        // identically lit in the same spot have nearly identical coarse luma.
-        // There is no reliable "different card" signal in the preview frame.
-        //
-        // Refusing to scan is the WORST failure available here: a skipped card
-        // is only findable by recounting the physical stack. Duplicates are
-        // handled AFTER the scan, on card IDENTITY, where the answer is known
-        // rather than guessed -- see the duplicate check in the resolve path.
+        // The timer that still schedules this callback is a POLL, not a
+        // deadline: it decides how often the condition is re-checked, never
+        // whether to capture. Nothing here is measured on elapsed time.
         if (!liveDetectRef.current) return;
+        if (stableCountRef.current < STABLE_FRAMES_REQUIRED) return;
+        if (stablePeriodConsumedRef.current) return;
+        // One capture per stable period. Cleared the moment the detection is
+        // disturbed -- i.e. when the next card lands on the stack.
+        stablePeriodConsumedRef.current = true;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
     };
-  // `cardPresent` is in the dep list so the effect re-evaluates the moment a
-  // card enters or leaves the frame, rather than waiting for an unrelated
-  // state change to wake it.
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent]);
+  // `cardPresent` and `steady` are in the dep list so the effect re-evaluates
+  // the moment a card enters or leaves the frame, or the moment the detection
+  // settles -- rather than waiting for an unrelated state change to wake it.
+  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent, steady]);
 
   // WHY AUTO-SCAN IS WAITING, in Zach's words rather than the code's.
   //
@@ -747,6 +857,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const autoScanWaitReason = (() => {
     if (!cameraActive || !autoScan || loading || scanMatches.length > 0) return '';
     if (!cardPresent) return t('scan.waitingForCard');
+    if (!steady) return t('scan.holdSteady');
     return '';
   })();
 
@@ -790,7 +901,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
         if (!det) {
           liveDetectRef.current = null;
           setLiveDetect(null);
+          // No card: the run of stable frames is over. Resetting here is also
+          // what re-arms capture after a card is lifted away.
+          prevDetRef.current = null;
+          stableCountRef.current = 0;
+          stablePeriodConsumedRef.current = false;
           setCardPresent(false);
+          setSteady(false);
           return;
         }
         setCardPresent(true);
@@ -812,6 +929,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
           h: det.h * scale,
           confidence: det.confidence,
         };
+        // COUNT CONSECUTIVE AGREEING FRAMES. Movement resets the run and, with
+        // it, the "already captured" latch -- so dropping the next card on the
+        // stack disturbs the quad and re-arms capture without Zach having to
+        // clear the frame. That is his stated workflow: "I just drop cards on
+        // top."
+        if (detectionsAgree(mapped, prevDetRef.current)) {
+          stableCountRef.current += 1;
+        } else {
+          stableCountRef.current = 1;
+          stablePeriodConsumedRef.current = false;
+        }
+        prevDetRef.current = mapped;
+        const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED
+          && !stablePeriodConsumedRef.current;
+        setSteady(isSteady);
+
         liveDetectRef.current = mapped;
         setLiveDetect(mapped);
       } catch {
@@ -2183,6 +2316,40 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 of truth: one state, shown where the user is actually looking.
                 Only rendered in fullscreen, so the boxed desktop layout keeps
                 its production appearance and does not get a duplicate line. */}
+            {/* TAP TO FORCE A SCAN. Zach: "if it doesnt scan that card we can
+                have a tap feature that will force scanning".
+
+                Built now rather than later because it is the escape hatch for
+                the one measured risk in stability gating: two different cards
+                resting in the same spot produce detections with IoU 0.98-1.00,
+                so re-arming depends on the live loop SEEING the drop. If that
+                assumption fails on his phone, this is the difference between
+                "occasionally tap" and "the scanner is broken again".
+
+                Deliberately bypasses the stability gate but NOT the sharpness
+                gate: forcing a blurred frame would trade a missed card for a
+                wrong one, which is the worse outcome. Marking the period as
+                consumed prevents the auto path immediately firing a second
+                scan of the same card. */}
+            {fullscreenScan && cameraActive && autoScan && !loading && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!liveDetectRef.current) return;   // nothing to scan
+                  stablePeriodConsumedRef.current = true;
+                  handleCaptureRef.current?.(false);    // manual: skips the stability gate
+                }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 15,
+                  cursor: 'pointer',
+                  background: 'transparent',
+                }}
+                aria-label={t('scan.tapToScan')}
+              />
+            )}
+
             {fullscreenScan && (scanStatus || loading || autoScanWaitReason) && (
               <div
                 style={{
