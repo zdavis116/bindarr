@@ -152,117 +152,6 @@ const SCAN_RETRY_REJECTED_MS = 350;
 const SCAN_RETRY_SETTLE_MS = 400;
 const SCAN_RETRY_ERROR_MS = 2500;
 
-// SAME-CARD DETECTION — do not scan the same piece of cardboard twice.
-//
-// Zach: "it did scan 2 cards twice because I was too slow to move to the next
-// card... We shouldn't capture a card until we know there is a card in view and
-// if a new card doesn't come in view we shouldn't just keep scanning the same
-// card."
-//
-// For software tracking PHYSICAL objects a duplicate is not a cosmetic bug: it
-// says he owns two of something he owns one of, and he cannot reconcile that
-// against the stack in his hand without recounting.
-//
-// The signature is a coarse 4x6 grid of mean luma over the DETECTED CARD REGION.
-// Region-only, so a moving camera or a hand entering frame is not a new card.
-// Coarse, so sensor noise, focus breathing and small shifts are not either.
-const SIG_COLS = 4;
-const SIG_ROWS = 6;
-
-// How different two signatures must be to count as a DIFFERENT card, as mean
-// absolute luma difference per cell (0-255).
-//
-// MEASURED ON REAL SCANS, after a first attempt tuned on SYNTHETIC images
-// shipped a scanner that REFUSED REAL CARDS. Zach: "When I put another card on
-// top it won't scan it says same card scanned even though it's a different
-// card."
-//
-// The synthetic test used a flat grey field with one bright block and said a
-// different card scores 3.67, so 2.0 looked safe. Two real Magic cards
-// photographed in the same spot under the same light share border, layout and
-// overall luma almost exactly:
-//
-//     same image re-hashed        0.00
-//     DIFFERENT real cards        1.08, 2.08, 2.67, 6.71   <- min 1.08
-//
-// 2.0 sat ABOVE the minimum, so genuinely different cards were skipped. The
-// lesson is the one this project keeps teaching: tune on real input or do not
-// tune. Synthetic data was fine for TRAINING the detector and useless for
-// calibrating a threshold against real-world variation.
-//
-// 0.5 sits an order of magnitude above the 0.00 noise floor and half the
-// minimum real-card difference. The bias is deliberate and asymmetric: a
-// duplicate is visible in the collection and one tap to fix, while a SKIPPED
-// card is only findable by recounting the physical stack.
-//
-// The primary mechanism remains the card LEAVING THE FRAME, which clears the
-// fingerprint outright. This threshold only covers never moving the card.
-const SIG_DIFFERENT_THRESHOLD = 0.5;
-
-// HOW FAR THE DETECTED CARD MUST MOVE TO COUNT AS A NEW PLACEMENT, as a
-// fraction of the detected box size.
-//
-// THIS REPLACED A TIMEOUT, and Zach's rule is the reason: "Nothing should be
-// measured on time. That's how we are in this in the first place. We have yolo
-// for object detection why not lean on that."
-//
-// He is right on both counts. A timer is a guess about the user dressed up as
-// logic, and the detector already knows the thing we actually care about. When
-// a card is placed on top of another, the detected quad JUMPS -- a hand enters,
-// the box shifts and resizes as the new card lands. Two consecutive frames of
-// the same undisturbed card do not move at all.
-//
-// So the guard clears on a PLACEMENT EVENT, not after a delay. No wall-clock
-// anywhere in the decision.
-const PLACEMENT_MOVE_FRACTION = 0.06;
-
-function frameSignature(gray, w, h, det) {
-  const x0 = Math.max(0, Math.round(det.x));
-  const y0 = Math.max(0, Math.round(det.y));
-  const cw = Math.max(1, Math.min(Math.round(det.w), w - x0));
-  const ch = Math.max(1, Math.min(Math.round(det.h), h - y0));
-  const sig = new Uint8Array(SIG_COLS * SIG_ROWS);
-  for (let r = 0; r < SIG_ROWS; r++) {
-    for (let c = 0; c < SIG_COLS; c++) {
-      const cx0 = x0 + Math.floor((c * cw) / SIG_COLS);
-      const cx1 = x0 + Math.floor(((c + 1) * cw) / SIG_COLS);
-      const cy0 = y0 + Math.floor((r * ch) / SIG_ROWS);
-      const cy1 = y0 + Math.floor(((r + 1) * ch) / SIG_ROWS);
-      let sum = 0, n = 0;
-      for (let y = cy0; y < cy1; y++) {
-        for (let x = cx0; x < cx1; x++) { sum += gray[y * w + x]; n++; }
-      }
-      sig[r * SIG_COLS + c] = n ? (sum / n) | 0 : 0;
-    }
-  }
-  return sig;
-}
-
-// Mean absolute difference per cell. Null signatures mean "unknown", which must
-// read as DIFFERENT so an unknown state can never block a scan.
-function signaturesDiffer(a, b) {
-  if (!a || !b || a.length !== b.length) return true;
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
-  return (sum / a.length) >= SIG_DIFFERENT_THRESHOLD;
-}
-
-// Did the detected card MOVE enough to be a new placement?
-//
-// The geometry the detector already produces, used directly instead of a timer.
-// Placing a card on top of another moves and resizes the detected box; a card
-// lying undisturbed does not move at all. Normalised by box size so it behaves
-// the same whether the card fills the frame or sits far away.
-//
-// A null on either side means "we do not know", which must read as MOVED: not
-// knowing has to fall on the side of scanning, never of refusing.
-function detectionMoved(a, b) {
-  if (!a || !b) return true;
-  const scale = Math.max(1, (a.w + a.h + b.w + b.h) / 4);
-  const d = Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
-    + Math.abs(a.w - b.w) + Math.abs(a.h - b.h);
-  return (d / scale) >= PLACEMENT_MOVE_FRACTION;
-}
 // HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
 //
 // Zach: "I think our zoom needs to mimic mana boxes I think we are zoomed to
@@ -517,21 +406,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // from a previous render — and cropping to a stale detection would frame the
   // card's PREVIOUS position. The ref always holds the latest.
   const liveDetectRef = useRef(null);
-  // SAME-CARD GUARD. `currentSigRef` is the fingerprint of whatever is in frame
-  // right now, refreshed by the live detection loop ~7x/second.
-  // `lastScannedSigRef` is the fingerprint of the card the last auto-scan
-  // actually captured. Auto-scan only fires when they differ, or when the card
-  // has left the frame (which clears the last-scanned fingerprint).
-  //
-  // Refs, not state: the detection loop writes these several times a second and
-  // re-rendering on every frame would cost more than the detection does.
-  const currentSigRef = useRef(null);
-  const lastScannedSigRef = useRef(null);
-  // The detected box AT THE MOMENT OF THE LAST CAPTURE. Compared against the
-  // live box to spot a new placement: a card set down on top of the last one
-  // moves and resizes the detection, and that event -- not a clock -- is what
-  // clears the guard.
-  const lastScannedDetRef = useRef(null);
   // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
   // A scanner that has silently decided not to scan is indistinguishable from a
   // broken one.
@@ -831,26 +705,25 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // re-checks continuously rather than deciding once. Failing a gate here
         // is NOT an error and must not back off: the moment he swaps cards the
         // signature changes and the next tick fires normally.
+        // ONE GATE: IS A CARD ACTUALLY IN VIEW?
+        //
+        // Zach: "We shouldn't capture a card until we know there is a card in
+        // view." That part works and stays -- auto-scan used to fire on a timer
+        // regardless, uploading empty mats and hands.
+        //
+        // THE SAME-CARD BLOCKING GUARD IS GONE. I tried twice to infer "this is
+        // a new card" from the preview -- first a luma fingerprint, then
+        // detector geometry -- and both SKIPPED REAL CARDS Zach placed. The
+        // premise was wrong: he stacks each new card in the SAME POSITION on top
+        // of the last, so the box does not move, and two cards photographed
+        // identically lit in the same spot have nearly identical coarse luma.
+        // There is no reliable "different card" signal in the preview frame.
+        //
+        // Refusing to scan is the WORST failure available here: a skipped card
+        // is only findable by recounting the physical stack. Duplicates are
+        // handled AFTER the scan, on card IDENTITY, where the answer is known
+        // rather than guessed -- see the duplicate check in the resolve path.
         if (!liveDetectRef.current) return;
-        // A NEW PLACEMENT CLEARS THE GUARD — no clock involved.
-        //
-        // Zach: "Nothing should be measured on time... We have yolo for object
-        // detection why not lean on that."
-        //
-        // Placing a card on top of the last one moves and resizes the detected
-        // box. That IS the "he swapped cards" event, observed rather than
-        // guessed at, so the guard only has to stop a card lying untouched in
-        // frame from rescanning. Either signal is enough: the card looks
-        // different, OR it was visibly just placed.
-        const looksDifferent = signaturesDiffer(currentSigRef.current, lastScannedSigRef.current);
-        const wasJustPlaced = detectionMoved(liveDetectRef.current, lastScannedDetRef.current);
-        if (!looksDifferent && !wasJustPlaced) return;
-        // Remember WHAT is being captured before the capture starts. The scan is
-        // async and he may move the card mid-flight; recording it afterwards
-        // would fingerprint whatever happened to be in frame when the response
-        // landed, not what was actually scanned.
-        lastScannedSigRef.current = currentSigRef.current;
-        lastScannedDetRef.current = liveDetectRef.current;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
@@ -874,10 +747,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const autoScanWaitReason = (() => {
     if (!cameraActive || !autoScan || loading || scanMatches.length > 0) return '';
     if (!cardPresent) return t('scan.waitingForCard');
-    if (!signaturesDiffer(currentSigRef.current, lastScannedSigRef.current)
-      && !detectionMoved(liveDetectRef.current, lastScannedDetRef.current)) {
-      return t('scan.waitingForNextCard');
-    }
     return '';
   })();
 
@@ -921,37 +790,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
         if (!det) {
           liveDetectRef.current = null;
           setLiveDetect(null);
-          // NO CARD IN VIEW. Clear the "already scanned this one" fingerprint so
-          // the NEXT card is scannable even if it happens to look like the last
-          // one — moving the card out of frame is Zach's unambiguous signal that
-          // he is done with it. Without this, sliding an identical second copy
-          // of a card into frame would be refused as a duplicate.
-          lastScannedSigRef.current = null;
-          lastScannedDetRef.current = null;
           setCardPresent(false);
           return;
         }
         setCardPresent(true);
 
-        // FINGERPRINT THE CARD CURRENTLY IN VIEW.
-        //
-        // Zach: "We shouldn't capture a card until we know there is a card in
-        // view and if a new card doesn't come in view we shouldn't just keep
-        // scanning the same card."
-        //
-        // Auto-scan fires on a TIMER, gated only on sharpness. Nothing asked
-        // whether the thing in frame was a DIFFERENT card, so being slow to
-        // swap cards scanned the same one twice — which for software tracking
-        // physical objects means a card he owns one of showing as two.
-        //
-        // The signature is a coarse 4x6 grid of mean luma over the DETECTED
-        // REGION ONLY, not the whole frame. Region-only so that moving the
-        // camera or a hand entering the shot does not read as a new card;
-        // coarse so that noise, focus breathing and small shifts do not either.
-        // It is deliberately not a real perceptual hash: this only has to
-        // answer "is this the same piece of cardboard I just scanned", and a
-        // cheap answer computed 7x/second beats a good one that costs a frame.
-        currentSigRef.current = frameSignature(gray, DW, DH, det);
 
         // Map from detection pixels to the PREVIEW ELEMENT's box. The video is
         // object-fit: cover, so it is centre-cropped: the scale is the LARGER
@@ -1413,7 +1256,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // result too — used when the image match is confident and the printing is
   // unambiguous (only one printing, or the set code narrowed it to one). Ambiguous
   // MTG (many printings, no set code) still shows the picker.
-  const applyMatches = async (matches, notFoundMsg, autoSingle = false) => {
+  const applyMatches = async (matches, notFoundMsg, autoSingle = false, matchInliers = null) => {
     setScanMatches(matches);
     if (matches.length === 0) {
       // Nothing in frame — the resolved-duplicate card has left, so clear the
@@ -1427,14 +1270,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
     if (matches.length === 1 && (scanGame !== 'mtg' || autoSingle)) {
       if (autoScan) {
         const id = matches[0].id;
-        if (id === resolvedDupIdRef.current) {
+        // A LOW-CONFIDENCE MATCH IS NOT AN IDENTITY, so it must not drive the
+        // duplicate guards below.
+        //
+        // Zach: "It's not really scanning each new card on top." The trace
+        // showed why: two DIFFERENT foil cards both matched as 'Jeskai
+        // Ascendancy' at 11 and 14 inliers -- noise. The second was then
+        // suppressed as "same card still in view" and never scanned. The guard
+        // was working correctly on an identity that was simply wrong.
+        //
+        // Below WEAK_MATCH_INLIERS the matcher is guessing (measured on Zach's
+        // scans: correct matches 47-141, wrong ones 4-23), so a repeated name
+        // carries no information about whether the CARDBOARD is the same. Let
+        // it through and let the server's set+number resolution decide -- that
+        // path reads the printed catalogue address and is right where the art
+        // is not.
+        const WEAK_MATCH_INLIERS = 25;
+        const inl = Number.isFinite(matchInliers) ? matchInliers : matches[0].inliers;
+        const identityIsTrusted = Number.isFinite(inl) && inl > WEAK_MATCH_INLIERS;
+
+        if (identityIsTrusted && id === resolvedDupIdRef.current) {
           // Same card we already handled, still sitting in frame — wait for a
           // different card before doing anything.
           setScanMatches([]);
           setScanStatus('Same card still in view — swap in the next card.');
           return;
         }
-        if (id === lastAddedIdRef.current) {
+        if (identityIsTrusted && id === lastAddedIdRef.current) {
           // Repeat of the card just auto-added: could be a real second copy or
           // just the same card lingering. Make the user decide.
           setDupConfirmCard(matches[0]);
@@ -2026,7 +1888,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // Instant path: if scan-match pre-hydrated the card from local card_cache,
                   // apply it directly without waiting for a second /api/search HTTP round-trip!
                   if (top.card) {
-                    await applyMatches([top.card], '', true);
+                    await applyMatches([top.card], '', true, top.inliers);
                     return;
                   }
 
