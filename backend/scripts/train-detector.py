@@ -105,6 +105,21 @@ def watchdog(limit, frac, stop):
     print(f'watchdog: peak anon memory {peak/1e6:.0f}MB of {limit/1e6:.0f}MB cap', flush=True)
 
 
+def _prune_checkpoints(wdir):
+    """Keep best.pt and last.pt; delete the per-epoch snapshots.
+
+    save_period=1 makes the run resumable, which matters on a box that has
+    already lost two runs to interruptions -- but it writes a 22MB file every
+    epoch. 40 epochs is ~900MB on a machine with ~3GB free, and only best/last
+    are ever read. Pruning on exit keeps resumability without the disk cost.
+    """
+    try:
+        for p in Path(wdir).glob('epoch*.pt'):
+            p.unlink()
+    except Exception as e:
+        print(f'checkpoint prune skipped: {e}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', default=str(Path.home() / 'bindarr-yolo-data' / 'cards.yaml'))
@@ -113,7 +128,7 @@ def main():
     ap.add_argument('--batch', type=int, default=4)
     ap.add_argument('--name', default='cards')
     ap.add_argument('--resume', action='store_true')
-    ap.add_argument('--memfrac', type=float, default=0.80)
+    ap.add_argument('--memfrac', type=float, default=0.90)
     a = ap.parse_args()
 
     if not Path(a.data).exists():
@@ -147,10 +162,15 @@ def main():
             device='cpu', workers=0, cache=False, project=str(runs),
             name=a.name, exist_ok=True, resume=bool(a.resume and ckpt.exists()),
             patience=15, val=True, plots=False, verbose=True, save_period=1,
+            # DELETE OLD PER-EPOCH CHECKPOINTS. save_period=1 writes a 22MB file
+            # every epoch; 40 epochs is ~900MB of disk on a box with ~3GB free,
+            # and best.pt/last.pt are the only ones ever used.
+            save_json=False,
         )
     finally:
         stop.set()
         time.sleep(2.5)
+        _prune_checkpoints(runs / a.name / 'weights')
 
     print(f'\ntraining finished in {(time.time()-t0)/3600:.2f}h')
     print(f'weights: {runs / a.name / "weights" / "best.pt"}')
