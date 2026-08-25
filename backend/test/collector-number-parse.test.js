@@ -281,5 +281,51 @@ check('F8P-TC22', 'the language split does not invent sets from ordinary words',
   assert.ok(p.setCandidates.indexOf('garden') >= 0);
 });
 
+
+check('F8P-TC23', "bleed-through from the card above must not become this card's number", () => {
+  // THE WORST BUG THIS PROJECT HAS HAD. Zach: "one scan was bad marked super
+  // solider serum as kid Loki" -- a confident WRONG card in his collection,
+  // which he cannot reconcile against the physical stack without recounting it.
+  //
+  // The capture clearly showed 'R 0038 / MSH*EN / Rafater'. OCR read it fine:
+  //
+  //     "| iil 63\nrR 0038\nMSH *EN be RAFAT\nNET Ue SRT\nEr\n"
+  //          ^^                ^^^^
+  //     bleed-through       the real number
+  //
+  // The first line is blurred text from the card BEHIND this one in the stack,
+  // caught because the OCR window was widened to stop missing numbers. Taking
+  // the first number-shaped token took the noise -- and 63 is a REAL Marvel
+  // card (Kid Loki), so it resolved cleanly to the wrong card. Nothing about
+  // the result looked wrong.
+  //
+  // The card's own number is always printed directly above its set line, so
+  // that adjacency is what identifies it.
+  const p = parseCollectorStrip('| iil 63\nrR 0038\nMSH *EN be RAFAT\nNET Ue SRT\nEr\n');
+  assert.strictEqual(p.number, '38',
+    `expected the number adjacent to the set line (38), got ${p.number}`);
+  assert.ok(p.setCandidates.includes('msh'));
+});
+
+check('F8P-TC24', 'a set code containing digits is never read as the number', () => {
+  // My first version of the adjacency rule accepted a number token from the SET
+  // LINE ITSELF as well as the line above. F8P-TC1/TC14/TC18 caught it at once:
+  // 'C21' is a real set (Commander 2021) and matches the number shape, so the
+  // parser returned the SET as the NUMBER.
+  //
+  // Only the line ABOVE the set line counts.
+  const p = parseCollectorStrip('263/281 U\nC21 * EN MIKE BIEREK');
+  assert.strictEqual(p.number, '263', `read the set code as the number: ${p.number}`);
+  assert.strictEqual(p.set, 'c21');
+});
+
+check('F8P-TC25', 'with no legible set line, the old first-token behaviour remains', () => {
+  // The adjacency rule is an IMPROVEMENT where the set line is readable, not a
+  // new requirement. A strip with no recognisable set line must be no worse off
+  // than before this change.
+  const p = parseCollectorStrip('R 0213\nsome noise here\n');
+  assert.strictEqual(p.number, '213');
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);

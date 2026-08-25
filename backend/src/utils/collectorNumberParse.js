@@ -52,6 +52,18 @@ const RARITY = new Set(['c', 'u', 'r', 'm', 's', 't', 'l', 'p']);
 // catalogue still decides which is real.
 const LANG_SUFFIXES = ['en', 'de', 'fr', 'it', 'es', 'pt', 'ja', 'ko', 'ru', 'zh'];
 
+// HOW TO RECOGNISE THE SET LINE.
+//
+// The line carrying the set code has a distinctive shape: a 3-5 character code
+// followed by a two-letter language code, usually separated by a glyph OCR
+// mangles ('MSH*EN', 'MSH « EN', 'MSHAEN'). That pattern is what anchors the
+// card's own number, since the number is printed directly above it.
+//
+// Deliberately loose about the separator and generous about surrounding noise:
+// it only has to identify WHICH LINE, not parse it.
+const SET_LINE_HINT = new RegExp(
+  `\\b[a-z0-9]{3,5}\\s*[^a-z0-9\\s]?\\s*(${LANG_SUFFIXES.join('|')})\\b`, 'i');
+
 // A collector number token. Deliberately narrow:
 //   123        digits
 //   0263       zero-padded (printed form)
@@ -146,15 +158,19 @@ function parseCollectorStrip(raw) {
   let set = null;
   // Every set-shaped token seen, in reading order. See the collection loop.
   const setCandidates = [];
+  // Every number-shaped token seen, with the line it came from. See the
+  // selection below: the FIRST one is not necessarily the card's own.
+  const numberTokens = [];
 
-  for (const line of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     const tokens = line.split(/[\s,]+/).filter(Boolean);
     for (let i = 0; i < tokens.length; i++) {
       const tok = tokens[i].replace(/[^A-Za-z0-9/\-]/g, '');
       if (!tok) continue;
 
       // Number first: the printed "263/281" form, or a bare token.
-      if (number == null) {
+      {
         const head = beforeSlash(tok);
         // Must contain a digit and match one of the accepted shapes. The digit
         // requirement is what excludes the artist credit.
@@ -167,10 +183,54 @@ function parseCollectorStrip(raw) {
           // alongside a copyright word).
           const looksLikeYear = /^(19|20)\d{2}$/.test(head) && !tok.includes('/');
           const copyrightish = /(c|©|\(c\)|copyright|wizards|illus)/i.test(line) && looksLikeYear;
-          if (!copyrightish) number = head;
+          if (!copyrightish) numberTokens.push({ head, line, li });
         }
       }
     }
+  }
+
+  // CHOOSE THE CARD'S OWN NUMBER, NOT THE FIRST DIGITS ON THE STRIP.
+  //
+  // Zach: "one scan was bad marked super solider serum as kid Loki". THE WORST
+  // FAILURE THIS APP HAS -- a confident wrong card in his collection, which he
+  // cannot reconcile against the physical stack without recounting it.
+  //
+  // The capture is unambiguous: 'R 0038 / MSH*EN / Rafater'. OCR read it fine:
+  //
+  //     "| iil 63\nrR 0038\nMSH *EN be RAFAT\nNET Ue SRT\nEr\n"
+  //          ^^                ^^^^
+  //       bleed-through      the real number
+  //
+  // The first line is blurred text from the card BEHIND/ABOVE this one in the
+  // stack, caught because the OCR strip window was made taller to stop missing
+  // the number. Taking the first number-shaped token in reading order took the
+  // noise, and 63 is a real Marvel card (Kid Loki) -- so it resolved cleanly to
+  // the wrong card. Nothing about the result looked wrong.
+  //
+  // THE STRUCTURAL FIX: prefer the number printed IMMEDIATELY ABOVE the set
+  // line. Real cards print
+  //
+  //     <RARITY> <NUMBER>
+  //     <SET>*<LANG> <ARTIST>
+  //
+  // so the card's own number sits directly above its set line. Bleed-through
+  // from another card does not. This uses the strip's own layout rather than
+  // hoping the noise sorts itself out.
+  //
+  // ONLY THE LINE ABOVE, NEVER THE SET LINE ITSELF. Set codes may contain
+  // digits -- 'C21' is a real set (Commander 2021) and matches the number
+  // shape. Accepting a token from the set line would read the SET as the
+  // NUMBER, which F8P-TC1/TC14/TC18 caught immediately.
+  //
+  // Falls back to the first token when no set line is found, which is exactly
+  // the previous behaviour -- so a strip with no legible set code is no worse
+  // off than before.
+  if (numberTokens.length) {
+    const setLine = lines.findIndex(l => SET_LINE_HINT.test(l));
+    const chosen = setLine > 0
+      ? numberTokens.find(t => t.li === setLine - 1)
+      : null;
+    number = (chosen || numberTokens[0]).head;
   }
 
   // Set code resolution is done as a second pass over the LAST lines, because
