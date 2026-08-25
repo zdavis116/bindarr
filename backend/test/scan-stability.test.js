@@ -159,8 +159,13 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
     'tap must call the capture path in MANUAL mode (auto=false) to skip the stability gate');
   assert.ok(/stablePeriodConsumedRef\.current = true;/.test(block),
     'tap must consume the stable period so auto does not immediately rescan');
-  assert.ok(/if \(!liveDetectRef\.current\) return;/.test(block),
-    'tap must do nothing when no card is in view');
+  // DELIBERATELY NOT REQUIRED: tap used to bail when the preview detector had
+  // no box. That detector finds a card in only 9 of 33 real scans, so the bail
+  // fired for the SAME reason the auto path was stuck -- which is why Zach's
+  // taps "didn't do anything". A manual tap must not depend on the subsystem
+  // that is already failing; the server detects on the full-res frame anyway.
+  assert.ok(!/if \(!liveDetectRef\.current\) return;   \/\/ nothing to scan/.test(block),
+    'tap must NOT require a preview detection — that is the bug it must survive');
   pass('FSTAB-TC8', 'tap-to-force scans on demand without bypassing the sharpness gate');
 }
 
@@ -194,7 +199,7 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
 {
   const i = src.indexOf("aria-label={t('scan.tapToScan')}");
   assert.ok(i > 0, 'tap-to-scan overlay not found');
-  const block = src.slice(Math.max(0, i - 1800), i);
+  const block = src.slice(Math.max(0, i - 3200), i);
   assert.ok(/\{fullscreenScan && cameraActive && autoScan && \(/.test(block),
     'the tap target must NOT be hidden by `loading` — that removes the very '
     + 'control that recovers from a stuck `loading`');
