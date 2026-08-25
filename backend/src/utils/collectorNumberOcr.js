@@ -135,7 +135,39 @@ const sharp = require('sharp');
 // default while production used 1500x2100.
 //
 // Measure through the real route, on real input, or do not measure.
-const STRIP = { left: 0.02, top: 0.920, width: 0.28, height: 0.075 };
+// RETUNED FOR THE YOLO DETECTOR (Phase 4b). top 0.920 -> 0.880.
+//
+// The old value was tuned against the CLASSICAL detector's crop. The trained
+// detector frames cards slightly differently, so the number line drifted partly
+// out of the window and the reads came back with the SET line but the NUMBER
+// line above it missing:
+//
+//     queued:  "MSH * EN % DOMENI"           <- number line gone
+//     good:    "L 0295\nMSH*EN % DOMENI"
+//
+// That is why Zach's basic lands queued as 'unreadable' after Phase 4b shipped.
+// Nothing to do with foils, and nothing to do with matching -- a basic land has
+// no artwork signal to fall back on, so losing the number loses the card.
+//
+// MEASURED on his 33 real scans, through the real route, sweeping the window:
+//
+//     top    numbers read
+//     0.850    10/31
+//     0.865    14/31       <- cliff: the window has climbed off the text
+//     0.880    29/31       <- chosen
+//     0.895    28/31
+//     0.920    22/31       <- previous value
+//     0.930     5/31
+//
+// 0.880 sits on a PLATEAU (0.880 and 0.895 score the same) rather than a peak,
+// which is what makes it a safe choice: the exact framing varies per photo, so
+// a value that only works at one setting would fail on the next card.
+let STRIP = { left: 0.02, top: 0.880, width: 0.28, height: 0.075 };
+
+// TEST/DIAGNOSTIC ONLY. Lets a sweep vary the window without editing source
+// between runs. Production never calls this; the exported STRIP above is the
+// shipped value and the only one the route uses.
+function _setStrip(s) { STRIP = { ...STRIP, ...s }; }
 
 // The matcher's rectified size (scanMatch.js). NOT changed here.
 const CARD_ASPECT = 2.5 / 3.5;
@@ -254,4 +286,4 @@ async function shutdown() {
   try { (await p).terminate(); } catch { /* already gone */ }
 }
 
-module.exports = { readCollectorStrip, cropCollectorStrip, shutdown, STRIP, OCR_SCALE, OCR_W, OCR_H };
+module.exports = { readCollectorStrip, cropCollectorStrip, shutdown, STRIP, OCR_SCALE, OCR_W, OCR_H, _setStrip };

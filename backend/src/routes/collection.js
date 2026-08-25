@@ -505,7 +505,7 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
 // There is no third branch and no "most likely" fallback.
 router.post('/scan-resolve', async (req, res) => {
   try {
-    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity, stage } = req.body || {};
+    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity, stage, match_inliers } = req.body || {};
     // NAME IS NO LONGER REQUIRED, and that is the point of PR 11.
     //
     // It used to be, because CLIP's match was the only way to identify a card.
@@ -575,6 +575,18 @@ router.post('/scan-resolve', async (req, res) => {
       ocrText: ocr_text,
       printingHint: hint,
       userId: req.user.id,
+      // HOW GOOD THE ART MATCH ACTUALLY WAS.
+      //
+      // Without this the resolver cannot tell a 141-inlier identification from
+      // an 8-inlier guess, so it treats both as "the art decided it" and the
+      // printed collector number never gets to contradict a confident-looking
+      // wrong answer. On Zach's foils ORB returned 8-12 inliers -- noise -- and
+      // named four different wrong cards for the same card, while OCR read its
+      // number correctly every time.
+      //
+      // Bounded and validated like every other client value; a missing or
+      // bogus value simply means "strength unknown" and the old behaviour.
+      matchInliers: Number.isFinite(match_inliers) ? match_inliers : null,
     });
 
     if (outcome.action === 'add') {

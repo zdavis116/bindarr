@@ -47,6 +47,40 @@ const { normaliseTitle, bestTitleMatch } = require('./cardTitleMatch');
 // not assert something about the card that we cannot actually check.
 const FRAME_REDESIGN_YEAR = 2015;
 
+// BELOW THIS, AN ART MATCH IS NOISE RATHER THAN AN IDENTIFICATION.
+//
+// Measured on Zach's 33-scan session, ORB inliers for the top candidate:
+//
+//   correct identifications   47, 61, 63, 65, 68, 73, 84, 96, 98, 100, 105, 116, 126, 141
+//   wrong / foil guesses       4,  7,  8,  8,  8,  9,  9, 10, 10, 10, 11, 12, 19, 23
+//
+// The two populations barely overlap, and 25 sits in the gap. It is deliberately
+// set at the TOP of the noise band rather than the middle: the cost of calling a
+// real match "weak" is only that the printed number gets consulted too, which is
+// harmless when they agree. The cost of calling noise "strong" is a wrong card
+// entering the collection silently, which is the failure Bindarr must not have.
+const WEAK_MATCH_INLIERS = 25;
+
+// Resolve a collector strip to exactly one real printing, or null.
+//
+// EVERY set candidate is tried, not just the first: parseCollectorStrip has no
+// catalogue, so it returns every set-shaped token it saw, and on real scans the
+// first is wrong roughly a quarter of the time ('mshen' for 'MSH*EN', artist
+// names, noise). The catalogue is the judge. Exactly one hit is an answer; two
+// different hits are ambiguity and must not resolve.
+async function printingFromStrip(ocr) {
+  const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+  const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
+  const hits = [];
+  for (const code of codes) {
+    for (const num of numbers) {
+      const hit = await printingBySetNumber(code, num);
+      if (hit && !hits.some(h => h.id === hit.id)) hits.push(hit);
+    }
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
 function framePrintsNumber(releaseDate) {
   if (!releaseDate) return true;             // unknown -> assume readable, queue as 'unreadable'
   const year = parseInt(String(releaseDate).slice(0, 4), 10);
@@ -306,7 +340,7 @@ async function nameFromTitle(titleText) {
 //   3. CLIP is the FALLBACK, used when the title is unreadable — which is
 //      today's behaviour, unchanged, and still 100% on clean images.
 //   4. A title matching nothing NEVER adds. The catalogue is still the validator.
-async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId, printingHint = null }) {
+async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId, printingHint = null, matchInliers = null }) {
   const ocr = parseCollectorStrip(ocrText);
 
   // STEP 1: the title decides the card, when it can.
@@ -335,6 +369,43 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   if (!all.length && matchedName) {
     all = await printingsByName(matchedName);
     if (all.length) usedName = matchedName;
+  }
+
+  // STEP 3b: A WEAK ART MATCH DOES NOT GET TO OUTRANK THE PRINTED NUMBER.
+  //
+  // FOILS. Zach scanned foil Marvel cards and ORB returned 8-12 inliers —
+  // noise, not recognition — naming FOUR DIFFERENT wrong cards across four
+  // photos of the same Evil's Thrall. OCR read its number, msh #128, correctly
+  // every single time. Foil scatters light into thousands of false features, so
+  // edge matching degrades to guessing while the printed text survives.
+  //
+  // The problem was not that the art match was weak; it is that nothing
+  // downstream KNEW it was weak. `all` was non-empty, so the strip's own answer
+  // was demoted to a tiebreak inside a candidate list built around the wrong
+  // card, and the OCR-address fallback below (which only runs when `all` is
+  // empty) was unreachable.
+  //
+  // So when the art is at noise level AND the card's printed catalogue address
+  // resolves to exactly one real printing, the number leads. This is not the
+  // number overriding a good match — a strong match keeps its priority
+  // untouched. It is refusing to let a guess suppress a fact.
+  //
+  // STILL NEVER SILENT: this returns 'add' only when set+number resolve to
+  // EXACTLY ONE printing, which is the same bar the existing OCR fallback uses.
+  // Anything ambiguous queues, as before.
+  const artIsNoise = Number.isFinite(matchInliers) && matchInliers <= WEAK_MATCH_INLIERS;
+  if (artIsNoise && ocr.number && !titleName) {
+    const exact = await printingFromStrip(ocr);
+    if (exact && !all.some(r => r.id === exact.id)) {
+      return {
+        action: 'add',
+        printing: exact,
+        ocr,
+        titleName,
+        usedName: exact.name,
+        resolvedBy: 'ocr-over-weak-art',
+      };
+    }
   }
 
   // Neither the title nor CLIP found a card in the catalogue.

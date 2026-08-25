@@ -664,4 +664,6 @@ function reload(game) {
   delete orbDbs[game];
 }
 
-module.exports = { match, reload, preprocessCard, preprocessCardWithDetection, detectCard, rectifyCard };
+// _warpToQuad is exported for diagnostics only (measuring how quad geometry
+// affects match quality); the scan path uses it via detectWithFallback.
+module.exports = { match, reload, preprocessCard, preprocessCardWithDetection, detectCard, rectifyCard, _warpToQuad: warpToQuad };
