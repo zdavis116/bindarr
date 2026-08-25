@@ -14,7 +14,7 @@ import ScanStagingReview from './ScanStagingReview';
 import { createScanStaging } from './scanStaging';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { laplacianVarianceScore, decideCapture, newGateState } from '../utils/frameSharpness';
+import { laplacianVarianceScore, decideCapture, newGateState, SHARPNESS_WINDOW } from '../utils/frameSharpness';
 
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
@@ -227,6 +227,35 @@ function detectionsAgree(a, b) {
 // from the detector -- if the camera stalls, the count stalls with it, which is
 // the correct behaviour and is exactly what a wall-clock would get wrong.
 const STABLE_FRAMES_REQUIRED = 3;
+
+// EXTRA SETTLING FRAMES BEFORE THE SHUTTER, on top of stability.
+//
+// Zach: "scanning seems to be getting worse at one point it was doing really
+// good". Four of seven queues came back with the collector-number line MISSING
+// from the OCR text entirely -- 'MSH *EN Wo DOMIN' with no 'L 0295' above it,
+// and one completely blank. The text was never in the image, so this is a
+// CAPTURE QUALITY problem, not a parsing one.
+//
+// WHAT I CHANGED THAT CAUSED IT. Stability gating fires the shutter the moment
+// the detection has agreed for STABLE_FRAMES_REQUIRED frames. That is the
+// EARLIEST instant the card is arguably still -- the hand may only just have
+// left, the card may still be rocking, and the lens has had no time to refocus
+// on the new depth. The old timer-based path happened to wait longer, which is
+// the "really good" behaviour he remembers.
+//
+// The sharpness gate does not save us here, and it is worth understanding why:
+// it compares each frame to a MEDIAN OF RECENT FRAMES. During a card swap those
+// recent frames are all motion-blurred, so the baseline sinks and a merely
+// less-blurred frame clears it. The gate is relative by design (it adapts to
+// each device), and that same property makes it blind right after motion.
+//
+// So: hold a few more frames of agreement past the point of stability. The
+// collector number is ~3mm of text and the first thing to dissolve in blur,
+// which is exactly the symptom.
+//
+// Counted detector frames, not milliseconds -- Zach's rule. A stalled camera
+// stalls the count.
+const SETTLE_FRAMES_BEFORE_CAPTURE = 3;
 
 // HOW MANY CONSECUTIVE DISTURBED FRAMES COUNT AS A NEW PLACEMENT.
 //
@@ -470,6 +499,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // scanner. It changes on every auto tick, and a re-render per tick would
   // restart the capture effect below and disturb the very cadence it gates.
   const sharpnessRef = useRef(newGateState());
+  // Scratch canvas for scoring settled preview frames. Reused rather than
+  // allocated per frame: this runs several times a second on a phone.
+  const sharpProbeRef = useRef(null);
 
   // The last few gate decisions, kept ONLY so Zach can read the numbers.
   //
@@ -852,7 +884,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // deadline: it decides how often the condition is re-checked, never
         // whether to capture. Nothing here is measured on elapsed time.
         if (!liveDetectRef.current) return;
-        if (stableCountRef.current < STABLE_FRAMES_REQUIRED) return;
+        if (stableCountRef.current < STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE) return;
         if (stablePeriodConsumedRef.current) return;
         // One capture per stable period. Cleared the moment the detection is
         // disturbed -- i.e. when the next card lands on the stack.
@@ -1029,6 +1061,49 @@ function CameraScanner({ onAddSuccess, showToast }) {
           }
         }
         prevDetRef.current = mapped;
+
+        // TEACH THE SHARPNESS BASELINE FROM SETTLED FRAMES ONLY.
+        //
+        // Zach: "scanning seems to be getting worse at one point it was doing
+        // really good". Four of seven queues had NO collector-number line in
+        // the OCR text -- the capture was blurred, so the text was never in the
+        // image.
+        //
+        // The sharpness gate is RELATIVE: it rejects a frame scoring below 0.6x
+        // the median of recent frames. Its window was sized for the old ~3s
+        // cadence, where most observed frames were of a settled card. Stability
+        // gating changed that: captures now cluster around card swaps, so the
+        // window filled with post-motion frames, the median sank to the blur
+        // level, and blurred frames read as "sharp".
+        //
+        // Driving the real decideCapture with a realistic swap/settle sequence
+        // accepted 8 of 12 BLURRED frames -- the gate was blind exactly when he
+        // was scanning fast.
+        //
+        // The fix is to feed it the frames it was always meant to judge
+        // against: those observed while the detection is STABLE. Then the
+        // baseline describes a settled card on this device, and a frame grabbed
+        // mid-swap is measured against that rather than against other blur.
+        if (stableCountRef.current >= STABLE_FRAMES_REQUIRED) {
+          try {
+            const gw = 160, gh = Math.max(3, Math.round(DH * (gw / DW)));
+            const gc = sharpProbeRef.current || (sharpProbeRef.current = document.createElement('canvas'));
+            if (gc.width !== gw || gc.height !== gh) { gc.width = gw; gc.height = gh; }
+            const gctx = gc.getContext('2d', { willReadFrequently: true });
+            gctx.drawImage(video, 0, 0, gw, gh);
+            const gp = gctx.getImageData(0, 0, gw, gh);
+            const sc = laplacianVarianceScore(gp.data, gw, gh);
+            // OBSERVE ONLY. This records what a settled frame scores; it does
+            // NOT decide anything and must never trigger a capture.
+            sharpnessRef.current = {
+              ...sharpnessRef.current,
+              recent: [...(sharpnessRef.current.recent || []), sc].slice(-SHARPNESS_WINDOW),
+            };
+          } catch {
+            // A tainted canvas must not break the preview. The gate keeps
+            // whatever baseline it already had.
+          }
+        }
         const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED
           && !stablePeriodConsumedRef.current;
         setSteady(isSteady);

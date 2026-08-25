@@ -278,4 +278,53 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
   pass('FSTAB-TC13', 'a single jittery frame cannot re-arm capture and rescan the same card');
 }
 
+// 14. THE SHUTTER WAITS FOR THE CARD TO SETTLE, NOT JUST TO BE STABLE.
+//
+//     Zach: "scanning seems to be getting worse at one point it was doing
+//     really good". Four of seven queues had NO collector-number line in the
+//     OCR text -- the capture was blurred, so the text was never in the image.
+//
+//     Stability gating fires at the EARLIEST instant the card is arguably
+//     still: hand just gone, card possibly still rocking, lens not yet
+//     refocused. The old timer path happened to wait longer, which is the
+//     behaviour he remembers as good.
+{
+  const ui = fs.readFileSync(SRC, 'utf8');
+  assert.ok(/const SETTLE_FRAMES_BEFORE_CAPTURE = (\d+);/.test(ui),
+    'a settling allowance must be defined');
+  const n = parseInt(ui.match(/const SETTLE_FRAMES_BEFORE_CAPTURE = (\d+);/)[1], 10);
+  assert.ok(n >= 1, 'capture must wait at least one frame past bare stability');
+  assert.ok(/stableCountRef\.current < STABLE_FRAMES_REQUIRED \+ SETTLE_FRAMES_BEFORE_CAPTURE/.test(ui),
+    'the capture gate must require stability PLUS settling');
+  assert.ok(!/Date\.now\(\)/.test(ui.slice(ui.indexOf('const outcome = lastTickOutcomeRef.current;'),
+    ui.indexOf('handleCaptureRef.current?.(true)'))),
+    'settling must be counted in frames, not milliseconds');
+  pass('FSTAB-TC14', 'capture waits for extra settling frames, counted not timed');
+}
+
+// 15. THE SHARPNESS BASELINE LEARNS FROM SETTLED FRAMES.
+//
+//     The gate is RELATIVE — it rejects a frame below 0.6x the median of recent
+//     frames. Its window was sized for the old ~3s cadence, when most observed
+//     frames showed a settled card. Stability gating clustered captures around
+//     card swaps, so the window filled with post-motion frames and the median
+//     sank to the blur level.
+//
+//     Driving the real decideCapture with a realistic swap/settle sequence
+//     accepted 8 of 12 BLURRED frames: the gate was blind exactly when Zach was
+//     scanning fast.
+{
+  const ui = fs.readFileSync(SRC, 'utf8');
+  const i = ui.indexOf('TEACH THE SHARPNESS BASELINE');
+  assert.ok(i > 0, 'the baseline must be fed from settled preview frames');
+  const block = ui.slice(i, i + 3200);
+  assert.ok(/if \(stableCountRef\.current >= STABLE_FRAMES_REQUIRED\)/.test(ui.slice(i, i + 2200)),
+    'only frames observed while the detection is STABLE may teach the baseline');
+  assert.ok(/recent: \[\.\.\.\(sharpnessRef\.current\.recent \|\| \[\]\), sc\]\.slice\(-SHARPNESS_WINDOW\)/.test(block),
+    'observed scores must feed the rolling window');
+  assert.ok(!/decideCapture\(/.test(block),
+    'the live probe must OBSERVE ONLY — it must never trigger a capture');
+  pass('FSTAB-TC15', 'the sharpness baseline is taught by settled frames, not swap blur');
+}
+
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);
