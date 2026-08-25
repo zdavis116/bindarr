@@ -172,25 +172,49 @@ const SIG_ROWS = 6;
 // How different two signatures must be to count as a DIFFERENT card, as mean
 // absolute luma difference per cell (0-255).
 //
-// MEASURED, not chosen. On synthetic cards through the real signature function:
+// MEASURED ON REAL SCANS, after a first attempt tuned on SYNTHETIC images
+// shipped a scanner that REFUSED REAL CARDS. Zach: "When I put another card on
+// top it won't scan it says same card scanned even though it's a different
+// card."
 //
-//     same card, held still          0.00
-//     same card + sensor noise       0.00
-//     background changed, card same  0.00
-//     a different card               3.67
+// The synthetic test used a flat grey field with one bright block and said a
+// different card scores 3.67, so 2.0 looked safe. Two real Magic cards
+// photographed in the same spot under the same light share border, layout and
+// overall luma almost exactly:
 //
-// The first version of this constant was 10, picked by eye, and the test caught
-// it: a visibly different card scored 3.67 and would have been SILENTLY SKIPPED.
+//     same image re-hashed        0.00
+//     DIFFERENT real cards        1.08, 2.08, 2.67, 6.71   <- min 1.08
 //
-// 2.0 sits well above the noise floor (0.00) and well below a real card change
-// (3.67). The asymmetry is deliberate: a duplicate is annoying but visible in
-// the collection, whereas a SKIPPED card is nearly impossible to notice — Zach
-// would have to recount the physical stack to find it. So when in doubt, scan.
+// 2.0 sat ABOVE the minimum, so genuinely different cards were skipped. The
+// lesson is the one this project keeps teaching: tune on real input or do not
+// tune. Synthetic data was fine for TRAINING the detector and useless for
+// calibrating a threshold against real-world variation.
 //
-// The primary mechanism is still the card LEAVING THE FRAME, which clears the
-// fingerprint outright. This threshold only covers the case where he never
-// moves the card at all.
-const SIG_DIFFERENT_THRESHOLD = 2.0;
+// 0.5 sits an order of magnitude above the 0.00 noise floor and half the
+// minimum real-card difference. The bias is deliberate and asymmetric: a
+// duplicate is visible in the collection and one tap to fix, while a SKIPPED
+// card is only findable by recounting the physical stack.
+//
+// The primary mechanism remains the card LEAVING THE FRAME, which clears the
+// fingerprint outright. This threshold only covers never moving the card.
+const SIG_DIFFERENT_THRESHOLD = 0.5;
+
+// HOW FAR THE DETECTED CARD MUST MOVE TO COUNT AS A NEW PLACEMENT, as a
+// fraction of the detected box size.
+//
+// THIS REPLACED A TIMEOUT, and Zach's rule is the reason: "Nothing should be
+// measured on time. That's how we are in this in the first place. We have yolo
+// for object detection why not lean on that."
+//
+// He is right on both counts. A timer is a guess about the user dressed up as
+// logic, and the detector already knows the thing we actually care about. When
+// a card is placed on top of another, the detected quad JUMPS -- a hand enters,
+// the box shifts and resizes as the new card lands. Two consecutive frames of
+// the same undisturbed card do not move at all.
+//
+// So the guard clears on a PLACEMENT EVENT, not after a delay. No wall-clock
+// anywhere in the decision.
+const PLACEMENT_MOVE_FRACTION = 0.06;
 
 function frameSignature(gray, w, h, det) {
   const x0 = Math.max(0, Math.round(det.x));
@@ -221,6 +245,23 @@ function signaturesDiffer(a, b) {
   let sum = 0;
   for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
   return (sum / a.length) >= SIG_DIFFERENT_THRESHOLD;
+}
+
+// Did the detected card MOVE enough to be a new placement?
+//
+// The geometry the detector already produces, used directly instead of a timer.
+// Placing a card on top of another moves and resizes the detected box; a card
+// lying undisturbed does not move at all. Normalised by box size so it behaves
+// the same whether the card fills the frame or sits far away.
+//
+// A null on either side means "we do not know", which must read as MOVED: not
+// knowing has to fall on the side of scanning, never of refusing.
+function detectionMoved(a, b) {
+  if (!a || !b) return true;
+  const scale = Math.max(1, (a.w + a.h + b.w + b.h) / 4);
+  const d = Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
+    + Math.abs(a.w - b.w) + Math.abs(a.h - b.h);
+  return (d / scale) >= PLACEMENT_MOVE_FRACTION;
 }
 // HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
 //
@@ -486,6 +527,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // re-rendering on every frame would cost more than the detection does.
   const currentSigRef = useRef(null);
   const lastScannedSigRef = useRef(null);
+  // The detected box AT THE MOMENT OF THE LAST CAPTURE. Compared against the
+  // live box to spot a new placement: a card set down on top of the last one
+  // moves and resizes the detection, and that event -- not a clock -- is what
+  // clears the guard.
+  const lastScannedDetRef = useRef(null);
   // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
   // A scanner that has silently decided not to scan is indistinguishable from a
   // broken one.
@@ -786,12 +832,25 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // is NOT an error and must not back off: the moment he swaps cards the
         // signature changes and the next tick fires normally.
         if (!liveDetectRef.current) return;
-        if (!signaturesDiffer(currentSigRef.current, lastScannedSigRef.current)) return;
+        // A NEW PLACEMENT CLEARS THE GUARD — no clock involved.
+        //
+        // Zach: "Nothing should be measured on time... We have yolo for object
+        // detection why not lean on that."
+        //
+        // Placing a card on top of the last one moves and resizes the detected
+        // box. That IS the "he swapped cards" event, observed rather than
+        // guessed at, so the guard only has to stop a card lying untouched in
+        // frame from rescanning. Either signal is enough: the card looks
+        // different, OR it was visibly just placed.
+        const looksDifferent = signaturesDiffer(currentSigRef.current, lastScannedSigRef.current);
+        const wasJustPlaced = detectionMoved(liveDetectRef.current, lastScannedDetRef.current);
+        if (!looksDifferent && !wasJustPlaced) return;
         // Remember WHAT is being captured before the capture starts. The scan is
         // async and he may move the card mid-flight; recording it afterwards
         // would fingerprint whatever happened to be in frame when the response
         // landed, not what was actually scanned.
         lastScannedSigRef.current = currentSigRef.current;
+        lastScannedDetRef.current = liveDetectRef.current;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
@@ -815,7 +874,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const autoScanWaitReason = (() => {
     if (!cameraActive || !autoScan || loading || scanMatches.length > 0) return '';
     if (!cardPresent) return t('scan.waitingForCard');
-    if (!signaturesDiffer(currentSigRef.current, lastScannedSigRef.current)) {
+    if (!signaturesDiffer(currentSigRef.current, lastScannedSigRef.current)
+      && !detectionMoved(liveDetectRef.current, lastScannedDetRef.current)) {
       return t('scan.waitingForNextCard');
     }
     return '';
@@ -867,6 +927,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
           // he is done with it. Without this, sliding an identical second copy
           // of a card into frame would be refused as a duplicate.
           lastScannedSigRef.current = null;
+          lastScannedDetRef.current = null;
           setCardPresent(false);
           return;
         }

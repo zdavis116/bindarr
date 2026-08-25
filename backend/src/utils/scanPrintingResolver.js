@@ -371,30 +371,32 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
     if (all.length) usedName = matchedName;
   }
 
-  // STEP 3b: A WEAK ART MATCH DOES NOT GET TO OUTRANK THE PRINTED NUMBER.
+  // STEP 3b: THE PRINTED CATALOGUE ADDRESS, WHEN THE ART IS GUESSING.
   //
-  // FOILS. Zach scanned foil Marvel cards and ORB returned 8-12 inliers —
-  // noise, not recognition — naming FOUR DIFFERENT wrong cards across four
-  // photos of the same Evil's Thrall. OCR read its number, msh #128, correctly
-  // every single time. Foil scatters light into thousands of false features, so
-  // edge matching degrades to guessing while the printed text survives.
+  // Zach: "For the OCR first you could use set code and set number you don't
+  // need title if you have those both."
   //
-  // The problem was not that the art match was weak; it is that nothing
-  // downstream KNEW it was weak. `all` was non-empty, so the strip's own answer
-  // was demoted to a tiebreak inside a candidate list built around the wrong
-  // card, and the OCR-address fallback below (which only runs when `all` is
-  // empty) was unreachable.
+  // He is right, and the measurement backs him: on his 33 real scans the
+  // collector strip read 29/31, while TITLE OCR resolved 0 of 6 judged scans
+  // ("SuPer poNper Serum", "| ron Strucker, Hypyg,"). The title sits on top of
+  // foiled artwork in a stylised font; the number is matte black on a white
+  // strip in a fixed position with a rigid, catalogue-checkable format. So the
+  // "OCR first" architecture for Bindarr means SET+NUMBER first, not title
+  // first — which is why this no longer waits on a title read.
   //
-  // So when the art is at noise level AND the card's printed catalogue address
-  // resolves to exactly one real printing, the number leads. This is not the
-  // number overriding a good match — a strong match keeps its priority
-  // untouched. It is refusing to let a guess suppress a fact.
+  // FOILS. ORB returned 8-12 inliers — noise — and named FOUR DIFFERENT wrong
+  // cards across four photos of the same Evil's Thrall, while OCR read msh #128
+  // correctly every time. The problem was not that the art match was weak; it
+  // is that nothing downstream KNEW it was weak, so the strip's answer was
+  // demoted to a tiebreak inside a candidate list built around the wrong card.
   //
-  // STILL NEVER SILENT: this returns 'add' only when set+number resolve to
-  // EXACTLY ONE printing, which is the same bar the existing OCR fallback uses.
-  // Anything ambiguous queues, as before.
+  // WHAT THIS DELIBERATELY DOES NOT DO: override a STRONG art match. Zach's
+  // earlier rule stands — "it should flag with the option to chose the
+  // set+number" — so a confident match that disagrees with the strip still goes
+  // to the review queue rather than being silently swapped. This only refuses
+  // to let a guess suppress a fact.
   const artIsNoise = Number.isFinite(matchInliers) && matchInliers <= WEAK_MATCH_INLIERS;
-  if (artIsNoise && ocr.number && !titleName) {
+  if (artIsNoise && ocr.number) {
     const exact = await printingFromStrip(ocr);
     if (exact && !all.some(r => r.id === exact.id)) {
       return {

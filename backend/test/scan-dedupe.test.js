@@ -35,7 +35,7 @@ function extract(name) {
   return src.slice(start, i + 1);
 }
 
-const consts = ['SIG_COLS', 'SIG_ROWS', 'SIG_DIFFERENT_THRESHOLD']
+const consts = ['SIG_COLS', 'SIG_ROWS', 'SIG_DIFFERENT_THRESHOLD', 'PLACEMENT_MOVE_FRACTION']
   .map((n) => {
     const m = src.match(new RegExp(`const ${n} = ([^;]+);`));
     assert.ok(m, `${n} not found`);
@@ -43,9 +43,9 @@ const consts = ['SIG_COLS', 'SIG_ROWS', 'SIG_DIFFERENT_THRESHOLD']
   }).join('\n');
 
 // eslint-disable-next-line no-eval
-const mod = eval(`(() => { ${consts}\n${extract('frameSignature')}\n${extract('signaturesDiffer')}\n`
-  + 'return { frameSignature, signaturesDiffer }; })()');
-const { frameSignature, signaturesDiffer } = mod;
+const mod = eval(`(() => { ${consts}\n${extract('frameSignature')}\n${extract('signaturesDiffer')}\n${extract('detectionMoved')}\n`
+  + 'return { frameSignature, signaturesDiffer, detectionMoved, SIG_DIFFERENT_THRESHOLD }; })()');
+const { frameSignature, signaturesDiffer, detectionMoved, SIG_DIFFERENT_THRESHOLD } = mod;
 
 let passed = 0;
 const pass = (id, msg) => { console.log(`PASS: ${id} ${msg}`); passed++; };
@@ -92,6 +92,32 @@ const DET = { x: 20, y: 20, w: 120, h: 180 };
   pass('FDUP-TC3', 'a different card is detected as different');
 }
 
+// 3b. THE THRESHOLD MUST CLEAR REAL CARDS, NOT JUST SYNTHETIC ONES.
+//
+//    THIS IS THE REGRESSION THAT SHIPPED. The threshold was tuned on the
+//    synthetic fixtures above, which say a different card scores 3.67, so 2.0
+//    looked safe. Real Magic cards photographed in the same spot share border,
+//    layout and overall luma, and measured MUCH closer:
+//
+//        same image re-hashed   0.00
+//        different real cards   1.08, 2.08, 2.67, 6.71
+//
+//    At 2.0 the scanner refused real cards Zach placed in front of it. This
+//    test pins the real-world numbers so a future tweak cannot re-break it
+//    while the synthetic cases still pass.
+{
+  const MEASURED_REAL_CARD_DIFFS = [1.08, 2.08, 2.67, 6.71];
+  const MEASURED_SAME_CARD = 0.00;
+  const min = Math.min(...MEASURED_REAL_CARD_DIFFS);
+  assert.ok(SIG_DIFFERENT_THRESHOLD < min,
+    `threshold ${SIG_DIFFERENT_THRESHOLD} must be BELOW the smallest real-card `
+    + `difference (${min}) or genuinely different cards get skipped`);
+  assert.ok(SIG_DIFFERENT_THRESHOLD > MEASURED_SAME_CARD,
+    `threshold ${SIG_DIFFERENT_THRESHOLD} must be ABOVE the same-card floor `
+    + `(${MEASURED_SAME_CARD}) or a held card rescans forever`);
+  pass('FDUP-TC6', 'the threshold sits between the measured real-card and same-card values');
+}
+
 // 4. UNKNOWN STATE NEVER BLOCKS A SCAN. A null signature means "we do not know",
 //    and not knowing must never silently refuse to scan a card he is holding.
 {
@@ -112,6 +138,30 @@ const DET = { x: 20, y: 20, w: 120, h: 180 };
     frameSignature(bgChanged, W, H, DET)), false,
     'a change OUTSIDE the detected card must not read as a new card');
   pass('FDUP-TC5', 'background changes outside the card do not trigger a rescan');
+}
+
+// 7. A NEW PLACEMENT IS DETECTED FROM GEOMETRY, NOT A CLOCK.
+//
+//    Zach's rule after the first fix used a 4s timeout: "Nothing should be
+//    measured on time. That's how we are in this in the first place. We have
+//    yolo for object detection why not lean on that."
+//
+//    Placing a card on top of another moves and resizes the detected box. That
+//    event replaces the timer entirely, so a card whose luma happens to match
+//    the last one is still scannable the moment it is physically placed.
+{
+  const a = { x: 20, y: 30, w: 100, h: 140 };
+  assert.strictEqual(detectionMoved(a, { ...a }), false,
+    'an undisturbed card must not read as a new placement');
+  assert.strictEqual(detectionMoved(a, { x: 34, y: 48, w: 104, h: 146 }), true,
+    'a card set down in a new position MUST read as a new placement');
+  assert.strictEqual(detectionMoved(a, { x: 20.4, y: 30.3, w: 100, h: 140 }), false,
+    'sub-pixel jitter must not read as a new placement');
+  assert.strictEqual(detectionMoved(a, null), true,
+    'unknown previous detection must allow a scan');
+  assert.strictEqual(detectionMoved(null, a), true,
+    'unknown current detection must allow a scan');
+  pass('FDUP-TC7', 'a new placement is recognised from detector geometry, with no timer');
 }
 
 console.log(`\nscan-dedupe.test.js: ${passed} cases passed`);
