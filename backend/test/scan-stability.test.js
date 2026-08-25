@@ -256,4 +256,26 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
   pass('FSTAB-TC12', 'the detection loop is self-scheduling and cannot overlap');
 }
 
+// 13. DETECTOR JITTER MUST NOT RE-ARM CAPTURE.
+//
+//     Zach: "evil thrall scanned twice even though I never tapped or anything
+//     after it scanned the first time."
+//
+//     The one-scan-per-stable-period latch cleared on ANY single disagreeing
+//     frame. The trained detector regresses a fresh box each frame, so its
+//     output jitters even on a motionless card -- one wobble past the IoU
+//     threshold re-armed capture and the card scanned twice.
+{
+  const ui = fs.readFileSync(SRC, 'utf8');
+  assert.ok(/const DISTURBED_FRAMES_TO_REARM = (\d+);/.test(ui),
+    'a disturbance run length must be defined');
+  const n = parseInt(ui.match(/const DISTURBED_FRAMES_TO_REARM = (\d+);/)[1], 10);
+  assert.ok(n >= 2, 'a SINGLE disagreeing frame must not re-arm — that is the double-scan bug');
+  assert.ok(/disturbedRunRef\.current \+= 1;\s*\n\s*if \(disturbedRunRef\.current >= DISTURBED_FRAMES_TO_REARM\) \{\s*\n\s*stablePeriodConsumedRef\.current = false;/.test(ui),
+    'the latch must clear only after a RUN of disturbed frames');
+  assert.ok(/stableCountRef\.current \+= 1;\s*\n\s*disturbedRunRef\.current = 0;/.test(ui),
+    'an agreeing frame must reset the disturbance run');
+  pass('FSTAB-TC13', 'a single jittery frame cannot re-arm capture and rescan the same card');
+}
+
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);

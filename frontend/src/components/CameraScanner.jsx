@@ -228,6 +228,25 @@ function detectionsAgree(a, b) {
 // the correct behaviour and is exactly what a wall-clock would get wrong.
 const STABLE_FRAMES_REQUIRED = 3;
 
+// HOW MANY CONSECUTIVE DISTURBED FRAMES COUNT AS A NEW PLACEMENT.
+//
+// Zach: "evil thrall scanned twice even though I never tapped or anything after
+// it scanned the first time."
+//
+// The one-scan-per-stable-period latch used to clear on ANY single frame whose
+// detection disagreed with the last. The trained detector regresses a fresh box
+// every frame, so its output jitters by a pixel or two even on a motionless
+// card -- and one frame drifting past the IoU threshold re-armed capture, so
+// the same card scanned again with nothing having happened.
+//
+// A genuine placement disturbs the view for SEVERAL consecutive frames: the
+// hand enters, the card falls, the box moves and resizes. Detector jitter does
+// not. 2 frames (~280ms at this loop rate) is comfortably longer than a
+// single-frame wobble and far shorter than any real hand movement.
+//
+// Still no clock: these are counted detector EVENTS, per Zach's rule.
+const DISTURBED_FRAMES_TO_REARM = 2;
+
 // THE LOAD-BEARING ASSUMPTION, STATED EXPLICITLY BECAUSE IT WAS MEASURED.
 //
 // Checked against Zach's 33 real scans: two DIFFERENT cards resting in the same
@@ -515,6 +534,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // produces exactly ONE scan. Cleared when the detection is disturbed --
   // which is what dropping the next card on the stack does.
   const stablePeriodConsumedRef = useRef(false);
+  // Consecutive frames whose detection disagreed with the previous one. Used to
+  // tell a real placement from detector jitter -- see DISTURBED_FRAMES_TO_REARM.
+  const disturbedRunRef = useRef(0);
   // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
   // A scanner that has silently decided not to scan is indistinguishable from a
   // broken one.
@@ -951,6 +973,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
           // what re-arms capture after a card is lifted away.
           prevDetRef.current = null;
           stableCountRef.current = 0;
+          disturbedRunRef.current = 0;
           stablePeriodConsumedRef.current = false;
           setCardPresent(false);
           setSteady(false);
@@ -982,9 +1005,28 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // top."
         if (detectionsAgree(mapped, prevDetRef.current)) {
           stableCountRef.current += 1;
+          disturbedRunRef.current = 0;
         } else {
           stableCountRef.current = 1;
-          stablePeriodConsumedRef.current = false;
+          // RE-ARM ONLY AFTER A SUSTAINED DISTURBANCE, NOT A SINGLE ODD FRAME.
+          //
+          // Zach: "evil thrall scanned twice even though I never tapped or
+          // anything after it scanned the first time."
+          //
+          // This used to clear the latch on ANY disagreeing frame. The trained
+          // detector regresses a box per frame, so its output naturally jitters
+          // by a pixel or two even on a motionless card; one frame drifting past
+          // the IoU threshold re-armed capture and the same card scanned again.
+          //
+          // A real placement disturbs the view for SEVERAL consecutive frames --
+          // the hand enters, the card falls, the box moves and resizes. Jitter
+          // does not. Requiring a run of disturbed frames separates them without
+          // needing to know anything about what the card looks like, and without
+          // a clock.
+          disturbedRunRef.current += 1;
+          if (disturbedRunRef.current >= DISTURBED_FRAMES_TO_REARM) {
+            stablePeriodConsumedRef.current = false;
+          }
         }
         prevDetRef.current = mapped;
         const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED

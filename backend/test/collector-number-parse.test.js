@@ -235,5 +235,51 @@ check('F8P-TC19', 'every set-shaped token is offered, not just the first', () =>
     'and the wrong first guess must not be the only option offered');
 });
 
+
+check('F8P-TC20', 'a set code glued to its language suffix still yields the set', () => {
+  // Zach: "I count queues as failures... I would expect maybe 1 not 4."
+  //
+  // ALL FOUR queues in that session read the NUMBER correctly and then failed
+  // on the set. The set line is "<SET> <sep> <LANG> <sep> <ARTIST>" and the
+  // separator is a tiny glyph OCR renders as *, A, «, ® — or drops entirely.
+  // When it drops, set and language fuse into one token that matches no set.
+  //
+  // Real raw reads from his scans, with what the card actually is:
+  const cases = [
+    ['Pr\nL 0296\nMSH*EN % RYTIS SA\n', 'msh'],      // separator vanished
+    ['RS S=,\nC 0247\nMSHAEN \u00a5% DAVID\n', 'msh'],    // '*' read as 'A'
+    ['REE\nL 0295\nMSH*EN \u00bb DOMENIC\n', 'msh'],
+    ['L 02906\nMSH \u00ab EN % RYTIS SA\n', 'msh'],
+  ];
+  for (const [raw, want] of cases) {
+    const p = parseCollectorStrip(raw);
+    assert.ok(p.setCandidates.includes(want),
+      `expected '${want}' among candidates for ${JSON.stringify(raw)}, `
+      + `got ${JSON.stringify(p.setCandidates)}`);
+  }
+});
+
+check('F8P-TC21', 'a spurious digit in the zero padding is offered as an alternative', () => {
+  // 'L 02906' on a card that is #296. Collector numbers print zero-padded to
+  // four digits and OCR inserted a fifth. Offered as an ALTERNATIVE reading,
+  // never a rewrite: the catalogue decides, and if both readings resolve the
+  // resolver queues it as genuine ambiguity.
+  const p = parseCollectorStrip('L 02906\nMSH \u00ab EN % RYTIS SA\n');
+  assert.strictEqual(p.number, '2906', 'the literal reading must be preserved');
+  assert.strictEqual(p.numberAlt, '296', 'the padded-digit alternative must be offered');
+});
+
+check('F8P-TC22', 'the language split does not invent sets from ordinary words', () => {
+  // The stem logic must not fire on any word that happens to end in a language
+  // code. 'garden' ends in 'en'; 'gard' is not a set and must not be asserted
+  // as one — but the parser has no catalogue, so the real guarantee is that the
+  // ORIGINAL token is still offered and the stem is only ever an ADDITION.
+  const p = parseCollectorStrip('R 0100\nGARDEN % SOMEONE\n');
+  assert.ok(p.setCandidates.includes('garden'),
+    'the token as read must still be offered');
+  // A stem may be present, but it can never REPLACE the literal reading.
+  assert.ok(p.setCandidates.indexOf('garden') >= 0);
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);

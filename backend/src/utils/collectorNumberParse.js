@@ -41,6 +41,17 @@ const NOT_A_SET = new Set([
 // Rarity letters that sit beside the number. Not part of it.
 const RARITY = new Set(['c', 'u', 'r', 'm', 's', 't', 'l', 'p']);
 
+// LANGUAGE CODES THAT GLUE THEMSELVES TO THE SET CODE.
+//
+// The set line reads "<SET> <sep> <LANG> <sep> <ARTIST>", where the separator
+// is a tiny glyph OCR renders as *, A, «, ®, or drops entirely. When it drops,
+// the set and language fuse: 'MSH*EN' becomes 'mshen', which matches no set.
+//
+// Only two-letter codes, and only as a SUFFIX. A stem is offered as an extra
+// candidate alongside the glued token, never as a replacement, so the
+// catalogue still decides which is real.
+const LANG_SUFFIXES = ['en', 'de', 'fr', 'it', 'es', 'pt', 'ja', 'ko', 'ru', 'zh'];
+
 // A collector number token. Deliberately narrow:
 //   123        digits
 //   0263       zero-padded (printed form)
@@ -169,13 +180,63 @@ function parseCollectorStrip(raw) {
     const tokens = line.split(/[\s,]+/).map(t => t.replace(/[^A-Za-z0-9]/g, '')).filter(Boolean);
     for (const tok of tokens) {
       const low = tok.toLowerCase();
-      if (!SET_CODE.test(tok)) continue;
+      // ACCEPT UP TO 7 CHARACTERS HERE, NOT 5.
+      //
+      // SET_CODE is 3-5 because that is what a real set code is. But a GLUED
+      // token is set + separator + language: 'MSHAEN' is six characters and was
+      // being discarded before the stem logic below could ever see it -- which
+      // is why Zach's fourth queue had no 'msh' candidate at all.
+      //
+      // This does not loosen what counts as a set: only STEMS derived below are
+      // added as candidates, and a 6-7 character token that yields no stem
+      // still contributes nothing. The catalogue remains the judge.
+      const isGluedCandidate = /^[a-z0-9]{6,7}$/i.test(tok)
+        && LANG_SUFFIXES.some(l => low.endsWith(l));
+      if (!SET_CODE.test(tok) && !isGluedCandidate) continue;
       if (NOT_A_SET.has(low)) continue;
       if (RARITY.has(low) && tok.length === 1) continue;
       if (/^\d+$/.test(tok)) continue;          // all digits = a number, not a set
       if (!/[a-z]/i.test(tok)) continue;        // a set code has letters
       if (number != null && tok === number) continue;
       if (!set) set = low;
+      // SPLIT THE LANGUAGE SUFFIX OFF A GLUED TOKEN.
+      //
+      // Zach: "I count queues as failures... I would expect maybe 1 not 4."
+      // All four queues in that session read the NUMBER correctly and then
+      // failed on the set:
+      //
+      //   'MSH*EN % RYTIS SA'  -> ['mshen', 'rytis']   the separator vanished
+      //   'MSHAEN ¥% DAVID'    -> ['david']            '*' read as 'A'
+      //
+      // The set line is "<SET> <separator> <LANG> <sep> <ARTIST>", and the
+      // separator is a tiny glyph OCR reads as *, A, «, ®, or nothing at all.
+      // When it vanishes the set and the language fuse into one token, and
+      // 'mshen' matches no set in the catalogue.
+      //
+      // So a token ending in a known language code also contributes its stem.
+      // This ADDS candidates, never replaces them: 'mshen' still gets tried in
+      // case some set really is called that, and the catalogue remains the
+      // judge of which candidate is real. A stem that matches nothing simply
+      // loses, exactly like any other wrong candidate.
+      const stems = [low];
+      for (const lang of LANG_SUFFIXES) {
+        if (low.length > lang.length + 1 && low.endsWith(lang)) {
+          stems.push(low.slice(0, -lang.length));
+          // THE SEPARATOR MAY HAVE BEEN READ AS A LETTER, NOT DROPPED.
+          //
+          // 'MSH*EN' came back as 'MSHAEN': the '*' was recognised as an 'A',
+          // so stripping 'en' leaves 'msha' rather than 'msh'. One more
+          // character has to come off, but ONLY when what remains is still a
+          // plausible 3-4 character set code -- otherwise this would start
+          // inventing stems from ordinary words.
+          const stem = low.slice(0, -lang.length);
+          if (stem.length >= 4) stems.push(stem.slice(0, -1));
+        }
+      }
+      for (const s of stems) {
+        if (!setCandidates.includes(s)) setCandidates.push(s);
+      }
+      continue;
       // COLLECT EVERY PLAUSIBLE SET CODE, not just the first one.
       //
       // Zach: "You should use all information possible."
@@ -243,9 +304,30 @@ function parseCollectorStrip(raw) {
   const confident = number != null && !digitsGluedToJunk && numberIsClean;
   // `numberAlt` is a SECOND CANDIDATE READING, not a correction (see
   // RARITY_PREFIXED_NUMBER above). `number` is always exactly what was read.
+  //
+  // A SPURIOUS DIGIT INSIDE THE ZERO PADDING IS ALSO A CANDIDATE READING.
+  //
+  // Zach's queue: 'L 02906' where the card is #296. Collector numbers print
+  // zero-padded to four digits ('0296'), and OCR inserted a fifth. Five digits
+  // is not a real collector number -- the largest sets are in the hundreds --
+  // so a 5-digit token starting with 0 is almost certainly a 4-digit one with
+  // an extra character.
+  //
+  // Offered as an ALTERNATIVE, never a rewrite: the catalogue decides. If both
+  // readings resolve to real printings that is genuine ambiguity and the
+  // resolver queues it, exactly as it does for the rarity-letter case.
+  const paddedAlt = (() => {
+    const s = String(number || '');
+    // The parser normalises away the leading zero, so '02906' arrives as
+    // '2906'. Match on the RAW text to confirm the zero-padded shape, then
+    // drop the surplus digit from the normalised value.
+    if (!/^\d{4}$/.test(s)) return null;
+    if (!new RegExp(`0${s}(?![0-9])`).test(String(raw || ''))) return null;
+    return String(Number(s.slice(0, 2) + s.slice(3)));
+  })();
   return {
     number,
-    numberAlt: rarityStrippedAlternative(number),
+    numberAlt: rarityStrippedAlternative(number) || paddedAlt,
     set,
     // EVERY set-shaped token, for the resolver to validate against the
     // catalogue. `set` stays as the first one so existing callers are
