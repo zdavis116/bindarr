@@ -15,6 +15,7 @@ const setIndex = require('./setIndex');
 const { parseSetList } = require('./utils/setQuery');
 const languages = require('./utils/languages');
 const scanProfile = require('./scanProfile');
+const cardDetector = require('./cardDetector');
 
 const DATA_DIR = process.env.INDEX_DATA_DIR || path.join(__dirname, '..', 'data');
 // CLIP candidates to geometrically verify.
@@ -285,6 +286,65 @@ function detectCard(rgbaData, w, h) {
   return out;
 }
 
+// PHASE 4b: YOLO FIRST, CLASSICAL AS FALLBACK.
+//
+// The classical detector locks onto the TOPLOADER rather than the card it
+// holds — the defect that broke Zach's sleeved scans. The trained detector
+// fixes 8 of its 10 worst failures with zero regressions, so it leads.
+//
+// It is a FALLBACK, not a replacement, because the classical path still works
+// on the cases it always worked on. If the model is missing, corrupt, slow to
+// load, or unsure, we get today's behaviour rather than a broken scan.
+//
+// YOLO returns geometry only; the warp is done here so both paths produce the
+// identical `{ data, width, height, quad, pick }` shape callers already expect.
+// Doing it any other way would leak the choice of detector into every caller.
+async function detectWithFallback(rgbaData, w, h) {
+  let yolo = null;
+  try {
+    yolo = await cardDetector.detect(rgbaData, w, h);
+  } catch (e) {
+    console.warn('yolo detect threw, falling back:', e.message);
+  }
+  if (yolo && yolo.quad) {
+    const warped = warpToQuad(rgbaData, w, h, yolo.quad);
+    if (warped) return { ...warped, quad: yolo.quad, pick: yolo.pick };
+    // A warp failure means the quad was unusable; fall through rather than
+    // return a card-shaped nothing.
+  }
+  return detectCard(rgbaData, w, h);
+}
+
+// Warp an arbitrary quad to the matcher's canonical WARP_W x WARP_H card.
+// Extracted from detectCard so both detectors share one implementation --
+// two copies of a perspective transform is two chances to get the corner
+// order subtly different, and that failure looks like a bad photo.
+function warpToQuad(rgbaData, w, h, quad) {
+  let src = null, srcTri = null, dstTri = null, M = null, warped = null;
+  try {
+    const [tl, tr, br, bl] = orderQuad(quad);
+    src = cv.matFromImageData({ data: rgbaData, width: w, height: h });
+    srcTri = cv.matFromArray(4, 1, cv.CV_32FC2,
+      [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
+    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2,
+      [0, 0, WARP_W, 0, WARP_W, WARP_H, 0, WARP_H]);
+    M = cv.getPerspectiveTransform(srcTri, dstTri);
+    warped = new cv.Mat();
+    cv.warpPerspective(src, warped, M, new cv.Size(WARP_W, WARP_H));
+    return { data: Buffer.from(warped.data), width: WARP_W, height: WARP_H, channels: 4 };
+  } catch (e) {
+    console.warn('warpToQuad failed:', e.message);
+    return null;
+  } finally {
+    // Freed here, not inline: an exception mid-way would otherwise strand
+    // full-frame Mats on the wasm heap, which never shrinks — the leak that
+    // used to kill scanning after ~67 cards.
+    for (const m of [src, srcTri, dstTri, M, warped]) {
+      if (m) { try { m.delete(); } catch { /* already freed */ } }
+    }
+  }
+}
+
 // The width detection runs at. Detection is TUNED at this size (crop.test.js
 // scores against it) so it is deliberately NOT a parameter — see rectifyCard.
 const DETECT_W = 1200;
@@ -300,7 +360,7 @@ const DETECT_W = 1200;
 async function preprocessCardWithDetection(imageBuffer) {
   try {
     const { data, info } = await sharp(imageBuffer).resize({ width: DETECT_W, withoutEnlargement: true }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const card = detectCard(new Uint8ClampedArray(data), info.width, info.height);
+    const card = await detectWithFallback(new Uint8ClampedArray(data), info.width, info.height);
     if (card) {
       const buf = await sharp(card.data, { raw: { width: card.width, height: card.height, channels: 4 } }).png().toBuffer();
       return { buf, detect: { quad: card.quad, detW: info.width, detH: info.height } };
@@ -368,7 +428,7 @@ async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
       // floor are all tuned to 1200px.
       const d = await sharp(imageBuffer).resize({ width: DETECT_W, withoutEnlargement: true })
         .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      const card = detectCard(new Uint8ClampedArray(d.data), d.info.width, d.info.height);
+      const card = await detectWithFallback(new Uint8ClampedArray(d.data), d.info.width, d.info.height);
       if (!card) return null;
       det = { quad: card.quad, detW: d.info.width, detH: d.info.height };
     }

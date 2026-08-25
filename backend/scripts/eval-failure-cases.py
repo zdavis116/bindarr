@@ -59,8 +59,14 @@ for(const f of process.argv.slice(2)){
   try{
     const buf=fs.readFileSync(f);
     const meta=await sharp(buf).metadata();
-    const r=await sm.preprocessCardWithDetection(buf);
-    out[path.basename(f)]=r.detect?{quad:r.detect.quad,detW:r.detect.detW,W:meta.width,H:meta.height}:null;
+    // detectCard DIRECTLY, not preprocessCardWithDetection. Since Phase 4b the
+    // latter routes through detectWithFallback (YOLO first), so calling it here
+    // measured YOLO against itself and reported "classical failed: 2" where the
+    // true figure is 10. A baseline must not silently become the thing it is
+    // supposed to be a baseline for.
+    const d=await sharp(buf).resize({width:1200,withoutEnlargement:true}).ensureAlpha().raw().toBuffer({resolveWithObject:true});
+    const card=sm.detectCard(new Uint8ClampedArray(d.data),d.info.width,d.info.height);
+    out[path.basename(f)]=card?{quad:card.quad,detW:d.info.width,W:meta.width,H:meta.height}:null;
   }catch(e){out[path.basename(f)]=null;}
 }
 console.log('__RESULT__'+JSON.stringify(out));})();
