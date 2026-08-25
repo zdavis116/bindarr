@@ -162,7 +162,49 @@ const sharp = require('sharp');
 // 0.880 sits on a PLATEAU (0.880 and 0.895 score the same) rather than a peak,
 // which is what makes it a safe choice: the exact framing varies per photo, so
 // a value that only works at one setting would fail on the next card.
-let STRIP = { left: 0.02, top: 0.880, width: 0.28, height: 0.075 };
+// RETUNED AGAIN, ON THE CAPTURES THAT FAILED (top 0.880 -> 0.845, h 0.075 -> 0.100).
+//
+// Zach: "the queue still was still adding cards and some completely
+// incorrectly". Every failing queue row showed the SET line reading fine and
+// the NUMBER line above it missing entirely:
+//
+//     'MSH «EM to Daw Ba'                    set line only
+//     'MSH » EN % DOMENI / EERE $00 EEE'     set line only
+//     ''                                     nothing
+//
+// That is not blur -- the set line is the same size, in the same place, and
+// reads fine. The window was simply looking BELOW the number, catching the set
+// line instead.
+//
+// Swept over 17 real captures from that exact session:
+//
+//     top 0.845  h 0.100  ->  15/17   best on real photos, FAILS the fixtures
+//     top 0.870  h 0.100  ->  14/17   <- CHOSEN: passes both
+//     top 0.880  h 0.075  ->  11/17   what shipped
+//     top 0.900  h 0.100  ->   7/17
+//
+// TWO CONSTRAINTS, NOT ONE. The value that scored best on Zach's photos (0.845)
+// BROKE ocr_route.test.js, which renders synthetic cards and reads 4/4 -- the
+// regression test that exists because a wrong-but-confident collector number
+// once nearly entered his collection. Trading that guard for two more real
+// reads would be removing a smoke detector to stop it chirping.
+//
+// So the window was swept against BOTH: every candidate run through the real
+// captures AND through the actual e2e test. 0.870/0.100 is the best value that
+// satisfies both -- 14/17 on his photos (up from 11) with the fixtures intact.
+//
+// The TALLER window is the more important half of the change. A taller strip
+// catches the number whether the crop puts it at 85% or 89% of card height,
+// which is exactly the variation that broke this twice. Chasing the perfect
+// offset would break again the next time the crop changes.
+//
+// WHY THIS KEEPS MOVING, stated so the next person does not re-tune blindly:
+// this constant is a fraction of the CARD'S HEIGHT in the rectified image, so
+// it is only stable while the crop is. It has now been invalidated twice by
+// changes upstream -- once by the server detector, once by the client cropping
+// to its own detection box. If the crop changes again, re-measure; do not
+// assume.
+let STRIP = { left: 0.02, top: 0.870, width: 0.28, height: 0.100 };
 
 // TEST/DIAGNOSTIC ONLY. Lets a sweep vary the window without editing source
 // between runs. Production never calls this; the exported STRIP above is the

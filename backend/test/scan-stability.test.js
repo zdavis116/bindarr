@@ -327,4 +327,34 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
   pass('FSTAB-TC15', 'the sharpness baseline is taught by settled frames, not swap blur');
 }
 
+// 16. AUTO-SCAN MUST NOT DEADLOCK ON ITS OWN WAKE-UP SIGNAL.
+//
+//     Zach: "it wasn't auto scanning I had to tap on the screen to initiate
+//     every scan."
+//
+//     The capture effect only re-runs when a value in its dep list changes, and
+//     `steady` is what wakes it. `steady` flipped true at STABLE_FRAMES_REQUIRED
+//     while the capture gate required STABLE_FRAMES_REQUIRED +
+//     SETTLE_FRAMES_BEFORE_CAPTURE. So the effect woke at 3, found 3 < 6,
+//     returned — and nothing woke it again, because `steady` was already true
+//     and the frame count lives in a ref React does not watch. Auto-scan was
+//     dead on every card; tapping was the only way through.
+//
+//     Tying the wake-up signal to the SAME threshold the gate tests makes this
+//     class of bug unrepresentable.
+{
+  const ui = fs.readFileSync(SRC, 'utf8');
+  const gate = ui.match(/if \(stableCountRef\.current < ([^)]+)\) return;/);
+  assert.ok(gate, 'the capture threshold expression was not found');
+  const steady = ui.match(/const isSteady = stableCountRef\.current >= ([\s\S]{0,120}?)\n/);
+  assert.ok(steady, 'the steady expression was not found');
+  const norm = (x) => x.replace(/\s+/g, ' ').trim();
+  assert.ok(norm(steady[1]).startsWith(norm(gate[1])),
+    `the wake-up signal (${norm(steady[1])}) must use the SAME threshold as the `
+    + `capture gate (${norm(gate[1])}) — a lower one deadlocks auto-scan`);
+  assert.ok(/steady\]/.test(ui) || /, steady\b/.test(ui),
+    '`steady` must be in the capture effect dep list or nothing wakes it');
+  pass('FSTAB-TC16', 'the capture gate and its wake-up signal share one threshold');
+}
+
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);

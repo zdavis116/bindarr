@@ -1104,7 +1104,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
             // whatever baseline it already had.
           }
         }
-        const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED
+        // `steady` MUST MEAN "CAPTURE-READY", NOT MERELY "STABLE".
+        //
+        // Zach: "it wasn't auto scanning I had to tap on the screen to initiate
+        // every scan."
+        //
+        // THIS WAS A DEADLOCK, and it is worth understanding because it is the
+        // second time a React dep list has silently stopped the scanner.
+        //
+        // The capture effect only re-runs when something in its dep list
+        // changes, and `steady` is what wakes it. `steady` used to flip true at
+        // STABLE_FRAMES_REQUIRED (3 frames) -- but after adding settling, the
+        // capture gate needs STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE
+        // (6). So the effect woke at frame 3, found 3 < 6, returned... and
+        // nothing ever woke it again, because `steady` was already true and no
+        // other dependency changed. The count kept climbing in a ref, which
+        // React does not watch.
+        //
+        // Auto-scan was therefore dead on every card, and tapping was the only
+        // way through -- exactly what he experienced.
+        //
+        // Tying `steady` to the SAME threshold the capture gate uses makes that
+        // class of bug unrepresentable: the signal that wakes the effect and the
+        // condition the effect tests are now one value.
+        const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE
           && !stablePeriodConsumedRef.current;
         setSteady(isSteady);
 
