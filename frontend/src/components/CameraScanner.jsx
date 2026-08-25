@@ -851,11 +851,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // broken one — that is the whole reason the status line exists. Both new gates
   // therefore say what they are waiting for.
   //
-  // Derived at render time from the same refs the gate reads, so it cannot drift
-  // out of sync with the actual decision. Only shown while auto-scan is armed
-  // and nothing else is happening; a real status message always wins.
+  // NOW IT NAMES EVERY BLOCKER, not just the first two. Three sessions in a row
+  // have been spent guessing which latch stopped the scanner from my side of
+  // the wire, while Zach could see the screen and I could not. The screen is
+  // the fastest instrument available and it was reporting almost nothing:
+  // "it stopped scanning and tapping didn't do anything" is all the UI allowed
+  // him to tell me. Every condition that can suppress a capture now says so by
+  // name, so the next report identifies the latch instead of the symptom.
   const autoScanWaitReason = (() => {
-    if (!cameraActive || !autoScan || loading || scanMatches.length > 0) return '';
+    if (!cameraActive || !autoScan) return '';
+    // Ordered by how early each one short-circuits the capture effect, so the
+    // message names the FIRST thing actually blocking.
+    if (loading) return 'Scanning…';
+    if (isDrawerOpen) return 'Waiting — a panel is open';
+    if (scanMatches.length > 0) return 'Waiting — pick a match';
+    if (autoAddTargetCard) return 'Waiting — confirming a card';
+    if (dupConfirmCard) return 'Waiting — confirming a duplicate';
     if (!cardPresent) return t('scan.waitingForCard');
     if (!steady) return t('scan.holdSteady');
     return '';
@@ -2368,7 +2379,19 @@ function CameraScanner({ onAddSuccess, showToast }) {
               <div
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!liveDetectRef.current) return;   // nothing to scan
+                  // NO DETECTION REQUIREMENT. This gate was `if
+                  // (!liveDetectRef.current) return;` and it is very likely why
+                  // Zach's taps did nothing at all: "The first card I put in
+                  // never scanned and tapping didn't resolve it". If the live
+                  // detector is not producing a box -- and a card that never
+                  // auto-scans is exactly that case -- then tap silently did
+                  // nothing too, for the SAME reason the auto path was stuck.
+                  //
+                  // A manual tap is an explicit instruction. It must not be
+                  // conditional on the subsystem that is already failing. The
+                  // server does its own detection on the full-resolution frame
+                  // and is far better at it than the 160px preview detector, so
+                  // a scan with no preview box is still worth sending.
                   // TAP MUST ALSO RECOVER A WEDGED SCANNER.
                   //
                   // Zach: "it stopped scanning eventually and tapping didn't get
