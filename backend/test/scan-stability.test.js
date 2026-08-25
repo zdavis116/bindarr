@@ -357,4 +357,32 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
   pass('FSTAB-TC16', 'the capture gate and its wake-up signal share one threshold');
 }
 
+// 17. THE PREVIEW MUST NOT SCAN AN EMPTY BOX.
+//
+//     Zach: "the 1st one is just the empty box it shouldn't be scanning until a
+//     card is there."
+//
+//     The preview inherited the SERVER's confidence floor of 0.25, but the two
+//     ask different questions. The server is told "Zach captured this photo,
+//     where is the card in it" -- permissive is right, since refusing a real
+//     capture is worse than a loose crop. The preview decides whether to take a
+//     photo AT ALL, where a false positive means a nonsense queue row.
+//
+//     MEASURED on his captures: real cards 0.933-0.951; synthetic empty frames
+//     produce no detection at all.
+{
+  const det = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'utils', 'onDeviceCardDetect.js'), 'utf8');
+  const m = det.match(/const CONF_MIN = ([0-9.]+);/);
+  assert.ok(m, 'the preview confidence floor must be defined');
+  const floor = parseFloat(m[1]);
+  assert.ok(floor > 0.25,
+    `the preview floor (${floor}) must be STRICTER than the server's 0.25 — `
+    + 'inheriting it is what scanned an empty box');
+  assert.ok(floor <= 0.90,
+    `the preview floor (${floor}) must stay below the measured real-card minimum `
+    + '(0.933) or real cards stop detecting');
+  pass('FSTAB-TC17', 'the preview is stricter than the server about what counts as a card');
+}
+
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);

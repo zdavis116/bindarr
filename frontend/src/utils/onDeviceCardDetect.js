@@ -48,10 +48,31 @@ let backendName = 'none';
 // Feeding any other size throws — this is not negotiable at runtime.
 const NET = 416;
 
-// Same floor the server uses, so the phone and the server agree about what
-// counts as a card. Divergence here would mean the preview draws an outline
-// the server then refuses, or vice versa.
-const CONF_MIN = 0.25;
+// TWO DIFFERENT QUESTIONS, TWO DIFFERENT FLOORS.
+//
+// Zach: "the 1st one is just the empty box it shouldn't be scanning until a
+// card is there."
+//
+// The server's floor is 0.25 and that is correct THERE, because the server is
+// asked "Zach deliberately captured this photo -- where is the card in it?"
+// A permissive floor is right for that: refusing a real capture is worse than
+// a loose crop.
+//
+// The preview is asked a different question -- "should I take a photo AT ALL?"
+// -- and a false positive there means scanning an empty box and putting a
+// nonsense row in the queue. Zach counts queue entries as failures, and a scan
+// of nothing is the least defensible one.
+//
+// MEASURED on his own captures: real cards score 0.933-0.951 (min 0.933,
+// median 0.946). Synthetic empty frames -- flat surface, and an empty
+// card-shaped tray outline -- produce NO detection at all. So there is a very
+// wide gap between "a card" and "not a card", and 0.60 sits in the middle of
+// it rather than near either edge.
+//
+// This is deliberately NOT the server's constant. The preview may be stricter
+// than the server; it must never be looser, or it would draw an outline the
+// server then refuses.
+const CONF_MIN = 0.60;
 
 export function detectorBackend() { return backendName; }
 export function detectorReady() { return !!session; }

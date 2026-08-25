@@ -68,16 +68,54 @@ const WEAK_MATCH_INLIERS = 25;
 // first is wrong roughly a quarter of the time ('mshen' for 'MSH*EN', artist
 // names, noise). The catalogue is the judge. Exactly one hit is an answer; two
 // different hits are ambiguity and must not resolve.
-async function printingFromStrip(ocr) {
-  const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+async function printingsFromStripTiered(ocr) {
+  // TIER THE CANDIDATES: SET LINE FIRST.
+  //
+  // Zach: "namor is wrong should be namor the sub-mariner not the one it
+  // shows." The strip read cleanly -- num=69, set line ['msh', 'chris'] -- and
+  // msh #69 IS Namor the Sub-Mariner. He got msc #631 instead.
+  //
+  // This function tried EVERY candidate and returned null when more than one
+  // resolved. 'chris' is the artist Chris Rahn; chris #69 does not exist, but
+  // other artist-derived stems do resolve, and any second hit made the whole
+  // read collapse to null. The correct answer was then discarded and the weak
+  // art match (13 inliers -- noise) was left to decide, which is exactly the
+  // failure this function exists to prevent.
+  //
+  // The set code is printed ON THE SET LINE; an artist name is not. So try the
+  // set line's own candidates first and only fall back to the rest if none
+  // resolve -- the same tiering the fallback path already uses. Centralised
+  // here so both paths cannot drift apart again.
+  //
+  // The safety property is unchanged: a tier wins only when it yields EXACTLY
+  // ONE printing. Two hits inside a tier is real ambiguity and still returns
+  // null, which queues.
+  const all = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+  const onSetLine = new Set(ocr.setLineCandidates || []);
+  const tiers = onSetLine.size
+    ? [all.filter(c => onSetLine.has(c)), all.filter(c => !onSetLine.has(c))]
+    : [all];
   const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
-  const hits = [];
-  for (const code of codes) {
-    for (const num of numbers) {
-      const hit = await printingBySetNumber(code, num);
-      if (hit && !hits.some(h => h.id === hit.id)) hits.push(hit);
+  for (const tier of tiers) {
+    if (!tier.length) continue;
+    const hits = [];
+    for (const code of tier) {
+      for (const num of numbers) {
+        const hit = await printingBySetNumber(code, num);
+        if (hit && !hits.some(h => h.id === hit.id)) hits.push(hit);
+      }
     }
+    // This tier decided it, one way or the other. Do not fall through to a
+    // lower-quality tier after a real answer was found here.
+    if (hits.length) return hits;
   }
+  return [];
+}
+
+// Exactly one printing, or nothing. The single-answer form used by the paths
+// that must either be certain or defer.
+async function printingFromStrip(ocr) {
+  const hits = await printingsFromStripTiered(ocr);
   return hits.length === 1 ? hits[0] : null;
 }
 
@@ -464,24 +502,11 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
       //
       // The safety property is unchanged: a winner still requires EXACTLY ONE
       // printing, and two winners within the same tier still queue.
-      const all = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
-      const onSetLine = new Set(ocr.setLineCandidates || []);
-      const tiers = onSetLine.size
-        ? [all.filter(c => onSetLine.has(c)), all.filter(c => !onSetLine.has(c))]
-        : [all];
-      const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
-      let hits = [];
-      for (const tier of tiers) {
-        if (!tier.length) continue;
-        hits = [];
-        for (const code of tier) {
-          for (const num of numbers) {
-            const exact = await printingBySetNumber(code, num);
-            if (exact && !hits.some(h => h.id === exact.id)) hits.push(exact);
-          }
-        }
-        if (hits.length) break;   // this tier decided it, ambiguous or not
-      }
+      // Uses the SAME tiering as printingFromStrip (set line first). Kept as one
+      // call rather than a second copy of the loop: the Namor bug happened
+      // because two paths that must agree about "which set code do we believe"
+      // had drifted apart.
+      const hits = await printingsFromStripTiered(ocr);
       if (hits.length === 1) {
         return {
           action: 'add',
@@ -532,19 +557,22 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   // which says something is wrong without saying what. Both readings are put in
   // front of him and he picks in one tap. That is what the review queue is FOR.
   if (ocr.number) {
-    const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
-    const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
+    // SAME TIERING AS EVERY OTHER STRIP LOOKUP (set line first).
+    //
+    // Zach: "the forest one has a wrong set number should be 295". A Forest was
+    // staged as soi #296 rather than msh #295. This loop tried EVERY candidate,
+    // including stems taken off the artist line, so a wrong-set Forest -- and
+    // every set has a Forest -- could be produced from a stray word and then
+    // offered as though the card had said it.
+    //
+    // Using the shared helper means there is exactly one answer to "which set
+    // code do we believe", instead of three copies that drift.
     const matchedIds = new Set(all.map(r => r.id));
-    const strip = [];
-    for (const code of codes) {
-      for (const num of numbers) {
-        const hit = await printingBySetNumber(code, num);
-        // Only a DISAGREEMENT matters. A strip that resolves to one of the
-        // printings the matcher already offered is agreement, and agreement
-        // needs no decision from him.
-        if (hit && !matchedIds.has(hit.id) && !strip.some(s => s.id === hit.id)) strip.push(hit);
-      }
-    }
+    const strip = (await printingsFromStripTiered(ocr))
+      // Only a DISAGREEMENT matters. A strip that resolves to one of the
+      // printings the matcher already offered is agreement, and agreement needs
+      // no decision from him.
+      .filter(hit => !matchedIds.has(hit.id));
     if (strip.length === 1) {
       return {
         action: 'queue',
