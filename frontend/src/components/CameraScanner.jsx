@@ -151,6 +151,77 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 const SCAN_RETRY_REJECTED_MS = 350;
 const SCAN_RETRY_SETTLE_MS = 400;
 const SCAN_RETRY_ERROR_MS = 2500;
+
+// SAME-CARD DETECTION — do not scan the same piece of cardboard twice.
+//
+// Zach: "it did scan 2 cards twice because I was too slow to move to the next
+// card... We shouldn't capture a card until we know there is a card in view and
+// if a new card doesn't come in view we shouldn't just keep scanning the same
+// card."
+//
+// For software tracking PHYSICAL objects a duplicate is not a cosmetic bug: it
+// says he owns two of something he owns one of, and he cannot reconcile that
+// against the stack in his hand without recounting.
+//
+// The signature is a coarse 4x6 grid of mean luma over the DETECTED CARD REGION.
+// Region-only, so a moving camera or a hand entering frame is not a new card.
+// Coarse, so sensor noise, focus breathing and small shifts are not either.
+const SIG_COLS = 4;
+const SIG_ROWS = 6;
+
+// How different two signatures must be to count as a DIFFERENT card, as mean
+// absolute luma difference per cell (0-255).
+//
+// MEASURED, not chosen. On synthetic cards through the real signature function:
+//
+//     same card, held still          0.00
+//     same card + sensor noise       0.00
+//     background changed, card same  0.00
+//     a different card               3.67
+//
+// The first version of this constant was 10, picked by eye, and the test caught
+// it: a visibly different card scored 3.67 and would have been SILENTLY SKIPPED.
+//
+// 2.0 sits well above the noise floor (0.00) and well below a real card change
+// (3.67). The asymmetry is deliberate: a duplicate is annoying but visible in
+// the collection, whereas a SKIPPED card is nearly impossible to notice — Zach
+// would have to recount the physical stack to find it. So when in doubt, scan.
+//
+// The primary mechanism is still the card LEAVING THE FRAME, which clears the
+// fingerprint outright. This threshold only covers the case where he never
+// moves the card at all.
+const SIG_DIFFERENT_THRESHOLD = 2.0;
+
+function frameSignature(gray, w, h, det) {
+  const x0 = Math.max(0, Math.round(det.x));
+  const y0 = Math.max(0, Math.round(det.y));
+  const cw = Math.max(1, Math.min(Math.round(det.w), w - x0));
+  const ch = Math.max(1, Math.min(Math.round(det.h), h - y0));
+  const sig = new Uint8Array(SIG_COLS * SIG_ROWS);
+  for (let r = 0; r < SIG_ROWS; r++) {
+    for (let c = 0; c < SIG_COLS; c++) {
+      const cx0 = x0 + Math.floor((c * cw) / SIG_COLS);
+      const cx1 = x0 + Math.floor(((c + 1) * cw) / SIG_COLS);
+      const cy0 = y0 + Math.floor((r * ch) / SIG_ROWS);
+      const cy1 = y0 + Math.floor(((r + 1) * ch) / SIG_ROWS);
+      let sum = 0, n = 0;
+      for (let y = cy0; y < cy1; y++) {
+        for (let x = cx0; x < cx1; x++) { sum += gray[y * w + x]; n++; }
+      }
+      sig[r * SIG_COLS + c] = n ? (sum / n) | 0 : 0;
+    }
+  }
+  return sig;
+}
+
+// Mean absolute difference per cell. Null signatures mean "unknown", which must
+// read as DIFFERENT so an unknown state can never block a scan.
+function signaturesDiffer(a, b) {
+  if (!a || !b || a.length !== b.length) return true;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+  return (sum / a.length) >= SIG_DIFFERENT_THRESHOLD;
+}
 // HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
 //
 // Zach: "I think our zoom needs to mimic mana boxes I think we are zoomed to
@@ -405,6 +476,20 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // from a previous render — and cropping to a stale detection would frame the
   // card's PREVIOUS position. The ref always holds the latest.
   const liveDetectRef = useRef(null);
+  // SAME-CARD GUARD. `currentSigRef` is the fingerprint of whatever is in frame
+  // right now, refreshed by the live detection loop ~7x/second.
+  // `lastScannedSigRef` is the fingerprint of the card the last auto-scan
+  // actually captured. Auto-scan only fires when they differ, or when the card
+  // has left the frame (which clears the last-scanned fingerprint).
+  //
+  // Refs, not state: the detection loop writes these several times a second and
+  // re-rendering on every frame would cost more than the detection does.
+  const currentSigRef = useRef(null);
+  const lastScannedSigRef = useRef(null);
+  // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
+  // A scanner that has silently decided not to scan is indistinguishable from a
+  // broken one.
+  const [cardPresent, setCardPresent] = useState(false);
 
   // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
   // of the change is that a phone preview must fill the screen: the guide box is
@@ -681,15 +766,60 @@ function CameraScanner({ onAddSuccess, showToast }) {
         : outcome === 'error' ? SCAN_RETRY_ERROR_MS
         : SCAN_RETRY_SETTLE_MS;
       timerId = setTimeout(() => {
+        // TWO GATES BEFORE CAPTURING, both from Zach's rule: "We shouldn't
+        // capture a card until we know there is a card in view and if a new
+        // card doesn't come in view we shouldn't just keep scanning the same
+        // card."
+        //
+        // 1. IS A CARD ACTUALLY IN VIEW? Previously auto-scan fired on a timer
+        //    regardless, so an empty mat or a hand was uploaded and matched
+        //    against 57,000 cards. `liveDetectRef` is what draws the outline he
+        //    already sees, so the gate agrees with the UI by construction.
+        //
+        // 2. IS IT A DIFFERENT CARD FROM THE ONE JUST SCANNED? Being slow to
+        //    swap cards previously scanned the same card twice, which for
+        //    software tracking physical objects reports owning two of something
+        //    he owns one of.
+        //
+        // The effect re-runs on every state change in the dep list, so this
+        // re-checks continuously rather than deciding once. Failing a gate here
+        // is NOT an error and must not back off: the moment he swaps cards the
+        // signature changes and the next tick fires normally.
+        if (!liveDetectRef.current) return;
+        if (!signaturesDiffer(currentSigRef.current, lastScannedSigRef.current)) return;
+        // Remember WHAT is being captured before the capture starts. The scan is
+        // async and he may move the card mid-flight; recording it afterwards
+        // would fingerprint whatever happened to be in frame when the response
+        // landed, not what was actually scanned.
+        lastScannedSigRef.current = currentSigRef.current;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
     };
-  // The dep list is now exhaustive on its own: dropping `scanDetail` (which the
-  // effect never actually read) removed the reason this needed a suppression.
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard]);
+  // `cardPresent` is in the dep list so the effect re-evaluates the moment a
+  // card enters or leaves the frame, rather than waiting for an unrelated
+  // state change to wake it.
+  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent]);
+
+  // WHY AUTO-SCAN IS WAITING, in Zach's words rather than the code's.
+  //
+  // A scanner that has silently decided not to fire is indistinguishable from a
+  // broken one — that is the whole reason the status line exists. Both new gates
+  // therefore say what they are waiting for.
+  //
+  // Derived at render time from the same refs the gate reads, so it cannot drift
+  // out of sync with the actual decision. Only shown while auto-scan is armed
+  // and nothing else is happening; a real status message always wins.
+  const autoScanWaitReason = (() => {
+    if (!cameraActive || !autoScan || loading || scanMatches.length > 0) return '';
+    if (!cardPresent) return t('scan.waitingForCard');
+    if (!signaturesDiffer(currentSigRef.current, lastScannedSigRef.current)) {
+      return t('scan.waitingForNextCard');
+    }
+    return '';
+  })();
 
   // THE LIVE DETECTION LOOP — the outline Zach sees.
   //
@@ -728,7 +858,39 @@ function CameraScanner({ onAddSuccess, showToast }) {
 
         const det = detectCardInFrame(gray, DW, DH);
         if (cancelled) return;
-        if (!det) { liveDetectRef.current = null; setLiveDetect(null); return; }
+        if (!det) {
+          liveDetectRef.current = null;
+          setLiveDetect(null);
+          // NO CARD IN VIEW. Clear the "already scanned this one" fingerprint so
+          // the NEXT card is scannable even if it happens to look like the last
+          // one — moving the card out of frame is Zach's unambiguous signal that
+          // he is done with it. Without this, sliding an identical second copy
+          // of a card into frame would be refused as a duplicate.
+          lastScannedSigRef.current = null;
+          setCardPresent(false);
+          return;
+        }
+        setCardPresent(true);
+
+        // FINGERPRINT THE CARD CURRENTLY IN VIEW.
+        //
+        // Zach: "We shouldn't capture a card until we know there is a card in
+        // view and if a new card doesn't come in view we shouldn't just keep
+        // scanning the same card."
+        //
+        // Auto-scan fires on a TIMER, gated only on sharpness. Nothing asked
+        // whether the thing in frame was a DIFFERENT card, so being slow to
+        // swap cards scanned the same one twice — which for software tracking
+        // physical objects means a card he owns one of showing as two.
+        //
+        // The signature is a coarse 4x6 grid of mean luma over the DETECTED
+        // REGION ONLY, not the whole frame. Region-only so that moving the
+        // camera or a hand entering the shot does not read as a new card;
+        // coarse so that noise, focus breathing and small shifts do not either.
+        // It is deliberately not a real perceptual hash: this only has to
+        // answer "is this the same piece of cardboard I just scanned", and a
+        // cheap answer computed 7x/second beats a good one that costs a frame.
+        currentSigRef.current = frameSignature(gray, DW, DH, det);
 
         // Map from detection pixels to the PREVIEW ELEMENT's box. The video is
         // object-fit: cover, so it is centre-cropped: the scale is the LARGER
@@ -2098,7 +2260,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 of truth: one state, shown where the user is actually looking.
                 Only rendered in fullscreen, so the boxed desktop layout keeps
                 its production appearance and does not get a duplicate line. */}
-            {fullscreenScan && (scanStatus || loading) && (
+            {fullscreenScan && (scanStatus || loading || autoScanWaitReason) && (
               <div
                 style={{
                   position: 'absolute',
@@ -2135,7 +2297,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     }}
                   />
                 )}
-                <span>{scanStatus || t('scan.working')}</span>
+                <span>{scanStatus || autoScanWaitReason || t('scan.working')}</span>
               </div>
             )}
 

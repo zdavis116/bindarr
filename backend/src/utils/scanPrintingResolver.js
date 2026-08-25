@@ -684,11 +684,29 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   }
 
   let matches = byNumber;
-  if (ocr.set && byNumber.length > 1) {
-    // Only consulted when there is a genuine ambiguity to break. When the
-    // number already yields exactly one printing there is nothing to
-    // disambiguate, so a misread set has no way to do damage.
-    const bySet = matches.filter(r => String(r.set_id || '').toLowerCase() === ocr.set);
+  if (byNumber.length > 1) {
+    // EVERY SET CANDIDATE, NOT JUST THE FIRST.
+    //
+    // parseCollectorStrip hands back every set-shaped token it saw, in reading
+    // order, precisely because it cannot tell which is the set — it has no
+    // catalogue. This code was using only `ocr.set`, which is the FIRST token,
+    // and throwing the rest away.
+    //
+    // Zach's basic land: the strip read "| ABS a / L 0295 / MSH *EN % DOMEN".
+    // Candidates were ['abs', 'msh', 'domen'] — the correct 'msh' was RIGHT
+    // THERE in second place, but 'abs' was tried alone, matched nothing, and
+    // the card queued as ambiguous with four identical Forests to choose
+    // between. Using the whole list resolves it outright.
+    //
+    // This cannot loosen anything. The set is still only ever a TIE-BREAKER
+    // among printings the NUMBER already matched: it can neither promote a row
+    // the number missed nor empty the list. If two different candidates each
+    // narrow to a different printing, that is genuine ambiguity and the
+    // `matches.length > 1` check below still queues it.
+    const codes = ocr.setCandidates?.length
+      ? ocr.setCandidates
+      : (ocr.set ? [ocr.set] : []);
+    const bySet = matches.filter(r => codes.includes(String(r.set_id || '').toLowerCase()));
     // A set filter that empties the list is a MISREAD, not a signal. Zach's
     // Avatar Aang read as set 'taa' when the catalogue stores 'tla' — one
     // letter. Letting that veto the candidates would discard a correct number
