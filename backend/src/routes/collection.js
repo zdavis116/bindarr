@@ -215,6 +215,23 @@ router.get('/search', searchLimiter, async (req, res) => {
 // The OCR read is RETURNED, not acted upon. This route stays READ-ONLY — it
 // identifies, it does not add. The client passes the read to /scan-resolve,
 // which is the only place that decides between adding and queueing.
+// The set code to SHOW for a queued scan. Prefers a candidate the catalogue
+// recognises over the raw first token: 'MSH*EN' parses to 'mshen' first, which
+// is not a real set, while 'msh' is right there in the candidate list. Falls
+// back to the raw token when nothing validates, so a genuinely unreadable strip
+// still shows what was read.
+async function pickDisplaySet(ocr) {
+  const cands = ocr?.setLineCandidates?.length
+    ? ocr.setLineCandidates
+    : (ocr?.setCandidates || []);
+  for (const c of cands) {
+    const row = await db.get(
+      'SELECT 1 FROM card_cache WHERE LOWER(set_id) = LOWER(?) LIMIT 1', [c]);
+    if (row) return c;
+  }
+  return ocr?.set ?? null;
+}
+
 router.post('/scan-match', searchLimiter, async (req, res) => {
   // STAGE PROFILING, off unless SCAN_PROFILE=1. See scanProfile.js: the stages
   // we have measured only account for ~2.2s of a scan that runs 2.1-4.9s, so
@@ -500,7 +517,26 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       userId, matchedName, reason,
-      ocr?.number ?? null, ocr?.set ?? null, ocr?.confident ? 1 : 0,
+      ocr?.number ?? null,
+      // SHOW THE SET CODE THE CATALOGUE BELIEVES, NOT THE RAW FIRST TOKEN.
+      //
+      // Zach: "the queue had MSHEN as the set code that wasn't right."
+      //
+      // `ocr.set` is whatever set-shaped token appeared FIRST on the strip. For
+      // 'MSH*EN' that is 'mshen' -- the set code fused with the language code,
+      // which is not a real set and never was. The parser knows this: it also
+      // returns 'msh' in setCandidates, and every resolution path tries those
+      // candidates against the catalogue.
+      //
+      // Storing the raw first token made the queue display a set code that does
+      // not exist, so a row the resolver had understood perfectly well looked
+      // like a failed read. Reporting our best VALIDATED reading instead means
+      // the queue shows Zach what the scanner actually concluded.
+      //
+      // Purely a display concern -- ocr_raw still carries the unedited text, so
+      // nothing diagnostic is lost.
+      await pickDisplaySet(ocr),
+      ocr?.confident ? 1 : 0,
       (ocr?.raw ?? '').slice(0, 500),
       JSON.stringify(slim),
       crop || null,

@@ -75,7 +75,12 @@ const { OCR_W, OCR_H } = require('./collectorNumberOcr');
 // returns border noise and the fuzzy matcher REFUSES it rather than landing on
 // a wrong card. That is the safety property the number crop could not claim —
 // it had a cliff at 0.940 where digits merged into confident wrong numbers.
-const TITLE_BAND = { left: 0.06, top: 0.052, width: 0.64, height: 0.060 };
+let TITLE_BAND = { left: 0.06, top: 0.052, width: 0.64, height: 0.060 };
+
+// TEST/DIAGNOSTIC ONLY. Lets a sweep vary the band without editing source
+// between runs, exactly like collectorNumberOcr._setStrip. Production never
+// calls this.
+function _setBand(b) { TITLE_BAND = { ...TITLE_BAND, ...b }; }
 
 let workerPromise = null;
 
@@ -144,4 +149,4 @@ async function shutdown() {
   try { (await p).terminate(); } catch { /* already gone */ }
 }
 
-module.exports = { readCardTitle, cropTitleBand, shutdown, TITLE_BAND };
+module.exports = { readCardTitle, cropTitleBand, shutdown, TITLE_BAND, _setBand };

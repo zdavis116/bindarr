@@ -466,7 +466,28 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   const artIsNoise = Number.isFinite(matchInliers) && matchInliers <= WEAK_MATCH_INLIERS;
   if (artIsNoise && ocr.number) {
     const exact = await printingFromStrip(ocr);
-    if (exact && !all.some(r => r.id === exact.id)) {
+    // AGREEMENT IS THE STRONGEST CASE, NOT A DISQUALIFIER.
+    //
+    // Zach's Evil's Thrall queued with ocr_number=128, ocr_set='mshen',
+    // confident=1 and exactly ONE candidate -- Evil's Thrall. The strip resolved
+    // cleanly to msh #128, which IS Evil's Thrall, and it queued anyway.
+    //
+    // This branch used to require `!all.some(r => r.id === exact.id)` -- it only
+    // fired when the strip DISAGREED with the art match. When they agreed, it
+    // fell through to the ordinary path, where a weak match cannot add and the
+    // scan queues as 'unreadable'. So two independent signals pointing at the
+    // same card was treated as a worse outcome than one signal pointing
+    // somewhere new.
+    //
+    // That guard was written when the strip was only a corrective for wrong art.
+    // Once the strip became the primary identifier for weak matches, "the art
+    // guessed the same card the print names" is the most confident state the
+    // scanner can reach, not a reason to defer.
+    //
+    // The safety property is untouched: `exact` is non-null only when set+number
+    // resolved to EXACTLY ONE printing, which is the same bar every other add
+    // path clears.
+    if (exact) {
       return {
         action: 'add',
         printing: exact,

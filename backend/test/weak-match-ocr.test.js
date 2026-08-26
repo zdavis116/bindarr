@@ -134,6 +134,26 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
     pass('FWEAK-TC6', 'a strong art match with a unique name still adds');
   }
 
+  // 7. AGREEMENT MUST NOT BE TREATED AS FAILURE.
+  //
+  //    Zach's Evil's Thrall queued with ocr_number=128, ocr_set='mshen',
+  //    confident=1 and exactly ONE candidate: Evil's Thrall. The strip resolved
+  //    to msh #128, which IS Evil's Thrall -- and it queued anyway.
+  //
+  //    The weak-art branch only fired when the strip DISAGREED with the art
+  //    match. When they agreed it fell through to the ordinary path, where a
+  //    weak match cannot add. Two independent signals naming the same card was
+  //    a worse outcome than one signal naming a different one.
+  {
+    const r = await resolveScannedPrinting({
+      matchedName: "Evil's Thrall", titleText: '', ocrText: OCR, userId, matchInliers: 16,
+    });
+    assert.strictEqual(r.action, 'add',
+      `art and print agreeing on the same card must add, got ${r.action} (${r.reason})`);
+    assert.strictEqual(r.printing.id, 'evil-thrall');
+    pass('FWEAK-TC7', 'a weak art match AGREEING with the printed address adds the card');
+  }
+
   console.log(`\nweak-match-ocr.test.js: ${passed} cases passed`);
   await db.close?.();
   process.exit(0);
