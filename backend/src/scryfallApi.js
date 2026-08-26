@@ -235,6 +235,9 @@ function normalizeCard(raw) {
     color_identity: colorIdentity.map(c => COLOR_NAMES[c] || c),
     oracle_id: raw.oracle_id,
     oracle_name: raw.name || (hasMultipleFaces ? joinedFaceValue('name') : face.name) || '',
+    // Present on 648 crossover printings, absent everywhere else. NULL rather
+    // than '' so "has a flavor name" is a simple IS NOT NULL test.
+    flavor_name: raw.flavor_name || face.flavor_name || null,
     mana_cost: hasMultipleFaces ? joinedFaceValue('mana_cost') : (raw.mana_cost || face.mana_cost || ''),
     oracle_text: hasMultipleFaces ? faceOracleText : (raw.oracle_text || faceOracleText),
     type_line: hasMultipleFaces ? joinedFaceValue('type_line') : (raw.type_line || face.type_line || ''),
@@ -394,7 +397,14 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
       WHERE c.user_id = ? AND c.list_type = 'collection'
     `;
     const params = [userId];
-    if (cleanName) { sql += ` AND cc.name LIKE ?`; params.push(`%${cleanName}%`); }
+    // MATCH THE FLAVOR NAME TOO. Zach: "if I want the splinter card I would
+    // search that card not ink-eyes." For a crossover printing the real card
+    // name is in small type and the flavor name is the one he read -- matching
+    // only `name` makes the card unfindable by the only name he can see.
+    if (cleanName) {
+      sql += ` AND (cc.name LIKE ? OR cc.flavor_name LIKE ?)`;
+      params.push(`%${cleanName}%`, `%${cleanName}%`);
+    }
     if (cleanNumber) { sql += ` AND (cc.number = ? OR CAST(cc.number AS INTEGER) = CAST(? AS INTEGER))`; params.push(cleanNumber, cleanNumber); }
     const collSetFilter = setSqlFilter(setList, 'cc');
     if (collSetFilter) { sql += ` AND ${collSetFilter.clause}`; params.push(...collSetFilter.params); }
@@ -456,7 +466,11 @@ async function runSearch(meta, nameQuery = '', numberQuery = '', setQuery = '', 
   const queryLocal = async () => {
     let sql = `SELECT * FROM card_cache WHERE 1 = 1`;
     const params = [];
-    if (cleanName) { sql += ` AND name LIKE ?`; params.push(`%${cleanName}%`); }
+    // Same reasoning as the collection query above: both names are searchable.
+    if (cleanName) {
+      sql += ` AND (name LIKE ? OR flavor_name LIKE ?)`;
+      params.push(`%${cleanName}%`, `%${cleanName}%`);
+    }
     if (cleanNumber) { sql += ` AND (number = ? OR CAST(number AS INTEGER) = CAST(? AS INTEGER))`; params.push(cleanNumber, cleanNumber); }
     const localSetFilter = setSqlFilter(setList);
     if (localSetFilter) { sql += ` AND ${localSetFilter.clause}`; params.push(...localSetFilter.params); }

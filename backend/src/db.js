@@ -402,6 +402,10 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS card_cache (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      -- The name printed in LARGE type on a crossover printing, when it differs
+      -- from the real card name: 'Splinter, Vengeful Sensei' over 'Ink-Eyes,
+      -- Servant of Oni'. NULL for the ~99% of cards without one.
+      flavor_name TEXT,
       supertype TEXT,
       subtypes TEXT,
       types TEXT,
@@ -671,11 +675,19 @@ async function initDb() {
   // Marketplace links as the PROVIDER gives them. Building them from name+set+number
   // only works for English cards: searching TCGplayer for "ヒトカゲ ポケモンカード151"
   // Provider-supplied marketplace links are stored verbatim.
-  for (const col of ['tcgplayer_url', 'cardmarket_url']) {
+  for (const col of ['tcgplayer_url', 'cardmarket_url', 'flavor_name']) {
     if (!cardCacheCols.some(c => c.name === col)) {
       await run(`ALTER TABLE card_cache ADD COLUMN ${col} TEXT`);
     }
   }
+
+  // Searching by the name the owner can actually SEE. Without this index every
+  // flavor-name search is a full scan of ~100k rows; with it the LIKE is still
+  // unanchored ('%splinter%') so SQLite cannot use it for a prefix seek, but
+  // the column stays cheap to filter and the intent is recorded. Kept separate
+  // from the name index so neither query plan changes for the other.
+  await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_flavor_name
+             ON card_cache(flavor_name) WHERE flavor_name IS NOT NULL`);
 
   // WHICH CAPTURE PRODUCED THIS QUEUE ROW.
   //
