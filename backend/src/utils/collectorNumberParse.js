@@ -66,8 +66,23 @@ const LANG_SUFFIXES = ['en', 'de', 'fr', 'it', 'es', 'pt', 'ja', 'ko', 'ru', 'zh
 //
 // So: either an explicit separator character between the code and the language,
 // or whitespace. Two letters merely ending a word do not qualify.
+// ONE TO THREE separator characters, not exactly one.
+//
+// The glyph between the set code and the language code is a tiny symbol that
+// OCR renders unpredictably -- and sometimes as SEVERAL characters. Measured on
+// Zach's corpus, 'MSH +« EN % DOMENIC' produced TWO ('+«'), so this pattern
+// missed the set line entirely, setLineCandidates came back empty, and a
+// perfectly correct read of msh #295 was treated as having no set at all.
+//
+// That mattered beyond the parse: set-line candidates are tried FIRST when
+// resolving, so an empty list silently demotes a clean read to the same footing
+// as an artist name.
+//
+// Still bounded at 3 so this cannot swallow a whole word: the artist line
+// 'Nemes 5 BE' is still correctly rejected, which is what stops a surname
+// becoming the set code (the Evil's Thrall 'nem' bug).
 const SET_LINE_HINT = new RegExp(
-  `\\b[a-z0-9]{3,5}\\s*[^a-z0-9\\s]\\s*(${LANG_SUFFIXES.join('|')})\\b`
+  `\\b[a-z0-9]{3,5}\\s*[^a-z0-9\\s]{1,3}\\s*(${LANG_SUFFIXES.join('|')})\\b`
   + `|\\b[a-z0-9]{3,5}\\s+(${LANG_SUFFIXES.join('|')})\\b`, 'i');
 
 // A collector number token. Deliberately narrow:
