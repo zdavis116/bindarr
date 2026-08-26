@@ -646,8 +646,36 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   // legibility, so the strip is only consulted when it can actually change the
   // outcome. Multi-printing cards are untouched — they still require the number
   // and still queue without it, so no printing is ever silently guessed.
-  if (all.length === 1) {
+  //
+  // BUT UNIQUENESS IS NOT IDENTIFICATION. Zach: "check the namor card because it
+  // should be namor the sub-mariner".
+  //
+  // He scanned Namor the Sub-Mariner (msh #69). The artwork matched "Namor,
+  // Scourge of the Seas" at 16 INLIERS -- noise, not recognition -- and the
+  // strip read nothing. That name has exactly ONE printing (msc #631), so this
+  // branch fired and added it with no confidence check whatsoever.
+  //
+  // The reasoning above is sound but assumed the NAME was right. It answers
+  // "which printing of this card?", and a unique name makes that question
+  // trivially answerable -- while saying nothing about whether the matcher
+  // identified the card at all. A noise-level guess that happens to name a
+  // one-printing card was the single most direct route into the collection.
+  //
+  // So uniqueness still short-circuits the printing question, but only once the
+  // art match is trustworthy. A weak match with no number to corroborate it is
+  // not an identification, and it queues -- which is what the queue is for.
+  if (all.length === 1 && !artIsNoise) {
     return { action: 'add', printing: all[0], ocr, titleName, usedName };
+  }
+  if (all.length === 1 && artIsNoise) {
+    return {
+      action: 'queue',
+      reason: 'unreadable',
+      candidates: await sortOwnedFirst(all, userId),
+      ocr,
+      titleName,
+      usedName,
+    };
   }
 
   // THE ARTWORK NAMED A SPECIFIC PRINTING — the alt-art case.

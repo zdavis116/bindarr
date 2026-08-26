@@ -44,6 +44,12 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
   await seed();
   const { resolveScannedPrinting } = require('../src/utils/scanPrintingResolver');
   const OCR = "L 0128\nMSH * EN % ARTIST\n";
+  // A card whose name has exactly ONE printing, for the uniqueness branch.
+  await db.run(
+    `INSERT OR REPLACE INTO card_cache
+       (id, oracle_id, name, oracle_name, set_id, number, set_name, image_url, last_updated)
+     VALUES ('namor-msc', 'o-namor-msc', 'Namor, Scourge of the Seas',
+             'Namor, Scourge of the Seas', 'msc', '631', 'MSC', '', datetime('now'))`);
   const userId = 1;
 
   // 1. THE FOIL CASE. Art guessed 'Hindering Light' at 9 inliers; the strip says
@@ -91,6 +97,41 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
     assert.notStrictEqual(r.resolvedBy, 'ocr-over-weak-art',
       'a number matching no real printing must not resolve');
     pass('FWEAK-TC4', 'a collector number matching nothing real never adds a card');
+  }
+
+  // 5. UNIQUENESS IS NOT IDENTIFICATION.
+  //
+  //    Zach: "check the namor card because it should be namor the sub-mariner".
+  //    He scanned Namor the Sub-Mariner (msh #69). The art matched 'Namor,
+  //    Scourge of the Seas' at 16 inliers -- noise -- and the strip read no
+  //    number. That name has exactly ONE printing, so the "unique name means no
+  //    printing ambiguity" short-circuit added it with NO confidence check.
+  //
+  //    That branch answers "which printing of this card", not "is this the
+  //    card".
+  {
+    const r = await resolveScannedPrinting({
+      matchedName: 'Namor, Scourge of the Seas',
+      titleText: '', ocrText: '', userId, matchInliers: 16,
+    });
+    assert.strictEqual(r.action, 'queue',
+      `a 16-inlier guess must not add a card, got ${r.action} `
+      + `(${r.printing && r.printing.name})`);
+    pass('FWEAK-TC5', 'a weak art match with a unique name queues instead of adding');
+  }
+
+  // 6. THE SHORT-CIRCUIT STILL WORKS WHEN THE MATCH IS REAL.
+  //
+  //    It exists for the session where confident CORRECT matches were queued
+  //    because the 6pt collector number would not read. That must survive.
+  {
+    const r = await resolveScannedPrinting({
+      matchedName: 'Namor, Scourge of the Seas',
+      titleText: '', ocrText: '', userId, matchInliers: 120,
+    });
+    assert.strictEqual(r.action, 'add',
+      `a strong match on a one-printing card must still add, got ${r.action}`);
+    pass('FWEAK-TC6', 'a strong art match with a unique name still adds');
   }
 
   console.log(`\nweak-match-ocr.test.js: ${passed} cases passed`);

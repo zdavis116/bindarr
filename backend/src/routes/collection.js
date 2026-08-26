@@ -251,10 +251,27 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         try {
           const dir = process.env.SCAN_DUMP_DIR;
           await fsp.mkdir(dir, { recursive: true });
-          const files = await fsp.readdir(dir).catch(() => []);
-          // Bounded: this is a debugging aid on a 25GB dev box, not a log.
-          if (files.filter(f => f.endsWith('.jpg')).length < 40) {
-            await fsp.writeFile(path.join(dir, `scan-${Date.now()}.jpg`), buf);
+          // KEEP THE NEWEST, NOT THE OLDEST.
+          //
+          // This used to STOP WRITING once 40 files existed, so the dump froze
+          // on the first 40 scans ever taken and every later session wrote
+          // nothing. Twice now Zach has reported a specific bad card and the
+          // capture simply was not there -- once I compared unrelated photos
+          // because of it, and once (Turtle-Duck) I could not investigate at
+          // all and had to ask him to rescan.
+          //
+          // A debugging aid that silently keeps the LEAST relevant data is
+          // worse than none: it looks like it is working.
+          //
+          // Now it always writes and evicts the oldest, so the dump is a
+          // rolling window over the MOST RECENT scans -- which is the only part
+          // anyone ever wants. Still bounded, still a debugging aid.
+          await fsp.writeFile(path.join(dir, `scan-${Date.now()}.jpg`), buf);
+          const files = (await fsp.readdir(dir).catch(() => []))
+            .filter(f => f.endsWith('.jpg'))
+            .sort();
+          for (const stale of files.slice(0, Math.max(0, files.length - 40))) {
+            await fsp.unlink(path.join(dir, stale)).catch(() => {});
           }
         } catch { /* diagnostics must never affect a scan */ }
       })();
