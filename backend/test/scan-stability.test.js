@@ -385,4 +385,38 @@ const CARD = { x: 40, y: 60, w: 120, h: 168 };
   pass('FSTAB-TC17', 'the preview is stricter than the server about what counts as a card');
 }
 
+// 18. AN OFF-FRAME BOX MUST BE REFUSED, NOT CLAMPED INTO A SLIVER.
+//
+//     Zach: "those crops were outside the card I could see it when I was
+//     scanning it got stuck like that for a bit too."
+//
+//     The preview CLAMPED the predicted box to the frame. A box mostly
+//     off-screen became a thin sliver against the edge, which looked like a
+//     perfectly valid detection -- and, being consistent frame after frame, the
+//     stability gate counted it as STABLE and fired the shutter repeatedly.
+//     Hence the near-empty thumbnails and the "stuck" behaviour.
+//
+//     The SERVER detector already refuses this ('quad outside frame'); the
+//     preview inherited the geometry but not the guard.
+//
+//     MEASURED on 98 corpus detections: visible-after-clamp min 0.759, and
+//     frame coverage up to 1.29 (a card held close legitimately overflows the
+//     frame). My first AREA_MAX of 0.98 would have rejected 8 REAL detections.
+{
+  const det = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'utils', 'onDeviceCardDetect.js'), 'utf8');
+  const m = det.match(/const VISIBLE_MIN = ([0-9.]+);/);
+  assert.ok(m, 'a visible-after-clamp floor must exist');
+  const v = parseFloat(m[1]);
+  assert.ok(v > 0 && v <= 0.75,
+    `VISIBLE_MIN (${v}) must reject mostly-off-frame boxes while staying below `
+    + 'the measured real minimum of 0.759');
+  assert.ok(/if \(\(\(x1 - x0\) \* \(y1 - y0\)\) \/ rawArea < VISIBLE_MIN\) return null;/.test(det),
+    'the clamped box must be compared against the RAW predicted box');
+  assert.ok(!/const AREA_MAX =/.test(det),
+    'there must be no upper area bound — real cards held close cover >100% of '
+    + 'the frame, and 8 corpus detections did exactly that');
+  pass('FSTAB-TC18', 'a mostly-off-frame detection is refused instead of clamped');
+}
+
 console.log(`\nscan-stability.test.js: ${passed} cases passed`);

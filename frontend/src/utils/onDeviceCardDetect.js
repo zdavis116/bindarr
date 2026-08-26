@@ -74,6 +74,30 @@ const NET = 416;
 // server then refuses.
 const CONF_MIN = 0.60;
 
+// How much of the model's predicted box must remain after clamping to the
+// frame. Below this the prediction was mostly off-screen, and what is left is a
+// sliver of the mat rather than a card.
+const VISIBLE_MIN = 0.55;
+
+// A detection must plausibly BE a card-sized region of the frame.
+//
+// MEASURED on 98 detections from Zach's corpus, as a fraction of frame area:
+//
+//     min 0.530   p05 0.627   p50 0.686   p95 1.089   max 1.290
+//
+// Note the values ABOVE 1.0: a card held close legitimately extends past the
+// frame edge, so the predicted box is larger than the frame itself. My first
+// AREA_MAX of 0.98 would have rejected 8 REAL detections -- the check caught my
+// own guard being wrong, which is exactly why it was written before shipping.
+//
+// So there is no upper bound on the CLAMPED area at all: the VISIBLE_MIN test
+// above already handles a box that is mostly off-screen, and it does so without
+// assuming anything about how close he holds the card.
+//
+// The lower bound stays well under the observed minimum of 0.530. A sliver is
+// never a card, and nothing real in the corpus comes close to 0.12.
+const AREA_MIN = 0.12;
+
 export function detectorBackend() { return backendName; }
 export function detectorReady() { return !!session; }
 
@@ -203,9 +227,43 @@ export async function detectCardOnDevice(rgba, w, h) {
       xs.push((d.cx + dx * ca - dy * sa - padX) / scale);
       ys.push((d.cy + dx * sa + dy * ca - padY) / scale);
     }
-    const x0 = Math.max(0, Math.min(...xs)), x1 = Math.min(w, Math.max(...xs));
-    const y0 = Math.max(0, Math.min(...ys)), y1 = Math.min(h, Math.max(...ys));
+    // REFUSE A BOX THAT IS MOSTLY OUTSIDE THE FRAME, rather than clamping it.
+    //
+    // Zach: "those crops were outside the card I could see it when I was
+    // scanning it got stuck like that for a bit too."
+    //
+    // Several of his queue rows carried near-empty thumbnails (2.6KB against a
+    // normal 15KB) -- pictures of the mat, not of a card.
+    //
+    // The raw box was CLAMPED to the frame here. When the model regresses a box
+    // that is largely off-screen, clamping does not discard it: it squashes it
+    // into a thin sliver against the edge, which then looks like a perfectly
+    // valid detection to everything downstream. The stability gate sees a box
+    // that agrees with itself frame after frame -- so it counts as STABLE, fires
+    // the shutter, and keeps firing. That is the "got stuck like that" he saw.
+    //
+    // The server-side detector already refuses this exact case
+    // (cardDetector.js: 'quad outside frame, deferring to classical'). The
+    // preview inherited the geometry but not the guard, which is the same class
+    // of mistake as inheriting the server's 0.25 confidence floor.
+    //
+    // Measured on his corpus: real detections cover 40-75% of the frame. A card
+    // genuinely leaving the frame is transient -- refusing it costs one tick and
+    // the next frame recovers. Accepting it costs a scan of the mat.
+    const rawX0 = Math.min(...xs), rawX1 = Math.max(...xs);
+    const rawY0 = Math.min(...ys), rawY1 = Math.max(...ys);
+    const x0 = Math.max(0, rawX0), x1 = Math.min(w, rawX1);
+    const y0 = Math.max(0, rawY0), y1 = Math.min(h, rawY1);
     if (x1 <= x0 || y1 <= y0) return null;
+
+    // How much of the predicted box actually survived the clamp. A real card
+    // near an edge keeps most of itself; a hallucinated box does not.
+    const rawArea = Math.max(1, (rawX1 - rawX0) * (rawY1 - rawY0));
+    if (((x1 - x0) * (y1 - y0)) / rawArea < VISIBLE_MIN) return null;
+
+    // And a sliver is never a card, however confident the model is about it.
+    const frac = ((x1 - x0) * (y1 - y0)) / (w * h);
+    if (frac < AREA_MIN) return null;
 
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, confidence: d.score };
   } catch (e) {
