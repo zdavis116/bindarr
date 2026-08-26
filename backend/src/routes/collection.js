@@ -1127,6 +1127,30 @@ async function stageScannedCard({ userId, body = {}, cardId, quantity, crop, mat
     [userId, cardId, quantity, finish, condition, locationId, flag,
      Number.isFinite(matchInliers) ? matchInliers : null,
      typeof crop === 'string' ? crop.slice(0, 200000) : null]);
+
+  // LABEL THE SUCCESSES TOO, not only the failures.
+  //
+  // Only queue-resolve was labelling, which meant the corpus could only ever
+  // learn from scans that went WRONG. Zach's session staged 42 cards and queued
+  // 15: labelling just the queue throws away three quarters of the evidence,
+  // and the staged ones are the POSITIVE controls -- they are how a tuning run
+  // proves a change did not break what already worked.
+  //
+  // A staged row is a card he accepted, so it is ground truth of the same kind
+  // as a queue resolution, just with the scanner having been right.
+  //
+  // Diagnostics only: labelCapture swallows its own failures and returns
+  // immediately when no dump is configured.
+  const truth = await db.get(
+    `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [cardId]);
+  await labelCapture(lastDumpName, {
+    source: 'scan-stage',
+    truth: truth || { card_id: cardId },
+    scanner_said: { matched_name: truth?.name || null },
+    match_inliers: Number.isFinite(matchInliers) ? matchInliers : null,
+    flag,
+  });
+
   return { id: ins.lastID, flag };
 }
 

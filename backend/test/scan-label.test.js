@@ -34,8 +34,14 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
   assert.ok(/labelCapture\(entry\.dump_file \|\| null,/.test(src),
     'labelCapture must use the row\'s own dump_file — using lastDumpName here '
     + 'would put every label from a session onto the last image scanned');
-  assert.ok(!/labelCapture\(lastDumpName/.test(src),
-    'no path may label using the module-level most-recent name');
+  // The QUEUE path must not use lastDumpName: a queue row is resolved long
+  // after its scan, so the "most recent" capture is some other card entirely.
+  // The STAGING path is different -- it labels during the scan itself, when
+  // lastDumpName IS this card's capture, and no dump_file exists to use.
+  const queueBlock = src.slice(src.indexOf("source: 'queue-resolve'") - 600,
+                               src.indexOf("source: 'queue-resolve'"));
+  assert.ok(!/labelCapture\(lastDumpName/.test(queueBlock),
+    'the queue path must not label using the module-level most-recent name');
   pass('FLBL-TC2', 'a resolved card labels its OWN capture, not the newest one');
 
   // 3. The name must be assigned synchronously, before the async write.
@@ -58,6 +64,23 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
     'labelCapture must swallow its own failures — a diagnostics write must '
     + 'never fail a scan');
   pass('FLBL-TC5', 'a labelling failure cannot affect a scan');
+
+  // 6. BOTH OUTCOMES MUST LABEL, not just the failures.
+  //
+  //    Zach's session staged 42 cards and queued 15. Labelling only the queue
+  //    throws away three quarters of the evidence -- and the staged ones are
+  //    the POSITIVE controls, which are how a tuning run proves a change did
+  //    not break what already worked.
+  //
+  //    This is the third time in this project a fix has landed in one path and
+  //    not its twin (three copies of the strip lookup; the migration without
+  //    the CREATE TABLE). Pinning both call sites rather than trusting myself.
+  assert.ok(/source: 'queue-resolve'/.test(src),
+    'resolving a queued card must label its capture');
+  assert.ok(/source: 'scan-stage'/.test(src),
+    'staging a card must ALSO label its capture — a corpus of only failures '
+    + 'cannot show that a change preserved the successes');
+  pass('FLBL-TC6', 'both staged and queue-resolved scans write a label');
 
   console.log(`\nscan-label.test.js: ${passed} cases passed`);
 })().catch((e) => { console.error('FAIL: FLBL', e.message); process.exit(1); });
