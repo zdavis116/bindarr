@@ -239,10 +239,53 @@ function parseCollectorStrip(raw) {
   // off than before.
   if (numberTokens.length) {
     const setLine = lines.findIndex(l => SET_LINE_HINT.test(l));
-    const chosen = setLine > 0
-      ? numberTokens.find(t => t.li === setLine - 1)
-      : null;
-    number = (chosen || numberTokens[0]).head;
+    if (setLine >= 0) {
+      // WHEN A SET LINE EXISTS, THE NUMBER IS THE ONE ABOVE IT -- OR NOTHING.
+      //
+      // Zach: "one had the wrong set number turtle duck". The strip read:
+      //
+      //     line 0  'Ww WE V WV'            noise
+      //     line 1  'TLA * EN % SYLVAIN'    the real set line
+      //     line 2  '"MSH XEN 8 RAFATE'     a SECOND set line, bleeding
+      //                                     through from the card below
+      //
+      // The Turtle-Duck's own number was not legible at all. The old code found
+      // nothing above the set line and fell back to "the first number-shaped
+      // token anywhere" -- which was the '8' sitting in the NEIGHBOURING card's
+      // set line. tla #8 is a real card, so it resolved confidently to the
+      // wrong printing.
+      //
+      // That fallback made sense before the strip window was widened; now the
+      // window routinely contains a second card's text, so "anywhere on the
+      // strip" is no longer a safe place to look.
+      //
+      // If the number above the set line is not readable, we did not read this
+      // card's number. Report nothing and let it queue. A queue entry costs a
+      // tap; a confidently wrong printing costs a recount against physical
+      // cardboard.
+      // SOME PRINTINGS PUT THE NUMBER AND SET ON ONE LINE.
+      //
+      // '1508 SLD * EN ANDREA RADECK' is a real strip (Secret Lair). So the
+      // card's own number is the one ABOVE the set line, or one ON it -- but
+      // ONLY a token that appears BEFORE the set code, which is how the layout
+      // reads. The '8' in the Turtle-Duck's neighbouring line came AFTER its
+      // set code ('MSH XEN 8 RAFATE'), so this stays excluded.
+      const above = numberTokens.find(t => t.li === setLine - 1);
+      let onLine = null;
+      if (!above) {
+        const m = SET_LINE_HINT.exec(lines[setLine]);
+        const setAt = m ? m.index : -1;
+        onLine = numberTokens.find(t => t.li === setLine
+          && setAt > 0
+          && lines[setLine].indexOf(t.head) >= 0
+          && lines[setLine].indexOf(t.head) < setAt);
+      }
+      number = (above || onLine) ? (above || onLine).head : null;
+    } else {
+      // NO SET LINE AT ALL: keep the original behaviour exactly. A strip with
+      // no legible set code is no worse off than before this rule existed.
+      number = numberTokens[0].head;
+    }
   }
 
   // Set code resolution is done as a second pass over the LAST lines, because

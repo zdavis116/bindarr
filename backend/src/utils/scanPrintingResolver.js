@@ -59,7 +59,37 @@ const FRAME_REDESIGN_YEAR = 2015;
 // real match "weak" is only that the printed number gets consulted too, which is
 // harmless when they agree. The cost of calling noise "strong" is a wrong card
 // entering the collection silently, which is the failure Bindarr must not have.
-const WEAK_MATCH_INLIERS = 25;
+// RAISED 25 -> 32, ON A MUCH LARGER SAMPLE.
+//
+// Zach: "set number and code where exactly right but name is wrong the 2nd one
+// shouldn't happen." He is right that it should not.
+//
+// Super-Soldier Serum. The strip read PERFECTLY -- 'R 0038 / MSH AEN > RAFATES'
+// -> msh #38, confident -- and msh #38 IS Super-Soldier Serum. But the artwork
+// matched 'Marked by Honor' at 27 inliers. 27 > 25, so the art counted as a
+// TRUSTED identification, the printed address was not allowed to overrule it,
+// and a card that had stated exactly what it was went to the review queue.
+//
+// 25 came from an early sample (correct 65-141, wrong 8-23). Across every
+// session since, the observations are:
+//
+//     WRONG art matches (16 observed):   4 .. 30
+//     RIGHT art matches (39 observed):  35 .. 162
+//
+// A clean gap between 30 and 35, with nothing inside it. 32 sits in the middle
+// of that gap rather than at either edge, so a slightly noisier scan does not
+// tip a wrong match into being trusted.
+//
+// THE ASYMMETRY THAT SETS THE DIRECTION, unchanged: calling a RIGHT match
+// "weak" is harmless -- it only matters when the print disagrees, and then the
+// print is the card's own catalogue address, which is better evidence than an
+// art similarity score. Calling a WRONG match "trusted" is the failure Bindarr
+// must not have: a wrong card entering the collection silently, or as here, a
+// correctly-identified card being queued for no reason.
+//
+// So the threshold is tuned to sit ABOVE every wrong match observed, and being
+// somewhat above some right ones too is an acceptable price.
+const WEAK_MATCH_INLIERS = 32;
 
 // Resolve a collector strip to exactly one real printing, or null.
 //

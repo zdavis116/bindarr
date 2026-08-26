@@ -372,5 +372,35 @@ check('F8P-TC27', 'setLineCandidates is a subset of setCandidates', () => {
   }
 });
 
+
+check('F8P-TC28', "a neighbouring card's set line must not donate a number", () => {
+  // Zach: "one had the wrong set number turtle duck".
+  //
+  //     line 0  'Ww WE V WV'            noise
+  //     line 1  'TLA * EN % SYLVAIN'    the real set line
+  //     line 2  '"MSH XEN 8 RAFATE'     a SECOND set line, bleeding through
+  //                                     from the card below in the stack
+  //
+  // The Turtle-Duck's own number was not legible. The parser found nothing
+  // above the set line and fell back to "the first number-shaped token
+  // anywhere", which was the '8' inside the NEIGHBOURING card's set line.
+  // tla #8 is a real card, so it resolved confidently to the wrong printing.
+  //
+  // When a set line exists, this card's number is the one above it -- or we did
+  // not read it. Reporting nothing queues; reporting a neighbour's digits puts
+  // the wrong card in his collection.
+  const p = parseCollectorStrip('Ww WE V WV\nTLA \u00ab EN % SYLVAIN\n\u201cMSH XEN 8 RAFATE\n');
+  assert.strictEqual(p.number, null,
+    `expected no number when this card's own line is illegible, got ${p.number}`);
+  assert.ok(p.setCandidates.includes('tla'), 'the set code is still read normally');
+});
+
+check('F8P-TC29', 'the number above the set line is still preferred over noise above it', () => {
+  // The guard must not have broken the case it was built for: junk on line 0,
+  // the real number on line 1, the set line on line 2.
+  const p = parseCollectorStrip('| iil 63\nrR 0038\nMSH *EN be RAFAT\n');
+  assert.strictEqual(p.number, '38');
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);
