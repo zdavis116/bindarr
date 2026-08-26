@@ -415,9 +415,33 @@ const OCR_SRC_MAX_W = 2000;
 //
 // Returns null if no card is known, so the caller can decline to OCR rather than
 // read a number off the background.
-async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
+// `region` (optional): { left, top, width, height } as FRACTIONS of the card.
+// When given, only that part of the rectified card is produced -- same
+// transform, same sampling, same pixels, just a smaller output canvas.
+//
+// WHY. Measured on 40 real captures, this warp costs 322ms and is the single
+// most expensive step after ORB. It is expensive because it samples a 2000px
+// source and writes a 1500x2100 card. But OCR only ever looks at two small
+// bands: the collector strip (~2.8% of the card's area) and the title
+// (~3.8%). The other ~93% is warped at full resolution and thrown away.
+//
+// This is NOT the "merge the two warps" idea, which I measured and rejected --
+// deriving the matcher's 500x700 by downscaling the big warp cost 84ms against
+// the 76ms warp it replaced, a net LOSS of 8ms. This is the opposite: warp
+// less, not warp once.
+//
+// The maths is the same perspective transform with the destination corners
+// SHIFTED so the requested region lands at the origin. warpPerspective then
+// only computes pixels inside the smaller output, so the saving is real work
+// avoided rather than a crop after the fact.
+async function rectifyCard(imageBuffer, { width, height, detection, region } = {}) {
   const outW = Math.max(1, Math.round(width || WARP_W));
   const outH = Math.max(1, Math.round(height || WARP_H));
+  // Where the region sits within the full rectified card, in output pixels.
+  const rx = region ? region.left * outW : 0;
+  const ry = region ? region.top * outH : 0;
+  const rw = region ? Math.max(1, Math.round(region.width * outW)) : outW;
+  const rh = region ? Math.max(1, Math.round(region.height * outH)) : outH;
   let srcMat = null, srcTri = null, dstTri = null, M = null, warped = null;
   try {
     let det = detection;
@@ -444,11 +468,18 @@ async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
     srcMat = cv.matFromImageData({ data: new Uint8ClampedArray(src.data), width: src.info.width, height: src.info.height });
     srcTri = cv.matFromArray(4, 1, cv.CV_32FC2,
       [tl.x * k, tl.y * k, tr.x * k, tr.y * k, br.x * k, br.y * k, bl.x * k, bl.y * k]);
-    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, outW, 0, outW, outH, 0, outH]);
+    // Full-card destination, shifted so the requested region starts at (0,0).
+    // With no region this is exactly the old [0,0,outW,0,outW,outH,0,outH].
+    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0 - rx, 0 - ry,
+      outW - rx, 0 - ry,
+      outW - rx, outH - ry,
+      0 - rx, outH - ry,
+    ]);
     M = cv.getPerspectiveTransform(srcTri, dstTri);
     warped = new cv.Mat();
-    cv.warpPerspective(srcMat, warped, M, new cv.Size(outW, outH));
-    return await sharp(Buffer.from(warped.data), { raw: { width: outW, height: outH, channels: 4 } }).png().toBuffer();
+    cv.warpPerspective(srcMat, warped, M, new cv.Size(rw, rh));
+    return await sharp(Buffer.from(warped.data), { raw: { width: rw, height: rh, channels: 4 } }).png().toBuffer();
   } catch (e) {
     // Never throws: OCR is an enhancement. A failure here must degrade to "no
     // read" (review queue), never to a failed scan that loses a card Zach

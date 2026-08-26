@@ -328,10 +328,20 @@ async function cropCollectorStrip(imageBuffer) {
   const left = Math.min(Math.round(STRIP.left * w), w - 1);
   const height = Math.max(1, Math.min(Math.round(STRIP.height * h), h - top));
   const width = Math.max(1, Math.min(Math.round(STRIP.width * w), w - left));
-  return sharp(rect)
-    .extract({ left, top, width, height })
-    // Small white-on-black text; contrast normalisation measurably helps.
-    .greyscale().normalise().sharpen().png().toBuffer();
+  return preprocessStrip(await sharp(rect).extract({ left, top, width, height }).png().toBuffer());
+}
+
+// The preprocessing OCR needs, independent of how the band was obtained.
+//
+// Extracted so the region-warp path (which receives the band already isolated)
+// and the full-card path (which must crop first) run the IDENTICAL pipeline.
+// Two copies of this would drift, and a drift here changes what OCR reads --
+// which is exactly the class of bug that has cost the most time on this
+// project.
+//
+// Small white-on-black text; contrast normalisation measurably helps.
+function preprocessStrip(bandBuffer) {
+  return sharp(bandBuffer).greyscale().normalise().sharpen().png().toBuffer();
 }
 
 // Read the strip. Returns raw OCR text, or '' if OCR is unavailable.
@@ -340,9 +350,17 @@ async function cropCollectorStrip(imageBuffer) {
 // should go to the review queue for Zach to resolve, exactly as an unreadable
 // number does. Propagating the error would fail the whole scan and lose a card
 // he physically scanned, which is a strictly worse outcome than asking him.
-async function readCollectorStrip(imageBuffer) {
+// `preCropped`: the caller already warped ONLY this band (see the region warp
+// in rectifyCard), so the strip geometry must not be applied a second time.
+// Cropping a crop would take 10% of an image that is already the 10%.
+//
+// The preprocessing below still runs -- it is what OCR actually needs, and it
+// is cheap on a small band.
+async function readCollectorStrip(imageBuffer, { preCropped = false } = {}) {
   try {
-    const crop = await cropCollectorStrip(imageBuffer);
+    const crop = preCropped
+      ? await preprocessStrip(imageBuffer)
+      : await cropCollectorStrip(imageBuffer);
     const worker = await getWorker();
     const { data } = await worker.recognize(crop);
     return data?.text || '';

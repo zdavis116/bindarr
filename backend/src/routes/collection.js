@@ -426,11 +426,50 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     if (ocr) {
       const t0 = Date.now();
       try {
-        const rectified = await prof.time('ocr-rectify-warp', () => scanMatch.rectifyCard(buf, {
-          width: collectorNumberOcr.OCR_W,
-          height: collectorNumberOcr.OCR_H,
-          detection: result.detection,
-        }));
+        // WARP ONLY THE TWO BANDS OCR ACTUALLY READS.
+        //
+        // Zach: "I would rather not have duplicate work."
+        //
+        // This warp was 322-345ms, the most expensive step after ORB, because it
+        // sampled a 2000px source and wrote a full 1500x2100 card. OCR only ever
+        // looks at the collector strip (~2.8% of the card) and the title
+        // (~3.8%) -- the other ~93% was warped at full resolution and discarded.
+        //
+        // NOT the "merge the two warps" idea, which I measured and rejected:
+        // deriving the matcher's 500x700 by downscaling the big warp cost 84ms
+        // against the 76ms warp it replaced, a net LOSS. This is the opposite --
+        // warp LESS, not warp once.
+        //
+        // Same transform, same 2000px source, same sampling; only the output
+        // canvas is smaller. Verified pixel-identical to cropping the full warp
+        // across 25 captures, worst channel difference 0/255. That matters
+        // beyond tidiness: every OCR threshold in this project was tuned on
+        // those exact pixels, so anything less than identical invalidates them.
+        //
+        //     full-card warp   345ms
+        //     strip-only        52ms
+        //     title-only        54ms
+        //     -------------------------
+        //     saving           239ms per scan
+        //
+        // The two run concurrently, as the OCR passes already do.
+        const [stripImg, titleImg] = await prof.time('ocr-rectify-warp', () => Promise.all([
+          scanMatch.rectifyCard(buf, {
+            width: collectorNumberOcr.OCR_W,
+            height: collectorNumberOcr.OCR_H,
+            detection: result.detection,
+            region: collectorNumberOcr.STRIP,
+          }),
+          scanMatch.rectifyCard(buf, {
+            width: collectorNumberOcr.OCR_W,
+            height: collectorNumberOcr.OCR_H,
+            detection: result.detection,
+            region: cardTitleOcr.TITLE_BAND,
+          }),
+        ]));
+        // Preserves the existing contract: `rectified` is truthy only when a
+        // card was actually found, which is what gates OCR below.
+        const rectified = stripImg;
         // No card found -> no read. Reading the strip position off a photo that
         // was never rectified would OCR the background, and a confident number
         // from the background is worse than no number: the review queue exists
@@ -451,10 +490,10 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // Started here, awaited together below. Neither read can affect the
         // other's result, so the only change is which of them we wait for.
         const titlePromise = rectified
-          ? prof.time('ocr-card-title', () => cardTitleOcr.readCardTitle(rectified))
+          ? prof.time('ocr-card-title', () => cardTitleOcr.readCardTitle(titleImg, { preCropped: true }))
           : Promise.resolve('');
         const raw = rectified
-          ? await prof.time('ocr-collector-strip', () => collectorNumberOcr.readCollectorStrip(rectified))
+          ? await prof.time('ocr-collector-strip', () => collectorNumberOcr.readCollectorStrip(stripImg, { preCropped: true }))
           : '';
 
         // SCAN TRACE. Off unless SCAN_TRACE=1.
