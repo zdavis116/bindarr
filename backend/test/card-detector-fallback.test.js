@@ -68,6 +68,55 @@ const path = require('path');
   assert.strictEqual(await det.detect(null, 0, 0), null, 'null input must return null');
 
   delete process.env.CARD_DETECTOR_MODEL;
-  console.log('card detector fallback: PASS (missing, corrupt, null, and the '
+  
+// --- THE ORB EARLY EXIT MUST NOT CHANGE ANSWERS -----------------------------
+//
+// Zach: "I would like to work on speed next." orb-verify was 38% of a 3112ms
+// scan, verifying all ~50 recalled candidates even after finding a 141-inlier
+// match at rank 2.
+//
+// The break that fixes it is only acceptable because it changes NOTHING about
+// what the scanner decides. Measured over 160 corpus captures: 991ms/scan ->
+// 852ms/scan, with 0 of 160 identifications changed.
+//
+// THE FIRST VERSION FAILED THAT CHECK -- 7 of 160 answers changed, every one a
+// basic land swapping printings (Forest/eld#266 vs Forest/soi#297). Dozens of
+// Forest printings score 80+ inliers against one photo, so "no later candidate
+// can beat this" is false for them: the first 80+ match is merely the earliest.
+//
+// These assertions pin the shape of the guard, so it cannot be loosened later
+// without someone reading why it is shaped this way.
+{
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'scanMatch.js'), 'utf8');
+
+  const m = src.match(/const CERTAIN_INLIERS = (\d+);/);
+  assert.ok(m, 'the early-exit threshold must exist and be named');
+  const certain = Number(m[1]);
+
+  // Measured across this project: WRONG matches top out at 30 inliers, RIGHT
+  // ones run 35-162. The exit bar must sit far above the wrong band, not just
+  // above the "confident" bar used for skipping the other game.
+  assert.ok(certain >= 60,
+    `CERTAIN_INLIERS (${certain}) must sit well above the highest observed `
+    + 'WRONG match (30), or the scanner could stop early on a bad match');
+  const strong = Number((src.match(/const STRONG_INLIERS = (\d+);/) || [])[1]);
+  assert.ok(certain > strong,
+    `CERTAIN_INLIERS (${certain}) must exceed STRONG_INLIERS (${strong}) — they `
+    + 'answer different questions and must not collapse into one');
+
+  // The basic-land exclusion is the whole reason this is safe.
+  assert.ok(/const BASIC_LAND_NAMES = new Set\(/.test(src),
+    'basic lands must be excluded from the early exit');
+  assert.ok(/inliers >= CERTAIN_INLIERS && !BASIC_LAND_NAMES\.has\(/.test(src),
+    'the early exit must skip basic lands — dozens of their printings score 80+ '
+    + 'against one photo, so the first strong match is not the best one');
+  for (const land of ['plains', 'island', 'swamp', 'mountain', 'forest']) {
+    assert.ok(new RegExp(`'${land}'`).test(src), `${land} must be excluded`);
+  }
+  console.log('PASS: FCD-TC10 - the ORB early exit is bounded and excludes basic lands');
+}
+
+console.log('card detector fallback: PASS (missing, corrupt, null, and the '
     + 'scan path still detects with no model)');
 })().catch((e) => { console.error('FAIL', e.message); process.exit(1); });

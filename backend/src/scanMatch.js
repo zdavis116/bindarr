@@ -545,7 +545,22 @@ function inlierCount(bf, qDesc, qKp, cand) {
   return inl;
 }
 
-const STRONG_INLIERS = 25; // enough to stop trying the other game
+const STRONG_INLIERS = 25;
+
+// Beyond argument: stop verifying further candidates entirely. See the break in
+// verifyGame. Deliberately far above STRONG_INLIERS, which answers a different
+// and much weaker question ("should we bother checking the other game").
+const CERTAIN_INLIERS = 80;
+
+// Cards whose printings are visually near-identical, so a strong ORB match does
+// NOT imply the best ORB match. See the break in verifyGame: these are excluded
+// from the early exit because dozens of their printings score 80+ against the
+// same photo.
+const BASIC_LAND_NAMES = new Set([
+  'plains', 'island', 'swamp', 'mountain', 'forest', 'wastes',
+  'snow-covered plains', 'snow-covered island', 'snow-covered swamp',
+  'snow-covered mountain', 'snow-covered forest',
+]);
 
 // Score one game: CLIP recall + ORB verify against the shared query features.
 function verifyGame(cardBuf, game, q, bf, recall, topK) {
@@ -568,6 +583,56 @@ function verifyGame(cardBuf, game, q, bf, recall, topK) {
       }
     }
     scored.push({ name: cand.name, set: cand.set, number: cand.number, score: cand.score, inliers });
+
+    // STOP ONCE A MATCH IS BEYOND ARGUMENT.
+    //
+    // Zach: "I would like to work on speed next." Measured over 38 real scans,
+    // orb-verify is 1195ms of a 3112ms scan -- 38%, the largest single cost. It
+    // verified all ~50 recalled candidates every time, even after finding a
+    // 141-inlier match at rank 2.
+    //
+    // The obvious lever, cutting recallK, is NOT safe: measured on the corpus,
+    // the correct card is present in 71.7% of scans at K=50 but only 65.2% at
+    // K=25. Its rank is p50 2 but p90 25 -- usually near the top, sometimes
+    // deep. Trading six points of recall for speed is the wrong trade for an
+    // app that must not misidentify a physical card.
+    //
+    // This is the safe version of the same idea: keep looking at all 50
+    // candidates, but stop EARLY when the current best is so strong that no
+    // later candidate could displace it.
+    //
+    // WHY THIS THRESHOLD. Measured inlier separation across every scan in this
+    // project: WRONG matches top out at 30, RIGHT matches run 35-162. Genuine
+    // winners on Zach's cards sit at 65-167. CERTAIN_INLIERS is set at 80 --
+    // more than twice the highest wrong match ever observed, and comfortably
+    // above STRONG_INLIERS (25), which only means "confident enough to skip the
+    // OTHER GAME".
+    //
+    // The cost of being wrong here is bounded and small: the only thing skipped
+    // is the chance that a LATER candidate scores even higher. Both would be
+    // the same card in practice, since two different cards do not both produce
+    // 80+ geometric inliers against one photo. And a lower-ranked candidate
+    // beating an 80+ match has never been observed in the corpus.
+    //
+    // MEASURED AND REJECTED AT 80, THEN RESTRICTED. Running the corpus with and
+    // without this break changed 7 identifications in 160 -- and EVERY ONE was a
+    // basic land (Forest), swapping one printing for another:
+    //
+    //     withExit Forest/eld#266 (86)   vs   full Forest/soi#297 (91)
+    //     withExit Forest/akh#268 (80)   vs   full Forest/hou#199 (113)
+    //
+    // Basic lands break the assumption the threshold rests on. Every Forest
+    // shares a frame, a mana symbol and a similar landscape, so DOZENS of
+    // different printings all score 80-120 inliers against one photo. "No later
+    // candidate could beat this" is simply false for them: the first 80+ match
+    // is not the best 80+ match, just the earliest.
+    //
+    // For a basic land that is nearly harmless -- Zach picks the printing
+    // anyway, and the art matcher was never going to separate them. But the
+    // check is absolute: an optimisation that changes ANY answer does not ship
+    // as-is. So the break only fires when the card ALSO has a distinguishing
+    // name, which is exactly the case where a strong ORB match is decisive.
+    if (inliers >= CERTAIN_INLIERS && !BASIC_LAND_NAMES.has((cand.name || '').toLowerCase())) break;
   }
   scored.sort((a, b) => (b.inliers - a.inliers) || (b.score - a.score));
   const top = scored[0];
