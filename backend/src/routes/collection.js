@@ -1097,18 +1097,29 @@ async function stageScannedCard({ userId, body = {}, cardId, quantity, crop, mat
   const condition = body.condition || 'Near Mint';
   const locationId = body.location_id || null;
 
+  // ONLY FLAG A REPEAT WITHIN THIS SESSION, never "you already own one".
+  //
+  // Zach: "I shouldnt get a warning in the scanned list if this card is in my
+  // collection already only if I scanned it twice this session."
+  //
+  // He is right, and the old comment here already made his argument without
+  // following it: owning a second copy is a perfectly normal thing for a
+  // collector to do ON PURPOSE. Flagging it warns about the intended outcome of
+  // the action he just took.
+  //
+  // The cost is not just noise. Flags exist so the rows that need attention sit
+  // at the top of a long list; a flag that fires on ordinary behaviour trains
+  // him to skim past all of them, including 'low_confidence', which is the one
+  // that questions whether the app identified the right card at all.
+  //
+  // Scanning the same card TWICE IN ONE SESSION is different: it usually means
+  // the scanner double-fired on one piece of cardboard, and that is a genuine
+  // question about the physical stack in front of him.
   let flag = null;
   const dup = await db.get(
     `SELECT id FROM scan_staging WHERE user_id = ? AND card_id = ? AND finish = ?`,
     [userId, cardId, finish]);
-  if (dup) {
-    flag = 'duplicate_in_session';
-  } else {
-    const owned = await db.get(
-      `SELECT id FROM collection WHERE user_id = ? AND card_id = ? AND finish = ? AND list_type = 'collection'`,
-      [userId, cardId, finish]);
-    if (owned) flag = 'already_owned';
-  }
+  if (dup) flag = 'duplicate_in_session';
   // A weak match outranks the others: it questions whether this is even the
   // right card, where the others only say "you have one already" — which is a
   // perfectly normal thing for a collector to do on purpose.

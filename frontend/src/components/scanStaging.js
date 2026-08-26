@@ -29,6 +29,19 @@
 // different wording because they need different reactions: a duplicate might be
 // a genuine second copy he wants, whereas a low-confidence match questions
 // whether the app even identified the right card.
+// NOTE ON 'already_owned': THE SERVER NO LONGER EMITS IT.
+//
+// Zach: "I shouldnt get a warning in the scanned list if this card is in my
+// collection already only if I scanned it twice this session."
+//
+// Owning a second copy is normal and intentional, so warning about it fires on
+// ordinary behaviour -- and a flag that cries wolf trains him to skim past
+// 'low_confidence' too, which is the one that questions whether the app got the
+// right card at all.
+//
+// The wording is KEPT so rows staged before that change still render something
+// sensible instead of an unexplained icon. It can be deleted once no such rows
+// can exist.
 const FLAG_TEXT = {
   duplicate_in_session: 'Scanned twice in this session — keep both only if you have two.',
   already_owned: 'Already in your collection — this will add another copy.',
@@ -36,8 +49,11 @@ const FLAG_TEXT = {
 };
 
 // Ordered by how much they deserve attention. low_confidence first because it
-// questions the CARD; the others only say "you have one already", which is
-// perfectly normal for a collection.
+// questions the CARD; duplicate_in_session only asks whether one piece of
+// cardboard got scanned twice.
+//
+// already_owned is still ranked so historical rows sort predictably, but the
+// server no longer produces it.
 const FLAG_PRIORITY = { low_confidence: 0, duplicate_in_session: 1, already_owned: 2 };
 
 export function describeFlag(flag) {

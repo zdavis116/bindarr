@@ -51,9 +51,12 @@ async function main() {
 
   // Two real catalogue rows to stage.
   await db.run(
-    `INSERT INTO card_cache (id, oracle_id, name, set_id, number) VALUES (?,?,?,?,?), (?,?,?,?,?)`,
+    `INSERT INTO card_cache (id, oracle_id, name, set_id, number)
+     VALUES (?,?,?,?,?), (?,?,?,?,?), (?,?,?,?,?)`,
     ['card-sol', 'oracle-sol', 'Sol Ring', 'cmm', '263',
-     'card-bolt', 'oracle-bolt', 'Lightning Bolt', 'lea', '161']);
+     'card-bolt', 'oracle-bolt', 'Lightning Bolt', 'lea', '161',
+     // A card Zach ALREADY OWNS, for FST-TC3B.
+     'card-owned', 'oracle-owned', 'Counterspell', 'tmp', '61']);
 
   const app = express();
   app.use(express.json({ limit: '15mb' }));
@@ -100,6 +103,38 @@ async function main() {
     assert.strictEqual(list.body.total, 2, 'the repeat is kept, not swallowed');
     assert.strictEqual(list.body.flagged, 1, 'and it is counted as needing a look');
     pass('FST-TC3', 'a duplicate scan is flagged rather than silently merged or hidden');
+  }
+
+  // --- FST-TC3B: ALREADY OWNING A COPY IS NOT A WARNING --------------------
+  //
+  // Zach: "I shouldnt get a warning in the scanned list if this card is in my
+  // collection already only if I scanned it twice this session."
+  //
+  // Owning a second copy is a normal, intentional thing for a collector to do.
+  // Flagging it warns about the intended outcome of the action he just took --
+  // and a flag that fires on ordinary behaviour trains him to skim past ALL of
+  // them, including 'low_confidence', which is the only one questioning whether
+  // the app identified the right card.
+  //
+  // The distinction that survives: scanning the same card twice IN ONE SESSION
+  // usually means the scanner double-fired on one piece of cardboard, which is
+  // a real question about the physical stack (FST-TC3 above).
+  {
+    // Put a card in the collection, then start a clean session and scan it.
+    await api('/api/collection', { method: 'POST', body: { card_id: 'card-owned', quantity: 1 } });
+    const list = await api('/api/scan-stage');
+    for (const e of list.body.entries) {
+      await api(`/api/scan-stage/${e.id}`, { method: 'DELETE' });
+    }
+    const r = await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-owned' } });
+    assert.strictEqual(r.body.flag, null,
+      `owning a copy already must NOT flag the scan, got ${r.body.flag}`);
+
+    // ...but scanning it a second time in the SAME session still does.
+    const again = await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-owned' } });
+    assert.strictEqual(again.body.flag, 'duplicate_in_session',
+      `a repeat within the session must still flag, got ${again.body.flag}`);
+    pass('FST-TC3B', 'owning a copy is not flagged; scanning twice in a session still is');
   }
 
   // --- FST-TC4: a staged row can be corrected before it becomes real -------
