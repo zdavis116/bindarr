@@ -322,7 +322,38 @@ const DISTURBED_FRAMES_TO_REARM = 2;
 //
 // WHY NOT LESS THAN 1.0, EVER: below 1.0 iOS switches to the ULTRA-WIDE lens,
 // which is softer and lower resolution. See the lens pin in startCamera.
-const SCAN_ZOOM = 1.6;
+// RETUNED 1.6 -> 1.5 ON MEASURED CAPTURES.
+//
+// Zach: "currently at 1.6 seems a tad close but also can leave at 1.6 because
+// everything seems to be working." His feel was right, and there is hard
+// evidence for it. Across 160 detections in his corpus:
+//
+//     card width  / frame width :  p50 0.827   p95 1.063   max 1.132
+//     card height / frame height:  p50 0.865   p95 1.049   max 1.187
+//
+// Values ABOVE 1.0 mean the card runs off the edge of the frame. That happened
+// on 28 of 160 captures -- 18% -- and it is the failure mode PR #38 documented:
+// the detector needs visible margin AROUND the card to find its border, and a
+// card filling the crop dropped collector-number reads from 8/8 to 1/8.
+//
+// Scaling linearly:
+//
+//     zoom 1.6   28/160 overflowing   strip pixels 100%
+//     zoom 1.5    9/160 overflowing   strip pixels  88%
+//     zoom 1.4    1/160 overflowing   strip pixels  77%
+//     zoom 1.3    0/160 overflowing   strip pixels  66%
+//
+// WHY 1.5 AND NOT 1.4. The competing cost is real: the collector number is
+// ~2mm of text and OCR is already the weakest link, so every pixel removed from
+// the strip is paid for at the hardest step. 1.5 removes two thirds of the
+// overflow for 12% of the strip's pixels; 1.4 removes almost all of it but
+// costs nearly a quarter.
+//
+// 1.5 is the conservative move against a MEASURED harm, without spending much
+// on the signal that is already marginal. If overflow still shows up in the
+// next corpus, 1.4 is the next step -- and that will be a measurement, not
+// another guess.
+const SCAN_ZOOM = 1.5;
 
 // THE CANCEL WINDOW before an auto-add commits. Lowered 2 -> 1.
 //

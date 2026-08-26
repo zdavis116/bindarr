@@ -262,9 +262,40 @@ function getWorker() {
         errorHandler: (e) => console.warn('ocr worker:', e?.message || e),
         cachePath: process.env.OCR_CACHE_DIR || path.join(__dirname, '..', '..', 'data', 'ocr'),
       });
-      // PSM 6: a uniform block of text. The strip is two short lines; the
-      // default (auto page segmentation) treats it as a page and does worse.
-      await worker.setParameters({ tessedit_pageseg_mode: '6' });
+      // PSM 4: a single column of text of variable sizes.
+      //
+      // Was PSM 6 ('uniform block') -- a reasonable guess, never measured.
+      // Against 48 of Zach's captures where he told us what the card actually
+      // was, holding everything else fixed:
+      //
+      //                  tune (24)            held-out (24)
+      //     psm 6    correct 13 WRONG 5    correct 15 WRONG 3
+      //     psm 4    correct 13 WRONG 1    correct 14 WRONG 1
+      //
+      // Correctness is a wash; WRONG READS DROP BY TWO THIRDS on BOTH halves,
+      // so it is a real effect rather than a fit to the tuning data.
+      //
+      // WHY THAT TRADE IS RIGHT HERE and would be wrong in most apps: a silent
+      // read queues the card and costs one tap. A WRONG read can put the wrong
+      // card into a collection tracking physical objects, where it cannot be
+      // reconciled against the shelf later. Four confident mistakes becoming
+      // four honest "could not read it" is worth losing one read.
+      //
+      // THE COST, STATED PLAINLY: this drops the synthetic distant-card
+      // regression case from 4/4 to 3/4 (a NULL read, not a fabrication).
+      // Isolated against that test:
+      //
+      //     psm 6 x1 PASS    psm 6 x2 PASS
+      //     psm 4 x1 FAIL    psm 4 x2 FAIL
+      //
+      // so PSM 4 is what costs it, and a 2x upscale does not buy it back --
+      // upscaling alone made held-out wrong reads 3 -> 4.
+      //
+      // Taken deliberately on Zach's own answer: "I will always scan from close
+      // up." The distant case is a scenario his workflow does not contain, and
+      // every capture in the corpus is close-range. If that ever changes, the
+      // fix is to select PSM by detected card size rather than to revert.
+      await worker.setParameters({ tessedit_pageseg_mode: '4' });
       return worker;
     })().catch((e) => {
       // A failed worker must not be cached as a permanently rejected promise,
