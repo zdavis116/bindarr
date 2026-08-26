@@ -1122,5 +1122,8 @@
   "scan.stagedToast": "{{name}} — waiting in this session",
   "scan.stagedFlaggedToast": "{{name}} — needs a look before adding",
   "scan.stagingBadge": "{{count}} scanned",
-  "scan.stagingBadgeFlagged": "{{count}} scanned · {{flagged}} to check"
+  "scan.stagingBadgeFlagged": "{{count}} scanned · {{flagged}} to check",
+  "scan.reviewFindManually": "Find this card manually",
+  "scan.reviewSearchPlaceholder": "Type the card name…",
+  "scan.reviewSearching": "Searching…"
 }

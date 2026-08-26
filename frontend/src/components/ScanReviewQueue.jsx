@@ -56,6 +56,47 @@ export default function ScanReviewQueue({ queue, onClose, onResolved }) {
     if (result.ok && onResolved) onResolved(candidate);
   };
 
+  // MANUAL SEARCH, for the rows that offer nothing.
+  //
+  // Zach: "I cant resolve most of this queue... All other scans either dont
+  // have enough info or name is wrong".
+  //
+  // 9 of his 15 queued rows have ZERO candidates -- the art match found nothing
+  // and the number did not read, so the screen said "no printings in your
+  // catalog yet" and offered no way forward. The only action was Discard, which
+  // throws away both the card AND the label the corpus needs.
+  //
+  // The server already permits any card_id when the row offered no candidates
+  // (the allow-list check is skipped when `offered` is empty), so this was
+  // purely a missing UI. Typing the name is slower than tapping a candidate,
+  // but it is the difference between a resolvable queue and a dead end.
+  const [searchFor, setSearchFor] = useState(null);   // entry id being searched
+  const [searchText, setSearchText] = useState('');
+  const [searchHits, setSearchHits] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  const runSearch = async (text) => {
+    const q = text.trim();
+    if (q.length < 3) { setSearchHits([]); return; }
+    setSearching(true);
+    try {
+      // The route takes `name`, not `q`, and returns a BARE ARRAY of cards.
+      // I wrote `q` first: it would have returned nothing on every search, and
+      // a dead search box looks exactly like "this card does not exist".
+      const params = new URLSearchParams({ name: q, limit: '12' });
+      const res = await fetch(`/api/search?${params.toString()}`);
+      const data = res.ok ? await res.json() : null;
+      // The search route has returned a few shapes over time; accept them all
+      // rather than guessing, and show nothing rather than crashing.
+      const rows = Array.isArray(data) ? data
+        : (data?.cards || data?.results || data?.data || []);
+      setSearchHits(rows.slice(0, 12));
+    } catch {
+      setSearchHits([]);
+    }
+    setSearching(false);
+  };
+
   const discard = async (entry) => {
     setBusyId(entry.id);
     await queue.discardEntry(entry.id);
@@ -218,10 +259,68 @@ export default function ScanReviewQueue({ queue, onClose, onResolved }) {
                   first row usually correct, and a tap on it the whole
                   interaction. */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                {entry.candidates.length === 0 && (
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    {t('scan.reviewNoCandidates')}
-                  </span>
+                {entry.candidates.length === 0 && searchFor !== entry.id && (
+                  <>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {t('scan.reviewNoCandidates')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setSearchFor(entry.id); setSearchText(''); setSearchHits([]); }}
+                      style={{
+                        width: '100%', minHeight: 44, padding: '0.5rem 0.65rem',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)',
+                        fontSize: '0.72rem', cursor: 'pointer',
+                      }}
+                    >
+                      {t('scan.reviewFindManually')}
+                    </button>
+                  </>
+                )}
+                {searchFor === entry.id && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    <input
+                      autoFocus
+                      value={searchText}
+                      onChange={(e) => { setSearchText(e.target.value); runSearch(e.target.value); }}
+                      placeholder={t('scan.reviewSearchPlaceholder')}
+                      style={{
+                        width: '100%', minHeight: 44, padding: '0.5rem 0.65rem',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.18)',
+                        borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)',
+                        fontSize: '0.8rem',
+                      }}
+                    />
+                    {searching && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                        {t('scan.reviewSearching')}
+                      </span>
+                    )}
+                    {searchHits.map(hit => (
+                      <button
+                        key={hit.id}
+                        type="button"
+                        onClick={() => { setSearchFor(null); resolve(entry, hit); }}
+                        disabled={busyId === entry.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          gap: '0.5rem', width: '100%', minHeight: 44, padding: '0.5rem 0.65rem',
+                          textAlign: 'left', background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)',
+                          fontSize: '0.72rem', cursor: 'pointer',
+                        }}
+                      >
+                        <span>{hit.name}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          {(hit.set_id || '').toUpperCase()} #{hit.number}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 )}
                 {entry.candidates.map(c => (
                   <button
