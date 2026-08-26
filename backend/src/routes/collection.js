@@ -353,17 +353,50 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       await prof.time('db-hydrate-candidates', async () => {
       const hydrated = await Promise.all(result.candidates.map(async (cand) => {
         let row = null;
+        // INDEXED LOOKUP FIRST, then the slow general form only if it misses.
+        //
+        // Both of these queries used to SCAN all 105,156 rows of card_cache, up
+        // to 16 times per scan (8 candidates x 2 queries) -- measured at 249ms,
+        // 8% of the scan.
+        //
+        // The cause is that `OR LOWER(set_name) = LOWER(?)` and
+        // `LOWER(name) = LOWER(?)` are not sargable: wrapping an indexed column
+        // in a function throws the index away, and the OR forces a scan even
+        // though idx_card_cache_set_num(set_id, number) exists and matches the
+        // first half perfectly.
+        //
+        // EXPLAIN QUERY PLAN before: SCAN card_cache (both queries).
+        //
+        // So try the indexed equality first. It answers the overwhelming
+        // majority of lookups, because `cand.set` comes from the catalogue in
+        // the first place and is already lowercase. The permissive form is kept
+        // verbatim as a fallback for the cases it was added for -- a set_name
+        // spelled out, or a name differing in case -- so NOTHING that resolved
+        // before stops resolving. It just no longer costs a table scan every
+        // time.
         if (cand.set && cand.number) {
           row = await db.get(
-            `SELECT * FROM card_cache WHERE (set_id = ? OR LOWER(set_name) = LOWER(?)) AND number = ? LIMIT 1`,
-            [cand.set, cand.set, cand.number]
+            `SELECT * FROM card_cache WHERE set_id = ? AND number = ? LIMIT 1`,
+            [cand.set, cand.number]
           );
+          if (!row) {
+            row = await db.get(
+              `SELECT * FROM card_cache WHERE (set_id = ? OR LOWER(set_name) = LOWER(?)) AND number = ? LIMIT 1`,
+              [cand.set, cand.set, cand.number]
+            );
+          }
         }
         if (!row && cand.name) {
           row = await db.get(
-            `SELECT * FROM card_cache WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+            `SELECT * FROM card_cache WHERE name = ? LIMIT 1`,
             [cand.name]
           );
+          if (!row) {
+            row = await db.get(
+              `SELECT * FROM card_cache WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+              [cand.name]
+            );
+          }
         }
         return row ? { ...cand, card: parseCardRow(row) } : cand;
       }));

@@ -1161,6 +1161,13 @@ async function initDb() {
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_comp_user_qty ON collection(compartment_id, user_id, quantity)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_loc_pos ON collection(location_id, position)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_set_num ON card_cache(set_id, number)`);
+
+  // NAME LOOKUP DURING SCAN HYDRATION.
+  //
+  // Every scan hydrates up to 8 candidates, and any that miss on set+number fall
+  // back to a lookup by name. Without this index that is a full SCAN of ~105k
+  // rows, up to 8 times per scan -- measured at 249ms, 8% of a scan.
+  await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_name ON card_cache(name)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_oracle ON card_cache(oracle_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_deck_cards_checkout ON deck_cards(deck_id, checked_out)`);
   // Reservation scans every requirement for one exact variant across all of a
