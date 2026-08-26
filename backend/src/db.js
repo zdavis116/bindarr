@@ -677,6 +677,24 @@ async function initDb() {
     }
   }
 
+  // WHICH CAPTURE PRODUCED THIS QUEUE ROW.
+  //
+  // Zach is scanning a labelled corpus so the OCR parameters can be tuned
+  // against real cards instead of my eyeballing 15 captures. The label is
+  // written when he resolves a queued scan by picking the right card -- that is
+  // the moment the app learns ground truth.
+  //
+  // Without this column the label attaches to `lastDumpName`, a module-level
+  // variable holding whatever image was scanned MOST RECENTLY. Resolving 18
+  // queued cards after a session would write all 18 labels onto the same
+  // capture -- the last one scanned -- producing a corpus that is not merely
+  // incomplete but actively WRONG, and wrong labels are worse than none because
+  // every future measurement inherits them silently.
+  const queueCols = await all(`PRAGMA table_info(scan_review_queue)`);
+  if (queueCols.length && !queueCols.some(c => c.name === 'dump_file')) {
+    await run(`ALTER TABLE scan_review_queue ADD COLUMN dump_file TEXT`);
+  }
+
   const collectionCols = await all(`PRAGMA table_info(collection)`);
   if (!collectionCols.some(c => c.name === 'user_id')) {
     await run(`ALTER TABLE collection ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
@@ -1012,6 +1030,12 @@ async function initDb() {
       -- The cropped scan thumbnail, so he can see the card he actually scanned
       -- when deciding. Without it a queue of 40 entries is unresolvable.
       crop_data_url TEXT,
+      -- WHICH CAPTURE PRODUCED THIS ROW, for the labelled corpus. When Zach
+      -- resolves a queued scan he tells the app what the card really is, and
+      -- that truth is written beside this image. Without the column the label
+      -- would attach to whatever was scanned most recently, so resolving a
+      -- session's queue would put every label on the last capture.
+      dump_file TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )

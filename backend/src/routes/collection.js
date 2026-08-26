@@ -292,6 +292,21 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     // Fire-and-forget and fully swallowed: a diagnostics feature must never be
     // able to fail a scan of a card Zach is physically holding.
     if (process.env.SCAN_DUMP_DIR) {
+      // NAMED SYNCHRONOUSLY, WRITTEN ASYNCHRONOUSLY.
+      //
+      // The write is fire-and-forget so diagnostics can never delay a scan. But
+      // the NAME has to be recorded now: /scan-resolve arrives later and stamps
+      // it onto the queue row, and if the name were assigned inside the async
+      // block it could still be the PREVIOUS capture's when that happens.
+      //
+      // Known limitation, stated rather than hidden: this is module-level, so
+      // it assumes scans are handled one at a time. That holds for one person
+      // scanning a stack -- the flow is scan, resolve, scan -- but two
+      // simultaneous scanners would cross their labels. The corpus is a
+      // single-user debugging aid, so that is acceptable; a second user would
+      // need the name carried through the request instead.
+      const dumpName = `scan-${Date.now()}.jpg`;
+      lastDumpName = dumpName;
       (async () => {
         try {
           const dir = process.env.SCAN_DUMP_DIR;
@@ -311,9 +326,7 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
           // Now it always writes and evicts the oldest, so the dump is a
           // rolling window over the MOST RECENT scans -- which is the only part
           // anyone ever wants. Still bounded, still a debugging aid.
-          const stamp = Date.now();
-          await fsp.writeFile(path.join(dir, `scan-${stamp}.jpg`), buf);
-          lastDumpName = `scan-${stamp}.jpg`;
+          await fsp.writeFile(path.join(dir, dumpName), buf);
           const files = (await fsp.readdir(dir).catch(() => []))
             .filter(f => f.endsWith('.jpg'))
             .sort();
@@ -553,8 +566,8 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
   }));
   const result = await db.run(
     `INSERT INTO scan_review_queue
-      (user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident, ocr_raw, candidates_json, crop_data_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident, ocr_raw, candidates_json, crop_data_url, dump_file)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       userId, matchedName, reason,
       ocr?.number ?? null,
@@ -580,6 +593,10 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
       (ocr?.raw ?? '').slice(0, 500),
       JSON.stringify(slim),
       crop || null,
+      // PIN THE CAPTURE TO THE ROW, not to whatever was scanned most recently.
+      // Resolving 18 queued cards after a session would otherwise write all 18
+      // labels onto the last image scanned.
+      lastDumpName,
     ]
   );
   return { id: result.lastID };
@@ -832,7 +849,7 @@ router.post('/scan-queue/:id/resolve', async (req, res) => {
     // sidecar records both the truth and what the scanner had believed.
     const truthRow = await db.get(
       `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [card_id]);
-    await labelCapture(lastDumpName, {
+    await labelCapture(entry.dump_file || null, {
       source: 'queue-resolve',
       truth: truthRow || { card_id },
       scanner_said: { matched_name: entry.matched_name || null, reason: entry.reason || null },
