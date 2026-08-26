@@ -15,7 +15,7 @@ const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, d
 const { splitPrice } = require('../utils/splitPrice');
 const commanderRules = require('../utils/commanderRules');
 const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
-const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
+const { resolveScannedPrinting, WEAK_MATCH_INLIERS } = require('../utils/scanPrintingResolver');
 const collectorNumberOcr = require('../utils/collectorNumberOcr');
 const cardTitleOcr = require('../utils/cardTitleOcr');
 const rgbArtMatch = require('../rgbArtMatch');
@@ -220,6 +220,34 @@ router.get('/search', searchLimiter, async (req, res) => {
 // is not a real set, while 'msh' is right there in the candidate list. Falls
 // back to the raw token when nothing validates, so a genuinely unreadable strip
 // still shows what was read.
+// GROUND TRUTH FOR THE CAPTURE CORPUS.
+//
+// Zach asked whether scanning ~40 varied cards could be turned into a
+// regression corpus. It can, but ONLY if each capture is paired with what the
+// card ACTUALLY was -- an image with no label is a picture, not a test case.
+//
+// Every capture I have investigated so far needed him to tell me the answer in
+// chat ("should be namor the sub-mariner"), which does not scale past a handful
+// and is exactly the manual step a corpus is supposed to remove.
+//
+// The app already knows the truth at two moments:
+//   - he resolves a queued scan by PICKING the right card
+//   - he corrects or confirms a staged row before committing
+//
+// Both are recorded here as a sidecar JSON next to the image. Diagnostics only:
+// this never affects a scan, and a failure is swallowed.
+let lastDumpName = null;
+
+async function labelCapture(file, truth) {
+  if (!process.env.SCAN_DUMP_DIR || !file) return;
+  try {
+    const dir = process.env.SCAN_DUMP_DIR;
+    await fsp.writeFile(
+      path.join(dir, file.replace(/\.jpg$/, '.json')),
+      JSON.stringify({ ...truth, labelled_at: new Date().toISOString() }, null, 2));
+  } catch { /* a labelling failure must never affect a scan */ }
+}
+
 async function pickDisplaySet(ocr) {
   const cands = ocr?.setLineCandidates?.length
     ? ocr.setLineCandidates
@@ -283,11 +311,23 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
           // Now it always writes and evicts the oldest, so the dump is a
           // rolling window over the MOST RECENT scans -- which is the only part
           // anyone ever wants. Still bounded, still a debugging aid.
-          await fsp.writeFile(path.join(dir, `scan-${Date.now()}.jpg`), buf);
+          const stamp = Date.now();
+          await fsp.writeFile(path.join(dir, `scan-${stamp}.jpg`), buf);
+          lastDumpName = `scan-${stamp}.jpg`;
           const files = (await fsp.readdir(dir).catch(() => []))
             .filter(f => f.endsWith('.jpg'))
             .sort();
-          for (const stale of files.slice(0, Math.max(0, files.length - 40))) {
+          // CAP RAISED FOR A LABELLED CAPTURE SESSION.
+          //
+          // Zach is scanning ~40 varied cards deliberately, to build a real
+          // regression corpus. At 40 the dump would evict the first half of his
+          // own session while he was still scanning it -- and a scan session is
+          // 2-4 captures per card, not one, so 40 cards is well over 100 files.
+          //
+          // 400 files at ~700KB is under 300MB against 18GB free on dev. Still
+          // bounded, still rotating newest-first.
+          const KEEP = Number(process.env.SCAN_DUMP_KEEP || 400);
+          for (const stale of files.slice(0, Math.max(0, files.length - KEEP))) {
             await fsp.unlink(path.join(dir, stale)).catch(() => {});
           }
         } catch { /* diagnostics must never affect a scan */ }
@@ -787,6 +827,21 @@ router.post('/scan-queue/:id/resolve', async (req, res) => {
     }
 
     const added = await addCardToCollection(req.user, { ...req.body, card_id });
+    // GROUND TRUTH: he just told us what the card really is by picking it.
+    // The queue row carries the raw OCR that produced the mistake, so the
+    // sidecar records both the truth and what the scanner had believed.
+    const truthRow = await db.get(
+      `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [card_id]);
+    await labelCapture(lastDumpName, {
+      source: 'queue-resolve',
+      truth: truthRow || { card_id },
+      scanner_said: { matched_name: entry.matched_name || null, reason: entry.reason || null },
+      ocr: {
+        number: entry.ocr_number ?? null,
+        set: entry.ocr_set ?? null,
+        raw: entry.ocr_raw ?? null,
+      },
+    });
     await db.run(`DELETE FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     res.json({ resolved: true, entry_id: added.id, card_id });
   } catch (error) {
@@ -1040,7 +1095,13 @@ async function stageScannedCard({ userId, body = {}, cardId, quantity, crop, mat
   // A weak match outranks the others: it questions whether this is even the
   // right card, where the others only say "you have one already" — which is a
   // perfectly normal thing for a collector to do on purpose.
-  if (Number.isFinite(matchInliers) && matchInliers < 25) flag = 'low_confidence';
+  // SAME THRESHOLD THE RESOLVER USES. This was a hardcoded 25 while
+  // scanPrintingResolver had moved to 32, so scans the resolver considered
+  // noise were shown to Zach unflagged. Importing it keeps one definition of
+  // "the art match is guessing".
+  if (Number.isFinite(matchInliers) && matchInliers <= WEAK_MATCH_INLIERS) {
+    flag = 'low_confidence';
+  }
 
   const ins = await db.run(
     `INSERT INTO scan_staging

@@ -878,4 +878,5 @@ module.exports = {
   sameNumber,
   framePrintsNumber,
   FRAME_REDESIGN_YEAR,
+  WEAK_MATCH_INLIERS,
 };
