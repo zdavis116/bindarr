@@ -6,6 +6,7 @@ import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
 import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
 import { initCardDetector, detectCardOnDevice, detectorReady } from '../utils/onDeviceCardDetect';
+import { artFingerprint, isDifferentCard } from '../utils/cardChangeDetect';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import ScanReviewQueue from './ScanReviewQueue';
@@ -597,6 +598,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // produces exactly ONE scan. Cleared when the detection is disturbed --
   // which is what dropping the next card on the stack does.
   const stablePeriodConsumedRef = useRef(false);
+  // Fingerprint of the card that was last CAPTURED, so a different card landing
+  // in the SAME position still re-arms. See cardChangeDetect.js.
+  const capturedPrintRef = useRef(null);
+  // Fingerprint of the current frame, promoted to capturedPrintRef on capture.
+  const livePrintRef = useRef(null);
   // Consecutive frames whose detection disagreed with the previous one. Used to
   // tell a real placement from detector jitter -- see DISTURBED_FRAMES_TO_REARM.
   const disturbedRunRef = useRef(0);
@@ -917,9 +923,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
         if (!liveDetectRef.current) return;
         if (stableCountRef.current < STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE) return;
         if (stablePeriodConsumedRef.current) return;
-        // One capture per stable period. Cleared the moment the detection is
-        // disturbed -- i.e. when the next card lands on the stack.
+        // One capture per stable period. Cleared when the detection is disturbed
+        // OR when the ARTWORK changes -- the latter is what lets a Forest
+        // dropped on a stack of Forests scan, since its box is identical.
         stablePeriodConsumedRef.current = true;
+        // Remember WHAT was captured, so the next frame can tell "same card
+        // still sitting there" from "a new card landed in the same spot".
+        capturedPrintRef.current = livePrintRef.current;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
@@ -1092,6 +1102,49 @@ function CameraScanner({ onAddSuccess, showToast }) {
           }
         }
         prevDetRef.current = mapped;
+
+        // RE-ARM WHEN THE CARD ITSELF CHANGES, NOT ONLY WHEN THE BOX MOVES.
+        //
+        // Zach: "I put down 3 forest in a row and it only scanned the 1st
+        // because it thought the next 2 were the same card."
+        //
+        // Re-arming depended ENTIRELY on the detected box disagreeing for
+        // DISTURBED_FRAMES_TO_REARM consecutive frames. That works when the new
+        // card lands askew and fails completely when it does not: a Forest
+        // dropped squarely onto a stack of Forests produces an IDENTICAL box, so
+        // nothing ever re-armed.
+        //
+        // It is also why he kept seeing "waiting for steady frame" and had to
+        // tap every card. The latch clears only on box movement, so a card that
+        // settles cleanly leaves it stuck. Both of his complaints are this one
+        // bug -- and it explains his own observation that after tapping, the
+        // card "always chose the right card": the frame WAS steady, the latch
+        // just never reopened.
+        //
+        // Geometry cannot answer "is this a different card" -- two cards in the
+        // same position have the same quad. Only what is PRINTED on them
+        // differs, so compare a cheap fingerprint of the artwork.
+        //
+        // Measured over 55 cards from his corpus: the same card between
+        // consecutive frames scores 1.3-2.4, different cards 19.9-86.6. An
+        // eight-fold gap with nothing in it.
+        try {
+          const print = artFingerprint(data, DW, DH, {
+            x: mapped.x, y: mapped.y, w: mapped.w, h: mapped.h,
+          });
+          if (print) {
+            // A genuinely different card re-arms IMMEDIATELY -- no disturbance
+            // run required, because this evidence is stronger than box movement
+            // rather than weaker.
+            if (isDifferentCard(print, capturedPrintRef.current)) {
+              stablePeriodConsumedRef.current = false;
+            }
+            livePrintRef.current = print;
+          }
+        } catch {
+          // The fingerprint is an ENHANCEMENT. If it fails, behaviour falls back
+          // to exactly today's box-movement rule and tapping still works.
+        }
 
         // TEACH THE SHARPNESS BASELINE FROM SETTLED FRAMES ONLY.
         //
@@ -2633,6 +2686,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // `loading` is the third, and it is cleared unconditionally
                   // in handleCapture's finally now -- see the note there.
                   stablePeriodConsumedRef.current = true;
+                  // A tap captures too, so the reference must move with it --
+                  // otherwise the fingerprint would still describe a card from
+                  // two placements ago.
+                  capturedPrintRef.current = livePrintRef.current;
                   stableCountRef.current = 0;
                   prevDetRef.current = null;
                   currentScanId.current += 1;
