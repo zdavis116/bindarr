@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine, Maximize, Minimize } from 'lucide-react';
+import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
@@ -406,7 +406,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // Camera active states
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraErrorKey, setCameraErrorKey] = useState('');
-  const [autoScan, setAutoScan] = useState(false);
+  // AUTO-SCAN IS ALWAYS ON. Zach: "for the auto on I just want it always on no
+  // more click to capture button."
+  //
+  // A constant rather than state. It was state with a toggle AND a reset to
+  // false on every camera stop, which is why it kept turning itself off between
+  // sessions. Keeping the name lets the existing gates read naturally; the
+  // dead branches behind `!autoScan` are removed rather than left implying a
+  // mode that no longer exists.
+  const autoScan = true;
   const [showScanSettings, setShowScanSettings] = useState(false);
   // The review queue: cards scanned but not yet resolved to an exact printing.
   //
@@ -433,11 +441,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // ensure there isn't any dupes."
   const [showStaging, setShowStaging] = useState(false);
   const [stagedCount, setStagedCount] = useState(0);
-  const [stagedFlagged, setStagedFlagged] = useState(0);
+  // How many staged rows still need a printing chosen. Replaces the old
+  // `flaggedCount`, which read a field the staging controller no longer
+  // publishes -- it was left over from the queue merge and quietly evaluated to
+  // undefined, so the badge could never show the amber "needs you" state.
+  const [stagedUnresolved, setStagedUnresolved] = useState(0);
   const stagingRef = useRef(null);
   if (!stagingRef.current) {
     stagingRef.current = createScanStaging({
-      onChange: (s) => { setStagedCount(s.stagedCount); setStagedFlagged(s.flaggedCount); },
+      onChange: (s) => { setStagedCount(s.stagedCount); setStagedUnresolved(s.unresolvedCount); },
     });
   }
   const staging = stagingRef.current;
@@ -651,17 +663,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // same controls, the same diagnostics panel, the same review-queue banner —
   // only the container class changes. That keeps the drag/rotate/pinch guide
   // adjustment, the settings panel and the queue reachable exactly as before.
-  const [fullscreenScan, setFullscreenScan] = useState(() => {
-    try {
-      // matchMedia is guarded: it is absent in some embedded webviews and this
-      // must never be the thing that stops the scanner rendering.
-      return typeof window !== 'undefined'
-        && typeof window.matchMedia === 'function'
-        && window.matchMedia('(max-width: 900px)').matches;
-    } catch {
-      return false;
-    }
-  });
+  // THE SCANNER IS FULLSCREEN, ALWAYS. Zach: "I want full screen only."
+  //
+  // This used to be a mode toggled by a maximize button, defaulting to
+  // fullscreen only on narrow viewports. He scans on a phone, always in
+  // fullscreen, so the windowed path was a second layout to keep working for
+  // nobody -- and it is where the "Scanned" badge tap silently failed.
+  const fullscreenScan = true;
 
   const beepCtxRef = useRef(null); // reused AudioContext for the scan cue
   const handleCaptureRef = useRef(null); // always the latest handleCapture, for timers
@@ -1501,7 +1509,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
       setStream(null);
     }
     setCameraActive(false);
-    setAutoScan(false); // Reset autoScan on camera stop
     setIsTorchOn(false);
     // The negotiated mode belongs to the track that just stopped. Leaving it on
     // screen would show a resolution no live camera is producing, and a stale
@@ -2360,9 +2367,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
                       quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
                       staged: true,
                     }, ...prev].slice(0, 10));
-                    showToast(outcome.flag
-                      ? t('scan.stagedFlaggedToast', { name: outcome.card?.name || identified })
-                      : t('scan.stagedToast', { name: outcome.card?.name || identified }));
+                    // No flag variant any more -- the advisory flags are gone.
+                    showToast(t('scan.stagedToast', { name: outcome.card?.name || identified }));
                     signal('success');
                   } else if (outcome.action === 'added') {
                     lastAddedIdRef.current = outcome.card?.id;
@@ -2445,8 +2451,14 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // One result: take it, that is the fast path working.
                   // Several: fall through to the queue with the candidates, and
                   // he picks the printing when the stack is done.
+                  // One result: take it, that is the fast path working.
+                  // Several: fall through to the queue with the candidates.
+                  //
+                  // There was a second line here for the auto-scan-OFF case,
+                  // which showed the picker. Auto-scan is permanent now, so it
+                  // was unreachable -- and leaving it would imply a mode that
+                  // no longer exists.
                   if (matches.length === 1) { await applyMatches(matches, '', true, null, isManual); return; }
-                  if (matches.length && !autoScan) { await applyMatches(matches, '', true, null, isManual); return; }
                 }
 
                 // A LOW-CONFIDENCE MATCH GOES TO THE QUEUE, NOT A POPUP.
@@ -2528,37 +2540,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   return;
                 }
 
-                // MANUAL (auto-scan off): he pressed the button and is waiting
-                // for an answer, so showing the candidates IS the right thing --
-                // there is no stack to interrupt.
-                const preHydrated = candidates.slice(0, 8).map(c => c.card).filter(Boolean);
-                if (preHydrated.length === candidates.slice(0, 8).length) {
-                  await applyMatches(preHydrated, 'No matching cards found.', false, null, isManual);
-                  return;
-                }
-                setScanStatus('Fetching candidate cards...');
-                const fullCandidates = await Promise.all(
-                  candidates.slice(0, 8).map(async cand => {
-                    if (cand.card) return cand.card;
-                    const p = new URLSearchParams({ game: matchGame, lang: 'en' });
-                    if (cand.set) p.append('set', cand.set);
-                    if (cand.number) p.append('number', cand.number);
-                    if (cand.name) p.append('name', cand.name);
-                    const res = await fetch(`/api/search?${p.toString()}`);
-                    if (res.ok) {
-                      const m = await res.json();
-                      return m[0]; // Take the closest printing
-                    }
-                    return null;
-                  })
-                );
-
-                if (scanId !== currentScanId.current) return;
-                const validCandidates = fullCandidates.filter(c => c);
-                if (validCandidates.length > 0) {
-                  await applyMatches(validCandidates, '', false, null, isManual);
-                  return;
-                }
+                // THE PICKER IS GONE. There was a fallback here that fetched
+                // every candidate and showed the "Identified Cards Found"
+                // modal, kept for the auto-scan-OFF case. Auto-scan is
+                // permanent now -- "I just want it always on no more click to
+                // capture button" -- so the queue branch above always returns
+                // and this was unreachable.
+                //
+                // Deleted rather than left behind: dead code that renders a
+                // screen Zach removed twice is how it comes back.
               }
             }
           } catch (e) { console.warn('scan-match request failed:', e); }
@@ -2759,27 +2749,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 is what puts pixels on the card (see .camera-fullscreen in
                 index.css), but it must be escapable: the boxed layout is the
                 production look and the only way to see the rest of the page. */}
-            <button
-              type="button"
-              className="btn btn-secondary"
-              aria-label={t(fullscreenScan ? 'scan.exitFullscreen' : 'scan.enterFullscreen')}
-              title={t(fullscreenScan ? 'scan.exitFullscreen' : 'scan.enterFullscreen')}
-              style={{
-                position: 'absolute',
-                top: `calc(1rem + ${fullscreenScan ? 'env(safe-area-inset-top)' : '0px'})`,
-                left: '1rem',
-                zIndex: 20,
-                borderRadius: '50%',
-                padding: '0.6rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
-              }}
-              onClick={(e) => { e.stopPropagation(); setFullscreenScan((v) => !v); }}
-            >
-              {fullscreenScan ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
+            {/* NO FULLSCREEN TOGGLE. The scanner is fullscreen always --
+                "I want full screen only" -- so a maximize/minimize control
+                exits to a layout that no longer exists. */}
 
             {/* Torch Toggle Overlay Button */}
             <button
@@ -2951,21 +2923,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 aria-label={t('scan.stagingOpen')}
                 style={{
                   position: 'absolute',
+                  // BELOW THE TORCH, NOT UNDERNEATH IT.
+                  //
+                  // Zach: "for the scanned button when I click it on full
+                  // screen mode nothing happens."
+                  //
+                  // This badge and the torch button were BOTH top:1rem
+                  // right:1rem. They overlapped, and the torch (rendered later
+                  // in the same stacking context) took the tap -- so pressing
+                  // "N scanned" toggled the torch instead of opening the list.
+                  // A higher zIndex does not help when the elements are
+                  // literally stacked on the same coordinates; they have to not
+                  // share the spot.
                   right: '1rem',
-                  top: `calc(1rem + env(safe-area-inset-top))`,
+                  top: `calc(4.5rem + env(safe-area-inset-top))`,
                   zIndex: 21,
                   padding: '0.35rem 0.8rem',
                   borderRadius: 999,
                   background: 'rgba(0,0,0,0.72)',
-                  border: `1px solid ${stagedFlagged ? 'var(--accent-yellow)' : 'var(--type-grass)'}`,
-                  color: stagedFlagged ? 'var(--accent-yellow)' : 'var(--type-grass)',
+                  border: `1px solid ${stagedUnresolved ? 'var(--accent-yellow)' : 'var(--type-grass)'}`,
+                  color: stagedUnresolved ? 'var(--accent-yellow)' : 'var(--type-grass)',
                   fontSize: '0.72rem',
                   fontWeight: 700,
                   cursor: 'pointer',
                 }}
               >
-                {stagedFlagged
-                  ? t('scan.stagingBadgeFlagged', { count: stagedCount, flagged: stagedFlagged })
+                {stagedUnresolved
+                  ? `${stagedCount} scanned · ${stagedUnresolved} need a printing`
                   : t('scan.stagingBadge', { count: stagedCount })}
               </button>
             )}
@@ -3372,32 +3356,16 @@ function CameraScanner({ onAddSuccess, showToast }) {
             <button className="btn btn-secondary" onClick={stopCamera} style={{ flex: 1 }} title={t('scan.stopCamera')}>
               {t('scan.stop')}
             </button>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoScan}
-              className="btn btn-secondary"
-              onClick={() => setAutoScan(!autoScan)}
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.7rem', borderColor: autoScan ? 'var(--type-grass)' : undefined, color: autoScan ? 'var(--type-grass)' : undefined }}
-              title={t('scan.autoCaptureHint')}
-            >
-              <ScanLine size={15} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>{t('scan.auto')}</span>
-              <span style={{ width: 28, height: 15, borderRadius: 999, background: autoScan ? 'var(--type-grass)' : 'rgba(255,255,255,0.22)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
-                <span style={{ position: 'absolute', top: 2, left: autoScan ? 15 : 2, width: 11, height: 11, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
-              </span>
-            </button>
-            {loading ? (
+            {/* NO CAPTURE BUTTON. Zach: "I just want it always on no more
+                click to capture button." Auto-scan fires on its own, and
+                tapping the preview forces a scan when the detector will not
+                volunteer one -- that tap target is the full-screen overlay
+                above, which is the control he actually uses.
+
+                Cancel stays: a scan in flight has to be interruptible. */}
+            {loading && (
               <button className="btn btn-primary" onClick={handleCancelScan} style={{ flex: 2, backgroundColor: 'var(--accent-red)', borderColor: 'var(--accent-red)' }}>
                 {t('scan.cancelScan')}
-              </button>
-            ) : (
-              // NOTE: the arrow wrapper is load-bearing. onClick={handleCapture}
-              // would pass the CLICK EVENT as `auto`, which is truthy, and a
-              // manual tap would then be silently subject to the sharpness gate
-              // — the one thing that must never happen.
-              <button className="btn btn-primary" onClick={() => handleCapture(false)} style={{ flex: 2 }}>
-                {t('scan.captureIdentify')}
               </button>
             )}
             <button
@@ -3644,9 +3612,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => {
+                  // Suppress THIS card rather than switching auto-scan off.
+                  // Auto is permanent now, so the old setAutoScan(false) would
+                  // be a no-op -- resolvedDupIdRef is what actually stops the
+                  // same card being scanned again while it sits in frame.
                   resolvedDupIdRef.current = dupConfirmCard.id;
                   setDupConfirmCard(null);
-                  setAutoScan(false);
                   showToast(t('scan.secondPhoto'));
                 }}
                 style={{ width: '100%', fontSize: '0.8rem', padding: '0.45rem 0' }}
@@ -3760,7 +3731,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 onClick={() => {
                   setScanMatches([]);
                   setScanStatus('');
-                  setAutoScan(false);
                   if (!stream || !cameraActive) startCamera();
                 }}
                 style={{ flex: 1 }}
