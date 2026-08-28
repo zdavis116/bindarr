@@ -151,7 +151,21 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 120, background: 'var(--bg-primary, #12121a)',
+      position: 'fixed', inset: 0, background: 'var(--bg-primary, #12121a)',
+      // ABOVE THE APP CHROME. This was zIndex 120 while the global bottom nav
+      // is z-index 1000 (index.css) -- so the nav, which is opaque, drew ON TOP
+      // of this full-screen overlay and covered exactly the strip where Add All
+      // and the per-row buttons live.
+      //
+      // Zach: "Scanned page is still not functional no add all or you can see
+      // some of the other buttons are covered." My previous fix addressed the
+      // notch, which was a real bug but NOT this one -- his screenshot shows the
+      // app header and the Dashboard/Add Cards/Collection nav rendering over the
+      // list, which no amount of safe-area padding can move out of the way.
+      //
+      // 1100 matches the scanner's own modals in CameraScanner.jsx, which sit
+      // above the nav for the same reason.
+      zIndex: 1100,
       display: 'flex', flexDirection: 'column',
       // RESPECT THE NOTCH AND THE HOME BAR.
       //
