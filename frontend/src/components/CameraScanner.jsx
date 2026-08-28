@@ -2435,7 +2435,21 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   }
                   // Confident image match on an exact set+number is unambiguous, so
                   // take the fast path (single result auto-adds).
-                  if (matches.length) { await applyMatches(matches, '', true, null, isManual); return; }
+                  // A CONFIDENT MATCH WITH SEVERAL PRINTINGS IS STILL A QUESTION,
+                  // so it must not interrupt a stack either.
+                  //
+                  // applyMatches shows the picker whenever it receives more than
+                  // one card. This call passes autoSingle, so ONE result
+                  // auto-adds -- but the by-name fallback above deliberately
+                  // fetches every printing, and that reopens the modal on a card
+                  // the matcher was actually sure about. Same interruption, a
+                  // different door.
+                  //
+                  // One result: take it, that is the fast path working.
+                  // Several: fall through to the queue with the candidates, and
+                  // he picks the printing when the stack is done.
+                  if (matches.length === 1) { await applyMatches(matches, '', true, null, isManual); return; }
+                  if (matches.length && !autoScan) { await applyMatches(matches, '', true, null, isManual); return; }
                 }
 
                 // A LOW-CONFIDENCE MATCH GOES TO THE QUEUE, NOT A POPUP.
@@ -2461,8 +2475,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 //
                 // NOTHING IS ADDED TO THE COLLECTION HERE. A queue entry costs
                 // a tap later; a wrong card costs a recount against cardboard.
-                if (autoScan && (clipName || titleText)) {
-                  const identified = clipName || titleText;
+                // THE GATE IS THE QUEUE'S, NOT A GUESS AT ONE.
+                //
+                // This first read `if (autoScan && (clipName || titleText))`,
+                // which is why Zach still saw the modal after the last deploy:
+                // the popup fires precisely when the matcher is LEAST sure, and
+                // those are exactly the scans with no CLIP name and no readable
+                // title. His screenshot -- Ceremonial Knife beside Inspiring
+                // Call, an artifact and an instant from unrelated sets -- is a
+                // scan where nothing was identified at all.
+                //
+                // The server accepts a staging row on name, title_text OR
+                // ocr_text (collection.js:730), so a scan with only OCR text is
+                // queueable. Gating on name/title alone rejected the very cases
+                // this change exists to capture and dropped them back into the
+                // picker.
+                //
+                // Anything the queue will accept goes to the queue.
+                const ocrText = ocr?.text || '';
+                if (autoScan && (clipName || titleText || ocrText)) {
+                  // The dedup key must survive having no name at all: fall back
+                  // to the OCR text so a stack of unidentifiable cards does not
+                  // share one empty key and silently skip every card after the
+                  // first.
+                  const identified = clipName || titleText || ocrText;
                   const repeatIdentity = identified === lastQueuedNameRef.current;
                   if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
                     setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
@@ -2478,14 +2514,17 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     matchInliers,
                     name: clipName,
                     titleText,
-                    ocrText: ocr?.text || '',
+                    ocrText,
                     crop,
                     quantity: 1,
                   });
                   if (scanId !== currentScanId.current) return;
                   if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
-                  setScanStatus(t('scan.queuedForReview', { name: identified }));
-                  showToast(t('scan.queuedToast', { name: identified }));
+                  // Never show raw OCR text as if it were a card name -- when
+                  // nothing was identified, say so plainly.
+                  const label = clipName || titleText || 'Unidentified card';
+                  setScanStatus(t('scan.queuedForReview', { name: label }));
+                  showToast(t('scan.queuedToast', { name: label }));
                   signal('capture');
                   setScanMatches([]);
                   return;
