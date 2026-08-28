@@ -514,6 +514,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // different kinds of value in one ref would make a future "why doesn't this
   // match?" bug very hard to see.
   const lastQueuedNameRef = useRef(null);
+  // Was the scan currently in flight started by a TAP rather than by auto-scan?
+  //
+  // Set in handleCapture and read in applyMatches, which sits several async
+  // awaits downstream of it. Passing it as an argument would mean threading it
+  // through every call site of every intermediate, and any one that forgot
+  // would silently re-suppress the tap -- the exact bug this fixes.
+  const manualScanRef = useRef(false);
 
   // BUG 2 (auto-scan blur): the sharpness gate's rolling state.
   //
@@ -1129,8 +1136,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // consecutive frames scores 1.3-2.4, different cards 19.9-86.6. An
         // eight-fold gap with nothing in it.
         try {
+          // COORDINATE SPACE. `data` is the DWxDH DETECTION buffer, so the box
+          // must be in DETECTION pixels -- i.e. `det`, not `mapped`.
+          //
+          // This shipped reading `mapped`, which is `det` scaled up to the
+          // PREVIEW ELEMENT (~390 CSS px wide against DW=160, so ~2.4x) and
+          // offset for object-fit: cover. Every sample then landed outside the
+          // 160px buffer, artFingerprint's bounds check returned null on every
+          // frame, and the whole artwork-change feature was inert -- silently,
+          // because the caller swallows failure as "enhancement unavailable"
+          // and falls back to the box-movement rule that could not see a
+          // Forest landing on Forests in the first place.
+          //
+          // That is exactly what Zach reported after the deploy: still tapping
+          // every card. The fix was never live.
           const print = artFingerprint(data, DW, DH, {
-            x: mapped.x, y: mapped.y, w: mapped.w, h: mapped.h,
+            x: det.x, y: det.y, w: det.w, h: det.h,
           });
           if (print) {
             // A genuinely different card re-arms IMMEDIATELY -- no disturbance
@@ -1678,6 +1699,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // unambiguous (only one printing, or the set code narrowed it to one). Ambiguous
   // MTG (many printings, no set code) still shows the picker.
   const applyMatches = async (matches, notFoundMsg, autoSingle = false, matchInliers = null) => {
+    // Read once at entry: the scan that produced these matches is the one whose
+    // intent matters, and a later tap must not retroactively change it.
+    const manualOverride = manualScanRef.current;
     setScanMatches(matches);
     if (matches.length === 0) {
       // Nothing in frame — the resolved-duplicate card has left, so clear the
@@ -1710,7 +1734,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
         const inl = Number.isFinite(matchInliers) ? matchInliers : matches[0].inliers;
         const identityIsTrusted = Number.isFinite(inl) && inl > WEAK_MATCH_INLIERS;
 
-        if (identityIsTrusted && id === resolvedDupIdRef.current) {
+        // A MANUAL TAP OVERRIDES EVERY DEDUPE GUARD.
+        //
+        // Zach: "no card would scan twice even with a tap trying to override
+        // it."
+        //
+        // The tap path already clears the capture-side latches
+        // (stablePeriodConsumedRef, loading, currentScanId) -- but the scan then
+        // completed and died HERE instead, in the match-side guards, showing
+        // "Same card still in view". So the tap did fire a real scan and its
+        // result was thrown away, which looks identical to the tap doing
+        // nothing.
+        //
+        // The guards exist to stop a card LINGERING in frame from being counted
+        // twice on its own. A tap is not lingering -- it is Zach explicitly
+        // asserting "this is a new card, scan it". He is holding the cardboard;
+        // the app is inferring from 64 brightness samples. He wins.
+        //
+        // This is deliberately NOT extended to the auto path: there, a repeat
+        // identity really is ambiguous, and a wrong count against physical
+        // cardboard costs a recount while a missed card costs a tap.
+        if (identityIsTrusted && manualOverride && id === resolvedDupIdRef.current) {
+          resolvedDupIdRef.current = null;
+        }
+        if (identityIsTrusted && !manualOverride && id === resolvedDupIdRef.current) {
           // Same card we already handled, still sitting in frame — wait for a
           // different card before doing anything.
           setScanMatches([]);
@@ -1749,6 +1796,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // restarting the camera -- Zach: "tapping didn't get it to scan again".
     // Auto-scan never forces: only a deliberate tap does.
     if ((loading && !force) || !videoRef.current || !cameraActive) return;
+
+    // Record the INTENT behind this scan for the dedupe guards downstream.
+    // `auto === false` means a tap. Set before any await so applyMatches sees
+    // it, and reset in the finally so a later auto-scan never inherits it.
+    manualScanRef.current = !auto;
 
     setLoading(true);
     const scanId = ++currentScanId.current;
@@ -2205,7 +2257,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // of glared cards with no CLIP name would all share the key ''
                   // and every card after the first would be silently skipped.
                   const identified = clipName || titleText;
-                  if (identified === lastQueuedNameRef.current) {
+                  // A TAP OVERRIDES THIS GUARD TOO. Same reasoning as the
+                  // id-based guard in applyMatches: this is the QUEUE path, and
+                  // it silently returns, so a tap that lands here looks exactly
+                  // like a tap that did nothing at all. Zach: "no card would
+                  // scan twice even with a tap trying to override it."
+                  if (!manualScanRef.current && identified === lastQueuedNameRef.current) {
                     setScanStatus(t('scan.sameCardAgain'));
                     return;
                   }
@@ -2421,6 +2478,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // the stability gate then has to approve anyway. A stuck `true` is
       // unrecoverable. Prefer the recoverable failure.
       setLoading(false);
+      // Manual intent lasts exactly one scan. Leaving it set would let the next
+      // AUTO scan bypass the dedupe guards, which is the dangerous direction:
+      // a duplicate against physical cardboard costs a recount.
+      manualScanRef.current = false;
       // The STATUS text still belongs to the newest scan only, so a stale scan
       // cannot overwrite what the current one is saying.
     }
