@@ -514,13 +514,42 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // different kinds of value in one ref would make a future "why doesn't this
   // match?" bug very hard to see.
   const lastQueuedNameRef = useRef(null);
-  // Was the scan currently in flight started by a TAP rather than by auto-scan?
+  // The identity a TAP has already forced past the queue dedupe guard. Lets the
+  // first tap through and refuses a second one on the same card, so a double tap
+  // cannot stage two rows for one piece of cardboard. Cleared alongside
+  // lastQueuedNameRef when the card leaves the frame, because at that point a
+  // genuine second copy must be scannable again.
+  const manualForcedNameRef = useRef(null);
+  // MANUAL INTENT IS PER-SCAN, AND MUST NOT BE A SHARED MUTABLE FLAG.
   //
-  // Set in handleCapture and read in applyMatches, which sits several async
-  // awaits downstream of it. Passing it as an argument would mean threading it
-  // through every call site of every intermediate, and any one that forgot
-  // would silently re-suppress the tap -- the exact bug this fixes.
-  const manualScanRef = useRef(false);
+  // The first version of this used a single `manualScanRef` set at the top of
+  // handleCapture and cleared in its finally. Review found that to be a genuine
+  // duplicate-record bug, and it is worth recording why, because the mistake is
+  // easy to repeat.
+  //
+  // handleCapture is async AND deliberately re-enterable: the tap overlay calls
+  // it with force=true, which skips the `loading` guard on purpose so a wedged
+  // scanner can be recovered. So two invocations overlap, and a shared flag is
+  // read by whichever scan happens to be running -- not by the scan that set it.
+  //
+  //   auto scan A starts            manual = false
+  //   A awaits /api/scan-match      (~160 lines of async work follow, with no
+  //                                  staleness re-check before the queue guard)
+  //   user taps -> scan T starts    manual = TRUE
+  //   A resumes, reads the flag     sees TRUE, skips its dedupe guard,
+  //                                 and stages a duplicate row
+  //
+  // That is precisely the failure Zach pays for in a physical recount, caused by
+  // the change meant to protect him. The reverse interleaving is also broken: A
+  // finishing inside T's window runs A's finally, clearing T's intent, so the
+  // tap override silently stops working -- non-deterministically.
+  //
+  // The fix is structural rather than another guard: intent is a plain local
+  // `const isManual = !auto` in handleCapture, captured by that scan's closure
+  // and passed explicitly to applyMatches. Concurrent scans then cannot see
+  // each other's intent AT ALL, so this class of interleaving becomes
+  // unrepresentable rather than merely unlikely. There is no shared cell left
+  // to corrupt, which is why no ref is declared here.
 
   // BUG 2 (auto-scan blur): the sharpness gate's rolling state.
   //
@@ -1698,10 +1727,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // result too — used when the image match is confident and the printing is
   // unambiguous (only one printing, or the set code narrowed it to one). Ambiguous
   // MTG (many printings, no set code) still shows the picker.
-  const applyMatches = async (matches, notFoundMsg, autoSingle = false, matchInliers = null) => {
-    // Read once at entry: the scan that produced these matches is the one whose
-    // intent matters, and a later tap must not retroactively change it.
-    const manualOverride = manualScanRef.current;
+  // `manualOverride` is the calling scan's own intent, passed explicitly rather
+  // than read from shared state -- see the note by lastQueuedNameRef for the
+  // duplicate-record bug that a shared flag caused here.
+  const applyMatches = async (matches, notFoundMsg, autoSingle = false, matchInliers = null, manualOverride = false) => {
     setScanMatches(matches);
     if (matches.length === 0) {
       // Nothing in frame — the resolved-duplicate card has left, so clear the
@@ -1797,10 +1826,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // Auto-scan never forces: only a deliberate tap does.
     if ((loading && !force) || !videoRef.current || !cameraActive) return;
 
-    // Record the INTENT behind this scan for the dedupe guards downstream.
-    // `auto === false` means a tap. Set before any await so applyMatches sees
-    // it, and reset in the finally so a later auto-scan never inherits it.
-    manualScanRef.current = !auto;
+    // THE INTENT BEHIND THIS SCAN, as a local. `auto === false` means a tap.
+    // Captured by this invocation's closure, so a concurrent scan starting
+    // mid-flight cannot change what this one believes about itself.
+    const isManual = !auto;
 
     setLoading(true);
     const scanId = ++currentScanId.current;
@@ -2257,16 +2286,44 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // of glared cards with no CLIP name would all share the key ''
                   // and every card after the first would be silently skipped.
                   const identified = clipName || titleText;
-                  // A TAP OVERRIDES THIS GUARD TOO. Same reasoning as the
-                  // id-based guard in applyMatches: this is the QUEUE path, and
-                  // it silently returns, so a tap that lands here looks exactly
-                  // like a tap that did nothing at all. Zach: "no card would
-                  // scan twice even with a tap trying to override it."
-                  if (!manualScanRef.current && identified === lastQueuedNameRef.current) {
+                  // A TAP OVERRIDES THIS GUARD -- BUT ONLY ONCE PER CARD.
+                  //
+                  // The guard exists so a card LINGERING in frame is not staged
+                  // repeatedly on its own. A tap is Zach asserting "this is a
+                  // new card", so it must get through; that is the whole point
+                  // of the escape hatch.
+                  //
+                  // But an unconditional override means a double tap -- or one
+                  // stray double-click on the full-bleed transparent overlay --
+                  // stages TWO rows for one piece of cardboard, with no
+                  // confirmation anywhere on this path. Given his stated cost
+                  // asymmetry (a duplicate costs a recount against cardboard, a
+                  // miss costs a tap) that trade is the wrong way round.
+                  //
+                  // So: the first tap on an identity forces through, a second
+                  // tap on the SAME identity is refused AND SAYS SO. If it
+                  // really is a second physical copy, the message tells him to
+                  // lift and re-present the card, which clears the guard
+                  // legitimately. That costs a tap in the rare case and prevents
+                  // a recount in the likely one.
+                  const repeatIdentity = identified === lastQueuedNameRef.current;
+                  if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
+                    setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+                    return;
+                  }
+                  if (repeatIdentity && !isManual) {
                     setScanStatus(t('scan.sameCardAgain'));
                     return;
                   }
+                  // Claim the override BEFORE the await, so a second tap that
+                  // arrives while this submit is in flight sees it.
+                  if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
                   setScanStatus('');
+                  // DO NOT WRITE ON BEHALF OF A SUPERSEDED SCAN. This check used
+                  // to sit only AFTER submitScan returned, which is too late --
+                  // the row already exists. Two rapid taps both reach here, and
+                  // the second bumps currentScanId, so the first must abandon.
+                  if (scanId !== currentScanId.current) return;
                   const outcome = await reviewQueue.submitScan({
                     // HOW STRONG THE MATCH WAS. The staging row stores this and
                     // the low_confidence flag keys on it -- a flag that has never
@@ -2370,7 +2427,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // Instant path: if scan-match pre-hydrated the card from local card_cache,
                   // apply it directly without waiting for a second /api/search HTTP round-trip!
                   if (top.card) {
-                    await applyMatches([top.card], '', true, top.inliers);
+                    await applyMatches([top.card], '', true, top.inliers, isManual);
                     return;
                   }
 
@@ -2399,13 +2456,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   }
                   // Confident image match on an exact set+number is unambiguous, so
                   // take the fast path (single result auto-adds).
-                  if (matches.length) { await applyMatches(matches, '', true); return; }
+                  if (matches.length) { await applyMatches(matches, '', true, null, isManual); return; }
                 }
 
                 // If not confident (or multiple printings), check if candidates are pre-hydrated
                 const preHydrated = candidates.slice(0, 8).map(c => c.card).filter(Boolean);
                 if (preHydrated.length === candidates.slice(0, 8).length) {
-                  await applyMatches(preHydrated, 'No matching cards found.');
+                  await applyMatches(preHydrated, 'No matching cards found.', false, null, isManual);
                   return;
                 }
 
@@ -2430,7 +2487,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 if (scanId !== currentScanId.current) return;
                 const validCandidates = fullCandidates.filter(c => c);
                 if (validCandidates.length > 0) {
-                  await applyMatches(validCandidates, '', false);
+                  await applyMatches(validCandidates, '', false, null, isManual);
                   return;
                 }
               }
@@ -2448,6 +2505,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // this, scanning two real copies of the same card in one stack would
       // silently record only the first.
       lastQueuedNameRef.current = null;
+      manualForcedNameRef.current = null;
       signal('error');
     } catch (err) {
       console.error('Scan match failed:', err);
@@ -2478,10 +2536,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // the stability gate then has to approve anyway. A stuck `true` is
       // unrecoverable. Prefer the recoverable failure.
       setLoading(false);
-      // Manual intent lasts exactly one scan. Leaving it set would let the next
-      // AUTO scan bypass the dedupe guards, which is the dangerous direction:
-      // a duplicate against physical cardboard costs a recount.
-      manualScanRef.current = false;
       // The STATUS text still belongs to the newest scan only, so a stale scan
       // cannot overwrite what the current one is saying.
     }

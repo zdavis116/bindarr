@@ -61,32 +61,43 @@ const mapped = { x: det.x * scale, y: det.y * scale, w: det.w * scale, h: det.h 
   pass('AFS-TC1', 'detection-space box produces a fingerprint');
 }
 
-// TC2: preview-space coordinates produce NOTHING. This is the shipped bug.
+// TC2: preview-space coordinates must not silently pass for detection-space.
+//
+// The original version of this case asserted `=== null`, which review correctly
+// called out as testing a COINCIDENCE rather than the property: null happens
+// only because 390/160 pushes the samples out of bounds. A smaller preview
+// element, or a larger DW later, would put them back IN bounds and yield a
+// wrong-but-non-null fingerprint -- and this test would go green on a real
+// regression.
+//
+// So assert the thing that actually matters: whatever preview-space input
+// produces, it must NOT be a usable stand-in for the detection-space
+// fingerprint. Either it fails outright, or it disagrees with the truth by more
+// than the same-card noise floor -- i.e. it would corrupt the comparison.
 {
-  const fp = artFingerprint(frame(7), DW, DH, mapped);
-  assert.strictEqual(
-    fp, null,
-    'preview-space box samples outside the detection buffer and must return null -- '
-    + 'if this ever returns a fingerprint the bug becomes silent again',
-  );
-  pass('AFS-TC2', 'preview-space box yields no fingerprint (the shipped defect)');
+  const data = frame(7);
+  const truth = artFingerprint(data, DW, DH, det);
+  const viaPreview = artFingerprint(data, DW, DH, mapped);
+
+  if (viaPreview !== null) {
+    const d = fingerprintDistance(truth, viaPreview);
+    assert.ok(
+      d !== null && d > 2.4,
+      'a preview-space box must not produce a fingerprint equivalent to the '
+      + 'detection-space one (2.4 is the measured same-card noise ceiling)',
+    );
+  }
+  pass('AFS-TC2', 'preview-space box cannot stand in for detection space');
 }
 
 // TC3: THE CONSEQUENCE, stated in Zach's terms. With detection-space input, a
-// different card in the SAME position re-arms capture. With preview-space input
-// it never can, which is precisely "I have to tap every card".
+// different card in the SAME position re-arms capture. That is the whole
+// feature: "I put down 3 forest in a row and it only scanned the 1st."
 {
   const a = artFingerprint(frame(7), DW, DH, det);
   const b = artFingerprint(frame(53), DW, DH, det);
   assert.ok(isDifferentCard(b, a), 'a different card in the same box must re-arm capture');
-
-  const badA = artFingerprint(frame(7), DW, DH, mapped);
-  const badB = artFingerprint(frame(53), DW, DH, mapped);
-  assert.strictEqual(
-    isDifferentCard(badB, badA), false,
-    'with preview-space input the feature is inert -- it can never report a new card',
-  );
-  pass('AFS-TC3', 'detection space re-arms on a new card; preview space is inert');
+  pass('AFS-TC3', 'detection space re-arms capture on a new card');
 }
 
 // TC4: the same card sitting still must NOT re-arm. The dangerous direction:
