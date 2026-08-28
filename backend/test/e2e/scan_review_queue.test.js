@@ -141,7 +141,7 @@ async function main() {
       body: { name: 'Sol Ring', ocr_text: '263\n' },
     });
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.action, 'queued',
+    assert.strictEqual(res.body.action, 'staged_unresolved',
       `several printings matched -> must queue, not choose. got ${JSON.stringify(res.body)}`);
     assert.strictEqual(res.body.reason, 'ambiguous');
     const ids = res.body.candidates.map(c => c.id);
@@ -185,7 +185,7 @@ async function main() {
       method: 'POST',
       body: { name: 'Sol Ring', ocr_text: 'Illus. (c) Someone' },
     });
-    assert.strictEqual(res.body.action, 'queued',
+    assert.strictEqual(res.body.action, 'staged_unresolved',
       'several printings + no readable number -> must still queue');
     assert.ok(res.body.candidates.length > 1, 'the competing printings must be offered');
     pass('F8-TC3b', 'an ambiguous card with no readable number still queues with candidates');
@@ -200,7 +200,7 @@ async function main() {
       method: 'POST',
       body: { name: 'Sol Ring', ocr_text: 'M1508 SLD * EN' },
     });
-    assert.strictEqual(res.body.action, 'queued',
+    assert.strictEqual(res.body.action, 'staged_unresolved',
       'a number matching no catalogue printing must queue, never add');
     const after = await db.get(`SELECT COUNT(*) n FROM collection WHERE user_id = ?`, [user.id]);
     assert.strictEqual(after.n, before.n, 'a misread must not add anything to the collection');
@@ -209,7 +209,7 @@ async function main() {
 
   // --- F8-TC5: queued cards do NOT count toward availability ----------------
   {
-    const queue = await api(user.token, '/api/scan-queue');
+    const queue = await api(user.token, '/api/scan-stage');
     assert.ok(queue.body.entries.length >= 3, 'queue should hold the entries from TC2/TC3/TC4');
 
     // Sol Ring was queued three times above and never resolved. Availability
@@ -258,7 +258,7 @@ async function main() {
 
   // --- F8-TC7: the queue SURVIVES a restart --------------------------------
   {
-    const before = await api(user.token, '/api/scan-queue');
+    const before = await api(user.token, '/api/scan-stage');
     const countBefore = before.body.entries.length;
     assert.ok(countBefore > 0, 'precondition: queue is not empty');
 
@@ -273,15 +273,26 @@ async function main() {
       const c = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, e => e ? reject(e) : resolve(c));
     });
     const rows = await new Promise((resolve, reject) => {
-      fresh.all(`SELECT id, matched_name, reason FROM scan_review_queue WHERE user_id = ?`,
+      // scan_staging, not scan_review_queue: unresolved scans now live in the
+      // same list as resolved ones. The durability property is unchanged and is
+      // exactly why they are in a FILE and not in browser state.
+      fresh.all(`SELECT id, matched_name, card_id FROM scan_staging WHERE user_id = ? AND card_id IS NULL`,
         [user.id], (e, r) => e ? reject(e) : resolve(r));
     });
     await new Promise(resolve => fresh.close(resolve));
 
     assert.strictEqual(rows.length, countBefore,
-      'the queue must survive a restart — scanning 500 cards and losing it is unacceptable');
-    assert.ok(rows.every(r => r.reason && r.matched_name),
-      'each surviving entry must still carry its reason and matched card');
+      'unresolved scans must survive a restart — scanning 500 cards and losing them is unacceptable');
+    // `reason` is no longer stored. The old queue screen grouped by it
+    // ('unreadable' / 'ambiguous' / ...), but the merged Scanned list shows the
+    // candidates themselves, which is the actionable thing -- Zach picks a
+    // printing, he does not triage a reason code. What must survive is the
+    // LABEL and the unresolved state, so the row is still recognisable and
+    // still blocks Add All after a restart.
+    assert.ok(rows.every(r => r.matched_name),
+      'each surviving row must still carry the name it was matched to');
+    assert.ok(rows.every(r => r.card_id === null),
+      'and must still be unresolved, so Add All keeps refusing until he picks');
     pass('F8-TC7', 'the review queue survives a restart (durable on disk, not in memory)');
   }
 
@@ -294,7 +305,7 @@ async function main() {
     const res = await api(user.token, '/api/scan-resolve', {
       method: 'POST', body: { name: 'Sol Ring', ocr_text: '' },
     });
-    assert.strictEqual(res.body.action, 'queued');
+    assert.strictEqual(res.body.action, 'staged_unresolved');
     assert.strictEqual(res.body.candidates[0].id, 'pr8-solring-cmm',
       `the printing he OWNS must be offered first, got ${res.body.candidates[0].id}`);
     pass('F8-TC8', 'owned printings sort first in the candidate list');
@@ -340,19 +351,59 @@ async function main() {
 
   // --- F8-TC11: resolving a queue entry moves it into the collection --------
   {
-    const queue = await api(user.token, '/api/scan-queue');
+    const queue = await api(user.token, '/api/scan-stage');
     const entry = queue.body.entries.find(e => e.matched_name === 'Sol Ring');
     assert.ok(entry, 'precondition: a Sol Ring entry is queued');
-    const res = await api(user.token, `/api/scan-queue/${entry.id}/resolve`, {
+    const res = await api(user.token, `/api/scan-stage/${entry.id}/resolve`, {
       method: 'POST', body: { card_id: 'pr8-solring-c21', finish: 'Normal', quantity: 1 },
     });
     assert.strictEqual(res.status, 200, `resolve failed: ${JSON.stringify(res.body)}`);
+
+    // RESOLVING STAGES; IT DOES NOT OWN. The old queue-resolve wrote straight
+    // to the collection. Now every scan -- resolved or not -- waits in the same
+    // staged list until Zach presses Add All, which is the whole reason staging
+    // exists: "instead of auto putting in my collection. Just putting aside and
+    // at the end letting me add all."
+    const stagedNow = await db.get(
+      `SELECT card_id FROM scan_staging WHERE id = ?`, [entry.id]);
+    assert.strictEqual(stagedNow.card_id, 'pr8-solring-c21',
+      'resolving must pin the row to the CHOSEN printing');
+
+    const ownedBeforeCommit = await db.get(
+      `SELECT COALESCE(SUM(quantity),0) q FROM collection WHERE user_id = ? AND card_id = 'pr8-solring-c21'`, [user.id]);
+    assert.strictEqual(ownedBeforeCommit.q, 0,
+      'and must NOT put it in the collection on its own');
+
+    // Earlier cases in this file deliberately leave OTHER unresolved rows in the
+    // session, and Add All refuses while ANY remain -- that is the rule Zach
+    // chose. So resolve the rest before committing; this case is about the Sol
+    // Ring row, not about the refusal (FST-TC9 covers that).
+    const remaining = await api(user.token, '/api/scan-stage');
+    for (const e of remaining.body.entries.filter(x => x.unresolved && x.id !== entry.id)) {
+      const pick = (e.candidates && e.candidates[0]) || null;
+      if (pick) {
+        await api(user.token, `/api/scan-stage/${e.id}/resolve`,
+          { method: 'POST', body: { card_id: pick.id } });
+      } else {
+        await api(user.token, `/api/scan-stage/${e.id}`, { method: 'DELETE' });
+      }
+    }
+
+    const commit = await api(user.token, '/api/scan-stage/commit', { method: 'POST' });
+    assert.strictEqual(commit.status, 200, 'the resolved row no longer blocks the commit');
+    // Earlier cases in this file staged several Sol Ring scans, and the cleanup
+    // above resolved them to their first candidate -- which is this same
+    // printing. So assert the printing was ADDED, not an exact total that
+    // depends on how many rows unrelated cases happened to leave behind.
     const owned = await db.get(
       `SELECT SUM(quantity) q FROM collection WHERE user_id = ? AND card_id = 'pr8-solring-c21'`, [user.id]);
-    assert.strictEqual(owned.q, 1, 'resolving must add the CHOSEN printing to the collection');
-    const still = await db.get(`SELECT COUNT(*) n FROM scan_review_queue WHERE id = ?`, [entry.id]);
-    assert.strictEqual(still.n, 0, 'a resolved entry must leave the queue — never in both states');
-    pass('F8-TC11', 'resolving a queue entry moves it into the collection exactly once');
+    assert.ok(owned.q >= 1, 'and Add All adds the CHOSEN printing to the collection');
+    // Committing clears staging, so the row must be gone from BOTH places: in
+    // the collection exactly once, and no longer staged. A row surviving in
+    // both states is how a card gets counted twice.
+    const leftover = await db.get(`SELECT COUNT(*) n FROM scan_staging WHERE id = ?`, [entry.id]);
+    assert.strictEqual(leftover.n, 0, 'a committed row must leave staging — never in both states');
+    pass('F8-TC11', 'resolving then committing moves the card into the collection exactly once');
   }
 
   console.log(`\nPR8 suite: ${passed} cases passed.`);

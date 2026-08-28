@@ -95,6 +95,9 @@ async function main() {
   const { createScanReviewQueue } = await import(
     path.join(__dirname, '..', '..', '..', 'frontend', 'src', 'components', 'scanReviewQueue.js')
   );
+  const { createScanStaging } = await import(
+    path.join(__dirname, '..', '..', '..', 'frontend', 'src', 'components', 'scanStaging.js')
+  );
 
   // The injected fetch is the ONLY thing standing in for the browser: it adds
   // the auth header and resolves the relative URL the component really sends.
@@ -105,6 +108,9 @@ async function main() {
   });
 
   const queue = createScanReviewQueue({ fetchImpl });
+  // The staging controller is the real one the review screen uses. Unresolved
+  // scans live here now that the review queue is gone.
+  const staging = createScanStaging({ fetchImpl });
 
   const ownedCount = async () => {
     const row = await db.get(`SELECT COUNT(*) n FROM collection WHERE user_id = ?`, [user.id]);
@@ -134,7 +140,7 @@ async function main() {
       ocrText: '263\n',
       crop: 'data:image/jpeg;base64,AAAA',
     });
-    assert.strictEqual(outcome.action, 'queued',
+    assert.strictEqual(outcome.action, 'staged_unresolved',
       `two printings share #263 -> must queue. got ${JSON.stringify(outcome)}`);
     assert.strictEqual(outcome.added, false);
     assert.strictEqual(outcome.reason, 'ambiguous');
@@ -144,21 +150,28 @@ async function main() {
     pass('F9E-TC2', 'an ambiguous scan queues and puts nothing in the collection');
   }
 
-  // --- F9E-TC3: the queue is readable from the server (survives a reload) ---
+  // --- F9E-TC3: unresolved scans survive a reload --------------------------
+  //
+  // Same property as before, different home. The review queue was deleted --
+  // Zach: "get rid of the queue because having the queue and scanner section
+  // seem redundant" -- so an unresolved scan is now a staging row with a NULL
+  // card_id, read through the staging controller.
+  //
+  // What must not change: the row lives on the SERVER, so scanning a large
+  // stack and reloading the page cannot lose it, and it comes back with the
+  // candidates needed to resolve it.
   {
-    // A BRAND NEW controller, as if the page had just been reloaded: it has no
-    // memory of anything queued above.
-    const fresh = createScanReviewQueue({ fetchImpl });
-    assert.strictEqual(fresh.getState().pendingCount, 0, 'a fresh controller starts empty');
+    const fresh = createScanStaging({ fetchImpl });
+    assert.strictEqual(fresh.getState().stagedCount, 0, 'a fresh controller starts empty');
     const state = await fresh.refresh();
     assert.ok(state.entries.length >= 1,
-      'the queue must come back from the server after a reload');
-    assert.strictEqual(state.pendingCount, state.entries.length);
+      'staged scans must come back from the server after a reload');
     const entry = state.entries.find(e => e.matched_name === 'Sol Ring');
-    assert.ok(entry, 'the queued Sol Ring must be readable from the server');
-    assert.strictEqual(entry.reason, 'ambiguous');
+    assert.ok(entry, 'the unresolved Sol Ring must be readable from the server');
+    assert.ok(entry.unresolved, 'and must still be marked as needing a printing');
     assert.ok(entry.candidates.length >= 2, 'the stored candidates must come back too');
-    pass('F9E-TC3', 'the queue is read from the server and survives a fresh controller');
+    assert.ok(state.unresolvedCount >= 1, 'and it is counted, so Add All stays blocked');
+    pass('F9E-TC3', 'unresolved scans are read from the server and survive a fresh controller');
   }
 
   // --- F9E-TC4: owned printings sort FIRST ---------------------------------
@@ -171,11 +184,11 @@ async function main() {
       [user.id]
     );
     const outcome = await queue.submitScan({ name: 'Sol Ring', ocrText: '263\n' });
-    assert.strictEqual(outcome.action, 'queued');
+    assert.strictEqual(outcome.action, 'staged_unresolved');
     assert.strictEqual(outcome.candidates[0].id, 'pr9-solring-lcc',
       `owned printing must sort first, got ${outcome.candidates.map(c => c.id).join(',')}`);
 
-    const state = await queue.refresh();
+    const state = await staging.refresh();
     const stored = state.entries.filter(e => e.matched_name === 'Sol Ring').pop();
     assert.strictEqual(stored.candidates[0].id, 'pr9-solring-lcc',
       'the owned-first order must be preserved as stored and re-read');
@@ -183,65 +196,63 @@ async function main() {
     pass('F9E-TC4', 'owned printings sort first, through the real resolver and back');
   }
 
-  // --- F9E-TC5: resolving moves the card OUT of the queue INTO the collection
+  // --- F9E-TC5: resolving pins the printing but does NOT add it -------------
+  //
+  // The old queue-resolve wrote straight to the collection. Staging deliberately
+  // does not: nothing is owned until Add All. Zach: "instead of auto putting in
+  // my collection. Just putting aside and at the end letting me add all."
   {
-    const state = await queue.refresh();
-    const entry = state.entries.find(e => e.matched_name === 'Sol Ring');
+    const state = await staging.refresh();
+    const entry = state.entries.find(e => e.matched_name === 'Sol Ring' && e.unresolved);
     const chosen = entry.candidates[0];
     const beforeOwned = await ownedCount();
-    const beforeQueue = state.entries.length;
 
-    const result = await queue.resolveEntry(entry.id, {
-      card_id: chosen.id,
-      printing: 'nonfoil',
-      quantity: 1,
-    });
+    const result = await staging.resolveEntry(entry.id, chosen.id);
     assert.strictEqual(result.ok, true, `resolve failed: ${JSON.stringify(result)}`);
-    assert.strictEqual(await ownedCount(), beforeOwned + 1,
-      'a resolved queue entry must enter the collection');
-    const after = queue.getState();
-    assert.strictEqual(after.entries.length, beforeQueue - 1,
-      'the resolved entry must leave the queue');
-    assert.ok(!after.entries.some(e => e.id === entry.id), 'that exact entry is gone');
-    const row = await db.get(
-      `SELECT * FROM scan_review_queue WHERE id = ?`, [entry.id]);
-    assert.strictEqual(row, undefined, 'the queue row must be deleted server-side');
-    pass('F9E-TC5', 'resolving one entry moves it from the queue into the collection');
+    assert.strictEqual(await ownedCount(), beforeOwned,
+      'resolving must NOT put the card in the collection on its own');
+
+    const row = await db.get(`SELECT card_id FROM scan_staging WHERE id = ?`, [entry.id]);
+    assert.strictEqual(row.card_id, chosen.id, 'the row is pinned to the chosen printing');
+    const after = staging.getState();
+    const stillUnresolved = after.entries.find(e => e.id === entry.id);
+    assert.ok(stillUnresolved && !stillUnresolved.unresolved,
+      'and the row stays in the list, now resolved');
+    pass('F9E-TC5', 'resolving pins the printing and stages it, without adding anything');
   }
 
-  // --- F9E-TC6: a rejected printing leaves the entry in the queue -----------
+  // --- F9E-TC6: a resolve to an unknown card leaves the row alone -----------
+  //
+  // Losing a card Zach physically scanned is worse than asking him again, and a
+  // row pointing at a non-existent card would take down the whole Add All.
   {
-    const state = await queue.refresh();
-    const entry = state.entries[0];
-    assert.ok(entry, 'need a queued entry for this case');
+    const state = await staging.refresh();
+    const entry = state.entries.find(e => e.unresolved);
+    assert.ok(entry, 'need an unresolved row for this case');
     const beforeOwned = await ownedCount();
 
-    // A card id that was never among the scanned candidates. The server refuses
-    // it; the entry must SURVIVE. Losing a card Zach physically scanned would
-    // be worse than asking him again.
-    const result = await queue.resolveEntry(entry.id, { card_id: 'pr9-bolt' });
-    assert.strictEqual(result.ok, false, 'a non-candidate printing must be refused');
+    const result = await staging.resolveEntry(entry.id, 'pr9-no-such-card');
+    assert.strictEqual(result.ok, false, 'a non-existent card must be refused');
     assert.strictEqual(await ownedCount(), beforeOwned, 'and must add nothing');
-    const still = await db.get(`SELECT * FROM scan_review_queue WHERE id = ?`, [entry.id]);
-    assert.ok(still, 'the entry must still be in the queue after a refused resolve');
-    assert.ok(queue.getState().entries.some(e => e.id === entry.id),
-      'and the UI state must still show it');
-    pass('F9E-TC6', 'a refused printing leaves the queue entry intact and adds nothing');
+    const still = await db.get(`SELECT card_id FROM scan_staging WHERE id = ?`, [entry.id]);
+    assert.ok(still, 'the row must survive a refused resolve');
+    assert.strictEqual(still.card_id, null, 'and must still be unresolved');
+    pass('F9E-TC6', 'a refused resolve leaves the row intact, unresolved, and adds nothing');
   }
 
-  // --- F9E-TC7: discarding removes the entry and touches nothing owned ------
+  // --- F9E-TC7: discarding removes the row and touches nothing owned --------
   {
-    const state = await queue.refresh();
+    const state = await staging.refresh();
     const entry = state.entries[0];
     const beforeOwned = await ownedCount();
 
-    const result = await queue.discardEntry(entry.id);
+    const result = await staging.discardEntry(entry.id);
     assert.strictEqual(result.ok, true);
     assert.strictEqual(await ownedCount(), beforeOwned,
-      'discarding from the queue must never remove anything he owns');
-    const gone = await db.get(`SELECT * FROM scan_review_queue WHERE id = ?`, [entry.id]);
-    assert.strictEqual(gone, undefined, 'the discarded entry is deleted');
-    pass('F9E-TC7', 'discarding an entry removes it and leaves the collection untouched');
+      'discarding a staged row must never remove anything he owns');
+    const gone = await db.get(`SELECT * FROM scan_staging WHERE id = ?`, [entry.id]);
+    assert.strictEqual(gone, undefined, 'the discarded row is deleted');
+    pass('F9E-TC7', 'discarding a row removes it and leaves the collection untouched');
   }
 
   console.log(`\nscan_wiring.test.js: ${passed} cases passed`);

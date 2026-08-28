@@ -151,7 +151,7 @@ async function main() {
       ocr_text: '',   // blurred / unreadable number: the common auto-scan case
     });
     assert.strictEqual(status, 200, `scan-resolve failed: ${JSON.stringify(body)}`);
-    assert.strictEqual(body.action, 'queued', 'no confident number -> must queue');
+    assert.strictEqual(body.action, 'staged_unresolved', 'no confident number -> must queue');
     assert.ok(body.candidates.length > 0,
       'THE BUG: a DFC queue entry came back with NO candidates and is unresolvable');
     assert.strictEqual(body.candidates.length, 4,
@@ -169,7 +169,7 @@ async function main() {
   // and confirm the card reaches the collection. That is the property the
   // 'No printings of this card are in your catalog yet' dead end denied him.
   {
-    const listResp = await fetch(`${base}/api/scan-queue`, {
+    const listResp = await fetch(`${base}/api/scan-stage`, {
       headers: { Authorization: `Bearer ${user.token}` },
     });
     const list = await listResp.json();
@@ -181,16 +181,26 @@ async function main() {
     const before = await ownedCount();
     const chosen = entry.candidates.find(c => c.number === '207');
     assert.ok(chosen, 'the tla 207 printing Zach actually holds must be among the stored candidates');
-    const resolveResp = await fetch(`${base}/api/scan-queue/${entry.id}/resolve`, {
+    const resolveResp = await fetch(`${base}/api/scan-stage/${entry.id}/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
-      body: JSON.stringify({ card_id: chosen.id, printing: 'nonfoil', quantity: 1 }),
+      body: JSON.stringify({ card_id: chosen.id, finish: 'nonfoil', quantity: 1 }),
     });
     assert.strictEqual(resolveResp.status, 200,
       `resolving the DFC entry failed: ${JSON.stringify(await resolveResp.json())}`);
+    // RESOLVING STAGES IT, IT DOES NOT OWN IT. The old queue-resolve added the
+    // card straight to the collection; staging deliberately does not, because
+    // nothing reaches the collection without an explicit Add All. So the
+    // property is that the row is now resolved and COMMITTABLE.
+    const commitResp = await fetch(`${base}/api/scan-stage/commit`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${user.token}` },
+    });
+    assert.strictEqual(commitResp.status, 200,
+      'a resolved row must no longer block the commit');
     assert.strictEqual(await ownedCount(), before + 1,
       'THE POINT OF THE FIX: the DFC must actually be addable to the collection');
-    pass('FDFC-TC2', 'the DFC queue entry is resolvable and the card reaches the collection');
+    pass('FDFC-TC2', 'the unresolved DFC row is resolvable and the card reaches the collection');
   }
 
   // --- FDFC-TC3: a DFC with a READABLE number resolves to ONE printing -----
@@ -219,7 +229,7 @@ async function main() {
   // 'Dusk' (which is not in the catalogue at all and would return nothing).
   {
     const { body } = await scanResolve({ name: 'Dusk // Dawn', ocr_text: '' });
-    assert.strictEqual(body.action, 'queued');
+    assert.strictEqual(body.action, 'staged_unresolved');
     assert.strictEqual(body.candidates.length, 2,
       `the split card's combined name must still match both printings, got ${body.candidates.length}`);
     for (const c of body.candidates) {
@@ -264,7 +274,7 @@ async function main() {
   // the fallback would be papering over a real catalogue gap.
   {
     const { body } = await scanResolve({ name: 'Nonexistent Card // Nonexistent Back', ocr_text: '' });
-    assert.strictEqual(body.action, 'queued');
+    assert.strictEqual(body.action, 'staged_unresolved');
     assert.strictEqual(body.candidates.length, 0,
       'a card absent from the catalogue must NOT gain invented candidates');
     pass('FDFC-TC6', 'a card genuinely absent from the catalogue still queues with no candidates');

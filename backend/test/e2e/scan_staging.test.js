@@ -89,52 +89,55 @@ async function main() {
     pass('FST-TC2', 'the staged session lists resolved cards');
   }
 
-  // --- FST-TC3: scanning the same printing twice is FLAGGED, not silently
-  //     merged and not silently duplicated ---------------------------------
+  // --- FST-TC3: scanning the same printing twice KEEPS BOTH ROWS -----------
   //
-  // Zach's stated reason for wanting staging at all: "ensure there isn't any
-  // dupes". Both silent options are wrong — merging hides that he scanned twice,
-  // duplicating hides it just as well. Flagging tells him and lets him decide.
+  // This used to assert a 'duplicate_in_session' flag. Zach removed it, and the
+  // reason is worth keeping: the scanner no longer re-scans a card on its own,
+  // so a second row now only exists because he TAPPED to force one. "I dont
+  // want any of the warnings like dupe card or weak match because now the
+  // scanner only scans a dupe if I press it."
+  //
+  // Flagging that warns him about the intended result of an explicit
+  // instruction. What still matters -- and is what this case now pins -- is that
+  // the repeat is neither silently merged nor silently dropped: two taps mean
+  // two pieces of cardboard, so two rows.
   {
-    const r = await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-sol' } });
-    assert.strictEqual(r.body.flag, 'duplicate_in_session',
-      `a repeat scan must be flagged, got ${r.body.flag}`);
+    await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-sol' } });
     const list = await api('/api/scan-stage');
     assert.strictEqual(list.body.total, 2, 'the repeat is kept, not swallowed');
-    assert.strictEqual(list.body.flagged, 1, 'and it is counted as needing a look');
-    pass('FST-TC3', 'a duplicate scan is flagged rather than silently merged or hidden');
+    assert.strictEqual(list.body.unresolved, 0, 'and neither row needs a decision');
+    pass('FST-TC3', 'a repeat scan is kept as its own row, unflagged');
   }
 
-  // --- FST-TC3B: ALREADY OWNING A COPY IS NOT A WARNING --------------------
+  // --- FST-TC3B: NOTHING IS FLAGGED ANY MORE -------------------------------
   //
-  // Zach: "I shouldnt get a warning in the scanned list if this card is in my
-  // collection already only if I scanned it twice this session."
+  // Zach: "The only cards that should stand out are the ones that unresolved."
   //
-  // Owning a second copy is a normal, intentional thing for a collector to do.
-  // Flagging it warns about the intended outcome of the action he just took --
-  // and a flag that fires on ordinary behaviour trains him to skim past ALL of
-  // them, including 'low_confidence', which is the only one questioning whether
-  // the app identified the right card.
+  // Three advisory flags existed: 'already_owned', 'duplicate_in_session' and
+  // 'low_confidence'. All three are gone, on evidence -- he observed weak
+  // matches being correct in every case, and duplicates now require a
+  // deliberate tap.
   //
-  // The distinction that survives: scanning the same card twice IN ONE SESSION
-  // usually means the scanner double-fired on one piece of cardboard, which is
-  // a real question about the physical stack (FST-TC3 above).
+  // This asserts the ABSENCE, because a flag creeping back would re-introduce
+  // exactly the noise that trains him to skim a list he is supposed to be
+  // checking against physical cards.
   {
-    // Put a card in the collection, then start a clean session and scan it.
     await api('/api/collection', { method: 'POST', body: { card_id: 'card-owned', quantity: 1 } });
-    const list = await api('/api/scan-stage');
-    for (const e of list.body.entries) {
+    const before = await api('/api/scan-stage');
+    for (const e of before.body.entries) {
       await api(`/api/scan-stage/${e.id}`, { method: 'DELETE' });
     }
-    const r = await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-owned' } });
-    assert.strictEqual(r.body.flag, null,
-      `owning a copy already must NOT flag the scan, got ${r.body.flag}`);
-
-    // ...but scanning it a second time in the SAME session still does.
-    const again = await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-owned' } });
-    assert.strictEqual(again.body.flag, 'duplicate_in_session',
-      `a repeat within the session must still flag, got ${again.body.flag}`);
-    pass('FST-TC3B', 'owning a copy is not flagged; scanning twice in a session still is');
+    await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-owned' } });
+    await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-owned' } });
+    const list = await api('/api/scan-stage');
+    assert.strictEqual(list.body.total, 2, 'both scans are kept');
+    for (const e of list.body.entries) {
+      assert.ok(!('flag' in e) || e.flag == null,
+        `no staged row may carry a flag, got ${JSON.stringify(e.flag)}`);
+    }
+    assert.strictEqual(list.body.unresolved, 0,
+      'a resolved card is never counted as needing a decision');
+    pass('FST-TC3B', 'no advisory flags are emitted for owned or repeated cards');
   }
 
   // --- FST-TC4: a staged row can be corrected before it becomes real -------
@@ -226,6 +229,90 @@ async function main() {
     const after = await api('/api/scan-stage');
     assert.strictEqual(after.body.total, 0);
     pass('FST-TC8', 'the whole session can be abandoned without adding anything');
+  }
+
+  // --- FST-TC9: AN UNRESOLVED ROW BLOCKS ADD ALL ---------------------------
+  //
+  // THE MOST IMPORTANT CASE IN THIS FILE. The review queue was deleted and its
+  // unresolved scans now live in this same list with card_id NULL. Zach chose
+  // the rule himself, over committing the resolved rows and leaving the rest:
+  // a stack that half-disappears is the silent state change he does not accept
+  // from software tracking physical cardboard.
+  //
+  // Without this guard addCardToCollection is handed card_id = null inside the
+  // commit transaction -- either throwing mid-batch or, far worse, writing a
+  // collection row that points at no card.
+  {
+    await api('/api/scan-stage', { method: 'DELETE' });
+    await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-sol' } });
+    // An unresolved row, exactly as the scan route now creates one.
+    await db.run(
+      `INSERT INTO scan_staging (user_id, card_id, quantity, matched_name, candidates_json)
+       VALUES (?, NULL, 1, ?, ?)`,
+      [userId, 'Sol Ring', JSON.stringify([{ id: 'card-sol', name: 'Sol Ring' }])]);
+
+    const list = await api('/api/scan-stage');
+    assert.strictEqual(list.body.total, 2, 'both rows are listed together');
+    assert.strictEqual(list.body.unresolved, 1, 'the unresolved one is counted');
+    const un = list.body.entries.find(e => e.unresolved);
+    assert.ok(un, 'the unresolved row is marked for the UI');
+    assert.strictEqual(un.matched_name, 'Sol Ring', 'it carries a readable label');
+    assert.strictEqual(un.candidates.length, 1, 'and its candidates to choose from');
+
+    const commit = await api('/api/scan-stage/commit', { method: 'POST' });
+    assert.strictEqual(commit.status, 409, 'Add All must REFUSE, not partially commit');
+    assert.strictEqual(commit.body.error, 'unresolved_entries');
+    assert.strictEqual(commit.body.unresolved, 1);
+
+    // AND NOTHING WAS ADDED. A refusal that still wrote the resolved rows would
+    // be the partial commit this rule exists to prevent.
+    const after = await api('/api/scan-stage');
+    assert.strictEqual(after.body.total, 2, 'the session is untouched by the refusal');
+    pass('FST-TC9', 'Add All refuses while any row is unresolved, and changes nothing');
+  }
+
+  // --- FST-TC10: resolving a row unblocks the commit ------------------------
+  //
+  // The other half: once he picks a printing the row becomes ordinary and Add
+  // All works. Resolution accepts ANY catalogue card, not only the offered
+  // candidates -- when the matcher is wrong, restricting him to its guesses
+  // would leave the row permanently stuck and the whole session uncommittable.
+  {
+    const list = await api('/api/scan-stage');
+    const un = list.body.entries.find(e => e.unresolved);
+    const r = await api(`/api/scan-stage/${un.id}/resolve`, {
+      method: 'POST', body: { card_id: 'card-owned' },   // deliberately NOT a candidate
+    });
+    assert.strictEqual(r.status, 200, 'a manual pick outside the candidates is allowed');
+
+    const after = await api('/api/scan-stage');
+    assert.strictEqual(after.body.unresolved, 0, 'nothing needs a decision any more');
+
+    const commit = await api('/api/scan-stage/commit', { method: 'POST' });
+    assert.strictEqual(commit.status, 200, 'and now the session commits');
+    assert.strictEqual(commit.body.committed, 2, 'both rows reached the collection');
+    pass('FST-TC10', 'resolving an unresolved row unblocks Add All');
+  }
+
+  // --- FST-TC11: a resolve to a card that does not exist is refused ---------
+  //
+  // A staged row pointing at a non-existent card_id would survive until the
+  // commit transaction and take the whole Add All down with it -- turning one
+  // bad pick into "none of my forty cards were added".
+  {
+    await api('/api/scan-stage', { method: 'DELETE' });
+    await db.run(
+      `INSERT INTO scan_staging (user_id, card_id, quantity, matched_name, candidates_json)
+       VALUES (?, NULL, 1, 'Mystery', '[]')`, [userId]);
+    const list = await api('/api/scan-stage');
+    const un = list.body.entries.find(e => e.unresolved);
+    const r = await api(`/api/scan-stage/${un.id}/resolve`, {
+      method: 'POST', body: { card_id: 'no-such-card' },
+    });
+    assert.strictEqual(r.status, 404, 'resolving to a non-existent card must be refused');
+    const after = await api('/api/scan-stage');
+    assert.strictEqual(after.body.unresolved, 1, 'and the row stays unresolved');
+    pass('FST-TC11', 'a resolve to an unknown card is refused before it can poison the commit');
   }
 
   console.log(`\nscan_staging.test.js: ${passed} cases passed`);

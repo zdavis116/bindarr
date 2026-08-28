@@ -8,7 +8,6 @@ import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
 import { initCardDetector, detectCardOnDevice, detectorReady } from '../utils/onDeviceCardDetect';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
-import ScanReviewQueue from './ScanReviewQueue';
 import { createScanReviewQueue } from './scanReviewQueue';
 import ScanStagingReview from './ScanStagingReview';
 import { createScanStaging } from './scanStaging';
@@ -415,19 +414,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // pending count across re-renders; recreating it would silently reset the
   // badge to zero mid-stack. React state mirrors it purely for rendering — the
   // SERVER remains the source of truth, and `refresh()` reconciles the count.
-  const [showReviewQueue, setShowReviewQueue] = useState(false);
-  const [queuePending, setQueuePending] = useState(0);
   const reviewQueueRef = useRef(null);
   if (!reviewQueueRef.current) {
     reviewQueueRef.current = createScanReviewQueue({
-      onChange: (s) => setQueuePending(s.pendingCount),
     });
   }
   const reviewQueue = reviewQueueRef.current;
   // Reconcile against the server on mount, so a queue left over from a previous
   // session (or a reload mid-stack) shows its real size immediately rather than
   // appearing empty until something new is queued.
-  useEffect(() => { reviewQueue.refresh(); }, [reviewQueue]);
 
   // THE SCAN SESSION. Same controller shape and the same reasoning as the review
   // queue above: created once so its count survives re-renders, mirrored into
@@ -787,7 +782,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
   useBackGuard(scanMatches.length > 0, () => setScanMatches([]));
   // Android hardware back / iOS swipe closes the review screen instead of
   // leaving the scanner entirely, matching every other overlay here.
-  useBackGuard(showReviewQueue, () => setShowReviewQueue(false));
 
   useBackGuard(!!dupConfirmCard, () => setDupConfirmCard(null));
   useBackGuard(!!inspectorEntry, () => setInspectorEntry(null));
@@ -2360,7 +2354,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     // told us in THIS response, so the badge stays honest for
                     // free. It is not a local guess: the row exists because the
                     // server said 'staged'.
-                    staging.noteStaged(outcome.flag);
+                    staging.noteStaged(false);   // resolved: a printing was chosen
                     setRecentScans(prev => [{
                       ...outcome.card, card_id: outcome.card?.id, entry_id: null,
                       quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
@@ -2381,12 +2375,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     }));
                     signal('success');
                     if (onAddSuccess) onAddSuccess();
-                  } else if (outcome.action === 'queued') {
-                    // NOT added to the collection. The badge moves; the
-                    // collection does not. No modal, by design — he reviews the
-                    // whole queue when the stack is done.
-                    setScanStatus(t('scan.queuedForReview', { name: identified }));
-                    showToast(t('scan.queuedToast', { name: identified }));
+                  } else if (outcome.action === 'staged_unresolved') {
+                    // SCANNED AND HELD, but we could not tell which printing.
+                    // It sits in the SAME Scanned list as everything else,
+                    // outlined and sorted to the top, and Add All refuses until
+                    // he picks. Nothing is owned, so no modal interrupts the
+                    // stack -- he resolves them when he is done scanning.
+                    staging.noteStaged(true);
+                    setScanStatus(`${identified} — needs a printing chosen`);
+                    showToast(`${identified} — pick a printing in Scanned`);
                     signal('capture');
                   } else {
                     setScanStatus(outcome.error || t('scan.unknownError'));
@@ -2523,8 +2520,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // Never show raw OCR text as if it were a card name -- when
                   // nothing was identified, say so plainly.
                   const label = clipName || titleText || 'Unidentified card';
-                  setScanStatus(t('scan.queuedForReview', { name: label }));
-                  showToast(t('scan.queuedToast', { name: label }));
+                  if (outcome.action === 'staged_unresolved') staging.noteStaged(true);
+                  setScanStatus(`${label} — needs a printing chosen`);
+                  showToast(`${label} — pick a printing in Scanned`);
                   signal('capture');
                   setScanMatches([]);
                   return;
@@ -2937,30 +2935,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 full banner is one tap away via the fullscreen exit. Tapping it
                 leaves fullscreen rather than opening review directly, so the
                 camera is never torn down underneath an unrelated screen. */}
-            {fullscreenScan && queuePending > 0 && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setFullscreenScan(false); }}
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  top: `calc(1rem + env(safe-area-inset-top))`,
-                  zIndex: 21,
-                  padding: '0.35rem 0.8rem',
-                  borderRadius: 999,
-                  background: 'rgba(0,0,0,0.72)',
-                  border: '1px solid var(--accent-yellow)',
-                  color: 'var(--accent-yellow)',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                {t('scan.queuedBadge', { count: queuePending })}
-              </button>
-            )}
-
             {/* THE SESSION BADGE — how many cards are waiting, and the way in.
                 Placed in-frame because in fullscreen the camera covers the
                 screen: a count rendered below the preview is invisible, which
@@ -3392,22 +3366,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
               the whole safety property of the queue is that a pending decision
               is not a card he owns. Tapping is the ONLY way to the review
               screen; nothing opens it automatically mid-scan. */}
-          {queuePending > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowReviewQueue(true)}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
-                width: '100%', minHeight: 44, padding: '0.5rem 0.75rem', marginBottom: '0.5rem',
-                background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)',
-                borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)', cursor: 'pointer',
-                fontSize: '0.75rem', fontWeight: 700,
-              }}
-            >
-              <span>{t('scan.pendingReview', { count: queuePending })}</span>
-              <span style={{ color: 'var(--accent-yellow)' }}>{t('scan.pendingReviewCta')}</span>
-            </button>
-          )}
+
 
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
             <button className="btn btn-secondary" onClick={stopCamera} style={{ flex: 1 }} title={t('scan.stopCamera')}>
@@ -3945,17 +3904,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
         />
       )}
 
-      {/* The review screen. Rendered LAST so it overlays the scanner, and only
-          on an explicit tap — never opened by a scan. Resolving an entry adds
-          the card through the server, so onAddSuccess refreshes the collection
-          totals that the queue was deliberately excluded from. */}
-      {showReviewQueue && (
-        <ScanReviewQueue
-          queue={reviewQueue}
-          onClose={() => setShowReviewQueue(false)}
-          onResolved={() => { if (onAddSuccess) onAddSuccess(); }}
-        />
-      )}
     </div>
   );
 }

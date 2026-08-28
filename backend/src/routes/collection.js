@@ -15,7 +15,7 @@ const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, d
 const { splitPrice } = require('../utils/splitPrice');
 const commanderRules = require('../utils/commanderRules');
 const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
-const { resolveScannedPrinting, WEAK_MATCH_INLIERS } = require('../utils/scanPrintingResolver');
+const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
 const collectorNumberOcr = require('../utils/collectorNumberOcr');
 const cardTitleOcr = require('../utils/cardTitleOcr');
 const rgbArtMatch = require('../rgbArtMatch');
@@ -812,7 +812,6 @@ router.post('/scan-resolve', async (req, res) => {
         return res.json({
           action: 'staged',
           staged_id: staged.id,
-          flag: staged.flag,
           card: parseCardRow(outcome.printing),
           ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
           resolved_by: outcome.titleName && outcome.usedName === outcome.titleName ? 'title' : 'clip',
@@ -842,29 +841,54 @@ router.post('/scan-resolve', async (req, res) => {
       });
     }
 
-    // Queued. The card is NOT in the collection and must not be counted as
-    // owned anywhere until Zach resolves it.
-    const entry = await enqueueScanReview({
+    // COULD NOT RESOLVE A PRINTING -> STAGE IT UNRESOLVED, DO NOT QUEUE IT.
+    //
+    // This used to write to scan_review_queue, a second table with its own
+    // screen. Zach, after a session that produced 24 staged rows and zero queue
+    // rows: "get rid of the queue because having the queue and scanner section
+    // seem redundant. What I would like is all cards to go into the scanned but
+    // if we are unsure of the card give the top 3 options and then allow to
+    // search manually just in case its not one of those 3."
+    //
+    // So the row lands in the SAME list as everything else, with card_id NULL.
+    // Nothing is owned either way -- staging is not the collection -- and Add
+    // All refuses while any unresolved row remains, so an unidentified card can
+    // never slip into the collection by being forgotten in a second list.
+    //
+    // ALL CANDIDATES ARE STORED; THE UI SHOWS THREE.
+    //
+    // Zach asked for "the top 3 options", and three is right for a phone-sized
+    // row -- eight buttons per card rebuilds the cluttered screen he just
+    // deleted. But TRUNCATING HERE would be a data loss: for a card with four
+    // near-identical printings the correct one can be fourth, and dropping it
+    // makes the row resolvable only by manual search.
+    //
+    // So the cap is a PRESENTATION decision and lives in the UI. The row keeps
+    // everything the matcher found, which also keeps the stored candidates
+    // useful for diagnosing a bad batch later.
+    const candidateCards = outcome.candidates.map(parseCardRow);
+    const staged = await stageScannedCard({
       userId: req.user.id,
+      body: req.body,
+      cardId: null,
+      quantity: qty,
+      crop,
+      matchInliers: Number.isFinite(req.body?.match_inliers) ? req.body.match_inliers : null,
       // THE NAME THE RESOLVER ACTUALLY USED, not the one CLIP guessed.
       //
-      // The queue entry is what Zach reads when deciding, so it must name the
-      // card the candidates below it belong to. With text-first resolution the
-      // title routinely identifies a card CLIP got wrong (that is the whole
-      // point), and labelling the entry with CLIP's discarded guess would show
-      // him 'Avatar Aang' above a list of Fated Firepower printings. Falling
-      // back to `name` covers the case where the title read nothing.
+      // This label is what Zach reads when deciding, so it must name the card
+      // the candidates below it belong to. With text-first resolution the title
+      // routinely identifies a card CLIP got wrong -- that is the whole point --
+      // and labelling the row with CLIP's discarded guess would show him
+      // 'Avatar Aang' above a list of Fated Firepower printings.
       matchedName: outcome.usedName || name || '',
-      reason: outcome.reason,
-      ocr: outcome.ocr,
-      candidates: outcome.candidates,
-      crop,
+      candidates: candidateCards,
     });
     return res.json({
-      action: 'queued',
-      queue_id: entry.id,
+      action: 'staged_unresolved',
+      staged_id: staged.id,
       reason: outcome.reason,
-      candidates: outcome.candidates.map(parseCardRow),
+      candidates: candidateCards,
       ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
     });
   } catch (error) {
@@ -1017,7 +1041,7 @@ router.post('/scan-stage', async (req, res) => {
       matchInliers: Number.isFinite(match_inliers) ? match_inliers : null,
     });
 
-    res.json({ staged: true, id: staged.id, card_id, name: card.name, flag: staged.flag });
+    res.json({ staged: true, id: staged.id, card_id, name: card.name });
   } catch (error) {
     if (error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });
@@ -1028,8 +1052,12 @@ router.post('/scan-stage', async (req, res) => {
 });
 
 // The staged session, oldest first — the order he scanned, which is the order
-// the physical stack is in. Flagged rows are counted separately so the UI can
-// lead with "3 need a look" instead of making him find them.
+// the physical stack is in.
+//
+// UNRESOLVED rows (card_id IS NULL) are counted separately. They are the only
+// rows that need anything from Zach now that the advisory flags are gone, and
+// Add All refuses while any exist -- so the count is what the UI leads with
+// instead of making him hunt for them in a fifty-row list.
 router.get('/scan-stage', async (req, res) => {
   try {
     const rows = await db.all(
@@ -1051,13 +1079,22 @@ router.get('/scan-stage', async (req, res) => {
         finish: r.finish,
         condition: r.condition,
         location_id: r.location_id,
-        flag: r.flag,
         match_inliers: r.match_inliers,
         crop: r.crop_data_url || null,
         created_at: r.created_at,
+        // UNRESOLVED: scanned and held, but no printing chosen yet. The label
+        // and candidates come from the matcher so the row is readable and
+        // actionable without a round trip.
+        unresolved: !r.card_id,
+        matched_name: r.matched_name || null,
+        candidates: (() => {
+          // A corrupt candidates_json must not take down the whole list -- the
+          // row is still recoverable by searching manually.
+          try { return JSON.parse(r.candidates_json || '[]'); } catch { return []; }
+        })(),
       })),
       total: rows.length,
-      flagged: rows.filter(r => r.flag).length,
+      unresolved: rows.filter(r => !r.card_id).length,
     });
   } catch (error) {
     console.error('scan-stage list failed:', error);
@@ -1096,6 +1133,64 @@ router.patch('/scan-stage/:id', async (req, res) => {
   }
 });
 
+// RESOLVE AN UNRESOLVED STAGED ROW: choose which printing it actually is.
+//
+// This is what replaces the review queue. Zach: "if we are unsure of the card
+// give the top 3 options and then allow to search manually just in case its not
+// one of those 3." The top 3 come from candidates_json; a manual search sends
+// any card_id at all, which is why this accepts an arbitrary id rather than
+// only one of the offered candidates -- if the matcher was wrong, restricting
+// him to its guesses would make the row unresolvable.
+//
+// The card must EXIST in the catalogue. That is the one thing worth enforcing:
+// a staged row pointing at a card_id that is not real would fail later, inside
+// the commit transaction, and take the whole Add All down with it.
+router.post('/scan-stage/:id/resolve', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const { card_id, finish, condition, quantity } = req.body || {};
+    if (!card_id || typeof card_id !== 'string') {
+      return res.status(400).json({ error: 'card_id is required' });
+    }
+    const row = await db.get(
+      `SELECT * FROM scan_staging WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!row) return res.status(404).json({ error: 'Staged entry not found' });
+
+    const card = await db.get(`SELECT * FROM card_cache WHERE id = ?`, [card_id]);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const qty = quantity === undefined ? row.quantity : Number.parseInt(quantity, 10);
+    if (!Number.isSafeInteger(qty) || qty < 1) {
+      return res.status(400).json({ error: 'quantity must be a positive integer' });
+    }
+
+    await db.run(
+      `UPDATE scan_staging
+          SET card_id = ?, finish = ?, condition = ?, quantity = ?, candidates_json = '[]'
+        WHERE id = ? AND user_id = ?`,
+      [card_id, finish || row.finish, condition || row.condition, qty, id, req.user.id]);
+
+    // GROUND TRUTH, AND THE BEST KIND. He looked at the physical card and told
+    // the app what it is, on a scan the matcher could not resolve -- exactly the
+    // failures the corpus needs and the hardest ones to obtain. Same reasoning
+    // as the old queue-resolve labelling this replaces.
+    await labelCapture(lastDumpName, {
+      source: 'stage-resolve',
+      truth: { name: card.name, set_id: card.set_id, number: card.number },
+      scanner_said: { matched_name: row.matched_name || null },
+      match_inliers: Number.isFinite(row.match_inliers) ? row.match_inliers : null,
+    });
+
+    res.json({ resolved: true, id, card: parseCardRow(card) });
+  } catch (error) {
+    console.error('scan-stage resolve failed:', error);
+    res.status(500).json({ error: 'Failed to resolve staged scan' });
+  }
+});
+
 // Drop one staged row — a mis-scan he does not want.
 router.delete('/scan-stage/:id', async (req, res) => {
   try {
@@ -1126,6 +1221,39 @@ router.post('/scan-stage/commit', async (req, res) => {
       `SELECT * FROM scan_staging WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
       [req.user.id]);
     if (!rows.length) return res.json({ committed: 0, entries: [] });
+
+    // REFUSE WHILE ANYTHING IS UNRESOLVED. Zach chose this rule explicitly.
+    //
+    // Now that unresolved scans live in this same list, a row can exist with no
+    // card_id. Three things could happen on Add All, and only one is acceptable:
+    //
+    //   A. refuse until everything is resolved      <- he picked this
+    //   B. commit the resolved, leave the rest
+    //   C. commit everything, guessing the unresolved ones
+    //
+    // C is the one that puts a wrong card in his collection silently, which
+    // costs a recount against cardboard. B never does that, but it empties the
+    // list PARTIALLY, and a stack that half-disappears is the silent state
+    // change he does not accept from software tracking physical objects.
+    //
+    // A is also the only rule that keeps this endpoint's existing promise: all
+    // or nothing. So the check is a precondition, before the transaction opens
+    // and before anything is written.
+    //
+    // Without it, addCardToCollection would be handed card_id = null and either
+    // throw deep inside a transaction or -- far worse -- write a row pointing at
+    // no card.
+    const unresolved = rows.filter(r => !r.card_id);
+    if (unresolved.length) {
+      return res.status(409).json({
+        error: 'unresolved_entries',
+        unresolved: unresolved.length,
+        unresolved_ids: unresolved.map(r => r.id),
+        message: unresolved.length === 1
+          ? '1 scanned card still needs a printing chosen.'
+          : `${unresolved.length} scanned cards still need a printing chosen.`,
+      });
+    }
 
     const added = [];
     // db.withTransaction, not raw BEGIN/COMMIT: addCardToCollection opens its
@@ -1172,86 +1300,78 @@ router.delete('/scan-stage', async (req, res) => {
 // Put a resolved scan into the staging session, and work out whether the row
 // deserves a second look.
 //
-// SHARED by /scan-stage and by /scan-resolve's stage mode, so the flag rules
-// exist in exactly one place. Two copies would drift, and a flag that means
-// something different depending on which endpoint created it is worse than no
-// flag at all.
+// SHARED by /scan-stage and by /scan-resolve's stage mode, so staging behaves
+// identically no matter which endpoint created the row.
 //
-// FLAGS ARE COMPUTED NOW AND STORED, not derived when the list renders: the
-// answer depends on the state of the session AT THE MOMENT OF THE SCAN ("was
-// this already staged when I scanned it?"), and recomputing later against a
-// mutated session would silently change what Zach is being told.
-async function stageScannedCard({ userId, body = {}, cardId, quantity, crop, matchInliers }) {
+// NO FLAGS. This function used to compute 'duplicate_in_session' and
+// 'low_confidence' and store them for the review list to highlight. Zach removed
+// both, from evidence rather than taste:
+//
+//   "I dont want any of the warnings like dupe card or weak match because now
+//    the scanner only scans a dupe if I press it and the weak match has been
+//    right 100% of the time I have yet to see it be wrong."
+//
+// Both hold up. A duplicate is now only reachable when he TAPS to force one, so
+// flagging it warns him about the intended result of an explicit instruction.
+// And low_confidence fired on 3 of his 24 staged rows -- at 7 and 10 inliers --
+// and was correct in every case. My older "4-23 inliers means the matcher is
+// guessing" measurement predates the set+number resolution path, which is what
+// now decides the printing; his newer observation supersedes my older number.
+//
+// The remaining reason to highlight a row is that it is UNRESOLVED, which is
+// structural (card_id IS NULL) rather than advisory. "The only cards that
+// should stand out are the ones that unresolved."
+//
+// match_inliers is still recorded. It drives nothing, but it is what makes a bad
+// batch diagnosable after the fact.
+async function stageScannedCard({
+  userId, body = {}, cardId, quantity, crop, matchInliers,
+  matchedName = null, candidates = [],
+}) {
   const finish = body.finish || body.printing || 'nonfoil';
   const condition = body.condition || 'Near Mint';
   const locationId = body.location_id || null;
 
-  // ONLY FLAG A REPEAT WITHIN THIS SESSION, never "you already own one".
-  //
-  // Zach: "I shouldnt get a warning in the scanned list if this card is in my
-  // collection already only if I scanned it twice this session."
-  //
-  // He is right, and the old comment here already made his argument without
-  // following it: owning a second copy is a perfectly normal thing for a
-  // collector to do ON PURPOSE. Flagging it warns about the intended outcome of
-  // the action he just took.
-  //
-  // The cost is not just noise. Flags exist so the rows that need attention sit
-  // at the top of a long list; a flag that fires on ordinary behaviour trains
-  // him to skim past all of them, including 'low_confidence', which is the one
-  // that questions whether the app identified the right card at all.
-  //
-  // Scanning the same card TWICE IN ONE SESSION is different: it usually means
-  // the scanner double-fired on one piece of cardboard, and that is a genuine
-  // question about the physical stack in front of him.
-  let flag = null;
-  const dup = await db.get(
-    `SELECT id FROM scan_staging WHERE user_id = ? AND card_id = ? AND finish = ?`,
-    [userId, cardId, finish]);
-  if (dup) flag = 'duplicate_in_session';
-  // A weak match outranks the others: it questions whether this is even the
-  // right card, where the others only say "you have one already" — which is a
-  // perfectly normal thing for a collector to do on purpose.
-  // SAME THRESHOLD THE RESOLVER USES. This was a hardcoded 25 while
-  // scanPrintingResolver had moved to 32, so scans the resolver considered
-  // noise were shown to Zach unflagged. Importing it keeps one definition of
-  // "the art match is guessing".
-  if (Number.isFinite(matchInliers) && matchInliers <= WEAK_MATCH_INLIERS) {
-    flag = 'low_confidence';
-  }
-
+  // cardId may be null: that is an UNRESOLVED row -- scanned and held, but not
+  // yet pinned to a printing. It carries the matcher's best guess as a label and
+  // its candidates so the review screen can offer them.
   const ins = await db.run(
     `INSERT INTO scan_staging
-       (user_id, card_id, quantity, finish, condition, location_id, flag, match_inliers, crop_data_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [userId, cardId, quantity, finish, condition, locationId, flag,
+       (user_id, card_id, quantity, finish, condition, location_id, match_inliers,
+        crop_data_url, matched_name, candidates_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, cardId || null, quantity, finish, condition, locationId,
      Number.isFinite(matchInliers) ? matchInliers : null,
-     typeof crop === 'string' ? crop.slice(0, 200000) : null]);
+     typeof crop === 'string' ? crop.slice(0, 200000) : null,
+     matchedName || null,
+     // Stored in full -- see the note at the call site. The review screen caps
+     // what it SHOWS at three; the row keeps every candidate so the right
+     // printing is never unreachable.
+     JSON.stringify(Array.isArray(candidates) ? candidates : [])]);
 
   // LABEL THE SUCCESSES TOO, not only the failures.
   //
   // Only queue-resolve was labelling, which meant the corpus could only ever
-  // learn from scans that went WRONG. Zach's session staged 42 cards and queued
-  // 15: labelling just the queue throws away three quarters of the evidence,
-  // and the staged ones are the POSITIVE controls -- they are how a tuning run
-  // proves a change did not break what already worked.
-  //
-  // A staged row is a card he accepted, so it is ground truth of the same kind
-  // as a queue resolution, just with the scanner having been right.
+  // learn from scans that went WRONG. The staged rows are the POSITIVE controls
+  // -- they are how a tuning run proves a change did not break what already
+  // worked. Skipped for unresolved rows: there is no ground truth yet, and
+  // guessing one would poison the corpus that has already caught two of my
+  // regressions.
   //
   // Diagnostics only: labelCapture swallows its own failures and returns
   // immediately when no dump is configured.
-  const truth = await db.get(
-    `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [cardId]);
-  await labelCapture(lastDumpName, {
-    source: 'scan-stage',
-    truth: truth || { card_id: cardId },
-    scanner_said: { matched_name: truth?.name || null },
-    match_inliers: Number.isFinite(matchInliers) ? matchInliers : null,
-    flag,
-  });
+  if (cardId) {
+    const truth = await db.get(
+      `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [cardId]);
+    await labelCapture(lastDumpName, {
+      source: 'scan-stage',
+      truth: truth || { card_id: cardId },
+      scanner_said: { matched_name: truth?.name || null },
+      match_inliers: Number.isFinite(matchInliers) ? matchInliers : null,
+    });
+  }
 
-  return { id: ins.lastID, flag };
+  return { id: ins.lastID, unresolved: !cardId };
 }
 
 // Build/verify a per-set ORB index

@@ -198,7 +198,7 @@ async function main() {
   {
     const before = await ownedNumbers();
     const out = await scanResolve({ name: 'Ambi Card', ocr_text: 'M12 . TLA . EN' });
-    assert.strictEqual(out.action, 'queued',
+    assert.strictEqual(out.action, 'staged_unresolved',
       `both readings are real printings -> MUST queue, not pick one. got ${JSON.stringify(out)}`);
     assert.strictEqual(out.reason, 'ambiguous');
     const nums = out.candidates.map(c => c.number).sort();
@@ -219,7 +219,7 @@ async function main() {
       `INSERT INTO collection (user_id, card_id, quantity, condition, list_type)
        VALUES (?, 'ambi-12', 2, 'Near Mint', 'collection')`, [userId]);
     const out = await scanResolve({ name: 'Ambi Card', ocr_text: 'M12 . TLA . EN' });
-    assert.strictEqual(out.action, 'queued');
+    assert.strictEqual(out.action, 'staged_unresolved');
     assert.strictEqual(out.candidates[0].number, '12',
       `the OWNED printing must sort first, got ${out.candidates.map(c => c.number).join(',')}`);
     pass('FBUG1-TC7', 'the ambiguous union is sorted owned-first');
@@ -232,7 +232,7 @@ async function main() {
   {
     const before = await ownedNumbers();
     const out = await scanResolve({ name: DFC, ocr_text: 'M1508 . TLA . EN' });
-    assert.strictEqual(out.action, 'queued', `got ${JSON.stringify(out)}`);
+    assert.strictEqual(out.action, 'staged_unresolved', `got ${JSON.stringify(out)}`);
     assert.deepStrictEqual(await ownedNumbers(), before, 'a read matching nothing adds nothing');
     pass('FBUG1-TC8', 'a reading backed by no catalogue row still queues and adds nothing');
   }
@@ -243,7 +243,7 @@ async function main() {
   // and offer all FOUR printings, as Zach's queue correctly showed.
   {
     const out = await scanResolve({ name: DFC, ocr_text: '' });
-    assert.strictEqual(out.action, 'queued');
+    assert.strictEqual(out.action, 'staged_unresolved');
     assert.strictEqual(out.candidates.length, 4,
       `all four Avatar Aang printings must be offered, got ${out.candidates.length}`);
     pass('FBUG1-TC9', 'DFC front-face resolution still offers all four printings');

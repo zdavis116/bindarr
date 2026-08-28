@@ -1076,27 +1076,37 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS scan_staging (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
-      -- The resolved printing. Unlike the review queue this IS a concrete card:
-      -- staging holds scans we are confident about, and the queue continues to
-      -- hold the ones we are not. Two different questions, two different tables.
-      card_id TEXT NOT NULL,
+      -- The resolved printing, or NULL when the scan is UNRESOLVED.
+      --
+      -- There used to be a second table (scan_review_queue) for scans we could
+      -- not pin to a printing. Zach: "get rid of the queue because having the
+      -- queue and scanner section seem redundant." So one list holds both, and
+      -- NULL is the honest representation of "scanned, held, not yet
+      -- identified" -- rows in that state carry candidates_json instead.
+      card_id TEXT,
       quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
       finish TEXT NOT NULL DEFAULT 'nonfoil',
       condition TEXT NOT NULL DEFAULT 'Near Mint',
       location_id INTEGER,
-      -- WHY THIS ROW MIGHT DESERVE A SECOND LOOK, or NULL when nothing is odd.
-      -- Computed at stage time and stored, so the review list can lead with the
-      -- rows that need attention instead of making him find them:
-      --   'duplicate_in_session'  the same printing was already staged
-      --   'already_owned'         he already has this printing already
-      --   'low_confidence'        the match was weak enough to be worth a look
-      flag TEXT CHECK(flag IN ('duplicate_in_session', 'already_owned', 'low_confidence')),
-      -- Match confidence at scan time (ORB inliers), kept so the list can sort
-      -- weakest-first and so a bad batch is diagnosable after the fact.
+      -- NO flag COLUMN. There was one, carrying 'duplicate_in_session',
+      -- 'already_owned' and 'low_confidence'. Zach removed all three from
+      -- evidence: duplicates now only happen when he TAPS to force one, so
+      -- flagging them second-guesses an explicit instruction, and weak matches
+      -- were correct in every case he observed. "The only cards that should
+      -- stand out are the ones that unresolved."
+      --
+      -- Match confidence at scan time (ORB inliers), kept so a bad batch is
+      -- diagnosable after the fact. It no longer drives any UI.
       match_inliers INTEGER,
       -- The scan thumbnail. Same reasoning as the review queue: a list of forty
       -- rows he cannot see the cards for is not reviewable.
       crop_data_url TEXT,
+      -- What the matcher thought this was, so an unresolved row still has a
+      -- readable label before anything has been picked.
+      matched_name TEXT,
+      -- Candidate printings, best first, as JSON. '[]' when the matcher had
+      -- nothing to offer -- then the row can only be resolved by searching.
+      candidates_json TEXT NOT NULL DEFAULT '[]',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -1155,6 +1165,95 @@ async function initDb() {
     // works for the three existing reasons, and a disagreement would queue as
     // ambiguous instead of being lost.
     console.warn('scan_review_queue reason migration skipped:', e.message);
+  }
+
+  // --- MIGRATION: staging holds UNRESOLVED scans, and no longer flags ------
+  //
+  // Zach, after a 25-card session that produced 24 staged rows and ZERO queue
+  // rows: "I would like to make a change and get rid of the queue because
+  // having the queue and scanner section seem redundant. What I would like is
+  // all cards to go into the scanned but if we are unsure of the card give the
+  // top 3 options and then allow to search manually just in case its not one
+  // of those 3."
+  //
+  // TWO SHAPE CHANGES, both of which SQLite can only do by rebuilding:
+  //
+  // 1. card_id becomes NULLABLE. This is the whole merge. Staging used to mean
+  //    "a resolved printing" and the queue meant "we do not know which card
+  //    this is"; one list now holds both, so a row may legitimately have no
+  //    card_id yet and carry candidates instead.
+  //
+  // 2. THE flag COLUMN AND ITS CHECK CONSTRAINT GO. He asked for this from
+  //    evidence, not preference: "I dont want any of the warnings like dupe
+  //    card or weak match because now the scanner only scans a dupe if I press
+  //    it and the weak match has been right 100% of the time I have yet to see
+  //    it be wrong."
+  //
+  //    Both halves check out. duplicate_in_session is now only reachable when
+  //    he deliberately taps to force a second copy, so flagging it is the app
+  //    second-guessing an explicit instruction. And low_confidence fired on 3
+  //    of his 24 rows (7 and 10 inliers) and was correct every time -- my older
+  //    "4-23 inliers means wrong" measurement predates the set+number
+  //    resolution path, so his newer observation supersedes it.
+  //
+  //    "The only cards that should stand out are the ones that unresolved."
+  //
+  // The CHECK on the old flag column would REJECT any row this code writes
+  // without one, and the scan path catches insert failures -- so leaving it in
+  // place would silently drop scanned cards. That is the exact failure the
+  // migration below this one was written to prevent, so it follows the same
+  // rebuild-copy-swap shape and is guarded to run exactly once.
+  try {
+    const existing = await get(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='scan_staging'`);
+    if (existing?.sql && existing.sql.includes('card_id TEXT NOT NULL')) {
+      await run('PRAGMA foreign_keys=OFF');
+      await run(`
+        CREATE TABLE scan_staging_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          -- NULL means UNRESOLVED: scanned, held, but we do not yet know which
+          -- printing it is. Those rows carry candidates_json and matched_name
+          -- so the review screen can offer the top few and a manual search.
+          card_id TEXT,
+          quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
+          finish TEXT NOT NULL DEFAULT 'nonfoil',
+          condition TEXT NOT NULL DEFAULT 'Near Mint',
+          location_id INTEGER,
+          match_inliers INTEGER,
+          crop_data_url TEXT,
+          -- What the matcher thought this was, for an unresolved row. Shown as
+          -- the row's label so the list is readable before anything is picked.
+          matched_name TEXT,
+          -- Up to a few candidate printings, best first, as JSON. Empty array
+          -- when the matcher had nothing to offer -- then the row is search-only.
+          candidates_json TEXT NOT NULL DEFAULT '[]',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      // Every existing row is RESOLVED by definition -- the old table could not
+      // hold anything else -- so they copy across with no candidates and keep
+      // their card_id. Dropping `flag` loses only advisory text he asked to
+      // remove; no row and no quantity is lost.
+      await run(`
+        INSERT INTO scan_staging_new
+          (id, user_id, card_id, quantity, finish, condition, location_id,
+           match_inliers, crop_data_url, matched_name, candidates_json, created_at)
+        SELECT id, user_id, card_id, quantity, finish, condition, location_id,
+               match_inliers, crop_data_url, NULL, '[]', created_at
+          FROM scan_staging
+      `);
+      await run('DROP TABLE scan_staging');
+      await run('ALTER TABLE scan_staging_new RENAME TO scan_staging');
+      await run(`CREATE INDEX IF NOT EXISTS idx_scan_staging_user ON scan_staging(user_id, created_at)`);
+      await run('PRAGMA foreign_keys=ON');
+      console.log('Migrated scan_staging: unresolved rows allowed, flags removed.');
+    }
+  } catch (e) {
+    // Booting matters more than the migration. On failure the old shape still
+    // works for resolved rows, which is every row that exists today.
+    console.warn('scan_staging merge migration skipped:', e.message);
   }
 
   // --- PERFORMANCE INDEXES ---

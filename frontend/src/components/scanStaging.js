@@ -25,49 +25,21 @@
 // the scan. Recomputing it here, later, against a mutated session would quietly
 // change what he is being told.
 
-// What each flag means, in Zach's terms rather than the schema's. These need
-// different wording because they need different reactions: a duplicate might be
-// a genuine second copy he wants, whereas a low-confidence match questions
-// whether the app even identified the right card.
-// NOTE ON 'already_owned': THE SERVER NO LONGER EMITS IT.
+// UNRESOLVED ROWS FIRST, then scan order.
 //
-// Zach: "I shouldnt get a warning in the scanned list if this card is in my
-// collection already only if I scanned it twice this session."
+// The advisory flags (low_confidence, duplicate_in_session, already_owned) are
+// gone -- Zach removed all three from evidence: duplicates only happen when he
+// taps to force one, and weak matches were right in every case he saw. "The
+// only cards that should stand out are the ones that unresolved."
 //
-// Owning a second copy is normal and intentional, so warning about it fires on
-// ordinary behaviour -- and a flag that cries wolf trains him to skim past
-// 'low_confidence' too, which is the one that questions whether the app got the
-// right card at all.
-//
-// The wording is KEPT so rows staged before that change still render something
-// sensible instead of an unexplained icon. It can be deleted once no such rows
-// can exist.
-const FLAG_TEXT = {
-  duplicate_in_session: 'Scanned twice in this session — keep both only if you have two.',
-  already_owned: 'Already in your collection — this will add another copy.',
-  low_confidence: 'Weak match — check this is the right card before adding.',
-};
-
-// Ordered by how much they deserve attention. low_confidence first because it
-// questions the CARD; duplicate_in_session only asks whether one piece of
-// cardboard got scanned twice.
-//
-// already_owned is still ranked so historical rows sort predictably, but the
-// server no longer produces it.
-const FLAG_PRIORITY = { low_confidence: 0, duplicate_in_session: 1, already_owned: 2 };
-
-export function describeFlag(flag) {
-  return FLAG_TEXT[flag] || null;
-}
-
-// Flagged rows first, then scan order. THE POINT OF THE FLAGS IS THAT HE DOES
-// NOT HAVE TO FIND THEM: a sixty-row list gets skimmed, so anything needing a
-// second look has to be at the top rather than buried at row 47.
+// Unresolved rows must lead the list because they BLOCK Add All. A fifty-row
+// list gets skimmed, so the two rows that stop him committing cannot be buried
+// at row 47.
 export function sortForReview(entries) {
   return [...entries].sort((a, b) => {
-    const pa = a.flag ? FLAG_PRIORITY[a.flag] ?? 3 : 99;
-    const pb = b.flag ? FLAG_PRIORITY[b.flag] ?? 3 : 99;
-    if (pa !== pb) return pa - pb;
+    const ua = a.unresolved ? 0 : 1;
+    const ub = b.unresolved ? 0 : 1;
+    if (ua !== ub) return ua - ub;
     return (a.id || 0) - (b.id || 0);   // otherwise the order he scanned in
   });
 }
@@ -80,11 +52,11 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
   // server says "staged", without paying a full GET (thumbnails and all) per
   // scan on a phone. refresh() reconciles it to the server's own row count.
   let stagedCount = 0;
-  let flaggedCount = 0;
+  let unresolvedCount = 0;
   let loading = false;
   let error = null;
 
-  const state = () => ({ entries, stagedCount, flaggedCount, loading, error });
+  const state = () => ({ entries, stagedCount, unresolvedCount, loading, error });
   const emit = () => onChange(state());
 
   async function readJson(res) {
@@ -99,8 +71,8 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
       if (!res.ok) throw new Error(body?.error || 'Failed to load staged scans');
       entries = Array.isArray(body?.entries) ? body.entries : [];
       stagedCount = Number.isFinite(body?.total) ? body.total : entries.length;
-      flaggedCount = Number.isFinite(body?.flagged)
-        ? body.flagged : entries.filter(e => e.flag).length;
+      unresolvedCount = Number.isFinite(body?.unresolved)
+        ? body.unresolved : entries.filter(e => e.unresolved).length;
     } catch (e) {
       error = e.message;
     } finally {
@@ -125,9 +97,8 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
       const body = await readJson(res);
       if (!res.ok) return { ok: false, error: body?.error || 'Failed to stage card' };
       stagedCount += 1;
-      if (body?.flag) flaggedCount += 1;
       emit();
-      return { ok: true, flag: body?.flag || null, name: body?.name };
+      return { ok: true, name: body?.name };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -226,16 +197,40 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
   //
   // refresh() still reconciles against the server whenever the review screen
   // opens, which is the only moment the contents are actually looked at.
-  function noteStaged(flag) {
+  // `unresolved` is whether the row the server just created still needs a
+  // printing chosen. Counting it locally keeps the badge honest without paying
+  // a full GET (thumbnails and all) after every scan on a phone.
+  function noteStaged(unresolved = false) {
     stagedCount += 1;
-    if (flag) flaggedCount += 1;
+    if (unresolved) unresolvedCount += 1;
     emit();
+  }
+
+  // PICK THE PRINTING for a row the scanner could not resolve. `cardId` may be
+  // any card in the catalogue, not only one of the offered candidates -- when
+  // the matcher is wrong, restricting him to its guesses would leave the row
+  // permanently stuck and blocking Add All.
+  async function resolveEntry(id, cardId, patch = {}) {
+    try {
+      const res = await fetchImpl(`/api/scan-stage/${id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_id: cardId, ...patch }),
+      });
+      const body = await readJson(res);
+      if (!res.ok) return { ok: false, error: body?.error || 'Failed to resolve card' };
+      await refresh();
+      return { ok: true, card: body?.card || null };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   }
 
   return {
     getState: state,
     refresh,
     stage,
+    resolveEntry,
     noteStaged,
     updateEntry,
     discardEntry,
