@@ -6,7 +6,6 @@ import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
 import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
 import { initCardDetector, detectCardOnDevice, detectorReady } from '../utils/onDeviceCardDetect';
-import { artFingerprint, isDifferentCard } from '../utils/cardChangeDetect';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import ScanReviewQueue from './ScanReviewQueue';
@@ -634,11 +633,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // produces exactly ONE scan. Cleared when the detection is disturbed --
   // which is what dropping the next card on the stack does.
   const stablePeriodConsumedRef = useRef(false);
-  // Fingerprint of the card that was last CAPTURED, so a different card landing
-  // in the SAME position still re-arms. See cardChangeDetect.js.
-  const capturedPrintRef = useRef(null);
-  // Fingerprint of the current frame, promoted to capturedPrintRef on capture.
-  const livePrintRef = useRef(null);
   // Consecutive frames whose detection disagreed with the previous one. Used to
   // tell a real placement from detector jitter -- see DISTURBED_FRAMES_TO_REARM.
   const disturbedRunRef = useRef(0);
@@ -960,12 +954,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
         if (stableCountRef.current < STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE) return;
         if (stablePeriodConsumedRef.current) return;
         // One capture per stable period. Cleared when the detection is disturbed
-        // OR when the ARTWORK changes -- the latter is what lets a Forest
-        // dropped on a stack of Forests scan, since its box is identical.
         stablePeriodConsumedRef.current = true;
-        // Remember WHAT was captured, so the next frame can tell "same card
-        // still sitting there" from "a new card landed in the same spot".
-        capturedPrintRef.current = livePrintRef.current;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
@@ -1157,44 +1146,34 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // card "always chose the right card": the frame WAS steady, the latch
         // just never reopened.
         //
-        // Geometry cannot answer "is this a different card" -- two cards in the
-        // same position have the same quad. Only what is PRINTED on them
-        // differs, so compare a cheap fingerprint of the artwork.
+        // NO ARTWORK RE-ARM. MEASURED AGAINST ZACH'S CORPUS AND REMOVED.
         //
-        // Measured over 55 cards from his corpus: the same card between
-        // consecutive frames scores 1.3-2.4, different cards 19.9-86.6. An
-        // eight-fold gap with nothing in it.
-        try {
-          // COORDINATE SPACE. `data` is the DWxDH DETECTION buffer, so the box
-          // must be in DETECTION pixels -- i.e. `det`, not `mapped`.
-          //
-          // This shipped reading `mapped`, which is `det` scaled up to the
-          // PREVIEW ELEMENT (~390 CSS px wide against DW=160, so ~2.4x) and
-          // offset for object-fit: cover. Every sample then landed outside the
-          // 160px buffer, artFingerprint's bounds check returned null on every
-          // frame, and the whole artwork-change feature was inert -- silently,
-          // because the caller swallows failure as "enhancement unavailable"
-          // and falls back to the box-movement rule that could not see a
-          // Forest landing on Forests in the first place.
-          //
-          // That is exactly what Zach reported after the deploy: still tapping
-          // every card. The fix was never live.
-          const print = artFingerprint(data, DW, DH, {
-            x: det.x, y: det.y, w: det.w, h: det.h,
-          });
-          if (print) {
-            // A genuinely different card re-arms IMMEDIATELY -- no disturbance
-            // run required, because this evidence is stronger than box movement
-            // rather than weaker.
-            if (isDifferentCard(print, capturedPrintRef.current)) {
-              stablePeriodConsumedRef.current = false;
-            }
-            livePrintRef.current = print;
-          }
-        } catch {
-          // The fingerprint is an ENHANCEMENT. If it fails, behaviour falls back
-          // to exactly today's box-movement rule and tapping still works.
-        }
+        // A fingerprint of the artwork was used here to answer "is this a
+        // DIFFERENT card in the same spot?", to fix his "3 forests in a row and
+        // it only scanned the 1st". It is gone because it cannot work, and the
+        // numbers are worth keeping so nobody rebuilds it:
+        //
+        //   consecutive REAL captures, SAME card  min 9.0   p50 18.6  max 28.6
+        //   consecutive REAL captures, DIFF card  min 19.0  p50 39.0  max 67.8
+        //
+        // Measured over 140 labelled scans in /var/lib/bindarr-dev/scandump via
+        // tools/measure-artprint-corpus.cjs. THE TWO RANGES OVERLAP, so no
+        // threshold separates them. At 10 it called the same card "different"
+        // in 7 of 9 cases -- which is Zach's report exactly: "the scanner just
+        // keeps scanning, doesn't wait for a new card to be put down."
+        //
+        // WHY THE ORIGINAL MEASUREMENT SAID 1.3-2.4 WITH AN EIGHT-FOLD GAP: it
+        // compared SYNTHETIC consecutive frames, where only sensor noise
+        // differs. Real captures also differ by autofocus breathing, exposure
+        // drift, hand shadow and shifting glare -- an order of magnitude more.
+        // The same mistake, in the same file, that the deleted comment itself
+        // warned about. Synthetic frames cannot validate a threshold that has
+        // to survive a phone camera.
+        //
+        // So re-arming stays on box movement alone, and the TAP is the reliable
+        // way to force a scan the detector will not volunteer. Per Zach:
+        // "Let's make tap reliable for now."
+
 
         // TEACH THE SHARPNESS BASELINE FROM SETTLED FRAMES ONLY.
         //
@@ -2459,14 +2438,67 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   if (matches.length) { await applyMatches(matches, '', true, null, isManual); return; }
                 }
 
-                // If not confident (or multiple printings), check if candidates are pre-hydrated
+                // A LOW-CONFIDENCE MATCH GOES TO THE QUEUE, NOT A POPUP.
+                //
+                // Zach, on the "Identified Cards Found" modal: "Why does this
+                // screen still pop up? Feels like it doesn't belong with the
+                // scanned section now... a low confidence match should go to
+                // the queue with maybe the top 3 cards it thinks and I can
+                // search for it otherwise."
+                //
+                // He is right, and the screenshot proves the modal was never a
+                // real question: it offered Katerina of Myra's Marvels next to
+                // Twisted Experiment -- unrelated cards, not two printings of
+                // one. That is the matcher saying "I don't know" while looking
+                // like a choice, and it stops a stack mid-flow to ask.
+                //
+                // The queue already does this properly: it stores the
+                // candidates, the review screen renders them to pick from, and
+                // it offers a manual search when none of them are right. So
+                // this path submits and moves on, and he reviews the whole
+                // queue when the stack is done -- which is the entire point of
+                // having a queue.
+                //
+                // NOTHING IS ADDED TO THE COLLECTION HERE. A queue entry costs
+                // a tap later; a wrong card costs a recount against cardboard.
+                if (autoScan && (clipName || titleText)) {
+                  const identified = clipName || titleText;
+                  const repeatIdentity = identified === lastQueuedNameRef.current;
+                  if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
+                    setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+                    return;
+                  }
+                  if (repeatIdentity && !isManual) {
+                    setScanStatus(t('scan.sameCardAgain'));
+                    return;
+                  }
+                  if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
+                  if (scanId !== currentScanId.current) return;
+                  const outcome = await reviewQueue.submitScan({
+                    matchInliers,
+                    name: clipName,
+                    titleText,
+                    ocrText: ocr?.text || '',
+                    crop,
+                    quantity: 1,
+                  });
+                  if (scanId !== currentScanId.current) return;
+                  if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
+                  setScanStatus(t('scan.queuedForReview', { name: identified }));
+                  showToast(t('scan.queuedToast', { name: identified }));
+                  signal('capture');
+                  setScanMatches([]);
+                  return;
+                }
+
+                // MANUAL (auto-scan off): he pressed the button and is waiting
+                // for an answer, so showing the candidates IS the right thing --
+                // there is no stack to interrupt.
                 const preHydrated = candidates.slice(0, 8).map(c => c.card).filter(Boolean);
                 if (preHydrated.length === candidates.slice(0, 8).length) {
                   await applyMatches(preHydrated, 'No matching cards found.', false, null, isManual);
                   return;
                 }
-
-                // Fallback: fetch full card info for candidates and show the picker.
                 setScanStatus('Fetching candidate cards...');
                 const fullCandidates = await Promise.all(
                   candidates.slice(0, 8).map(async cand => {
@@ -2483,7 +2515,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     return null;
                   })
                 );
-                
+
                 if (scanId !== currentScanId.current) return;
                 const validCandidates = fullCandidates.filter(c => c);
                 if (validCandidates.length > 0) {
@@ -2801,10 +2833,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // `loading` is the third, and it is cleared unconditionally
                   // in handleCapture's finally now -- see the note there.
                   stablePeriodConsumedRef.current = true;
-                  // A tap captures too, so the reference must move with it --
-                  // otherwise the fingerprint would still describe a card from
-                  // two placements ago.
-                  capturedPrintRef.current = livePrintRef.current;
                   stableCountRef.current = 0;
                   prevDetRef.current = null;
                   currentScanId.current += 1;
