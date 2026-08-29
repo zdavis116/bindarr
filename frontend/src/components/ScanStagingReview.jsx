@@ -37,7 +37,16 @@ function StagingSearch({ onPick, disabled }) {
           onChange={e => setQ(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); run(); } }}
           placeholder="Card name"
-          className="input"
+          // `input-control`, NOT `input`. Zach: "when you type in it you can't
+          // see what you typed like text color blends in with white text box."
+          //
+          // There is no `.input` class in the stylesheet. This was the only
+          // input in the app using it -- the other 58 all use `input-control` --
+          // so it matched NOTHING and fell back to the browser's default
+          // styling, which in a dark app means unreadable text on an unstyled
+          // box. The class carries `color: var(--text-primary)` and the app's
+          // input background together, which is why nothing else has this bug.
+          className="input-control"
           style={{ flex: 1, minHeight: 38, fontSize: '0.75rem' }}
           disabled={disabled}
         />
