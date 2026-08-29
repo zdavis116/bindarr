@@ -787,6 +787,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [dupConfirmCard, setDupConfirmCard] = useState(null);
   const [dupQty, setDupQty] = useState(1);
 
+  // stopCamera is defined further down, so the back guard reaches it through a
+  // ref rather than a use-before-define.
+  const stopCameraRef = useRef(null);
+
   useBackGuard(scanMatches.length > 0, () => setScanMatches([]));
   // Android hardware back / iOS swipe closes the review screen instead of
   // leaving the scanner entirely, matching every other overlay here.
@@ -794,6 +798,18 @@ function CameraScanner({ onAddSuccess, showToast }) {
   useBackGuard(!!dupConfirmCard, () => setDupConfirmCard(null));
   useBackGuard(!!inspectorEntry, () => setInspectorEntry(null));
   useBackGuard(recentSelect.selectMode, recentSelect.exitSelectMode);
+  // The staged list closes on back, like every other overlay here.
+  useBackGuard(showStaging, () => setShowStaging(false));
+  // AND SO DOES THE CAMERA ITSELF -- a SECOND way out, not the only one.
+  //
+  // Zach got trapped in the fullscreen scanner because the only exit was a
+  // button the camera covered. The X button above is the fix; this is the
+  // belt-and-braces, because "I can't back out of it" should never depend on a
+  // single control rendering correctly.
+  //
+  // Registered LAST so it has the lowest priority: any open overlay consumes
+  // the gesture first, and only a bare camera view closes the camera.
+  useBackGuard(cameraActive, () => stopCameraRef.current?.());
   
   // Form states
   const [quantity, setQuantity] = useState(1);
@@ -1521,6 +1537,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setDebugCandidates([]);
     setDebugScoped(null);
   };
+  // Keep the back-gesture handler pointing at the current stopCamera closure.
+  stopCameraRef.current = stopCamera;
 
   const autoAddCard = async (card, qty = 1, overrides = null) => {
     // Mark the dup guard BEFORE the await: a fast cooldown can fire the next
@@ -2749,9 +2767,42 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 is what puts pixels on the card (see .camera-fullscreen in
                 index.css), but it must be escapable: the boxed layout is the
                 production look and the only way to see the rest of the page. */}
-            {/* NO FULLSCREEN TOGGLE. The scanner is fullscreen always --
-                "I want full screen only" -- so a maximize/minimize control
-                exits to a layout that no longer exists. */}
+            {/* THE WAY OUT. Zach: "there is no button to get out of the camera
+                so if I go in there and scan no cards I can't back out of it."
+                He was trapped, and that is my regression.
+                
+                A Stop button has always existed -- but it lives in the control
+                bar BELOW the preview, which the fullscreen camera covers. In
+                windowed mode that was fine and the maximize toggle was the
+                secondary escape. Making fullscreen permanent removed the toggle
+                and left the only exit off-screen, so the scanner became a room
+                with no door unless a scan happened to produce a modal.
+                
+                Top-LEFT, where the fullscreen toggle used to be: the corner a
+                thumb already reaches for to leave a screen, and diagonally
+                opposite the torch so it cannot repeat the overlap that made the
+                Scanned badge untappable. */}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={(e) => { e.stopPropagation(); stopCamera(); }}
+              aria-label={t('scan.stopCamera')}
+              title={t('scan.stopCamera')}
+              style={{
+                position: 'absolute',
+                top: `calc(1rem + env(safe-area-inset-top))`,
+                left: '1rem',
+                zIndex: 22,
+                borderRadius: '50%',
+                padding: '0.6rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              }}
+            >
+              <X size={18} />
+            </button>
 
             {/* Torch Toggle Overlay Button */}
             <button

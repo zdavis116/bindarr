@@ -167,4 +167,47 @@ function anchors(text) {
   pass('OVL-TC5', 'the capture button is gone; tap-to-scan remains');
 }
 
+// TC6: THERE IS ALWAYS A WAY OUT OF THE CAMERA.
+//
+// Zach: "there is no button to get out of the camera so if I go in there and
+// scan no cards I can't back out of it."
+//
+// A Stop button always existed -- in the control bar BELOW the preview, which
+// the fullscreen camera covers. That was survivable while fullscreen was a
+// toggle, because the maximize control was a second exit. Making fullscreen
+// permanent deleted the toggle and left the only door off-screen, so scanning
+// nothing meant being stuck.
+//
+// This is the third control Zach has reported as unreachable (Add All under the
+// nav, the Scanned badge under the torch, now the exit below the fold). The
+// pattern is always the same: the element renders, its handler is correct, and
+// it is somewhere a thumb cannot get to. So the property to pin is not "a stop
+// handler exists" -- it is that an exit is rendered INSIDE the preview overlay,
+// where the camera cannot cover it.
+{
+  // The overlay region: everything drawn on top of the video.
+  const overlayStart = scanner.indexOf('camera-preview-wrapper camera-active');
+  assert.ok(overlayStart > 0, 'the preview wrapper must exist');
+  const overlay = scanner.slice(overlayStart, overlayStart + 20000);
+
+  // An absolutely-positioned control inside the preview that stops the camera.
+  const exitInFrame = /position:\s*'absolute'[\s\S]{0,600}?stopCamera\(\)|stopCamera\(\)[\s\S]{0,600}?position:\s*'absolute'/.test(overlay);
+  assert.ok(
+    exitInFrame,
+    'the fullscreen preview must render its own exit control -- a Stop button '
+    + 'below the preview is covered by the camera and leaves Zach trapped',
+  );
+  pass('OVL-TC6', 'the camera has an exit control inside the preview');
+}
+
+// TC7: and the phone's back gesture also leaves the camera, so the escape does
+// not depend on one button rendering correctly.
+{
+  assert.ok(
+    /useBackGuard\(cameraActive/.test(scanner),
+    'the hardware back / swipe gesture must also close the camera',
+  );
+  pass('OVL-TC7', 'the back gesture is a second way out of the camera');
+}
+
 console.log(`\nscanner-overlay-controls.test.js: ${passed} cases passed`);
