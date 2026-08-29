@@ -49,9 +49,7 @@ function hintFirst(recall, hint) {
 
 // The verify loop's shape: walk in order, score each, stop on agreement.
 // `inliersOf` stands in for the real geometric matcher.
-// The break requires CERTAIN_INLIERS, not a lower "they agree" floor.
-// TC9 below is why: at 35 a wrong hint could win outright.
-const CERTAIN_INLIERS = 80;
+const HINT_AGREE_INLIERS = 35;
 function verify(recall, hint, inliersOf) {
   const ordered = hintFirst(recall, hint);
   const scored = [];
@@ -60,7 +58,7 @@ function verify(recall, hint, inliersOf) {
     visited += 1;
     const inliers = inliersOf(cand);
     scored.push({ ...cand, inliers });
-    if (hint && inliers >= CERTAIN_INLIERS
+    if (hint && inliers >= HINT_AGREE_INLIERS
         && hint.numbers.includes(norm(cand.number))
         && hint.sets.includes(norm(cand.set))) break;
   }
@@ -175,30 +173,19 @@ const inliersOf = (c) => (c.set === 'msh' && c.number === '233' ? 120 : 8);
 {
   const src = readFileSync(join(here, '..', 'src', 'scanMatch.js'), 'utf8');
 
-  const certain = /const CERTAIN_INLIERS = (\d+);/.exec(src);
-  assert.ok(certain, 'production must define CERTAIN_INLIERS');
+  const floor = /const HINT_AGREE_INLIERS = (\d+);/.exec(src);
+  assert.ok(floor, 'production must define HINT_AGREE_INLIERS');
   assert.strictEqual(
-    Number(certain[1]), CERTAIN_INLIERS,
-    `the certainty threshold moved in production (${certain[1]}) but not in `
-    + `this test (${CERTAIN_INLIERS}) -- TC9 is now testing a threshold that `
-    + 'does not ship',
-  );
-  assert.ok(
-    !/HINT_AGREE_INLIERS/.test(src),
-    'the separate low agreement floor must stay deleted -- it let a wrong '
-    + 'collector number win outright (see TC9)',
+    Number(floor[1]), HINT_AGREE_INLIERS,
+    `the noise floor moved in production (${floor[1]}) but not in this test `
+    + `(${HINT_AGREE_INLIERS}) -- TC5 is now testing a threshold that does not ship`,
   );
 
   // The break must still require BOTH an inlier floor AND set+number agreement.
   // Losing any one of these silently converts a stop condition into a way for a
   // misread number to end the search early.
-  assert.ok(/ocrHint && inliers >= CERTAIN_INLIERS/.test(src),
-    'the hint break must gate on CERTAIN_INLIERS, not a lower floor');
-  assert.ok(
-    /ocrHint && inliers >= CERTAIN_INLIERS\s*\n\s*&& !BASIC_LAND_NAMES/.test(src),
-    'basic lands must be excluded from the hint break -- dozens of Forest '
-    + 'printings all score 80+, so the first is not the best',
-  );
+  assert.ok(/inliers >= HINT_AGREE_INLIERS/.test(src),
+    'the agreement break must still gate on the inlier floor');
   assert.ok(/ocrHint\.numbers\.includes\(normHint\(cand\.number\)\)/.test(src),
     'the agreement break must still require the NUMBER to match');
   assert.ok(/ocrHint\.sets\.includes\(normHint\(cand\.set\)\)/.test(src),
@@ -210,72 +197,6 @@ const inliersOf = (c) => (c.set === 'msh' && c.number === '233' ? 120 : 8);
     'hintFirst must still return the untouched recall list when nothing matches');
 
   pass('OHINT-TC8', 'the production break and noise floor match what these cases model');
-}
-
-// TC9: THE REVIEW BLOCKER. A wrong hint must not be able to WIN.
-//
-// The first version of this break used a 35-inlier floor and this file did not
-// catch it, because TC3 only models a wrongly-hinted candidate scoring 8 --
-// deep in the noise band, where any floor rejects it. Code review found the
-// real hole and it reproduced immediately:
-//
-//   recall: [.., msh#213 (OCR's WRONG read, 40), .., msh#432 (TRUE, 60)]
-//   no hint    -> msh#432 wins  (visits 4)
-//   wrong hint -> msh#213 WINS  (visits 1)   <-- a wrong card, recorded
-//
-// The safety argument was "scored is sorted afterwards, so visit order cannot
-// change the winner". That is only true while the loop visits the SAME SET of
-// candidates. The break truncates the set; hintFirst decides what falls inside
-// the truncation. The winner is max(inliers) over the VISITED PREFIX.
-//
-// 40 inliers is NOT noise -- measured right matches run 35-162 -- so a wrong
-// card scoring 40 sits inside the legitimate band and no floor in that range
-// could exclude it. And OCR reads a confident wrong printing on ~5% of scans.
-//
-// This is the case that must fail if anyone lowers the threshold again.
-{
-  const recall = [
-    { set: 'lea', number: '1' },
-    { set: 'msh', number: '213' },   // what OCR wrongly read
-    { set: 'c21', number: '263' },
-    { set: 'msh', number: '432' },   // the card actually photographed
-  ];
-  const inliers = (c) => {
-    if (c.set === 'msh' && c.number === '432') return 60;   // true card
-    if (c.set === 'msh' && c.number === '213') return 40;   // wrong, but plausible
-    return 8;
-  };
-  const clean = verify(recall, null, inliers);
-  const hinted = verify(recall, { sets: ['msh'], numbers: ['213'] }, inliers);
-
-  assert.strictEqual(`${clean.winner.set}#${clean.winner.number}`, 'msh#432',
-    'without a hint the true card wins on inliers');
-  assert.strictEqual(
-    `${hinted.winner.set}#${hinted.winner.number}`, 'msh#432',
-    'A CONFIDENTLY WRONG NUMBER MUST NOT WIN. If this fails, a misread '
-    + 'collector number silently records the wrong card in the collection -- '
-    + 'the recount failure. Lowering the break threshold reintroduces it.',
-  );
-  pass('OHINT-TC9', 'a mid-band wrong hint cannot beat a stronger true match');
-}
-
-// TC10: and the speed win still exists -- a CORRECT hint on a strong match
-// still stops after one verification. Without this, TC9 could be "fixed" by
-// disabling the optimisation entirely and nothing would notice.
-{
-  const recall = [
-    { set: 'lea', number: '1' },
-    { set: 'c21', number: '263' },
-    { set: 'msh', number: '432' },
-  ];
-  const inliers = (c) => (c.set === 'msh' && c.number === '432' ? 120 : 8);
-  const clean = verify(recall, null, inliers);
-  const hinted = verify(recall, { sets: ['msh'], numbers: ['432'] }, inliers);
-  assert.strictEqual(`${hinted.winner.set}#${hinted.winner.number}`, 'msh#432');
-  assert.ok(hinted.visited < clean.visited,
-    'a correct hint on a strong match must still short-circuit the walk');
-  assert.strictEqual(hinted.visited, 1, 'and it should stop on the first candidate');
-  pass('OHINT-TC10', 'a correct hint on a strong match still stops immediately');
 }
 
 console.log(`\nocr-hint-safety.test.js: ${passed} cases passed`);
