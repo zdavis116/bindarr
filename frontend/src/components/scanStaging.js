@@ -40,7 +40,17 @@ export function sortForReview(entries) {
     const ua = a.unresolved ? 0 : 1;
     const ub = b.unresolved ? 0 : 1;
     if (ua !== ub) return ua - ub;
-    return (a.id || 0) - (b.id || 0);   // otherwise the order he scanned in
+    // MOST RECENT FIRST. Zach: "Can we order the scanned badge list by most
+    // recent scanned first, right the order feels random."
+    //
+    // It was not random, it was oldest-first (ascending id) -- which reads as
+    // random on a phone, because the card he JUST scanned lands at the bottom
+    // of a fifty-row list and he has no way to confirm it registered without
+    // scrolling to the end.
+    //
+    // Descending puts the card still in his hand at the top, which is the one
+    // he can actually check against the cardboard.
+    return (b.id || 0) - (a.id || 0);
   });
 }
 

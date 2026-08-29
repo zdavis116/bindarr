@@ -3,10 +3,10 @@
 // These test the rules that protect a stack of PHYSICAL cards Zach has already
 // put away, so they are worth stating plainly:
 //   - a failed "add all" must leave the session intact and say so
-//   - flagged rows must surface at the top, because a long list gets skimmed
+//   - unresolved rows must surface at the top, because a long list gets skimmed
 //   - the server is the only authority on what is staged
 import assert from 'node:assert/strict';
-import { createScanStaging, sortForReview, describeFlag } from './scanStaging.js';
+import { createScanStaging, sortForReview } from './scanStaging.js';
 
 let passed = 0;
 function test(id, name, fn) {
@@ -39,30 +39,31 @@ function fakeFetch(routes) {
 const listBody = (entries) => ({
   entries,
   total: entries.length,
-  flagged: entries.filter(e => e.flag).length,
+  unresolved: entries.filter(e => e.unresolved).length,
 });
 
 await test('FSS-TC1', 'reads the session from the server, never invents it', async () => {
-  const rows = [{ id: 1, name: 'Sol Ring', flag: null }, { id: 2, name: 'Island', flag: 'already_owned' }];
+  const rows = [
+    { id: 1, name: 'Sol Ring', unresolved: false },
+    { id: 2, matched_name: 'Island', unresolved: true },
+  ];
   const s = createScanStaging({ fetchImpl: fakeFetch({ 'GET /api/scan-stage': { body: listBody(rows) } }) });
   const st = await s.refresh();
   assert.equal(st.entries.length, 2);
   assert.equal(st.stagedCount, 2);
-  assert.equal(st.flaggedCount, 1);
+  assert.equal(st.unresolvedCount, 1, 'the row needing a printing is counted');
 });
 
 await test('FSS-TC2', 'staging bumps the badge without re-reading the whole list', async () => {
   // This runs once per card in a stack of hundreds. Pulling every thumbnail
   // back on each scan would make scanning slower the longer the session ran.
   const f = fakeFetch({
-    'POST /api/scan-stage': { body: { staged: true, id: 9, flag: 'duplicate_in_session' } },
+    'POST /api/scan-stage': { body: { staged: true, id: 9 } },
   });
   const s = createScanStaging({ fetchImpl: f });
   const r = await s.stage({ card_id: 'x' });
   assert.equal(r.ok, true);
-  assert.equal(r.flag, 'duplicate_in_session');
   assert.equal(s.getState().stagedCount, 1);
-  assert.equal(s.getState().flaggedCount, 1);
   assert.equal(f.calls.filter(c => c.startsWith('GET')).length, 0,
     'staging must not trigger a full list read');
 });
@@ -103,36 +104,34 @@ await test('FSS-TC4', 'A FAILED COMMIT LEAVES THE SESSION INTACT AND REPORTS IT'
     'and he must be told why, not just shown a stale list');
 });
 
-await test('FSS-TC5', 'flagged rows sort to the top, worst first', async () => {
-  // A sixty-row list gets skimmed. If the rows needing attention are not at the
-  // top, the flags may as well not exist.
+await test('FSS-TC5', 'unresolved rows sort to the top', async () => {
+  // A fifty-row list gets skimmed. Unresolved rows BLOCK Add All, so if they
+  // are not at the top Zach cannot see what is stopping him committing.
   const sorted = sortForReview([
-    { id: 1, flag: null },
-    { id: 2, flag: 'already_owned' },
-    { id: 3, flag: null },
-    { id: 4, flag: 'low_confidence' },
-    { id: 5, flag: 'duplicate_in_session' },
+    { id: 1, unresolved: false },
+    { id: 2, unresolved: false },
+    { id: 3, unresolved: true },
+    { id: 4, unresolved: false },
+    { id: 5, unresolved: true },
   ]);
-  assert.deepEqual(sorted.map(e => e.id), [4, 5, 2, 1, 3]);
-  // low_confidence outranks the rest because it questions whether the app got
-  // the right CARD; the others only say "you have one already".
-  assert.equal(sorted[0].flag, 'low_confidence');
+  // Unresolved first (newest of those first), then the rest newest-first.
+  assert.deepEqual(sorted.map(e => e.id), [5, 3, 4, 2, 1]);
+  assert.ok(sorted[0].unresolved, 'the first row must be one that needs a decision');
 });
 
-await test('FSS-TC6', 'unflagged rows keep scan order', async () => {
-  // Scan order is the order the physical stack is in, which is how he checks a
-  // row against the card in his hand.
-  const sorted = sortForReview([{ id: 7 }, { id: 3 }, { id: 5 }]);
-  assert.deepEqual(sorted.map(e => e.id), [3, 5, 7]);
+await test('FSS-TC6', 'rows are newest-scanned first', async () => {
+  // Zach: "Can we order the scanned badge list by most recent scanned first,
+  // right the order feels random."
+  //
+  // It was oldest-first, which READS as random on a phone: the card he just
+  // scanned lands at the bottom of a long list, so he cannot confirm it
+  // registered without scrolling to the end. Newest-first puts the card still
+  // in his hand at the top -- the one he can actually check against cardboard.
+  const sorted = sortForReview([{ id: 3 }, { id: 7 }, { id: 5 }]);
+  assert.deepEqual(sorted.map(e => e.id), [7, 5, 3]);
 });
 
-await test('FSS-TC7', 'every flag has human wording, and unknown flags do not crash', async () => {
-  for (const f of ['duplicate_in_session', 'already_owned', 'low_confidence']) {
-    assert.ok(describeFlag(f), `${f} needs an explanation Zach can act on`);
-  }
-  assert.equal(describeFlag(null), null);
-  assert.equal(describeFlag('something_new'), null);
-});
+
 
 await test('FSS-TC8', 'a network failure is reported, not swallowed', async () => {
   const s = createScanStaging({
