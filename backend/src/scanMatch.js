@@ -583,13 +583,6 @@ const STRONG_INLIERS = 25;
 // and much weaker question ("should we bother checking the other game").
 const CERTAIN_INLIERS = 80;
 
-// The floor for the OCR-agreement break. Deliberately well above the noise
-// band: measured across this project, WRONG matches top out around 30 and
-// genuine ones run 35-162. 35 means "a real geometric match", which is the
-// weakest claim worth combining with a correct printed number. Lower would let
-// a coincidental match on the right number end the search early.
-const HINT_AGREE_INLIERS = 35;
-
 // Compare a catalogue value with an OCR reading. Collector numbers are strings
 // ('123a', 'GR1'), and the card prints '0207' where the catalogue stores '207',
 // so leading zeros are stripped on BOTH sides. No numeric coercion: parseInt
@@ -750,22 +743,41 @@ function verifyGame(cardBuf, game, q, bf, recall, topK, ocrHint = null) {
     // to name the same printing. Two independent agreeing signals is a stronger
     // claim than either alone at any threshold.
     //
-    // IT CANNOT CAUSE A WRONG CARD. The only thing skipped is the chance that a
-    // LATER candidate scores higher. For that to matter, the later candidate
-    // would have to be the true card while the current one already matches the
-    // number printed on the physical card -- i.e. the real card's own strip
-    // names a different printing. That is not a thing.
+    // THE THRESHOLD IS CERTAIN_INLIERS (80), NOT A LOWER "AGREEMENT" FLOOR.
     //
-    // AND IT PRESERVES THE CROSS-CHECK. Measured on the 10 scans where OCR read
-    // a confident but WRONG printing, ORB's TOP candidate contradicted the read
-    // in 10 of 10 cases. The disagreement never needed a deep search, so
-    // stopping early cannot blind the guard that catches them: when they
-    // disagree, this break simply does not fire and the full walk continues.
+    // A 35-inlier floor shipped here first, and code review caught that it was
+    // unsafe. The reasoning it rested on -- "`scored` is sorted afterwards, so
+    // visit order cannot change the winner" -- holds only while the loop visits
+    // the SAME SET of candidates. The break truncates that set, and hintFirst
+    // decides which candidates fall inside the truncation. The winner is
+    // max(inliers) over the VISITED PREFIX, so the hint really could change it.
+    // Reproduced before fixing:
     //
-    // A LOW inlier floor still applies. Without it a 3-inlier noise match that
-    // happened to sit on the OCR'd number would end the search -- agreement
-    // between a guess and a reading is not agreement.
-    if (ocrHint && inliers >= HINT_AGREE_INLIERS
+    //   recall: [.., msh#213 (OCR's WRONG read, 40), .., msh#432 (TRUE, 60)]
+    //   no hint    -> msh#432 wins   (visits 4)
+    //   wrong hint -> msh#213 WINS   (visits 1)
+    //
+    // 40 inliers is not noise -- measured RIGHT matches run 35-162, so a wrong
+    // card scoring 40 sits inside the legitimate band and no floor in that
+    // range could exclude it. OCR reads a confident WRONG printing on ~5% of
+    // scans (10 of 208 on the corpus), which is exactly when this fires.
+    //
+    // Worse, it destroyed the cross-check the optimisation claimed to preserve:
+    // once ORB's top can be FORCED to agree with the OCR read, the resolver's
+    // disagreement branch sees agreement and stages silently. Two independent
+    // signals stop being independent.
+    //
+    // At CERTAIN_INLIERS the break is a genuine no-op on the result: 80 is more
+    // than twice the highest wrong match ever observed here, so no later
+    // candidate can plausibly beat it. The speed win survives because a hinted
+    // candidate that IS the true card measures 65-167 on Zach's cards. Basic
+    // lands are excluded for the same reason as the break above -- dozens of
+    // Forest printings all score 80+, so the first is not the best.
+    //
+    // This fires less often than the unsafe version, so it is slower. A wrong
+    // card is worse than a slow scan.
+    if (ocrHint && inliers >= CERTAIN_INLIERS
+        && !BASIC_LAND_NAMES.has((cand.name || '').toLowerCase())
         && ocrHint.numbers.includes(normHint(cand.number))
         && ocrHint.sets.includes(normHint(cand.set))) {
       break;
