@@ -130,32 +130,54 @@ await test('FSS-TC6', 'rows are newest-scanned first', async () => {
   assert.deepEqual(sorted.map(e => e.id), [7, 5, 3]);
 });
 
-await test('FSS-TC7', 'weak matches are flagged, and only the right ones', async () => {
-  // The backstop Zach asked for in place of a slower scanner: "add an override
-  // button in the scanned section and highlight yellow that match is weak if
-  // below a threshold".
-  assert.equal(isWeakMatch({ match_inliers: 12, name: 'Sol Ring' }), true,
-    'a noise-level art match must be flagged');
-  assert.equal(isWeakMatch({ match_inliers: 120, name: 'Sol Ring' }), false,
-    'a strong art match must not be');
+await test('FSS-TC7', 'the uncertain BAND is flagged, not the lowest scores', async () => {
+  // Zach caught the first version of this pointing at the wrong number, and the
+  // corpus proved him right. I flagged the LOWEST artwork scores (<= 32) on the
+  // reasoning that a weak match is a risky match. Measured over 191 resolved
+  // scans, that band contained 46 correct rows and ZERO errors -- it flagged a
+  // quarter of the list and caught nothing.
+  //
+  // All four wrong records scored 41-55: mediocre matches, strong enough to end
+  // the search early and not strong enough to be right.
+  //
+  //   inliers   correct   wrong
+  //    0-32        46       0
+  //   33-49        12       3   <- flagged
+  //   50-79        50       1
+  //     80+        79       0
+  //
+  // If someone "fixes" this back to a simple <= threshold, these cases fail.
+  assert.equal(isWeakMatch({ match_inliers: 42, name: 'Sol Ring' }), true,
+    '42 is inside the band where every observed wrong card lived');
+  assert.equal(isWeakMatch({ match_inliers: 33, name: 'Sol Ring' }), true, 'lower edge');
+  assert.equal(isWeakMatch({ match_inliers: 49, name: 'Sol Ring' }), true, 'upper edge');
 
-  // BASIC LANDS ARE NEVER FLAGGED. Dozens of Mountain printings score 120+
-  // against one photo of a Mountain, so the score says nothing about WHICH
-  // Mountain -- high or low. Flagging them would mark most of a land-heavy
-  // stack and train him to ignore the colour entirely.
-  assert.equal(isWeakMatch({ match_inliers: 5, name: 'Mountain' }), false,
-    'basic lands must never be flagged weak');
-  assert.equal(isWeakMatch({ match_inliers: 5, name: 'Snow-Covered Forest' }), false,
+  assert.equal(isWeakMatch({ match_inliers: 12, name: 'Sol Ring' }), false,
+    'a LOW score must NOT be flagged -- the collector number carried it, and '
+    + 'the corpus shows that is reliable (46 correct, 0 wrong)');
+  assert.equal(isWeakMatch({ match_inliers: 120, name: 'Sol Ring' }), false,
+    'a decisive artwork match must not be flagged');
+  assert.equal(isWeakMatch({ match_inliers: 55, name: 'Sol Ring' }), false,
+    '50-79 is deliberately NOT flagged: widening to catch the one error there '
+    + 'dashes a third of the list, and a marker on every third row is wallpaper');
+
+  // BASIC LANDS ARE NEVER FLAGGED, and the measurement inverted the expectation.
+  // Zach: "Remember basic lands are the biggest issues" -- true of ARTWORK
+  // matching, but of 54 basic-land scans ZERO resolved wrong. Their printing is
+  // decided by the collector number, which reads fine on a Mountain.
+  assert.equal(isWeakMatch({ match_inliers: 42, name: 'Mountain' }), false,
+    'basic lands must never be flagged: 54 scans, 0 errors');
+  assert.equal(isWeakMatch({ match_inliers: 42, name: 'Snow-Covered Forest' }), false,
     'including snow-covered basics');
 
   // No score is not a problem. Absence of evidence must not look like evidence
-  // of a bad match, or every older row lights up yellow for no reason.
+  // of a bad match, or every older row lights up for no reason.
   assert.equal(isWeakMatch({ name: 'Sol Ring' }), false,
     'a row with no recorded score must not be flagged');
 
   // An unresolved row has its own treatment; double-marking it is noise.
-  assert.equal(isWeakMatch({ match_inliers: 3, unresolved: true, name: 'Sol Ring' }), false,
-    'unresolved rows are not additionally flagged as weak');
+  assert.equal(isWeakMatch({ match_inliers: 42, unresolved: true, name: 'Sol Ring' }), false,
+    'unresolved rows are not additionally flagged');
 });
 
 await test('FSS-TC8', 'a network failure is reported, not swallowed', async () => {

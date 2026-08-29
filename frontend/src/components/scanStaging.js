@@ -36,19 +36,40 @@
 // the residual risk from the ocrHint break ("I'm okay if it gets it wrong
 // occasionally") and asked for a visible marker plus an override instead of a
 // slower scanner. It marks a row rather than moving it.
-// A match at or below this is ART THAT DID NOT REALLY IDENTIFY THE CARD.
+// THE UNCERTAIN MIDDLE BAND, measured from the cards that actually went wrong.
 //
-// Same value the backend resolver uses (scanPrintingResolver WEAK_MATCH_INLIERS)
-// so the app has ONE definition of "weak" rather than two that drift. Measured
-// on the corpus: right matches run p50 74 / p90 112, and non-basic wrong matches
-// top out at 48 -- so 32 sits below almost every genuine identification while
-// still catching the noise-level ones.
+// Zach caught the first version of this pointing at the wrong number. I flagged
+// rows scoring <= 32 -- "the artwork barely agreed" -- which sounded right and
+// caught NOTHING. His reasoning: "I was thinking it would be a way to protect
+// against the .03% that score 35+ and have a valid ocr number."
 //
-// Basic lands are deliberately NOT flagged. Dozens of Mountain printings score
-// 120+ against one photo of a Mountain, so a high score there says nothing about
-// WHICH Mountain -- and a low score says nothing either. Flagging them would
-// mark most of a land-heavy stack and train him to ignore the colour.
-const WEAK_MATCH_INLIERS = 32;
+// Measured over 191 resolved scans on the corpus, the four rows that resolved to
+// the WRONG printing scored:
+//
+//   truth zen#131 -> got cmm#232    42 inliers
+//   truth msh#432 -> got msh#213    55
+//   truth msh#432 -> got msh#213    41
+//   truth msh#432 -> got msh#213    48
+//
+// Every one lands in the middle. None is below 32. The band by band split:
+//
+//   inliers   correct   wrong
+//    0-32        46       0     <- the number carried it, and that is reliable
+//   33-49        12       3     <- THE DANGER ZONE
+//   50-79        50       1
+//     80+        79       0     <- artwork is decisive
+//
+// So the risk is not a WEAK artwork match -- it is a MEDIOCRE one: strong enough
+// to stop the search early, not strong enough to be right. Below 32 the artwork
+// contributed nothing and the printed collector number decided the card, which
+// the corpus says is dependable.
+//
+// 33-49 rather than 33-79: it catches 3 of the 4 while flagging ~7% of rows.
+// Widening to 79 catches the fourth but dashes a third of the list, and a marker
+// on every third row is wallpaper -- the same reason Zach had the old advisory
+// flags removed. The miss scored 55 and is the same msh#432 -> msh#213 misread.
+const UNCERTAIN_MIN_INLIERS = 33;
+const UNCERTAIN_MAX_INLIERS = 49;
 
 const BASIC_LANDS = new Set([
   'plains', 'island', 'swamp', 'mountain', 'forest', 'wastes',
@@ -58,15 +79,24 @@ function isBasicLand(name) {
   return BASIC_LANDS.has(String(name || '').toLowerCase().replace('snow-covered ', '').trim());
 }
 
-// Did the ARTWORK actually identify this card, or did the collector number carry
-// it? Returns false when there is no score to judge (older rows, manual adds) --
-// absence of evidence must not look like evidence of a problem.
+// Is this row in the band where wrong cards actually live?
+//
+// BASIC LANDS ARE EXCLUDED, and the measurement inverted my expectation here.
+// Zach: "Remember basic lands are the biggest issues." True of ARTWORK matching
+// -- every Mountain matches every other Mountain at 120+, which is why they are
+// excluded from the early-stop break -- but of 54 basic-land scans, ZERO
+// resolved wrong. Their printing is decided by the collector number, which reads
+// fine on a Mountain, so the artwork confusion never becomes a wrong record. All
+// four errors were real cards.
+//
+// Returns false when there is no score to judge: absence of evidence must not
+// look like evidence of a problem, or every older row lights up for no reason.
 export function isWeakMatch(entry) {
-  if (!entry || entry.unresolved) return false;          // unresolved has its own treatment
+  if (!entry || entry.unresolved) return false;   // unresolved has its own treatment
   const n = entry.match_inliers;
   if (!Number.isFinite(n)) return false;
   if (isBasicLand(entry.card_name || entry.name)) return false;
-  return n <= WEAK_MATCH_INLIERS;
+  return n >= UNCERTAIN_MIN_INLIERS && n <= UNCERTAIN_MAX_INLIERS;
 }
 
 export function sortForReview(entries) {

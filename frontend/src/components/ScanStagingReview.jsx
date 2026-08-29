@@ -269,13 +269,19 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {ordered.map(entry => {
             const isUnresolved = !!entry.unresolved;
-            // WEAK MATCH: resolved to a printing, but the ARTWORK barely agreed.
+            // THE UNCERTAIN MIDDLE BAND (33-49 inliers, non-basic).
             //
             // Zach accepted the residual risk in the ocrHint break rather than
             // give up the speed -- "I'm okay if it gets it wrong occasionally
-            // it wasn't gonna be perfect" -- and asked for this instead: mark
-            // the row, let him override it. The scanner stays fast and the
-            // rare bad call is visible rather than silent.
+            // it wasn't gonna be perfect" -- and asked for a marker plus an
+            // override instead.
+            //
+            // He also caught my first attempt aiming at the wrong number: I
+            // flagged the LOWEST artwork scores, which turned out to contain
+            // zero errors. Measured on the corpus, all four wrong records
+            // scored 41-55 -- mediocre matches, strong enough to end the search
+            // and not strong enough to be right. See isWeakMatch for the full
+            // band-by-band split.
             const isWeak = !isUnresolved && isWeakMatch(entry);
             return (
               <div
@@ -338,7 +344,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                   {isWeak && (
                     <div style={{ marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.66rem', color: 'var(--accent-yellow)' }}>
-                        Weak art match — check this one
+                        Not fully confirmed — worth a look
                       </span>
                       <button
                         type="button"
