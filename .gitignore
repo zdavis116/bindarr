@@ -96,3 +96,7 @@ backend/spike/phase4a/*.onnx
 backend/spike/phase4a/*.mjs
 yolo11n-obb.pt
 *.pt
+
+# One-off patch scripts used while developing. Never imported by the app.
+/wire_fp.py
+/thresh.py
