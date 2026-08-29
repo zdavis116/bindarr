@@ -347,7 +347,56 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
       })();
     }
 
-    const result = await scanMatch.match(buf, game, 8, set, { recallK, orb, lang, prof });
+    // READ THE COLLECTOR STRIP BEFORE MATCHING, so ORB can stop as soon as it
+    // agrees with the printed number.
+    //
+    // Zach: "So would it make sense to have OCR go first and then see if orb
+    // agrees? And stop it early if it does? That way it's almost always
+    // stopping early regardless of card?"
+    //
+    // Measured on his 208-scan corpus: ORB puts the correct card at rank 1 in
+    // 93% of scans, and the printed number is correct on 81% -- so on most
+    // scans the answer is settled by candidate one, and orb-verify (997ms of a
+    // 1896ms scan) spends the rest of its time confirming it 49 more times.
+    //
+    // THE DETECTION IS COMPUTED ONCE AND SHARED. It used to come out of
+    // scanMatch.match(), which is why the strip could only be read afterwards.
+    // preprocessCardWithDetection is the same call match() makes internally, so
+    // this is a reordering, not extra work -- the detection is passed straight
+    // back in and match() skips its own.
+    //
+    // FAILURE IS FREE. If the pre-read finds nothing, ocrHint is null and
+    // verifyGame walks every candidate exactly as before. Nothing downstream
+    // depends on this read: the real OCR pass still runs after the match and is
+    // still what the resolver uses. This is a stop condition, not an identity.
+    let preHint = null;
+    let preStrip = null;
+    let preDetection = null;
+    let prePre = null;
+    try {
+      prePre = await prof.time('pre-detect', () => scanMatch.preprocessCardWithDetection(buf));
+      preDetection = prePre.detect || null;
+      if (preDetection) {
+        const stripImg = await prof.time('pre-ocr-warp', () => scanMatch.rectifyCard(buf, {
+          width: collectorNumberOcr.OCR_W,
+          height: collectorNumberOcr.OCR_H,
+          detection: preDetection,
+          region: collectorNumberOcr.STRIP,
+        }));
+        if (stripImg) {
+          preStrip = await prof.time('pre-ocr-strip',
+            () => collectorNumberOcr.readCollectorStrip(stripImg, { preCropped: true }));
+          const p = parseCollectorStrip(preStrip || '');
+          const numbers = [p.number, p.numberAlt].filter(Boolean);
+          const sets = (p.setCandidates?.length ? p.setCandidates : [p.set]).filter(Boolean);
+          if (numbers.length && sets.length) preHint = { sets, numbers };
+        }
+      }
+    } catch { /* a failed pre-read must never fail the scan */ }
+
+    const result = await scanMatch.match(buf, game, 8, set, {
+      recallK, orb, lang, prof, ocrHint: preHint, preprocessed: prePre,
+    });
     if (result.candidates && result.candidates.length > 0) {
       // DB HYDRATION — up to 8 candidates, each up to 2 queries, never timed.
       await prof.time('db-hydrate-candidates', async () => {
