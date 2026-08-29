@@ -1182,7 +1182,21 @@ router.patch('/scan-stage/:id', async (req, res) => {
   }
 });
 
-// RESOLVE AN UNRESOLVED STAGED ROW: choose which printing it actually is.
+// RESOLVE A STAGED ROW: choose which printing it actually is.
+//
+// CANDIDATES ARE KEPT, NOT CLEARED. This used to set candidates_json = '[]' on
+// resolve, on the reasoning that a resolved row has no more decision to make.
+// Two things make that wrong:
+//
+//   1. Picking the wrong one of three options is easy on a phone. Clearing the
+//      list left the row "resolved" with no picker, so the only way back was
+//      delete and rescan the physical card -- for a mis-tap.
+//   2. The weak-match override needs them. A row can be resolved AND still be
+//      worth changing, which is exactly what that button is for.
+//
+// Keeping them costs a few hundred bytes per row on a table that is emptied at
+// every Add All. The UI decides what to show from `unresolved` (card_id IS
+// NULL) and the weak-match score, never from whether candidates exist.
 //
 // This is what replaces the review queue. Zach: "if we are unsure of the card
 // give the top 3 options and then allow to search manually just in case its not
@@ -1218,7 +1232,7 @@ router.post('/scan-stage/:id/resolve', async (req, res) => {
 
     await db.run(
       `UPDATE scan_staging
-          SET card_id = ?, finish = ?, condition = ?, quantity = ?, candidates_json = '[]'
+          SET card_id = ?, finish = ?, condition = ?, quantity = ?
         WHERE id = ? AND user_id = ?`,
       [card_id, finish || row.finish, condition || row.condition, qty, id, req.user.id]);
 

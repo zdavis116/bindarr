@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, Trash2, AlertTriangle, Check, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
-import { sortForReview } from './scanStaging';
+import { sortForReview, isWeakMatch } from './scanStaging';
 
 // SEARCH FOR A PRINTING when none of the offered candidates is right.
 //
@@ -101,6 +101,11 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
   const [state, setState] = useState(staging.getState());
   const [busyId, setBusyId] = useState(null);
   const [committing, setCommitting] = useState(false);
+  // Which WEAK row has its override picker open. Separate from searchId: a weak
+  // row is already resolved, so opening its picker is a deliberate "this is
+  // wrong" rather than the unavoidable step an unresolved row needs.
+  const [overrideId, setOverrideId] = useState(null);
+
   // Which unresolved row has its manual search open. One at a time: a phone
   // screen cannot show several open search panels usefully.
   const [searchFor, setSearchFor] = useState(null);
@@ -264,6 +269,14 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {ordered.map(entry => {
             const isUnresolved = !!entry.unresolved;
+            // WEAK MATCH: resolved to a printing, but the ARTWORK barely agreed.
+            //
+            // Zach accepted the residual risk in the ocrHint break rather than
+            // give up the speed -- "I'm okay if it gets it wrong occasionally
+            // it wasn't gonna be perfect" -- and asked for this instead: mark
+            // the row, let him override it. The scanner stays fast and the
+            // rare bad call is visible rather than silent.
+            const isWeak = !isUnresolved && isWeakMatch(entry);
             return (
               <div
                 key={entry.id}
@@ -278,9 +291,16 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                   // than a caption, because on a phone the eye finds an edge
                   // before it reads text -- and these are the rows that block
                   // Add All, so he has to be able to spot them while scrolling.
+                  // Unresolved = SOLID yellow (blocks Add All, must be acted on).
+                  // Weak match  = DASHED yellow (committable, worth a glance).
+                  // Different edges so a stack of both is still readable at a
+                  // glance, without either one moving in the list -- Zach:
+                  // "Don't pop issues to the top."
                   border: isUnresolved
                     ? '1px solid var(--accent-yellow)'
-                    : '1px solid transparent',
+                    : isWeak
+                      ? '1px dashed var(--accent-yellow)'
+                      : '1px solid transparent',
                 }}
               >
                 {/* The crop he actually photographed. Without it a list of forty
@@ -306,6 +326,61 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                       ? 'Which printing is this?'
                       : `${(entry.set_id || '').toUpperCase()} ${entry.number ? `#${entry.number}` : ''} · ${entry.finish}`}
                   </div>
+
+                  {/* WEAK MATCH: say so, and offer a way out.
+                      A caption under the name rather than a badge beside it,
+                      because the row already carries a dashed edge and two
+                      markers for one condition is noise.
+                      "Change" reuses the SAME picker the unresolved rows use --
+                      the candidates are already stored on every row, so
+                      overriding is choosing from what the matcher actually saw
+                      plus a search, not a separate screen. */}
+                  {isWeak && (
+                    <div style={{ marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.66rem', color: 'var(--accent-yellow)' }}>
+                        Weak art match — check this one
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.66rem', padding: '0.15rem 0.5rem', minHeight: 26 }}
+                        onClick={() => setOverrideId(overrideId === entry.id ? null : entry.id)}
+                        disabled={busyId === entry.id}
+                      >
+                        {overrideId === entry.id ? 'Keep' : 'Change'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* The override picker: identical mechanism to the unresolved
+                      one, so a weak row and an unknown row are fixed the same
+                      way. Opened deliberately -- it must not appear on every
+                      weak row at once and bury the list. */}
+                  {isWeak && overrideId === entry.id && (
+                    <div style={{ marginTop: '0.45rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {(entry.candidates || []).slice(0, 3).map(c => (
+                        <button
+                          key={c.id || `${c.set_id}-${c.number}`}
+                          type="button" className="btn btn-secondary"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem',
+                            minHeight: 40, textAlign: 'left', justifyContent: 'flex-start', fontSize: '0.72rem',
+                          }}
+                          disabled={busyId === entry.id}
+                          onClick={() => { setOverrideId(null); resolve(entry.id, c.id); }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{c.name}</span>
+                          <span style={{ color: 'var(--text-muted)' }}>
+                            {(c.set_id || '').toUpperCase()} {c.number ? `#${c.number}` : ''}
+                          </span>
+                        </button>
+                      ))}
+                      <ManualCardSearch
+                        disabled={busyId === entry.id}
+                        onPick={(cardId) => { setOverrideId(null); resolve(entry.id, cardId); }}
+                      />
+                    </div>
+                  )}
 
                   {/* THE TOP 3, THEN A SEARCH. Zach: "if we are unsure of the
                       card give the top 3 options and then allow to search

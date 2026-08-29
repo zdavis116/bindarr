@@ -765,7 +765,35 @@ function verifyGame(cardBuf, game, q, bf, recall, topK, ocrHint = null) {
     // A LOW inlier floor still applies. Without it a 3-inlier noise match that
     // happened to sit on the OCR'd number would end the search -- agreement
     // between a guess and a reading is not agreement.
+    // BASIC LANDS ARE EXCLUDED, and that exclusion is doing almost all of the
+    // safety work here. Measured over 4,603 wrong candidates on the corpus:
+    //
+    //   wrong matches scoring >= 35, ALL cards      : 627  (13.62%)
+    //   wrong matches scoring >= 35, EXCLUDING basics:  1  ( 0.03%)
+    //   worst wrong match overall                   : 158  (a Mountain)
+    //   worst wrong match excluding basics          :  48
+    //
+    // Every dangerous high-scoring wrong match is a basic land, for the same
+    // physical reason as the CERTAIN_INLIERS break above: every Mountain shares
+    // a frame and a near-identical landscape, so dozens of Mountain printings
+    // score 120+ against one photo of a Mountain. Artwork cannot separate them,
+    // so a strong score means nothing about WHICH Mountain it is. Real cards
+    // have distinct art, so a wrong one cannot climb.
+    //
+    // Raising the threshold instead does NOT work, and this was measured before
+    // choosing: 50 removes only a quarter of the dangerous cases (13.62% ->
+    // 9.73%) while costing 26% of the speed, because right and wrong overlap
+    // across the whole range once basics are in the pool.
+    //
+    // RESIDUAL RISK, STATED PLAINLY: one non-basic wrong candidate in 3,551
+    // reached 48. A misread collector number pointing at exactly that card
+    // could still stop the search early and record the wrong printing. Zach's
+    // call, explicitly: "I'm okay if it gets it wrong occasionally it wasn't
+    // gonna be perfect." The weak-match highlight in the Scanned list is the
+    // backstop -- anything below WEAK_MATCH_INLIERS is flagged for review
+    // rather than trusted silently.
     if (ocrHint && inliers >= HINT_AGREE_INLIERS
+        && !BASIC_LAND_NAMES.has((cand.name || '').toLowerCase())
         && ocrHint.numbers.includes(normHint(cand.number))
         && ocrHint.sets.includes(normHint(cand.set))) {
       break;

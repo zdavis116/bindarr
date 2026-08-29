@@ -32,27 +32,64 @@
 // taps to force one, and weak matches were right in every case he saw. "The
 // only cards that should stand out are the ones that unresolved."
 //
-// Unresolved rows must lead the list because they BLOCK Add All. A fifty-row
-// list gets skimmed, so the two rows that stop him committing cannot be buried
-// at row 47.
-export function sortForReview(entries) {
-  return [...entries].sort((a, b) => {
-    const ua = a.unresolved ? 0 : 1;
-    const ub = b.unresolved ? 0 : 1;
-    if (ua !== ub) return ua - ub;
-    // MOST RECENT FIRST. Zach: "Can we order the scanned badge list by most
-    // recent scanned first, right the order feels random."
-    //
-    // It was not random, it was oldest-first (ascending id) -- which reads as
-    // random on a phone, because the card he JUST scanned lands at the bottom
-    // of a fifty-row list and he has no way to confirm it registered without
-    // scrolling to the end.
-    //
-    // Descending puts the card still in his hand at the top, which is the one
-    // he can actually check against the cardboard.
-    return (b.id || 0) - (a.id || 0);
-  });
+// A WEAK-MATCH highlight replaces low_confidence, on Zach's terms: he accepted
+// the residual risk from the ocrHint break ("I'm okay if it gets it wrong
+// occasionally") and asked for a visible marker plus an override instead of a
+// slower scanner. It marks a row rather than moving it.
+// A match at or below this is ART THAT DID NOT REALLY IDENTIFY THE CARD.
+//
+// Same value the backend resolver uses (scanPrintingResolver WEAK_MATCH_INLIERS)
+// so the app has ONE definition of "weak" rather than two that drift. Measured
+// on the corpus: right matches run p50 74 / p90 112, and non-basic wrong matches
+// top out at 48 -- so 32 sits below almost every genuine identification while
+// still catching the noise-level ones.
+//
+// Basic lands are deliberately NOT flagged. Dozens of Mountain printings score
+// 120+ against one photo of a Mountain, so a high score there says nothing about
+// WHICH Mountain -- and a low score says nothing either. Flagging them would
+// mark most of a land-heavy stack and train him to ignore the colour.
+const WEAK_MATCH_INLIERS = 32;
+
+const BASIC_LANDS = new Set([
+  'plains', 'island', 'swamp', 'mountain', 'forest', 'wastes',
+]);
+
+function isBasicLand(name) {
+  return BASIC_LANDS.has(String(name || '').toLowerCase().replace('snow-covered ', '').trim());
 }
+
+// Did the ARTWORK actually identify this card, or did the collector number carry
+// it? Returns false when there is no score to judge (older rows, manual adds) --
+// absence of evidence must not look like evidence of a problem.
+export function isWeakMatch(entry) {
+  if (!entry || entry.unresolved) return false;          // unresolved has its own treatment
+  const n = entry.match_inliers;
+  if (!Number.isFinite(n)) return false;
+  if (isBasicLand(entry.card_name || entry.name)) return false;
+  return n <= WEAK_MATCH_INLIERS;
+}
+
+export function sortForReview(entries) {
+  // STRICTLY MOST-RECENT-FIRST. NOTHING FLOATS.
+  //
+  // Zach, twice, and the second time was a correction of what I built:
+  //   "Can we order the scanned badge list by most recent scanned first"
+  //   "But I always want the order of the cards in the scanned to be most
+  //    recent scanned first. Don't pop issues to the top"
+  //
+  // The first version floated unresolved rows to the top, on my reasoning that
+  // rows blocking Add All should be impossible to miss. That reasoning was
+  // wrong for how he actually works: he scans a card and immediately looks at
+  // the top of the list to confirm it registered against the cardboard in his
+  // hand. Reordering breaks that check -- the row he just created is not where
+  // he is looking, and a list that rearranges itself while he works cannot be
+  // trusted at a glance.
+  //
+  // Rows needing attention are surfaced by COLOUR (yellow outline) and by the
+  // badge count, not by position. Visibility without moving anything.
+  return [...entries].sort((a, b) => (b.id || 0) - (a.id || 0));
+}
+
 
 export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {}) {
   // A CACHE OF THE LAST SERVER READ, never an authority. Nothing in this file
