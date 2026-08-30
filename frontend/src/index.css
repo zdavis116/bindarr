@@ -1,51 +1,102 @@
 :root {
-  --font-main: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  /* SYSTEM FONT STACK, not a webfont. Three reasons, in order of weight:
+       1. It is the Apple-like look Zach asked for -- SF Pro on his phone, and
+          the platform's own face everywhere else.
+       2. It renders on the FIRST paint. A webfont costs a round trip before
+          any text appears, on a screen he opens while holding a card.
+       3. It is what all nine approved mockups were built and reviewed in, so
+          the rebuilt screens match what he signed off rather than being
+          "close".
+     'Outfit' was a rounded display face inherited from the Pokemon-card app. */
+  --font-main: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+               Roboto, "Helvetica Neue", Arial, sans-serif;
   
-  /* Theme Colors: Sleek Dark Cyberpunk Pokédex */
-  --bg-primary: #0a0f1d;
-  --bg-secondary: #131b2e;
-  --bg-glass: rgba(20, 28, 47, 0.65);
-  --border-glass: rgba(255, 255, 255, 0.07);
-  --border-glass-hover: rgba(255, 255, 255, 0.15);
-  
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  
-  --accent-red: #ff4747;
-  --accent-red-glow: rgba(255, 71, 71, 0.4);
-  --accent-blue: #3b82f6;
-  --accent-blue-glow: rgba(59, 130, 246, 0.4);
-  --accent-yellow: #eab308;
-  --accent-yellow-glow: rgba(234, 179, 8, 0.4);
-  
-  /* Pokémon Type Colors for Visual Coding */
-  --type-grass: #4ade80;
-  --type-fire: #f87171;
-  --type-water: #60a5fa;
-  --type-lightning: #facc15;
-  --type-psychic: #c084fc;
-  --type-fighting: #f97316;
-  --type-darkness: #475569;
-  --type-metal: #94a3b8;
-  --type-dragon: #a855f7;
-  --type-fairy: #f472b6;
-  --type-colorless: #cbd5e1;
+  /* ------------------------------------------------------------------------
+     THEME COLOURS — dark, Apple-like. Replaces the "Sleek Dark Cyberpunk
+     Pokedex" palette (navy #0a0f1d + red #ff4747) that Bindarr inherited from
+     the Pokemon-card app it started as.
 
-  /* Semantic surface/foreground tokens. These back the values components used
-     to hardcode (#fff text, white overlay fills, dark input bg) so themes can
-     re-map them. Dark theme keeps the original literals, so dark is unchanged. */
-  --text-strong: #fff;                    /* strongest foreground on panels */
-  --text-on-accent: #fff;                 /* text/icons on saturated buttons */
-  --surface-1: rgba(255, 255, 255, 0.03); /* faint fill */
-  --surface-2: rgba(255, 255, 255, 0.05); /* hover fill */
-  --surface-3: rgba(255, 255, 255, 0.08); /* raised chip */
-  --input-bg: rgba(15, 23, 42, 0.6);
-  --input-bg-focus: rgba(15, 23, 42, 0.85);
-  --bg-gradient:
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(239, 68, 68, 0.1) 0px, transparent 50%),
-    radial-gradient(at 50% 50%, rgba(20, 28, 47, 0.95) 0px, var(--bg-primary) 100%);
+     Zach asked for "a complete overhaul", dark: "I just like dark over light."
+
+     This is a TOKEN REMAP, not a rewrite. Every component already reads these
+     variables, and two other themes (light, lcars) re-map the same names, so
+     changing values here restyles the whole app without touching a single
+     component. Names are kept EXACTLY as they were for that reason -- renaming
+     --accent-red to --accent would mean editing 27 components to gain nothing.
+
+     Greys are the iOS system dark set (#1c1c1e / #2c2c2e / #3a3a3c) on true
+     black. True black rather than near-black because the phone is the primary
+     device: on OLED the background is genuinely off, which makes card art the
+     only lit thing on screen.
+     --------------------------------------------------------------------- */
+  --bg-primary: #000000;
+  --bg-secondary: #1c1c1e;
+  --bg-glass: #1c1c1e;
+  --border-glass: rgba(255, 255, 255, 0.10);
+  --border-glass-hover: rgba(255, 255, 255, 0.18);
+
+  --text-primary: #f5f5f7;
+  --text-secondary: #98989d;
+  --text-muted: #636366;
+
+  /* ACCENT IS NOW BLUE, NOT RED. Red is reserved for destructive actions --
+     it cannot mean both "primary action" and "this deletes things". The old
+     palette used #ff4747 for both, so a delete button and a save button were
+     the same colour. */
+  --accent-red: #0a84ff;                      /* primary accent (name kept) */
+  --accent-red-glow: rgba(10, 132, 255, 0.35);
+  --accent-blue: #0a84ff;
+  --accent-blue-glow: rgba(10, 132, 255, 0.35);
+  --accent-yellow: #ff9f0a;                   /* "needs attention", not warning-red */
+  --accent-yellow-glow: rgba(255, 159, 10, 0.35);
+
+  /* Semantic state colours. These did not exist before -- components reached
+     for --accent-red or a hardcoded green. */
+  --accent-green: #30d158;                    /* owned / complete / healthy */
+  --accent-danger: #ff453a;                   /* destructive ONLY */
+
+  /* MTG colour identity (WUBRG). Replaces the Pokemon type palette, which had
+     no meaning in this app -- --type-grass on a Magic card is nonsense. Values
+     are muted so five pips in a row read as a set, not as five alarms. */
+  --mtg-white: #f8e7b9;
+  --mtg-blue: #a5cced;
+  --mtg-black: #a9a19b;
+  --mtg-red: #eba18b;
+  --mtg-green: #a3c6a5;
+  --mtg-colorless: #cbd5e1;
+
+  /* Kept as aliases so any component still referencing a type colour renders
+     sanely instead of falling back to unstyled. Phase B removes the callers,
+     then these go. */
+  --type-grass: var(--mtg-green);
+  --type-fire: var(--mtg-red);
+  --type-water: var(--mtg-blue);
+  --type-lightning: #ff9f0a;
+  --type-psychic: #bf5af2;
+  --type-fighting: #ff9f0a;
+  --type-darkness: var(--mtg-black);
+  --type-metal: #98989d;
+  --type-dragon: #bf5af2;
+  --type-fairy: #ff6482;
+  --type-colorless: var(--mtg-colorless);
+
+  /* Semantic surface/foreground tokens. Solid greys rather than translucent
+     white overlays: stacked translucency over a photo of a card produced a
+     different grey depending on what was behind it, so two panels side by side
+     did not match. */
+  --text-strong: #f5f5f7;                 /* strongest foreground on panels */
+  --text-on-accent: #ffffff;              /* text/icons on saturated buttons */
+  --surface-1: #1c1c1e;                   /* panel */
+  --surface-2: #2c2c2e;                   /* hover / raised */
+  --surface-3: #3a3a3c;                   /* chip / control */
+  --input-bg: #1c1c1e;
+  --input-bg-focus: #2c2c2e;
+
+  /* NO GRADIENT. The old background layered two coloured radial gradients over
+     navy, which tinted every card thumbnail differently depending on where it
+     sat on screen -- actively unhelpful in an app whose whole job is judging
+     card art. */
+  --bg-gradient: var(--bg-primary);
 
   --logo-cover: #ff4747;
   --logo-spine: #c92f2f;
@@ -55,12 +106,16 @@
   --logo-ring-inner: #ffffff;
 
   /* Shadows and Transitions */
-  --shadow-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  --shadow-accent: 0 0 15px var(--accent-red-glow);
+  /* Shadow, not glow. On true black a coloured glow halo reads as a rendering
+     artefact; depth comes from a plain dark shadow instead. */
+  --shadow-glow: 0 8px 28px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 6px 20px rgba(10, 132, 255, 0.28);
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
+  /* Radii tuned to the mockups: 10 for controls, 14 for grouped rows and
+     panels, 18 for the few full-bleed cards. 24 read as a toy at phone size. */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
 }
 
 /* ------------------------------------------------------------------ THEMES */
@@ -327,6 +382,18 @@ button, input, select, textarea {
 
 .glass-panel:hover {
   border-color: var(--border-glass-hover);
+}
+
+/* The position number inside a binder pocket (CompartmentView).
+   This class was applied but never defined -- found by uiClassNames.test.js.
+   It is a quiet label, not content: the cards are what matter in a pocket
+   grid, so the number sits back and stays legible rather than competing. */
+.slot-number {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 /* Glow Cards based on Pokemon Types */
