@@ -1038,5 +1038,11 @@
   "prefs.autoConfirm": "Confirmación automática del escáner",
   "prefs.autoConfirmHint": "Añade automáticamente las coincidencias únicas con alta confianza y se salta el diálogo de confirmación.",
   "prefs.autoConfirmOn": "Se ha activado la confirmación automática del escáner.",
-  "prefs.autoConfirmOff": "Se ha desactivado la confirmación automática del escáner."
+  "prefs.autoConfirmOff": "Se ha desactivado la confirmación automática del escáner.",
+  "dash.scanCards": "Scan cards",
+  "dash.scanCardsSub": "Add to your collection",
+  "dash.decksInProgress": "Decks in progress",
+  "dash.deckReady": "Ready to play",
+  "dash.deckCards": "{have} of {want} cards",
+  "dash.unique": "Unique"
 }

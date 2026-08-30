@@ -1,521 +1,255 @@
+// HOME — the landing screen.
+//
+// Rebuilt against the approved mockup (sketches/002-home). Zach kept the
+// dashboard as the landing screen, so it has to earn that slot.
+//
+// THE ORGANISING IDEA: a dashboard that only reports numbers is a poster. This
+// one is built around the two things Zach does next -- carry on building a deck,
+// or scan a stack -- with the numbers as context rather than the point.
+//
+// Order is deliberate, most-actionable first:
+//   1. Scan cards      -- the action with a physical stack waiting on it
+//   2. Decks in progress -- what he came here to continue, and what it costs
+//   3. Collection stats -- context, small, last
+//
+// The old version led with a six-card metric grid and a price chart. Both are
+// still reachable (Collection, and the deck screens) but neither answers "what
+// do I do now", which is the only question a landing screen should answer.
+
 import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
-import { TrendingUp, Coins, Library, Trophy, Plus, ArrowUpRight } from 'lucide-react';
-import { formatPrice } from '../utils/formatPrice';
-import { getPrintingBadgeLabel, getPrintingBadgeStyle } from '../utils/cardPrinting';
-
+import { Camera, ChevronRight } from 'lucide-react';
 import { useT } from '../utils/i18n';
-import CardInspectorModal from './CardInspectorModal';
 
-const COLORS = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
-  '#ec4899', '#14b8a6', '#f43f5e', '#a855f7', '#6366f1'
-];
+// A deck's completion ring. Reads at a glance from arm's length, which a
+// percentage in text does not -- Zach checks this while holding cards.
+function ProgressRing({ pct, size = 42 }) {
+  const r = (size - 8) / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (circumference * Math.min(100, Math.max(0, pct))) / 100;
+  return (
+    <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          stroke="var(--surface-2)" strokeWidth="4" fill="none"
+        />
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          stroke="var(--accent-green)" strokeWidth="4" fill="none"
+          strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset .5s cubic-bezier(.2,.8,.3,1)' }}
+        />
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
+        fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-primary)',
+      }}>
+        {Math.round(pct)}%
+      </div>
+    </div>
+  );
+}
 
-const TYPE_COLORS = {
-
-  'White': '#fef08a',
-  'Blue': '#3b82f6',
-  'Black': '#334155',
-  'Red': '#ef4444',
-  'Green': '#10b981',
-  'Land': '#d97706'
-};
-
-function Dashboard({ statsTrigger, onNavigate, setSelectedLocationId, setFocusEntryId, onUpdate, showToast }) {
-  const { t, locale } = useT();
-  // Money and dates follow the interface language, not the browser's: a user who
-  // picked German sees 1.234,56 and 3.8.2026 even on an en-US browser.
-  const money = (n) => (n || 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function Dashboard({ statsTrigger, onNavigate, showToast }) {
+  const { t } = useT();
   const [stats, setStats] = useState(null);
+  const [decks, setDecks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [timePeriod, setTimePeriod] = useState('30d');
-
-  
-  // Timeline Chart State
-  const [historyData, setHistoryData] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-
-  // Clickable Card Inspector State
-  const [inspectorCard, setInspectorCard] = useState(null);
 
   useEffect(() => {
-    fetchStats();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Both in parallel: they are independent, and serialising them would
+        // make the landing screen wait for the slower of the two.
+        const [statsRes, decksRes] = await Promise.all([
+          fetch('/api/stats'),
+          fetch('/api/decks'),
+        ]);
+        if (!statsRes.ok) throw new Error(`stats ${statsRes.status}`);
+        if (!decksRes.ok) throw new Error(`decks ${decksRes.status}`);
+        const statsJson = await statsRes.json();
+        const decksJson = await decksRes.json();
+        if (cancelled) return;
+        setStats(statsJson);
+        setDecks(Array.isArray(decksJson) ? decksJson : []);
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
   }, [statsTrigger]);
 
-  useEffect(() => {
-    if (stats && stats.summary.totalCards > 0) {
-      fetchTimelineHistory();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timePeriod, stats]);
+  const summary = stats?.summary;
 
-  const fetchStats = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/stats');
-      if (!response.ok) {
-        throw new Error(t('dash.errStats'));
-      }
-      const data = await response.json();
-      setStats(data);
-    } catch (err) {
-      console.error(err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTimelineHistory = async () => {
-    try {
-      setLoadingHistory(true);
-      const response = await fetch(`/api/stats/history?period=${timePeriod}`);
-      if (response.ok) {
-        const data = await response.json();
-        setHistoryData(data);
-      }
-    } catch (err) {
-      console.error('Error loading history timeline:', err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
+  // Decks that are NOT finished, worst-completed first: the point of this list
+  // is what still needs work. A completed deck is not "in progress", and
+  // showing it here would push the unfinished ones down.
+  const inProgress = decks
+    .filter(d => (d.target_size || 0) > 0)
+    .map(d => ({
+      ...d,
+      pct: Math.min(100, Math.round(((d.total_cards || 0) / d.target_size) * 100)),
+    }))
+    .sort((a, b) => b.pct - a.pct);
 
   if (loading) {
-    return <div className="spinner"></div>;
+    return (
+      <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+        {t('common.loading')}
+      </div>
+    );
   }
 
   if (error) {
+    // Say what failed and offer the way back. A blank screen with a spinner
+    // that stopped is indistinguishable from a broken app.
     return (
       <div className="glass-panel" style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
         <p>{t('dash.errLoad', { error })}</p>
-        <button className="btn btn-primary" onClick={fetchStats} style={{ marginTop: '1rem' }}>{t('dash.retry')}</button>
+        <button className="btn btn-primary" style={{ marginTop: '1rem' }}
+                onClick={() => onNavigate && onNavigate('dashboard')}>
+          {t('dash.retry')}
+        </button>
       </div>
     );
   }
-
-  if (!stats || stats.summary.totalCards === 0) {
-    return (
-      <div>
-        <div className="glass-panel" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-secondary)' }}>
-          <TrendingUp size={48} style={{ color: 'var(--accent-red)', marginBottom: '1.5rem', opacity: 0.8 }} />
-          <h2 style={{ color: 'var(--text-strong)', marginBottom: '0.5rem' }}>
-            {t('dash.emptyTitle')}
-          </h2>
-          <p style={{ maxWidth: '400px', margin: '0 auto 1.5rem auto' }}>
-            {t('dash.emptyBody')}
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
-            <div style={{ display: 'inline-block' }}>
-              <button className="btn btn-primary" onClick={() => onNavigate && onNavigate('add-cards')}>{t('dash.goToAddCards')}</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const { summary, types, rarities, sets, topValuable, recentAdditions = [], setProgress } = stats;
-
-  // Match type name to its color case-insensitively; fall back to a distinct
-  // palette color by index so slices are never all the same gray.
-  const typeColorLookup = Object.fromEntries(
-    Object.entries(TYPE_COLORS).map(([k, v]) => [k.toLowerCase(), v])
-  );
-  const typeChartData = types.map((t, i) => {
-    const fill = typeColorLookup[String(t.name).toLowerCase()] || COLORS[i % COLORS.length];
-    return { name: t.name, value: t.value, color: fill, fill };
-  });
-  const rarityChartData = rarities.map((r, i) => ({ ...r, fill: COLORS[i % COLORS.length] }));
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-
-      {/* Metrics Summary Grid */}
-      <div className="metrics-grid">
-        {/* Net Worth Card with historical switcher */}
-        <div className="glass-panel metric-card accent-networth">
-          <div className="metric-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span className="metric-icon" style={{ width: '28px', height: '28px' }}><TrendingUp size={16} /></span>
-              {t('dash.netWorth')}
-            </span>
-            <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.05)', padding: '2px', borderRadius: '4px' }}>
-              {['7d', '30d', '1y', '5y'].map(p => (
-                <button 
-                  key={p} 
-                  type="button" 
-                  onClick={() => setTimePeriod(p)}
-                  style={{
-                    padding: '2px 6px',
-                    fontSize: '0.65rem',
-                    border: 'none',
-                    borderRadius: '3px',
-                    background: timePeriod === p ? 'var(--type-grass)' : 'transparent',
-                    color: 'var(--text-strong)',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  {p.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="metric-value">${money(summary.totalValue)}</div>
-          {(() => {
-            const change = timePeriod === '7d' ? summary.change7d :
-                           timePeriod === '30d' ? summary.change30d :
-                           timePeriod === '1y' ? summary.change1y : summary.change5y;
-            // change7d/30d use Cardmarket's real avg7/avg30 (only real source
-            // available); change1y/5y have no real historical price source
-            // anywhere, so they're marked unavailable rather than faked.
-            if (!change || !change.available) {
-              return (
-                <div className="metric-footer" style={{ color: 'var(--text-muted)' }}>
-                  <span>{t('dash.noPriceHistory')}</span>
-                </div>
-              );
-            }
-            const isPositive = change.abs >= 0;
-            return (
-              <div className={`metric-footer ${isPositive ? 'positive' : 'negative'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <TrendingUp size={12} style={{ transform: isPositive ? 'none' : 'rotate(180deg)' }} />
-                <span>
-                  {isPositive ? '+' : ''}${money(change.abs)} ({isPositive ? '+' : ''}{change.pct}%)
-                </span>
-              </div>
-            );
-          })()}
-        </div>
-
-        {/* Total Invested (cost basis) */}
-        <div className="glass-panel metric-card accent-invested">
-          <div className="metric-header">
-            <span>{t('dash.totalInvested')}</span>
-            <span className="metric-icon"><Coins size={18} /></span>
-          </div>
-          <div className="metric-value">${money(summary.totalSpent)}</div>
-          <div className="metric-footer">
-            <span>{t('dash.avgPerCard', { price: formatPrice(summary.avgCardValue) })}</span>
-          </div>
-        </div>
-
-        {/* Unrealized Gain / ROI */}
-        {(() => {
-          const roi = summary.roi || { abs: 0, pct: null };
-          const isPositive = (roi.abs || 0) >= 0;
-          return (
-            <div className={`glass-panel metric-card ${isPositive ? 'accent-gain-up' : 'accent-gain-down'}`}>
-              <div className="metric-header">
-                <span>{t('dash.unrealizedGain')}</span>
-                <span className="metric-icon"><ArrowUpRight size={18} style={{ transform: isPositive ? 'none' : 'rotate(90deg)' }} /></span>
-              </div>
-              <div className="metric-value" style={{ color: isPositive ? '#22c55e' : '#ef4444' }}>
-                {isPositive ? '+' : '−'}${money(Math.abs(roi.abs || 0))}
-              </div>
-              <div className="metric-footer">
-                <span>{roi.pct === null ? t('dash.roiUnset') : t('dash.roiVsCost', { pct: `${isPositive ? '+' : ''}${roi.pct}` })}</span>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Total Cards count */}
-        <div className="glass-panel metric-card accent-cards">
-          <div className="metric-header">
-            <span>{t('dash.totalCards')}</span>
-            <span className="metric-icon"><Library size={18} /></span>
-          </div>
-          <div className="metric-value">{summary.totalCards}</div>
-          <div className="metric-footer">
-            <span>{t('dash.uniqueCount', { count: summary.uniqueCards })}{summary.unsortedCount > 0 ? ` • ${t('dash.unsortedCount', { count: summary.unsortedCount })}` : ''}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Net Worth History Timeline Chart */}
-      <div className="glass-panel" style={{ marginBottom: '1.5rem', padding: '1.5rem 1.75rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3 className="chart-title" style={{ margin: 0 }}>{t('dash.timelineTitle')}</h3>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            {t('dash.timelineRange', { range: timePeriod.toUpperCase() })}
-          </span>
-        </div>
-        <div className="chart-container" style={{ height: '240px', position: 'relative' }}>
-          {loadingHistory ? (
-            <div className="spinner" style={{ position: 'absolute', top: '45%', left: '45%' }}></div>
-          ) : historyData.length < 2 ? (
-            <div className="chart-empty">{t('dash.notEnoughHistory')}</div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--type-grass)" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="var(--type-grass)" stopOpacity={0.0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" stroke="var(--text-secondary)" style={{ fontSize: '0.7rem' }} />
-                <YAxis stroke="var(--text-secondary)" style={{ fontSize: '0.7rem' }} tickFormatter={(v) => `$${v}`} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-glass)' }}
-                  labelStyle={{ color: 'var(--text-primary)' }}
-                  formatter={(v) => [`$${v}`, t('dash.portfolioValue')]}
-                />
-                <Area type="monotone" dataKey="value" stroke="var(--type-grass)" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* Main Charts & Analytics Details */}
-      <div className="dashboard-details">
-        {/* Left Column: Charts */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          
-          {/* Card Value by Set Chart */}
-          <div className="glass-panel">
-            <h3 className="chart-title">{t('dash.valueBySet')}</h3>
-            <div className="chart-container">
-              {sets.length === 0 ? (
-                <div className="chart-empty">{t('dash.noSetData')}</div>
-              ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sets} layout="vertical" margin={{ left: 10, right: 30, top: 10, bottom: 10 }}>
-                  <XAxis type="number" stroke="var(--text-secondary)" tickFormatter={(v) => `$${v}`} />
-                  <YAxis dataKey="name" type="category" width={120} stroke="var(--text-secondary)" tickLine={false} axisLine={false} style={{ fontSize: '0.8rem' }} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-glass)' }}
-                    labelStyle={{ color: 'var(--text-primary)' }}
-                    formatter={(v) => [`$${v}`, t('dash.value')]}
-                  />
-                  <Bar dataKey="value" fill="var(--accent-red)" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-            {/* Type Distribution Donut Chart */}
-            <div className="glass-panel">
-              <h3 className="chart-title">{t('dash.colorDistribution')}</h3>
-              <div className="chart-container" style={{ height: '220px' }}>
-                {typeChartData.length === 0 ? (
-                  <div className="chart-empty">{t('dash.noTypeData')}</div>
-                ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={typeChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {typeChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-glass)' }}
-                      itemStyle={{ color: 'var(--text-strong)' }}
-                      labelStyle={{ color: 'var(--text-strong)' }}
-                      formatter={(v) => [v, t('dash.cards')]}
-                    />
-                    <Legend 
-                      verticalAlign="bottom" 
-                      height={36} 
-                      iconSize={10} 
-                      style={{ fontSize: '0.75rem' }} 
-                      formatter={(value) => <span style={{ color: 'var(--text-secondary)' }}>{value}</span>}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-
-            {/* Rarity Distribution Chart */}
-            <div className="glass-panel">
-              <h3 className="chart-title">{t('dash.rarityDistribution')}</h3>
-              <div className="chart-container" style={{ height: '220px' }}>
-                {rarityChartData.length === 0 ? (
-                  <div className="chart-empty">{t('dash.noRarityData')}</div>
-                ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={rarityChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={78}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {rarityChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-glass)' }}
-                      itemStyle={{ color: 'var(--text-strong)' }}
-                      labelStyle={{ color: 'var(--text-strong)' }}
-                      formatter={(v) => [v, t('dash.cards')]}
-                    />
-                    <Legend 
-                      verticalAlign="bottom" 
-                      height={36} 
-                      iconSize={10} 
-                      style={{ fontSize: '0.75rem' }} 
-                      formatter={(value) => <span style={{ color: 'var(--text-secondary)', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Mini Tables & Lists */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          
-          {/* Top Valuable Cards */}
-          <div className="glass-panel" style={{ flex: 1 }}>
-            <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Trophy size={18} style={{ color: 'var(--accent-yellow)' }} />
-              {t('dash.topValuable')}
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' }}>
-              {topValuable.map((card, idx) => (
-                <div 
-                  key={idx} 
-                  onClick={() => setInspectorCard(card)}
-                  style={{ 
-                    display: 'flex', 
-                    gap: '0.75rem', 
-                    alignItems: 'center', 
-                    background: 'rgba(255, 255, 255, 0.02)', 
-                    padding: '0.5rem', 
-                    borderRadius: 'var(--radius-sm)', 
-                    border: '1px solid var(--border-glass)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  className="dashboard-card-clickable"
-                >
-                  <img src={card.image_url} alt={card.name} style={{ width: '56px', aspectRatio: 0.718, objectFit: 'cover', borderRadius: '5px', boxShadow: '0 2px 6px rgba(0,0,0,0.4)' }} />
-                  <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {card.name}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                      <span>{card.set_name} • {card.rarity}</span>
-                      {card.finish && card.finish !== 'nonfoil' && (
-                        <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', flexShrink: 0, ...getPrintingBadgeStyle(card.printing) }}>
-                          {getPrintingBadgeLabel(card.printing)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, color: 'var(--accent-yellow)', fontSize: '0.95rem' }}>${formatPrice(card.price_trend)}<span style={{ fontSize: '0.6rem', fontWeight: 500, color: 'var(--text-muted)' }}> {t('dash.each')}</span></div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      {card.quantity > 1 ? t('dash.qtyTotal', { qty: card.quantity, price: formatPrice(card.price_trend * card.quantity) }) : t('dash.qty', { qty: 1 })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Recent Additions */}
-          {recentAdditions.length > 0 && (
-            <div className="glass-panel" style={{ flex: 1 }}>
-              <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Plus size={18} style={{ color: 'var(--accent-blue)' }} />
-                {t('dash.recentAdditions')}
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '1.25rem' }}>
-                {recentAdditions.map((card, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => setInspectorCard(card)}
-                    style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', background: 'rgba(255, 255, 255, 0.02)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)', cursor: 'pointer', transition: 'all 0.2s ease' }}
-                    className="dashboard-card-clickable"
-                  >
-                    <img src={card.image_url} alt={card.name} style={{ width: '48px', aspectRatio: 0.718, objectFit: 'cover', borderRadius: '5px', boxShadow: '0 2px 6px rgba(0,0,0,0.4)' }} />
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {card.name}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <span>{card.set_name} • #{card.number}</span>
-                        {card.finish && card.finish !== 'nonfoil' && (
-                          <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', flexShrink: 0, ...getPrintingBadgeStyle(card.printing) }}>
-                            {getPrintingBadgeLabel(card.printing)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--accent-yellow)', fontSize: '0.8rem' }}>${formatPrice(card.price_trend)}<span style={{ fontSize: '0.55rem', fontWeight: 500, color: 'var(--text-muted)' }}> {t('dash.each')}</span></div>
-                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{card.quantity > 1 ? t('dash.qty', { qty: card.quantity }) : (card.added_at ? new Date(card.added_at).toLocaleDateString(locale) : '')}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Set Completion progress tracker */}
-          {setProgress.length > 0 && (
-            <div className="glass-panel">
-              <h3 className="chart-title">{t('dash.setProgress')}</h3>
-              <div className="set-progress-grid" style={{ marginTop: '1rem' }}>
-                {setProgress.map((set, idx) => (
-                  <div key={idx} className="set-progress-item">
-                    <div className="set-progress-header">
-                      <span style={{ color: 'var(--text-strong)' }}>{set.setName}</span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{set.ownedUnique} / {set.totalCards} ({set.percent}%)</span>
-                    </div>
-                    <div className="set-progress-bar-bg">
-                      <div className="set-progress-bar-fill" style={{ width: `${set.percent}%` }}></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-        </div>
-      </div>
-
-      {/* Card Inspector Modal Overlay */}
-      <CardInspectorModal
-        card={inspectorCard}
-        onClose={() => setInspectorCard(null)}
-        onUpdate={onUpdate}
-        showToast={showToast}
-        onViewStorage={(card) => {
-          if (setSelectedLocationId) setSelectedLocationId(card.location_id || 'unsorted');
-          if (setFocusEntryId) setFocusEntryId(card.entry_id || card.id);
-          onNavigate('storage');
-          setInspectorCard(null);
+      {/* PRIMARY ACTION, FIRST AND FULL WIDTH.
+          Scanning is the thing Zach does most and the only action with a
+          physical stack waiting on it. It replaced the Add Cards nav tab
+          entirely: "Actually takes away the need to hit the scan button at the
+          bottom so scan can be removed from nav bar." */}
+      <button
+        onClick={() => onNavigate && onNavigate('add-cards')}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '0.9rem', width: '100%',
+          textAlign: 'left', border: 0, cursor: 'pointer', font: 'inherit',
+          background: 'linear-gradient(135deg, var(--accent-blue), #0060d0)',
+          color: 'var(--text-on-accent)', borderRadius: 'var(--radius-lg)',
+          padding: '1.1rem', minHeight: 76, boxShadow: 'var(--shadow-accent)',
         }}
-      />
+      >
+        <span style={{
+          width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+          background: 'rgba(255,255,255,0.2)', display: 'grid', placeItems: 'center',
+        }}>
+          <Camera size={22} />
+        </span>
+        <span>
+          <span style={{ display: 'block', fontSize: '1.05rem', fontWeight: 600 }}>
+            {t('dash.scanCards')}
+          </span>
+          <span style={{ fontSize: '0.8rem', opacity: 0.85 }}>
+            {t('dash.scanCardsSub')}
+          </span>
+        </span>
+      </button>
+
+      {/* DECKS IN PROGRESS -- "continue where you left off", and the screen's
+          real job. Each row answers the buying question at a glance. */}
+      {inProgress.length > 0 && (
+        <div>
+          <div style={{
+            fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)',
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem',
+          }}>
+            {t('dash.decksInProgress')}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+            {inProgress.slice(0, 5).map(deck => (
+              <button
+                key={deck.id}
+                onClick={() => onNavigate && onNavigate('deckbuilder')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.8rem', width: '100%',
+                  textAlign: 'left', border: 0, cursor: 'pointer', font: 'inherit',
+                  background: 'var(--surface-1)', color: 'var(--text-primary)',
+                  borderRadius: 'var(--radius-md)', padding: '0.8rem 0.9rem', minHeight: 44,
+                }}
+              >
+                <ProgressRing pct={deck.pct} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{
+                    display: 'block', fontSize: '0.95rem', fontWeight: 600,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {deck.name}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {deck.pct >= 100
+                      ? t('dash.deckReady')
+                      : t('dash.deckCards', { have: deck.total_cards || 0, want: deck.target_size })}
+                  </span>
+                </span>
+                <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* NUMBERS LAST, AND SMALL. Context, not the headline. */}
+      {summary && (
+        <div>
+          <div style={{
+            fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)',
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem',
+          }}>
+            {t('nav.collection')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.55rem' }}>
+            {[
+              [summary.totalCards, t('dash.cards')],
+              [summary.uniqueCards, t('dash.unique')],
+              [summary.totalValue != null ? `$${Math.round(summary.totalValue)}` : '—', t('dash.value')],
+            ].map(([value, label]) => (
+              <button
+                key={label}
+                onClick={() => onNavigate && onNavigate('collection')}
+                style={{
+                  background: 'var(--surface-1)', borderRadius: 'var(--radius-md)',
+                  padding: '0.9rem 0.5rem', textAlign: 'center', border: 0,
+                  cursor: 'pointer', font: 'inherit', color: 'var(--text-primary)',
+                  minHeight: 44,
+                }}
+              >
+                <span style={{ display: 'block', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
+                  {value ?? 0}
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* EMPTY STATE. A new user sees the scan button above and this, rather
+          than three zeroes and an empty deck list that look like a failure. */}
+      {!inProgress.length && summary && !summary.totalCards && (
+        <div style={{
+          textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-secondary)',
+          background: 'var(--surface-1)', borderRadius: 'var(--radius-md)',
+        }}>
+          <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
+            {t('dash.emptyTitle')}
+          </div>
+          <div style={{ fontSize: '0.85rem' }}>
+            {t('dash.emptyBody')}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

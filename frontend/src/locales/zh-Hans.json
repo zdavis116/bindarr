@@ -1008,5 +1008,11 @@
   "prefs.autoConfirm": "扫描器自动确认",
   "prefs.autoConfirmHint": "自动添加高置信度的单一匹配，跳过确认对话框。",
   "prefs.autoConfirmOn": "已开启扫描器自动确认。",
-  "prefs.autoConfirmOff": "已关闭扫描器自动确认。"
+  "prefs.autoConfirmOff": "已关闭扫描器自动确认。",
+  "dash.scanCards": "Scan cards",
+  "dash.scanCardsSub": "Add to your collection",
+  "dash.decksInProgress": "Decks in progress",
+  "dash.deckReady": "Ready to play",
+  "dash.deckCards": "{have} of {want} cards",
+  "dash.unique": "Unique"
 }

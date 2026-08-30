@@ -1125,5 +1125,11 @@
   "scan.stagingBadgeFlagged": "{{count}} scanned · {{flagged}} to check",
   "scan.reviewFindManually": "Find this card manually",
   "scan.reviewSearchPlaceholder": "Type the card name…",
-  "scan.reviewSearching": "Searching…"
+  "scan.reviewSearching": "Searching…",
+  "dash.scanCards": "Scan cards",
+  "dash.scanCardsSub": "Add to your collection",
+  "dash.decksInProgress": "Decks in progress",
+  "dash.deckReady": "Ready to play",
+  "dash.deckCards": "{have} of {want} cards",
+  "dash.unique": "Unique"
 }
