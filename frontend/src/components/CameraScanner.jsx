@@ -932,7 +932,21 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // uses for long stretches is a liability, not a spare option.
   useEffect(() => {
     let timerId;
-    if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard) {
+    // `!showStaging` is a CORRECTNESS condition, not a nicety. Zach: "when I
+    // look at the scanned cards, scanning should stop in the background."
+    //
+    // Auto-scan is permanently on and the Scanned overlay does not stop the
+    // camera, so while he reviewed the list the scanner kept firing at whatever
+    // the phone was pointing at -- the table, his lap, the next card in the
+    // stack -- and every one of those inserted a staging row he never asked for.
+    //
+    // It also opened a real data-loss race (review finding S2): /scan-stage/
+    // commit reads the rows to commit and then deletes ALL rows for the user.
+    // A row inserted between the read and the delete is destroyed without ever
+    // reaching the collection, and the symptom is a card that was scanned,
+    // never arrived, and left no trace. Pausing capture while the list is open
+    // closes that window at its source -- the only thing that inserts is off.
+    if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard && !showStaging) {
       const outcome = lastTickOutcomeRef.current;
       const delay = outcome === 'rejected' ? SCAN_RETRY_REJECTED_MS
         : outcome === 'error' ? SCAN_RETRY_ERROR_MS
@@ -982,7 +996,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // `cardPresent` and `steady` are in the dep list so the effect re-evaluates
   // the moment a card enters or leaves the frame, or the moment the detection
   // settles -- rather than waiting for an unrelated state change to wake it.
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent, steady]);
+  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent, steady, showStaging]);
 
   // WHY AUTO-SCAN IS WAITING, in Zach's words rather than the code's.
   //
@@ -1001,6 +1015,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
     if (!cameraActive || !autoScan) return '';
     // Ordered by how early each one short-circuits the capture effect, so the
     // message names the FIRST thing actually blocking.
+    // FIRST, because it is the only pause the user deliberately caused. A
+    // scanner that has silently stopped is indistinguishable from a broken one,
+    // and this one stops for a whole minute at a time while he reads the list.
+    if (showStaging) return 'Paused — reviewing scanned cards';
     if (loading) return 'Scanning…';
     if (isDrawerOpen) return 'Waiting — a panel is open';
     if (scanMatches.length > 0) return 'Waiting — pick a match';
@@ -2519,7 +2537,24 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 // picker.
                 //
                 // Anything the queue will accept goes to the queue.
-                const ocrText = ocr?.text || '';
+                // `ocr.raw`, NOT `ocr.text`. The server builds this object from
+                // parseCollectorStrip (collection.js:608) whose field is `raw`;
+                // there has never been a `text` key, so this read was always
+                // undefined and the whole condition below collapsed to
+                // (clipName || titleText).
+                //
+                // CONSEQUENCE, and it is the worst kind: exactly the scans this
+                // fallback was added for -- no CLIP name, no readable title, but
+                // a legible collector strip, i.e. the glare and foil cases --
+                // fell through to "No confident match" and were SILENTLY
+                // DROPPED. No staging row, no unresolved row, nothing to
+                // resolve. The card simply went missing from the stack, and
+                // lastQueuedNameRef is reset on that path so there was not even
+                // a status trace to notice it by.
+                //
+                // The other call site (:2343) had it right, which is what made
+                // this invisible.
+                const ocrText = ocr?.raw || '';
                 if (autoScan && (clipName || titleText || ocrText)) {
                   // The dedup key must survive having no name at all: fall back
                   // to the OCR text so a stack of unidentifiable cards does not
@@ -2622,7 +2657,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
   handleCaptureRef.current = handleCapture;
   // Metronome reads this (not effect deps) to decide whether to fire a capture,
   // so a modal/picker/drawer pauses the beat without restarting the interval.
-  captureBlockedRef.current = isDrawerOpen || scanMatches.length > 0 || !!autoAddTargetCard || !!dupConfirmCard;
+  //
+  // `showStaging` is in this list, and it is a CORRECTNESS fix rather than a
+  // nicety. Zach: "when I look at the scanned cards, scanning should stop in
+  // the background."
+  //
+  // Auto-scan is permanently on now, and the Scanned overlay does not stop the
+  // camera. So while he reviewed the list, the scanner kept firing at whatever
+  // the phone happened to be pointing at -- the table, his lap, the next card
+  // in the stack -- and each of those inserted a staging row he never asked
+  // for.
+  //
+  // It also created a real data-loss race (review finding S2): /scan-stage/
+  // commit reads the rows to commit, then deletes ALL rows for the user. Any
+  // row inserted between the read and the delete is destroyed without ever
+  // reaching the collection. With the camera live behind the overlay that
+  // window is wide open, and the symptom would be a card that was scanned,
+  // never appeared in the collection, and left no trace anywhere.
+  //
+  // Pausing capture while the list is up closes the race at its source: no
+  // insert can happen during a commit, because the only thing that inserts is
+  // switched off. The scoped DELETE is still worth doing as defence in depth,
+  // but this is the fix that makes the window not exist.
+  captureBlockedRef.current = isDrawerOpen || scanMatches.length > 0
+    || !!autoAddTargetCard || !!dupConfirmCard || showStaging;
   loadingRef.current = loading;
 
   const openQuickAdd = (card) => {

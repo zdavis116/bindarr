@@ -315,6 +315,98 @@ async function main() {
     pass('FST-TC11', 'a resolve to an unknown card is refused before it can poison the commit');
   }
 
+  // --- FST-TC12: COMMIT MUST NOT DELETE A ROW IT DID NOT COMMIT ----------
+  //
+  // Review finding S2. The commit handler reads the rows to commit, adds each
+  // to the collection, then clears staging. That clear used to be
+  // `DELETE FROM scan_staging WHERE user_id = ?` -- EVERYTHING for the user,
+  // including rows staged after the read.
+  //
+  // The window was wide open in practice: auto-scan is permanently on and the
+  // Scanned overlay did not stop the camera, so the scanner kept firing while
+  // Add All was in flight. A card scanned in that moment was deleted without
+  // ever reaching the collection -- scanned, never arrived, no trace.
+  //
+  // TESTING THIS HONESTLY NEEDS THE ROW TO ARRIVE *DURING* THE COMMIT, not
+  // before it. A first attempt inserted the extra row and then committed, so
+  // the commit simply read it too, reported it as added, and a conditional
+  // assertion never ran -- it passed against the unscoped delete, which is
+  // worse than no test. The insert has to land between the read and the delete.
+  //
+  // db.run is patched to fire the racing insert exactly once, when the first
+  // INSERT INTO collection goes past. By then the handler has its row list and
+  // has not yet cleared staging: precisely the window.
+  {
+    await api('/api/scan-stage', { method: 'DELETE' });
+
+    const first = await api('/api/scan-stage', {
+      method: 'POST',
+      body: { card_id: 'card-sol', quantity: 1 },
+    });
+    assert.strictEqual(first.status, 200, 'first row staged');
+
+    // THE RACING ROW MUST LAND BETWEEN THE READ AND THE DELETE. Both live
+    // inside the same handler, so the hook has to sit on the READ itself.
+    //
+    // Three earlier attempts missed the window and PASSED AGAINST THE BUG,
+    // which is worse than no test at all:
+    //   1. insert-then-commit: the handler simply read the extra row too and
+    //      reported it as committed, so a guarded assertion never ran.
+    //   2. patching db.run: the collection INSERT goes through the
+    //      transaction's own `tx.run`, so the hook never fired.
+    //   3. wrapping db.withTransaction: that callback finishes AFTER the
+    //      delete, so the row was inserted too late to be at risk.
+    //
+    // db.all is what the handler uses to read the rows to commit. Hooking it
+    // puts the insert immediately after the read and before the delete --
+    // exactly the window S2 describes.
+    let lateId = null;
+    let fired = false;
+    const realAll = db.all.bind(db);
+    db.all = async function patchedAll(sql, params) {
+      const out = await realAll(sql, params);
+      if (!fired && /FROM\s+scan_staging/i.test(String(sql))) {
+        fired = true;
+        const late = await db.run(
+          `INSERT INTO scan_staging (user_id, card_id, quantity, finish, condition)
+           VALUES (?,?,?,?,?)`,
+          [userId, 'card-bolt', 1, 'nonfoil', 'Near Mint']);
+        lateId = late.lastID;
+      }
+      return out;
+    };
+
+    let commit;
+    try {
+      commit = await api('/api/scan-stage/commit', { method: 'POST' });
+    } finally {
+      db.all = realAll;
+    }
+
+    assert.ok(fired, 'the read hook must have fired -- otherwise this proves nothing');
+    assert.ok(lateId, 'the racing insert must have produced a row');
+
+    assert.strictEqual(commit.status, 200, `commit failed: ${JSON.stringify(commit.body)}`);
+
+    const committedIds = (commit.body.entries || []).map(e => e.staged_id);
+    assert.ok(!committedIds.includes(lateId),
+      'the racing row arrived after the read, so it cannot have been committed');
+
+    const after = await db.all(`SELECT id FROM scan_staging WHERE user_id = ?`, [userId]);
+    const remaining = after.map(r => r.id);
+
+    assert.ok(
+      remaining.includes(lateId),
+      'A ROW STAGED DURING THE COMMIT MUST SURVIVE IT. With an unscoped '
+      + 'DELETE ... WHERE user_id = ?, this card is destroyed without ever '
+      + 'reaching the collection: scanned, never arrived, no trace. That is '
+      + 'the S2 data loss.',
+    );
+
+    await api('/api/scan-stage', { method: 'DELETE' });
+    pass('FST-TC12', 'a row staged mid-commit is not deleted with the batch');
+  }
+
   console.log(`\nscan_staging.test.js: ${passed} cases passed`);
   server.close();
   process.exit(0);

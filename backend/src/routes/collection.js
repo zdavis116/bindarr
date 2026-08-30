@@ -1335,7 +1335,26 @@ router.post('/scan-stage/commit', async (req, res) => {
         });
         added.push({ staged_id: r.id, entry_id: entry.id, card_id: r.card_id });
       }
-      await db.run(`DELETE FROM scan_staging WHERE user_id = ?`, [req.user.id]);
+      // DELETE ONLY WHAT WE JUST COMMITTED, never "everything for this user".
+      //
+      // Review finding S2. `rows` is read before the transaction opens; an
+      // unscoped delete here also destroys anything staged in between, WITHOUT
+      // adding it to the collection. The symptom is the worst kind: a card he
+      // scanned, that never arrived, and left no trace to notice it by.
+      //
+      // The primary fix is on the client -- auto-scan is now paused while the
+      // Scanned list is open, so nothing can be inserted during a commit. This
+      // is defence in depth: two phones, a retried request, or any future
+      // caller that stages without going through that screen would reopen the
+      // window, and the cost of scoping the delete is one WHERE clause.
+      const committedIds = added.map(a => a.staged_id);
+      if (committedIds.length) {
+        await db.run(
+          `DELETE FROM scan_staging
+            WHERE user_id = ? AND id IN (${committedIds.map(() => '?').join(', ')})`,
+          [req.user.id, ...committedIds],
+        );
+      }
     });
     res.json({ committed: added.length, entries: added });
   } catch (error) {
