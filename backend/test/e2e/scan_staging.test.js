@@ -407,6 +407,62 @@ async function main() {
     pass('FST-TC12', 'a row staged mid-commit is not deleted with the batch');
   }
 
+  // --- FST-TC13: an unrepresentable finish fails AT WRITE TIME -----------
+  //
+  // Review finding S3. Both /scan-stage/:id (PATCH) and /scan-stage/:id/resolve
+  // used to store `finish` straight from the body. A value the app cannot
+  // represent -- 'Holofoil', or a future dropdown sending a display label --
+  // was accepted silently and only surfaced at COMMIT.
+  //
+  // Commit is all-or-nothing, so ONE bad row made the whole session
+  // uncommittable, the error named the allowed values rather than the offending
+  // row, and the review UI has no finish editor to repair it with. The only way
+  // out was discarding a stack he had physically scanned.
+  {
+    await api('/api/scan-stage', { method: 'DELETE' });
+    const staged = await api('/api/scan-stage', {
+      method: 'POST', body: { card_id: 'card-sol', quantity: 1 },
+    });
+    assert.strictEqual(staged.status, 200, 'row staged');
+
+    const bad = await api(`/api/scan-stage/${staged.body.id}`, {
+      method: 'PATCH', body: { finish: 'Holofoil' },
+    });
+    assert.strictEqual(bad.status, 400,
+      'a finish the app cannot represent must be rejected on the request that '
+      + 'sent it, not stored and blown up at commit');
+
+    // ...and the row is untouched, so the session is still committable.
+    const commit = await api('/api/scan-stage/commit', { method: 'POST' });
+    assert.strictEqual(commit.status, 200,
+      'a rejected edit must not leave the session in an uncommittable state');
+
+    await api('/api/scan-stage', { method: 'DELETE' });
+    pass('FST-TC13', 'a bad finish is a 400 at write time, not a wedged session');
+  }
+
+  // --- FST-TC14: a staged row remembers WHICH capture produced it --------
+  //
+  // Review finding S5. Resolving wrote its corpus label against `lastDumpName`
+  // -- module scope, the most recently scanned image. Resolving happens AFTER
+  // the stack is scanned, so every label in a session landed on the same final
+  // capture.
+  //
+  // Not user data, but it silently corrupts the labelled corpus, and that
+  // corpus is what every tuning decision on this scanner has been measured
+  // against -- including the inlier bands shipped this week. Wrong labels are
+  // worse than no labels because they look like evidence.
+  {
+    await api('/api/scan-stage', { method: 'DELETE' });
+    const cols = await db.all(`PRAGMA table_info(scan_staging)`);
+    assert.ok(
+      cols.some(c => c.name === 'dump_file'),
+      'scan_staging must carry dump_file -- scan_review_queue had it for exactly '
+      + 'this reason and the table that replaced it dropped the column',
+    );
+    pass('FST-TC14', 'staged rows can be pinned to the capture they came from');
+  }
+
   console.log(`\nscan_staging.test.js: ${passed} cases passed`);
   server.close();
   process.exit(0);

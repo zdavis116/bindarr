@@ -703,6 +703,14 @@ async function initDb() {
   // incomplete but actively WRONG, and wrong labels are worse than none because
   // every future measurement inherits them silently.
   const queueCols = await all(`PRAGMA table_info(scan_review_queue)`);
+  // scan_staging gained dump_file for the same reason scan_review_queue did: a
+  // resolve must label the capture it came FROM, not whatever was scanned last.
+  // Additive, so it is safe on a database that already ran the rebuild above.
+  const stagingCols = await all(`PRAGMA table_info(scan_staging)`).catch(() => []);
+  if (stagingCols.length && !stagingCols.some(c => c.name === 'dump_file')) {
+    await run(`ALTER TABLE scan_staging ADD COLUMN dump_file TEXT`);
+  }
+
   if (queueCols.length && !queueCols.some(c => c.name === 'dump_file')) {
     await run(`ALTER TABLE scan_review_queue ADD COLUMN dump_file TEXT`);
   }
@@ -1107,6 +1115,18 @@ async function initDb() {
       -- Candidate printings, best first, as JSON. '[]' when the matcher had
       -- nothing to offer -- then the row can only be resolved by searching.
       candidates_json TEXT NOT NULL DEFAULT '[]',
+      -- WHICH CAPTURE THIS ROW CAME FROM. Review finding S5.
+      --
+      -- Resolving a staged row writes a corpus label, and without this it
+      -- labelled lastDumpName -- the most recently scanned image, held at
+      -- module scope. Resolving happens AFTER the stack is scanned, so every
+      -- label landed on the last capture of the session.
+      --
+      -- scan_review_queue already carried dump_file for exactly this reason;
+      -- the table that replaced it dropped the column and reintroduced the
+      -- bug. Wrong labels are worse than none: every future measurement
+      -- inherits them silently, and the corpus gates tuning decisions.
+      dump_file TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -1207,48 +1227,72 @@ async function initDb() {
     const existing = await get(
       `SELECT sql FROM sqlite_master WHERE type='table' AND name='scan_staging'`);
     if (existing?.sql && existing.sql.includes('card_id TEXT NOT NULL')) {
+      // WRAPPED IN A TRANSACTION, AND CLEANS UP BEFORE IT STARTS.
+      //
+      // Review finding S4. The rebuild is CREATE -> INSERT SELECT -> DROP ->
+      // RENAME. Unwrapped, a crash or a throw anywhere after the CREATE leaves
+      // scan_staging_new behind AND the original still named scan_staging. The
+      // next boot re-enters this branch (the old table still says
+      // card_id TEXT NOT NULL), CREATE fails with "table already exists", the
+      // catch below swallows it as "migration skipped", and the app runs on the
+      // OLD shape forever.
+      //
+      // That failure is quiet and total. With card_id NOT NULL, every
+      // unresolved stage violates the constraint, so a card the matcher could
+      // not pin down is rejected by the database and lost from the stack with
+      // only a toast. One bad boot would kill the feature permanently on that
+      // machine, and the log line says "skipped" rather than "broken".
+      //
+      // SQLite DDL is transactional, so the rebuild now either lands whole or
+      // not at all. PRAGMA foreign_keys is a no-op INSIDE a transaction, hence
+      // set before BEGIN and restored in a finally.
       await run('PRAGMA foreign_keys=OFF');
-      await run(`
-        CREATE TABLE scan_staging_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          -- NULL means UNRESOLVED: scanned, held, but we do not yet know which
-          -- printing it is. Those rows carry candidates_json and matched_name
-          -- so the review screen can offer the top few and a manual search.
-          card_id TEXT,
-          quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
-          finish TEXT NOT NULL DEFAULT 'nonfoil',
-          condition TEXT NOT NULL DEFAULT 'Near Mint',
-          location_id INTEGER,
-          match_inliers INTEGER,
-          crop_data_url TEXT,
-          -- What the matcher thought this was, for an unresolved row. Shown as
-          -- the row's label so the list is readable before anything is picked.
-          matched_name TEXT,
-          -- Up to a few candidate printings, best first, as JSON. Empty array
-          -- when the matcher had nothing to offer -- then the row is search-only.
-          candidates_json TEXT NOT NULL DEFAULT '[]',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-      `);
-      // Every existing row is RESOLVED by definition -- the old table could not
-      // hold anything else -- so they copy across with no candidates and keep
-      // their card_id. Dropping `flag` loses only advisory text he asked to
-      // remove; no row and no quantity is lost.
-      await run(`
-        INSERT INTO scan_staging_new
-          (id, user_id, card_id, quantity, finish, condition, location_id,
-           match_inliers, crop_data_url, matched_name, candidates_json, created_at)
-        SELECT id, user_id, card_id, quantity, finish, condition, location_id,
-               match_inliers, crop_data_url, NULL, '[]', created_at
-          FROM scan_staging
-      `);
-      await run('DROP TABLE scan_staging');
-      await run('ALTER TABLE scan_staging_new RENAME TO scan_staging');
-      await run(`CREATE INDEX IF NOT EXISTS idx_scan_staging_user ON scan_staging(user_id, created_at)`);
-      await run('PRAGMA foreign_keys=ON');
-      console.log('Migrated scan_staging: unresolved rows allowed, flags removed.');
+      try {
+        // Clear any orphan from an interrupted attempt, or the retry can never
+        // succeed.
+        await run('DROP TABLE IF EXISTS scan_staging_new');
+        await run('BEGIN');
+        await run(`
+          CREATE TABLE scan_staging_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            card_id TEXT,
+            quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
+            finish TEXT NOT NULL DEFAULT 'nonfoil',
+            condition TEXT NOT NULL DEFAULT 'Near Mint',
+            location_id INTEGER,
+            match_inliers INTEGER,
+            crop_data_url TEXT,
+            matched_name TEXT,
+            candidates_json TEXT NOT NULL DEFAULT '[]',
+            dump_file TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+        await run(`
+          INSERT INTO scan_staging_new
+            (id, user_id, card_id, quantity, finish, condition, location_id,
+             match_inliers, crop_data_url, matched_name, candidates_json,
+             dump_file, created_at)
+          SELECT id, user_id, card_id, quantity, finish, condition, location_id,
+                 match_inliers, crop_data_url, NULL, '[]', NULL, created_at
+            FROM scan_staging
+        `);
+        await run('DROP TABLE scan_staging');
+        await run('ALTER TABLE scan_staging_new RENAME TO scan_staging');
+        await run(`CREATE INDEX IF NOT EXISTS idx_scan_staging_user ON scan_staging(user_id, created_at)`);
+        await run('COMMIT');
+        console.log('Migrated scan_staging: unresolved rows allowed, flags removed.');
+      } catch (e) {
+        await run('ROLLBACK').catch(() => { /* nothing open */ });
+        throw e;
+      } finally {
+        // ALWAYS restore FK enforcement. Leaving it off for the process
+        // lifetime is a second silent failure: user deletes stop cascading and
+        // rows referencing missing users become insertable.
+        await run('PRAGMA foreign_keys=ON').catch(() => { /* best effort */ });
+      }
     }
   } catch (e) {
     // Booting matters more than the migration. On failure the old shape still

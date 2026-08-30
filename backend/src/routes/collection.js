@@ -1167,15 +1167,35 @@ router.patch('/scan-stage/:id', async (req, res) => {
     const qty = quantity === undefined ? row.quantity
       : positiveInteger(quantity, { name: 'quantity', max: 1000 });
 
+    // VALIDATE THE FINISH AT WRITE TIME. Review finding S3.
+    //
+    // This used to store `finish` straight from the body. An unrepresentable
+    // value ('Holofoil', a future dropdown sending a display label) was accepted
+    // silently and only surfaced at COMMIT, where finishColumnsFromBody throws.
+    // Commit is all-or-nothing, so ONE bad row blocked the entire session -- and
+    // the error names the allowed values, not which row is at fault, and the
+    // review UI has no finish editor to fix it with. The session became
+    // uncommittable with no route forward except discarding it.
+    //
+    // finishColumnsFromBody is the single place that interprets a finish
+    // anywhere in the app; using it here means a bad value is a 400 on the
+    // request that caused it.
+    const canonicalFinish = finish === undefined
+      ? row.finish
+      : finishColumnsFromBody({ finish }).finish;
+
     await db.run(
       `UPDATE scan_staging SET quantity = ?, finish = ?, condition = ?, location_id = ?
         WHERE id = ? AND user_id = ?`,
-      [qty, finish || row.finish, condition || row.condition,
+      [qty, canonicalFinish, condition || row.condition,
        location_id === undefined ? row.location_id : location_id, id, req.user.id]);
     res.json({ updated: true, id });
   } catch (error) {
-    if (error instanceof RequestBoundsError) {
-      return res.status(error.status).json({ error: error.message });
+    // FinishError is a 400: the caller sent an unrepresentable finish, which is
+    // their mistake to fix, not a server fault. Before S3 this could not happen
+    // here at all -- the bad value was stored and blew up at commit instead.
+    if (error instanceof RequestBoundsError || error instanceof FinishError) {
+      return res.status(error.status || 400).json({ error: error.message });
     }
     console.error('scan-stage patch failed:', error);
     res.status(500).json({ error: 'Failed to update staged scan' });
@@ -1230,17 +1250,31 @@ router.post('/scan-stage/:id/resolve', async (req, res) => {
       return res.status(400).json({ error: 'quantity must be a positive integer' });
     }
 
+    // Same S3 validation as the PATCH endpoint: a finish that cannot be
+    // represented must fail HERE, not silently poison the row and block the
+    // whole Add All later.
+    const canonicalFinish = finish === undefined
+      ? row.finish
+      : finishColumnsFromBody({ finish }).finish;
+
     await db.run(
       `UPDATE scan_staging
           SET card_id = ?, finish = ?, condition = ?, quantity = ?
         WHERE id = ? AND user_id = ?`,
-      [card_id, finish || row.finish, condition || row.condition, qty, id, req.user.id]);
+      [card_id, canonicalFinish, condition || row.condition, qty, id, req.user.id]);
 
     // GROUND TRUTH, AND THE BEST KIND. He looked at the physical card and told
     // the app what it is, on a scan the matcher could not resolve -- exactly the
     // failures the corpus needs and the hardest ones to obtain. Same reasoning
     // as the old queue-resolve labelling this replaces.
-    await labelCapture(lastDumpName, {
+    // THE ROW'S OWN CAPTURE, not whatever was scanned most recently.
+    //
+    // Review finding S5. lastDumpName is module scope and holds the LAST image
+    // scanned; resolving happens after the whole stack has been scanned, so
+    // every resolve in a session used to write its label onto the same final
+    // image. scan_review_queue carried dump_file to prevent exactly this and
+    // the replacement table dropped it.
+    await labelCapture(row.dump_file || null, {
       source: 'stage-resolve',
       truth: { name: card.name, set_id: card.set_id, number: card.number },
       scanner_said: { matched_name: row.matched_name || null },
@@ -1249,6 +1283,12 @@ router.post('/scan-stage/:id/resolve', async (req, res) => {
 
     res.json({ resolved: true, id, card: parseCardRow(card) });
   } catch (error) {
+    // Same as the PATCH endpoint: an unrepresentable finish is the caller's
+    // mistake and must be a 400 on this request, not a 500 here or a blocked
+    // Add All later.
+    if (error instanceof FinishError) {
+      return res.status(error.status || 400).json({ error: error.message });
+    }
     console.error('scan-stage resolve failed:', error);
     res.status(500).json({ error: 'Failed to resolve staged scan' });
   }
@@ -1418,10 +1458,15 @@ async function stageScannedCard({
   // yet pinned to a printing. It carries the matcher's best guess as a label and
   // its candidates so the review screen can offer them.
   const ins = await db.run(
+    // dump_file PINS THE ROW TO THE CAPTURE THAT PRODUCED IT. Review finding
+    // S5: resolving used to label `lastDumpName`, the most recently scanned
+    // image at module scope. Resolving happens after the stack is scanned, so
+    // every label landed on the last capture of the session. Wrong labels are
+    // worse than none -- every future measurement inherits them silently.
     `INSERT INTO scan_staging
        (user_id, card_id, quantity, finish, condition, location_id, match_inliers,
-        crop_data_url, matched_name, candidates_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        crop_data_url, matched_name, candidates_json, dump_file)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [userId, cardId || null, quantity, finish, condition, locationId,
      Number.isFinite(matchInliers) ? matchInliers : null,
      typeof crop === 'string' ? crop.slice(0, 200000) : null,
@@ -1429,7 +1474,10 @@ async function stageScannedCard({
      // Stored in full -- see the note at the call site. The review screen caps
      // what it SHOWS at three; the row keeps every candidate so the right
      // printing is never unreachable.
-     JSON.stringify(Array.isArray(candidates) ? candidates : [])]);
+     JSON.stringify(Array.isArray(candidates) ? candidates : []),
+     // The capture this row came from, captured NOW while it is still the
+     // current scan. Reading it at resolve time is the S5 bug.
+     lastDumpName || null]);
 
   // LABEL THE SUCCESSES TOO, not only the failures.
   //
