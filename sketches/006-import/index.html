@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Import</title>
+<style>
+  /* IMPORT INTO COLLECTION.
+     Zach: "Is there a way to import cards into my collection say from ManaBox
+     or something like that? I don't see a button would be nice if there was
+     one."
+     The backend already parses ManaBox CSV (csvMappers.js) but the endpoint
+     returns 501 on purpose: import must match every row against a real
+     Scryfall printing before writing, or uploaded text becomes fake cards in
+     the shared catalogue.
+     That constraint IS the design here. The screen's job is to show what
+     matched, what did not, and never to invent a card. Unmatched rows are
+     reported, never guessed -- the same rule as an unresolved scan. */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --ink:#f5f5f7; --ink-2:#98989d; --ink-3:#636366;
+    --hair:rgba(255,255,255,.1);
+    --accent:#0a84ff; --have:#30d158; --need:#ff9f0a; --danger:#ff453a; --tap:44px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-size:17px; line-height:1.45; padding-bottom:calc(96px + env(safe-area-inset-bottom));
+  }
+  header {
+    position:sticky; top:0; z-index:20;
+    background:color-mix(in srgb,var(--bg) 82%,transparent);
+    backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
+    padding:calc(10px + env(safe-area-inset-top)) 20px 12px; border-bottom:1px solid var(--hair);
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  h1 { font-size:20px; font-weight:600; }
+  .txtbtn { border:0; background:transparent; color:var(--ink-2); font:inherit; font-size:16px;
+            font-weight:500; cursor:pointer; min-height:var(--tap); }
+  main { max-width:640px; margin:0 auto; padding:18px 20px 24px; }
+  .sectitle { font-size:13px; font-weight:600; color:var(--ink-2); text-transform:uppercase;
+              letter-spacing:.05em; margin:22px 0 9px; }
+  .sectitle:first-child { margin-top:0; }
+
+  .source {
+    display:flex; align-items:center; gap:13px; width:100%; background:var(--surface);
+    border:0; border-radius:14px; padding:15px; cursor:pointer; font:inherit; text-align:left;
+    color:var(--ink); min-height:var(--tap); margin-bottom:9px;
+  }
+  .source .ic { width:38px; height:38px; border-radius:10px; background:var(--surface-3);
+                display:grid; place-items:center; flex-shrink:0; font-size:17px; }
+  .source b { display:block; font-size:15px; font-weight:600; }
+  .source span { font-size:12px; color:var(--ink-2); }
+  .source .chev { margin-left:auto; color:var(--ink-3); flex-shrink:0; }
+
+  /* Progress + result. The counts are the whole point: he needs to know what
+     landed and what did not before he trusts the number in his collection. */
+  .panel { background:var(--surface); border-radius:16px; padding:18px; }
+  .bar { height:8px; border-radius:4px; background:var(--surface-2); overflow:hidden; margin:14px 0 6px; }
+  .bar i { display:block; height:100%; background:var(--accent); width:0; transition:width .4s linear; }
+  .prog { font-size:13px; color:var(--ink-2); }
+
+  .tally { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:14px; }
+  .t { background:var(--surface); border-radius:14px; padding:15px; }
+  .t b { display:block; font-size:26px; font-weight:700; letter-spacing:-.02em; }
+  .t.ok b { color:var(--have); }
+  .t.warn b { color:var(--need); }
+  .t span { font-size:12px; color:var(--ink-2); }
+
+  .list { background:var(--surface); border-radius:14px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap:11px; padding:11px 14px; min-height:var(--tap);
+         border-bottom:1px solid var(--hair); }
+  .row:last-child { border-bottom:0; }
+  .rname { flex:1; min-width:0; }
+  .rname b { display:block; font-size:14.5px; font-weight:600; white-space:nowrap;
+             overflow:hidden; text-overflow:ellipsis; }
+  .rname span { font-size:12px; color:var(--ink-2); }
+  .why { font-size:12px; color:var(--need); flex-shrink:0; }
+  .mini { border:0; background:var(--surface-3); color:var(--ink); font:inherit; font-size:12px;
+          font-weight:600; padding:6px 11px; border-radius:7px; cursor:pointer; min-height:32px; flex-shrink:0; }
+
+  .note { background:var(--surface); border-radius:12px; padding:13px 15px; font-size:13px;
+          color:var(--ink-2); margin-top:12px; }
+  .note b { color:var(--ink); }
+
+  .cta { position:fixed; left:0; right:0; bottom:0; z-index:30;
+         background:color-mix(in srgb,var(--bg) 88%,transparent);
+         backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+         border-top:1px solid var(--hair); padding:12px 20px calc(12px + env(safe-area-inset-bottom)); }
+  .cta button { width:100%; min-height:50px; border:0; border-radius:14px; font:inherit;
+                font-size:17px; font-weight:600; background:var(--accent); color:#fff; cursor:pointer; }
+  .cta button:disabled { background:var(--surface-2); color:var(--ink-3); cursor:not-allowed; }
+  .ctawhy { text-align:center; font-size:12px; color:var(--ink-2); margin-top:7px; }
+
+  @media (min-width:900px) {
+    .cta { position:static; background:transparent; backdrop-filter:none; border:0;
+           padding:22px 0 0; max-width:640px; margin:0 auto; }
+    body { padding-bottom:40px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="txtbtn">Cancel</button>
+  <h1 id="title">Import cards</h1>
+  <span style="width:58px"></span>
+</header>
+
+<main id="main"></main>
+
+<div class="cta" id="cta"></div>
+
+<script>
+  let step = 'pick';
+
+  const MATCHED = [
+    ['Sol Ring','Commander Masters #263',4],
+    ['Lightning Bolt','Alpha #161',2],
+    ['Krenko, Mob Boss','Jumpstart #67',1],
+    ['Mountain','Kaldheim #276',18],
+  ];
+  /* Rows the catalogue could not confirm. These are REPORTED, never invented --
+     writing a row we could not match would put a card that may not exist into
+     the shared catalogue, and everything downstream (prices, legality, deck
+     buylists) would treat it as real. */
+  const UNMATCHED = [
+    ['Sol Ring','SLD #1487','Set not in catalogue'],
+    ['Blightsteel Colossus','MBS #178 (JP)','Non-English printing'],
+    ['Lotus Petal','TPR #221','No such collector number'],
+  ];
+
+  function render() {
+    const main = document.getElementById('main');
+    const cta  = document.getElementById('cta');
+
+    if (step === 'pick') {
+      document.getElementById('title').textContent = 'Import cards';
+      main.innerHTML = `
+        <div class="sectitle">Where from?</div>
+        <button class="source" onclick="go('scan')">
+          <span class="ic">📄</span>
+          <span><b>ManaBox</b><span>Export a CSV from ManaBox, then pick the file</span></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="source" onclick="go('scan')">
+          <span class="ic">📋</span>
+          <span><b>Paste a list</b><span>Moxfield, Archidekt or plain text</span></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="source" onclick="go('scan')">
+          <span class="ic">📁</span>
+          <span><b>CSV file</b><span>Any CSV with name, set and collector number</span></span>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="note">Every row is matched against a real printing before anything is added.
+          <b>Nothing that can't be matched is guessed into your collection.</b></div>`;
+      cta.innerHTML = '';
+    }
+
+    if (step === 'scan') {
+      document.getElementById('title').textContent = 'Checking 1,204 rows';
+      main.innerHTML = `
+        <div class="panel">
+          <b style="font-size:17px">Matching against the catalogue</b>
+          <div class="bar"><i id="fill"></i></div>
+          <div class="prog" id="prog">0 of 1,204</div>
+        </div>
+        <div class="note">Matching by set code and collector number — the same rule the scanner uses.</div>`;
+      cta.innerHTML = '';
+      let n = 0;
+      const iv = setInterval(() => {
+        n += 137;
+        if (n >= 1204) { n = 1204; clearInterval(iv); setTimeout(() => go('review'), 350); }
+        document.getElementById('fill').style.width = (n/1204*100) + '%';
+        document.getElementById('prog').textContent = n.toLocaleString() + ' of 1,204';
+      }, 180);
+    }
+
+    if (step === 'review') {
+      document.getElementById('title').textContent = 'Review import';
+      main.innerHTML = `
+        <div class="tally">
+          <div class="t ok"><b>1,181</b><span>Ready to add</span></div>
+          <div class="t warn"><b>23</b><span>Couldn't match</span></div>
+        </div>
+
+        <div class="sectitle">Couldn't match — not importing these</div>
+        <div class="list">
+          ${UNMATCHED.map(([n,s,why]) => `
+            <div class="row">
+              <div class="rname"><b>${n}</b><span>${s}</span></div>
+              <div class="why">${why}</div>
+            </div>`).join('')}
+          <div class="row"><div class="rname"><span>and 20 more</span></div>
+            <button class="mini">View all</button></div>
+        </div>
+
+        <div class="sectitle">Sample of what will be added</div>
+        <div class="list">
+          ${MATCHED.map(([n,s,q]) => `
+            <div class="row">
+              <div class="rname"><b>${n}</b><span>${s}</span></div>
+              <div class="why" style="color:var(--ink-2)">${q}×</div>
+            </div>`).join('')}
+        </div>
+
+        <div class="note">Unmatched rows are usually a set Bindarr hasn't synced yet, or a
+          non-English printing. <b>You can export them and re-import later.</b></div>`;
+      cta.innerHTML = `
+        <button onclick="go('done')">Add 1,181 cards</button>
+        <div class="ctawhy">23 unmatched rows will be skipped</div>`;
+    }
+
+    if (step === 'done') {
+      document.getElementById('title').textContent = 'Imported';
+      main.innerHTML = `
+        <div class="panel" style="text-align:center; padding:34px 18px">
+          <div style="font-size:40px; margin-bottom:8px">✓</div>
+          <b style="font-size:20px; display:block">1,181 cards added</b>
+          <span style="font-size:14px; color:var(--ink-2)">Your collection now holds 1,335 cards</span>
+        </div>
+        <div class="note">23 rows couldn't be matched.
+          <b>Export the list</b> to check them, or try again after the next catalogue sync.</div>`;
+      cta.innerHTML = `<button onclick="go('pick')">Done</button>`;
+    }
+  }
+
+  function go(s) { step = s; render(); }
+  render();
+</script>
+</body>
+</html>

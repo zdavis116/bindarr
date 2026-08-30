@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Administration</title>
+<style>
+  /* ADMINISTRATION.
+     Mirrors what AdminPanel.jsx actually does today -- users and roles,
+     instance settings (public base URL behind a reverse proxy), and per-set
+     scan indexes -- rather than inventing features.
+     Two deliberate differences from Settings:
+       1. Destructive actions are VISIBLY destructive and never sit next to a
+          routine one. Resetting a password and deleting a user should not be
+          adjacent taps on a phone.
+       2. Long-running work (building a set index) reports progress and states
+          what it costs. A build that silently churns for four minutes is
+          indistinguishable from a hang. */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --ink:#f5f5f7; --ink-2:#98989d; --ink-3:#636366;
+    --hair:rgba(255,255,255,.1);
+    --accent:#0a84ff; --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a; --tap:44px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-size:17px; line-height:1.45; padding-bottom:calc(40px + env(safe-area-inset-bottom));
+  }
+  header {
+    position:sticky; top:0; z-index:20;
+    background:color-mix(in srgb,var(--bg) 82%,transparent);
+    backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
+    padding:calc(10px + env(safe-area-inset-top)) 20px 12px; border-bottom:1px solid var(--hair);
+    display:flex; align-items:center; gap:12px;
+  }
+  .back { border:0; background:transparent; color:var(--accent); font:inherit; font-size:16px;
+          font-weight:500; cursor:pointer; min-height:var(--tap); display:flex; align-items:center; gap:3px; }
+  h1 { font-size:19px; font-weight:600; }
+  main { max-width:680px; margin:0 auto; padding:14px 20px 24px; }
+
+  .sectitle { font-size:13px; font-weight:600; color:var(--ink-2); text-transform:uppercase;
+              letter-spacing:.05em; margin:22px 0 8px; padding:0 4px; }
+  .sectitle:first-child { margin-top:4px; }
+  .group { background:var(--surface); border-radius:14px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap:12px; padding:12px 15px; min-height:var(--tap);
+         border-bottom:1px solid var(--hair); }
+  .row:last-child { border-bottom:0; }
+  .lbl { flex:1; min-width:0; }
+  .lbl b { display:block; font-size:15.5px; font-weight:500; }
+  .lbl span { display:block; font-size:12.5px; color:var(--ink-2); margin-top:1px; }
+  .val { font-size:14px; color:var(--ink-2); flex-shrink:0; }
+
+  .avatar { width:32px; height:32px; border-radius:50%; background:var(--surface-3);
+            display:grid; place-items:center; font-size:13px; font-weight:700; flex-shrink:0; }
+  .tag { font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; flex-shrink:0;
+         text-transform:uppercase; letter-spacing:.03em; }
+  .tag.admin { background:color-mix(in srgb,var(--accent) 22%,transparent); color:var(--accent); }
+  .tag.member { background:var(--surface-3); color:var(--ink-2); }
+
+  .btn { border:0; background:var(--surface-3); color:var(--ink); font:inherit; font-size:13px;
+         font-weight:600; padding:7px 13px; border-radius:8px; cursor:pointer; flex-shrink:0; min-height:32px; }
+  .btn.primary { background:var(--accent); color:#fff; }
+  .btn.danger  { background:color-mix(in srgb,var(--danger) 20%,transparent); color:var(--danger); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+
+  .field { background:var(--surface-2); border-radius:10px; padding:0 12px; height:40px;
+           display:flex; align-items:center; margin:0 15px 10px; }
+  .field input { border:0; background:transparent; outline:none; flex:1; font-size:15px;
+                 color:var(--ink); font-family:inherit; }
+  .rowform { padding:12px 0 4px; }
+
+  .bar { height:7px; border-radius:4px; background:var(--surface-2); overflow:hidden; margin-top:9px; }
+  .bar i { display:block; height:100%; background:var(--accent); width:0; transition:width .3s linear; }
+
+  .foot { font-size:12px; color:var(--ink-3); padding:8px 6px 0; line-height:1.45; }
+  .foot.warn { color:var(--warn); }
+
+  /* Destructive actions are separated, not just coloured. A delete sitting one
+     row below "reset password" is a mis-tap waiting to happen on a phone. */
+  .dangerzone { margin-top:26px; border:1px solid color-mix(in srgb,var(--danger) 35%,transparent);
+                border-radius:14px; overflow:hidden; }
+  .dangerzone .row { background:color-mix(in srgb,var(--danger) 7%,var(--surface)); }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="back">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M15 6l-6 6 6 6"/></svg>
+    Settings
+  </button>
+  <h1>Administration</h1>
+</header>
+
+<main>
+  <div class="sectitle">Users · 3</div>
+  <div class="group">
+    <div class="row">
+      <span class="avatar">Z</span>
+      <span class="lbl"><b>zach</b><span>Last seen just now</span></span>
+      <span class="tag admin">Admin</span>
+    </div>
+    <div class="row">
+      <span class="avatar">M</span>
+      <span class="lbl"><b>marcus</b><span>Last seen 3 days ago</span></span>
+      <span class="tag member">Member</span>
+      <button class="btn" onclick="ping('Reset link sent')">Reset</button>
+    </div>
+    <div class="row">
+      <span class="avatar">J</span>
+      <span class="lbl"><b>jess</b><span>Never signed in</span></span>
+      <span class="tag member">Member</span>
+      <button class="btn" onclick="ping('Reset link sent')">Reset</button>
+    </div>
+  </div>
+
+  <div class="sectitle">Add a user</div>
+  <div class="group">
+    <div class="rowform">
+      <div class="field"><input placeholder="Username" autocomplete="off"></div>
+      <div class="field"><input placeholder="Initial password" type="password" autocomplete="new-password"></div>
+      <div class="row" style="border-bottom:0">
+        <span class="lbl"><b>Role</b></span>
+        <div style="display:flex; gap:6px">
+          <button class="btn primary" onclick="pickRole(this,0)">Member</button>
+          <button class="btn" onclick="pickRole(this,1)">Admin</button>
+        </div>
+      </div>
+      <div class="row" style="border-bottom:0; padding-top:0">
+        <button class="btn primary" style="width:100%; min-height:42px; font-size:15px"
+                onclick="ping('Account created')">Create account</button>
+      </div>
+    </div>
+  </div>
+  <div class="foot">They'll be asked to change the password on first sign-in.</div>
+
+  <div class="sectitle">Instance</div>
+  <div class="group">
+    <div class="row" style="border-bottom:0; flex-direction:column; align-items:stretch; gap:0; padding-bottom:4px">
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:9px">
+        <span class="lbl"><b>Public base URL</b><span>Needed if Bindarr runs behind a reverse proxy</span></span>
+      </div>
+      <div class="field" style="margin:0 0 10px"><input value="https://bindarr.tail387aa3.ts.net" autocomplete="off"></div>
+      <button class="btn primary" style="align-self:flex-start; margin-bottom:10px" onclick="ping('Saved')">Save</button>
+    </div>
+  </div>
+  <div class="foot">Share links and QR codes are built from this. If it's wrong, every link you send points somewhere unreachable.</div>
+
+  <div class="sectitle">Maintenance</div>
+  <div class="group">
+    <div class="row">
+      <span class="lbl"><b>Card catalogue</b><span>105,462 cards · refreshed today 12:57</span></span>
+      <button class="btn" onclick="ping('Refreshing…')">Refresh</button>
+    </div>
+    <div class="row">
+      <span class="lbl"><b>Generate test cards</b><span>Adds sample data for trying things out</span></span>
+      <button class="btn" onclick="ping('Added 20 test cards')">Generate</button>
+    </div>
+  </div>
+
+  <div class="dangerzone">
+    <div class="row">
+      <span class="lbl"><b style="color:var(--danger)">Delete a user</b><span>Their collection and decks go too. This cannot be undone.</span></span>
+      <button class="btn danger" onclick="ping('Pick a user to delete')">Choose</button>
+    </div>
+  </div>
+  <div class="foot warn">Deleting a user removes every card and deck they own. Take a backup first — Settings → Backup.</div>
+</main>
+
+<script>
+  function pickRole(b, i) {
+    b.parentElement.querySelectorAll('.btn').forEach(x => x.classList.remove('primary'));
+    b.classList.add('primary');
+  }
+  let t;
+  function ping(m) {
+    let el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'toast';
+      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%) translateY(90px);bottom:30px;background:#3a3a3c;color:#f5f5f7;padding:12px 20px;border-radius:14px;font-size:14px;font-weight:500;z-index:40;transition:transform .3s cubic-bezier(.2,.8,.3,1);box-shadow:0 8px 28px rgba(0,0,0,.6)';
+      document.body.appendChild(el);
+    }
+    el.textContent = m;
+    requestAnimationFrame(() => el.style.transform = 'translateX(-50%) translateY(0)');
+    clearTimeout(t); t = setTimeout(() => el.style.transform = 'translateX(-50%) translateY(90px)', 1900);
+  }
+</script>
+</body>
+</html>

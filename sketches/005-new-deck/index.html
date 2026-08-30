@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — New Deck</title>
+<style>
+  /* NEW DECK.
+     Zach: "we should have all formats. Defaulting to commander is fine but if I
+     choose a different format then selecting a commander should disappear."
+     Right, and it reorders the screen: FORMAT now comes first, because it
+     decides whether the commander question exists at all. A commander field on
+     a Modern deck is a control that cannot be used, and Zach has consistently
+     rejected surfaces that do not apply.
+     Format also drives the rest -- deck size, singleton, sideboard, and whether
+     "bracket" is even a concept (it is Commander-only). */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --ink:#f5f5f7; --ink-2:#98989d; --ink-3:#636366;
+    --hair:rgba(255,255,255,.1);
+    --accent:#0a84ff; --have:#30d158; --need:#ff9f0a; --tap:44px;
+    --W:#f8e7b9; --U:#a5cced; --B:#a9a19b; --R:#eba18b; --G:#a3c6a5;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-size:17px; line-height:1.45;
+    padding-bottom:calc(96px + env(safe-area-inset-bottom));
+  }
+
+  header {
+    position:sticky; top:0; z-index:20;
+    background:color-mix(in srgb,var(--bg) 82%,transparent);
+    backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
+    padding:calc(10px + env(safe-area-inset-top)) 20px 12px;
+    border-bottom:1px solid var(--hair);
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; }
+  .txtbtn { border:0; background:transparent; color:var(--accent); font:inherit; font-size:16px;
+            font-weight:500; cursor:pointer; min-height:var(--tap); padding:0 2px; }
+  .txtbtn.plain { color:var(--ink-2); }
+
+  main { max-width:640px; margin:0 auto; padding:18px 20px 24px; }
+
+  .sectitle { font-size:13px; font-weight:600; color:var(--ink-2); text-transform:uppercase;
+              letter-spacing:.05em; margin:22px 0 9px; }
+  .sectitle:first-child { margin-top:0; }
+
+  /* FORMAT AS A SCROLLING CHIP ROW, not a 3-way segment. There are more than
+     three formats a player uses, and a segmented control stops working past
+     about four options on a phone. Horizontal scroll keeps them all reachable
+     one-handed without hiding them behind a menu. */
+  .formats { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;
+             scrollbar-width:none; -ms-overflow-style:none; margin:0 -20px; padding-left:20px; padding-right:20px; }
+  .formats::-webkit-scrollbar { display:none; }
+  .fmt {
+    flex-shrink:0; border:0; background:var(--surface); color:var(--ink-2); font:inherit;
+    font-size:14.5px; font-weight:500; padding:10px 15px; border-radius:11px; cursor:pointer;
+    transition:.16s; min-height:42px; white-space:nowrap;
+  }
+  .fmt[aria-pressed="true"] { background:var(--accent); color:#fff; font-weight:600; }
+
+  /* Sections that only apply to some formats. Hidden, not disabled -- a greyed
+     control still asks to be understood. */
+  .conditional { animation:reveal .26s cubic-bezier(.2,.8,.3,1); }
+  @keyframes reveal { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:none } }
+
+  .cmdsearch { display:flex; align-items:center; gap:9px; background:var(--surface);
+               border-radius:12px; padding:0 13px; height:var(--tap); }
+  .cmdsearch input { border:0; background:transparent; outline:none; flex:1; font-size:17px;
+                     color:var(--ink); font-family:inherit; }
+
+  .results { margin-top:8px; background:var(--surface); border-radius:12px; overflow:hidden; }
+  .res { display:flex; align-items:center; gap:11px; padding:10px 13px; cursor:pointer;
+         min-height:var(--tap); border-bottom:1px solid var(--hair); }
+  .res:last-child { border-bottom:0; }
+  @media (hover:hover) { .res:hover { background:var(--surface-2); } }
+  .thumb { width:32px; height:45px; border-radius:5px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,0,0,.5); }
+  .rinfo { flex:1; min-width:0; }
+  .rinfo b { display:block; font-size:15px; font-weight:600; white-space:nowrap;
+             overflow:hidden; text-overflow:ellipsis; }
+  .rinfo span { font-size:12px; color:var(--ink-2); }
+  .idpips { display:flex; gap:3px; flex-shrink:0; }
+  .idpip { width:18px; height:18px; border-radius:50%; font-size:9px; font-weight:800;
+           display:grid; place-items:center; }
+  .idpip.W{background:var(--W);color:#2a2a2a} .idpip.U{background:var(--U);color:#12314a}
+  .idpip.B{background:var(--B);color:#221f1d} .idpip.R{background:var(--R);color:#4a1e12}
+  .idpip.G{background:var(--G);color:#1c3a1f}
+
+  .chosen { display:flex; align-items:center; gap:14px; background:var(--surface);
+            border-radius:16px; padding:14px; border:1.5px solid var(--accent); }
+  .chosen .big { width:58px; height:81px; border-radius:8px; flex-shrink:0;
+                 box-shadow:0 3px 12px rgba(0,0,0,.6); }
+  .chosen b { display:block; font-size:17px; font-weight:600; }
+  .chosen span { font-size:13px; color:var(--ink-2); }
+  .swap { border:0; background:var(--surface-3); color:var(--ink); font:inherit; font-size:13px;
+          font-weight:600; padding:7px 12px; border-radius:8px; cursor:pointer; margin-left:auto;
+          flex-shrink:0; min-height:34px; }
+
+  .field { background:var(--surface); border-radius:12px; padding:0 13px; height:var(--tap);
+           display:flex; align-items:center; }
+  .field input { border:0; background:transparent; outline:none; flex:1; font-size:17px;
+                 color:var(--ink); font-family:inherit; }
+  .hint { font-size:12px; color:var(--ink-3); margin-top:7px; padding:0 2px; }
+
+  .seg { display:flex; background:var(--surface); border-radius:10px; padding:2px; }
+  .seg button { flex:1; border:0; background:transparent; font:inherit; font-size:14px;
+                font-weight:500; color:var(--ink-2); padding:10px 4px; border-radius:8px;
+                cursor:pointer; min-height:40px; }
+  .seg button[aria-selected="true"] { background:var(--surface-3); color:var(--ink); font-weight:600; }
+
+  .import { display:flex; align-items:center; gap:12px; width:100%; background:var(--surface);
+            border:1.5px dashed var(--hair); border-radius:14px; padding:15px; cursor:pointer;
+            font:inherit; text-align:left; color:var(--ink); min-height:var(--tap); }
+  .import .ic { width:36px; height:36px; border-radius:10px; background:var(--surface-3);
+                display:grid; place-items:center; flex-shrink:0; }
+  .import b { display:block; font-size:15px; font-weight:600; }
+  .import span { font-size:12px; color:var(--ink-2); }
+
+  .create {
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:color-mix(in srgb,var(--bg) 88%,transparent);
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    border-top:1px solid var(--hair);
+    padding:12px 20px calc(12px + env(safe-area-inset-bottom));
+  }
+  .create button { width:100%; min-height:50px; border:0; border-radius:14px; font:inherit;
+                   font-size:17px; font-weight:600; background:var(--accent); color:#fff;
+                   cursor:pointer; transition:.2s; }
+  .create button:disabled { background:var(--surface-2); color:var(--ink-3); cursor:not-allowed; }
+  .why { text-align:center; font-size:12px; color:var(--ink-2); margin-top:7px; }
+
+  @media (min-width:900px) {
+    main { padding-top:26px; }
+    .create { position:static; background:transparent; backdrop-filter:none; border:0;
+              padding:22px 0 0; max-width:640px; margin:0 auto; }
+    body { padding-bottom:40px; }
+    .formats { margin:0; padding-left:0; padding-right:0; flex-wrap:wrap; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="txtbtn plain">Cancel</button>
+  <h1>New deck</h1>
+  <span style="width:58px"></span>
+</header>
+
+<main>
+  <div class="sectitle">Format</div>
+  <div class="formats" id="formats"></div>
+  <div class="hint" id="fmthint"></div>
+
+  <div id="cmdsection"></div>
+
+  <div class="sectitle">Deck name</div>
+  <div class="field"><input id="name" placeholder="Optional" autocomplete="off"></div>
+  <div class="hint" id="namehint">Give it a name, or leave it and we'll fill one in.</div>
+
+  <div id="bracketsection"></div>
+
+  <div class="sectitle">Start from</div>
+  <button class="import">
+    <span class="ic">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 15V3M7 8l5-5 5 5M4 20h16"/></svg>
+    </span>
+    <span><b>Import a list</b><span>Paste from Moxfield, Archidekt or a text list</span></span>
+  </button>
+</main>
+
+<div class="create">
+  <button id="go">Create deck</button>
+  <div class="why" id="why">You can add cards straight after creating it</div>
+</div>
+
+<script>
+  /* name, deck size, needs a commander, singleton, has a sideboard */
+  const FORMATS = [
+    ['Commander',   100, true,  true,  false],
+    ['Standard',     60, false, false, true ],
+    ['Modern',       60, false, false, true ],
+    ['Pioneer',      60, false, false, true ],
+    ['Legacy',       60, false, false, true ],
+    ['Vintage',      60, false, false, true ],
+    ['Pauper',       60, false, false, true ],
+    ['Brawl',        60, true,  true,  false],
+    ['Limited',      40, false, false, false],
+    ['Casual',        0, false, false, false],
+  ];
+
+  const COMMANDERS = [
+    ['Krenko, Mob Boss','Jumpstart','#9a4b30',['R']],
+    ['Atraxa, Praetors\u2019 Voice','Commander 2016','#4a6b52',['W','U','B','G']],
+    ['Muldrotha, the Gravetide','Dominaria','#3a5548',['U','B','G']],
+    ['Edgar Markov','Commander 2017','#7a2f38',['W','B','R']],
+    ['Kenrith, the Returned King','Throne of Eldraine','#b0a488',['W','U','B','R','G']],
+    ['Prosper, Tome-Bound','Commander Legends','#6a3a5e',['B','R']],
+  ];
+
+  let fmt = 0;          // Commander by default, as Zach asked
+  let chosen = null;
+
+  const fmtWrap = document.getElementById('formats');
+
+  fmtWrap.innerHTML = FORMATS.map(([n],i) =>
+    `<button class="fmt" data-i="${i}" aria-pressed="${i===fmt}">${n}</button>`).join('');
+
+  document.querySelectorAll('.fmt').forEach(b => b.onclick = () => {
+    fmt = +b.dataset.i;
+    document.querySelectorAll('.fmt').forEach(x => x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    // Changing away from a commander format drops the commander -- keeping it
+    // would leave invisible state attached to a deck that cannot use it.
+    if (!FORMATS[fmt][2]) chosen = null;
+    renderConditional();
+  });
+
+  function renderConditional() {
+    const [name, size, needsCmd, singleton, sideboard] = FORMATS[fmt];
+
+    document.getElementById('fmthint').textContent =
+      size ? `${size} cards${singleton ? ', singleton' : ''}${sideboard ? ', plus a 15-card sideboard' : ''}.`
+           : 'No deck-size rules — build whatever you like.';
+
+    /* COMMANDER SECTION EXISTS ONLY FOR FORMATS THAT HAVE ONE.
+       Hidden rather than disabled: a greyed-out commander field on a Modern
+       deck still makes you stop and work out why it is there. */
+    const cs = document.getElementById('cmdsection');
+    if (!needsCmd) { cs.innerHTML = ''; }
+    else if (chosen) {
+      const [n,s,tint,id] = chosen;
+      cs.innerHTML = `<div class="conditional">
+        <div class="sectitle">${name === 'Brawl' ? 'Commander' : 'Commander'}</div>
+        <div class="chosen">
+          <div class="big" style="background:linear-gradient(150deg,${tint},${tint}aa)"></div>
+          <div>
+            <b>${n}</b><span>${s}</span>
+            <div class="idpips" style="margin-top:6px">${id.map(c=>`<span class="idpip ${c}">${c}</span>`).join('')}</div>
+          </div>
+          <button class="swap" onclick="clearCmd()">Change</button>
+        </div></div>`;
+      document.getElementById('name').placeholder = n;
+      document.getElementById('namehint').textContent = `Defaults to "${n}".`;
+    } else {
+      cs.innerHTML = `<div class="conditional">
+        <div class="sectitle">Commander</div>
+        <label class="cmdsearch">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".45">
+            <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+          </svg>
+          <input placeholder="Search for a commander" id="cq" autocomplete="off">
+        </label>
+        <div class="hint">Sets the deck's colour identity — the builder will only offer cards legal in it.</div>
+        <div class="results" id="results" style="display:none"></div>
+      </div>`;
+      document.getElementById('cq').oninput = onSearch;
+      document.getElementById('name').placeholder = 'Optional';
+      document.getElementById('namehint').textContent = "Give it a name, or leave it and we'll fill one in.";
+    }
+
+    // Bracket is a Commander concept. It does not exist in Modern.
+    const bs = document.getElementById('bracketsection');
+    bs.innerHTML = name === 'Commander' ? `<div class="conditional">
+      <div class="sectitle">Bracket</div>
+      <div class="seg">
+        ${[1,2,3,4,5].map(n => `<button aria-selected="${n===3}">${n}</button>`).join('')}
+      </div>
+      <div class="hint">Bracket 3 is the usual budget-conscious table. You can change this later.</div>
+    </div>` : '';
+    bs.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
+      bs.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-selected','false'));
+      b.setAttribute('aria-selected','true');
+    });
+
+    const go = document.getElementById('go');
+    const blocked = needsCmd && !chosen;
+    go.disabled = blocked;
+    go.textContent = blocked ? 'Choose a commander' : 'Create deck';
+    document.getElementById('why').textContent = blocked
+      ? `${name} decks are built around a commander`
+      : 'You can add cards straight after creating it';
+  }
+
+  function onSearch(e) {
+    const q = e.target.value.toLowerCase().trim();
+    const results = document.getElementById('results');
+    if (!q) { results.style.display = 'none'; return; }
+    const hits = COMMANDERS.filter(c => c[0].toLowerCase().includes(q)).slice(0,5);
+    results.style.display = hits.length ? '' : 'none';
+    // Index, not name. Atraxa, Praetors' Voice carries an apostrophe, and
+    // threading that through an inline onclick depends on escaping that breaks
+    // silently -- the row simply stops responding to taps.
+    results.innerHTML = hits.map(c => {
+      const [n,s,tint,id] = c;
+      return `<div class="res" onclick="pick(${COMMANDERS.indexOf(c)})">
+        <div class="thumb" style="background:linear-gradient(150deg,${tint},${tint}aa)"></div>
+        <div class="rinfo"><b>${n}</b><span>${s}</span></div>
+        <div class="idpips">${id.map(c2=>`<span class="idpip ${c2}">${c2}</span>`).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function pick(i) { chosen = COMMANDERS[i] || null; renderConditional(); }
+  function clearCmd() { chosen = null; renderConditional(); }
+
+  renderConditional();
+</script>
+</body>
+</html>
