@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { LayoutDashboard, Database, MapPin, Sparkles, Settings as SettingsIcon, LogOut, ShieldAlert, Plus, Swords, StickyNote } from 'lucide-react';
+import { LayoutDashboard, Database, Sparkles, Settings as SettingsIcon, LogOut, Swords } from 'lucide-react';
 import Login from './components/Login';
 import Logo from './components/Logo';
 import { pushBackGuard } from './utils/useBackGuard';
@@ -16,7 +16,6 @@ const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const SharedCollection = lazy(() => import('./components/SharedCollection'));
 const DeckBuilder = lazy(() => import('./components/DeckBuilder'));
 
-const Notes = lazy(() => import('./components/Notes'));
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -252,8 +251,6 @@ function App() {
       case 'deckbuilder':
         return <DeckBuilder showToast={showToast} />;
 
-      case 'notes':
-        return <Notes showToast={showToast} />;
       case 'settings':
         return <Settings user={user} onUpdateUser={handleUpdateUser} showToast={showToast} />;
       case 'admin':
@@ -275,67 +272,57 @@ function App() {
         </div>
 
         {/* Navigation Tabs (Nested inside header for unified layout) */}
+        {/* FOUR DESTINATIONS: Home, Collection, Decks, Settings.
+            Was eight (dashboard, add-cards, collection, storage, deckbuilder,
+            notes, settings, admin). Eight tabs on a phone means every target is
+            narrow and none is memorable, and four of those were not places --
+            they were actions or sub-views.
+
+            Where the other four went, and why:
+
+            - ADD CARDS is not a tab. Scanning is an action, and it now has a
+              full-width button on Home. Zach: "Actually takes away the need to
+              hit the scan button at the bottom so scan can be removed from nav
+              bar."
+
+            - STORAGE moved under Collection. Zach picked this over keeping it
+              as a fifth tab: it is a VIEW of the collection (where the cards
+              physically are), not a separate place. It is real data -- 15
+              compartments on dev, 12 in production -- so it is relocated, never
+              removed.
+
+            - NOTES is deleted. Zero rows on dev AND production; it was never
+              used. Removed rather than hidden, so nothing renders a screen
+              nobody opens.
+
+            - ADMIN moved under Settings. Occasional configuration, not a
+              destination, and it was already conditional on role.
+
+            The bar is rendered from an array rather than seven copy-pasted
+            buttons: a fifth destination is one entry, and the tab order cannot
+            silently disagree with itself. */}
         <nav className="nav-tabs" style={{ margin: 0 }}>
-          <button 
-            className={`nav-tab ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => goTab('dashboard')}
-          >
-            <LayoutDashboard size={18} />
-            <span>{t('nav.dashboard')}</span>
-          </button>
-          <button
-            className={`nav-tab ${activeTab === 'add-cards' ? 'active' : ''}`}
-            onClick={() => goTab('add-cards')}
-          >
-            <Plus size={18} />
-            <span>{t('nav.addCards')}</span>
-          </button>
-          <button
-            className={`nav-tab ${activeTab === 'collection' ? 'active' : ''}`}
-            onClick={() => goTab('collection')}
-          >
-            <Database size={18} />
-            <span>{t('nav.collection')}</span>
-          </button>
-          <button
-            className={`nav-tab ${activeTab === 'storage' ? 'active' : ''}`}
-            onClick={() => goTab('storage')}
-          >
-            <MapPin size={18} />
-            <span>{t('nav.storage')}</span>
-          </button>
-          <button
-            className={`nav-tab ${activeTab === 'deckbuilder' ? 'active' : ''}`}
-            onClick={() => goTab('deckbuilder')}
-          >
-            <Swords size={18} />
-            <span>{t('nav.deckBuilder')}</span>
-          </button>
-
-          <button
-            className={`nav-tab ${activeTab === 'notes' ? 'active' : ''}`}
-            onClick={() => goTab('notes')}
-          >
-            <StickyNote size={18} />
-            <span>{t('nav.notes')}</span>
-          </button>
-
-          <button
-            className={`nav-tab ${activeTab === 'settings' ? 'active' : ''}`}
-            onClick={() => goTab('settings')}
-          >
-            <SettingsIcon size={18} />
-            <span>{t('nav.settings')}</span>
-          </button>
-          {user.role === 'admin' && (
-            <button 
-              className={`nav-tab ${activeTab === 'admin' ? 'active' : ''}`}
-              onClick={() => goTab('admin')}
+          {[
+            { id: 'dashboard',   icon: LayoutDashboard, label: t('nav.dashboard') },
+            { id: 'collection',  icon: Database,        label: t('nav.collection') },
+            { id: 'deckbuilder', icon: Swords,          label: t('nav.deckBuilder') },
+            { id: 'settings',    icon: SettingsIcon,    label: t('nav.settings') },
+          ].map(({ id, icon: Icon, label }) => (
+            <button
+              key={id}
+              className={`nav-tab ${activeTab === id ? 'active' : ''}`}
+              onClick={() => goTab(id)}
+              aria-current={activeTab === id ? 'page' : undefined}
             >
-              <ShieldAlert size={18} style={{ color: 'var(--accent-red)' }} />
-              <span>{t('nav.admin')}</span>
+              <Icon size={18} />
+              <span>{label}</span>
             </button>
-          )}
+          ))}
+          {/* NO ADMIN TAB. Administration is reached from Settings -> About.
+              It is occasional configuration, not a destination, and giving it a
+              permanent slot cost a fifth of the bar on the screens Zach uses
+              every day. The route still exists -- goTab('admin') works and is
+              linked from Settings -- so nothing became unreachable. */}
         </nav>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

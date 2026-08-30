@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick } from 'lucide-react';
+import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick, MapPin } from 'lucide-react';
 
 import { formatPrice } from '../utils/formatPrice';
 import { CONDITIONS, PRINTINGS } from '../utils/cardOptions';
@@ -350,6 +350,32 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
               title={t('collection.listView')}
             >
               <List size={14} />
+            </button>
+            {/* STORAGE AS A THIRD VIEW OF THE COLLECTION.
+                Storage lost its nav tab when the bar went from eight
+                destinations to four. Zach chose this over keeping it as a fifth
+                tab: it is a VIEW of the collection -- where the cards
+                physically are -- not a separate place.
+
+                It sits in the existing view toggle rather than as a link
+                elsewhere, because that is already the control that answers "how
+                do I want to look at my cards", and a second navigation idiom
+                for the same question is how a control ends up unfindable.
+
+                THIS IS THE ONLY GENERAL WAY IN NOW. The pre-existing
+                onNavigate('storage') call fires only from a single card's
+                "where is this?" action, so without this button a user who had
+                not already picked a card could not reach 15 compartments of
+                real data. Removing a tab without adding the replacement is
+                exactly how four controls became unreachable this week. */}
+            <button
+              className="btn btn-icon-only btn-secondary"
+              onClick={() => onNavigate && onNavigate('storage')}
+              style={{ borderRadius: 'var(--radius-sm)', padding: '0.4rem 0.5rem', width: '32px', height: '32px' }}
+              title={t('nav.storage')}
+              aria-label={t('nav.storage')}
+            >
+              <MapPin size={14} />
             </button>
           </div>
         </div>
