@@ -1131,5 +1131,11 @@
   "dash.decksInProgress": "Decks in progress",
   "dash.deckReady": "Ready to play",
   "dash.deckCards": "{have} of {want} cards",
-  "dash.unique": "Unique"
+  "dash.unique": "Unique",
+  "collection.fColor": "Color",
+  "collection.addCards": "Add cards",
+  "collection.addScan": "Scan cards",
+  "collection.addImport": "Import from a file",
+  "collection.addImportSoon": "Coming soon",
+  "collection.addSearch": "Search for a card"
 }

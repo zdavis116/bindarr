@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick, MapPin } from 'lucide-react';
+import { Search, Trash2, Edit2, LayoutGrid, List, SlidersHorizontal, X, MousePointerClick, MapPin, Plus, Camera, Download } from 'lucide-react';
 
 import { formatPrice } from '../utils/formatPrice';
 import { CONDITIONS, PRINTINGS } from '../utils/cardOptions';
@@ -45,6 +45,75 @@ function Field({ label, children }) {
   );
 }
 
+// The five MTG colours, in WUBRG order -- the order every player and every
+// deck list uses. `label` is what the API stores in color_identity ("Blue"),
+// `code` is what the pip shows, `token` is the muted fill from index.css.
+// One style for every row in the add menu, so a future item cannot drift.
+const ADD_MENU_ITEM = {
+  display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%',
+  padding: '0.75rem 0.9rem', minHeight: 44, border: 0,
+  borderBottom: '1px solid var(--border-glass)',
+  background: 'transparent', color: 'var(--text-primary)',
+  font: 'inherit', fontSize: '0.9rem', textAlign: 'left', cursor: 'pointer',
+};
+
+const MTG_COLORS = [
+  { code: 'W', label: 'White', token: 'var(--mtg-white)' },
+  { code: 'U', label: 'Blue',  token: 'var(--mtg-blue)' },
+  { code: 'B', label: 'Black', token: 'var(--mtg-black)' },
+  { code: 'R', label: 'Red',   token: 'var(--mtg-red)' },
+  { code: 'G', label: 'Green', token: 'var(--mtg-green)' },
+];
+
+// Returns a NEW Set with `value` toggled. New, not mutated: React compares by
+// reference, so mutating the existing Set would change the filter without
+// re-rendering -- the list would silently disagree with the controls.
+function toggleIn(set, value) {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value); else next.add(value);
+  return next;
+}
+
+// A horizontally scrolling row of multi-select chips.
+//
+// Chips rather than a <select multiple>: on iOS a multi-select renders as a
+// picker that shows one option at a time, which makes "how many are selected"
+// invisible -- and that is the only question this control has to answer at a
+// glance. Horizontal scroll keeps 60 sets reachable one-handed without a modal.
+function ChipRow({ options, selected, onToggle }) {
+  return (
+    <div
+      style={{
+        display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: '0.2rem',
+        scrollbarWidth: 'none', msOverflowStyle: 'none',
+      }}
+    >
+      {options.map(opt => {
+        const on = selected.has(opt);
+        return (
+          <button
+            key={opt}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onToggle(opt)}
+            style={{
+              flexShrink: 0, minHeight: 34, padding: '0.4rem 0.75rem',
+              borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+              border: '1px solid ' + (on ? 'var(--accent-blue)' : 'var(--border-glass)'),
+              background: on ? 'var(--accent-blue)' : 'var(--surface-1)',
+              color: on ? 'var(--text-on-accent)' : 'var(--text-secondary)',
+              fontSize: '0.8rem', fontWeight: on ? 600 : 500,
+              whiteSpace: 'nowrap', transition: 'var(--transition-smooth)',
+            }}
+          >
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter, setSelectedCardFilter, onNavigate, setSelectedLocationId, setFocusEntryId }) {
   const { t } = useT();
   const [collection, setCollection] = useState([]);
@@ -67,6 +136,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [inspectorStartEdit, setInspectorStartEdit] = useState(false);
   const [subTab, setSubTab] = useState('collection'); // 'collection', 'wishlist'
   const [showFilters, setShowFilters] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   // Search & Filter state
   const [searchFilter, setSearchFilter] = useState('');
@@ -75,8 +145,15 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
   const [rarityFilter, setRarityFilter] = useState('');
   const [conditionFilter, setConditionFilter] = useState('');
   const [printingFilter, setPrintingFilter] = useState('');
-  const [setFilter, setSetFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  // MULTI-SELECT, as Sets, not single values. A card can be several types
+  // (Dryad of the Ilysian Grove is Creature AND Enchantment) and several
+  // colours, so a filter that holds one value cannot express the question.
+  // Sets are Sets too -- "everything from the last two Commander sets".
+  const [setFilters, setSetFilters] = useState(() => new Set());
+  const [typeFilters, setTypeFilters] = useState(() => new Set());
+  // WUBRG. The card's color_identity arrives from the API already parsed into
+  // an array (priceHelpers.parseCardRow), so no parsing happens in the client.
+  const [colorFilters, setColorFilters] = useState(() => new Set());
   const [supertypeFilter, setSupertypeFilter] = useState('');
   const [cmcFilter, setCmcFilter] = useState('');
 
@@ -222,14 +299,16 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
 
   const activeFilterCount = [
     locationFilter, rarityFilter, conditionFilter, printingFilter,
-    setFilter, typeFilter, supertypeFilter, cmcFilter,
+    setFilters.size ? 'set' : '', typeFilters.size ? 'type' : '',
+    colorFilters.size ? 'color' : '', supertypeFilter, cmcFilter,
     minPriceFilter, maxPriceFilter
   ].filter(v => v !== '').length + (tradeOnly ? 1 : 0) + (favoriteOnly ? 1 : 0);
 
   const clearAllFilters = () => {
     setSearchFilter('');
     setLocationFilter(''); setRarityFilter(''); setConditionFilter('');
-    setPrintingFilter(''); setSetFilter(''); setTypeFilter(''); setSupertypeFilter('');
+    setPrintingFilter(''); setSetFilters(new Set()); setTypeFilters(new Set());
+    setColorFilters(new Set()); setSupertypeFilter('');
     setCmcFilter(''); setMinPriceFilter('');
     setMaxPriceFilter(''); setTradeOnly(false); setFavoriteOnly(false);
   };
@@ -248,8 +327,17 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesRarity = rarityFilter === '' ? true : item.rarity === rarityFilter;
       const matchesCondition = conditionFilter === '' ? true : item.condition === conditionFilter;
       const matchesPrinting = printingFilter === '' ? true : item.printing === printingFilter;
-      const matchesSet = setFilter === '' ? true : item.set_name === setFilter;
-      const matchesType = typeFilter === '' ? true : (item.types || []).includes(typeFilter);
+      // ANY-OF semantics for every multi-select: selecting B and G shows cards
+      // that are black, green, OR both -- not only exactly-Golgari cards. That
+      // is what a player means when they tap two pips, and the alternative
+      // (all-of) makes two taps return almost nothing.
+      const matchesSet = setFilters.size === 0 ? true : setFilters.has(item.set_name);
+      const matchesType = typeFilters.size === 0
+        ? true
+        : (item.types || []).some(ty => typeFilters.has(ty));
+      const matchesColor = colorFilters.size === 0
+        ? true
+        : (item.color_identity || []).some(c => colorFilters.has(c));
       const matchesSupertype = supertypeFilter === '' ? true : item.supertype === supertypeFilter;
       const matchesCmc = cmcFilter === '' ? true : String(item.cmc) === cmcFilter;
 
@@ -260,8 +348,9 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       const matchesMaxPrice = maxPriceFilter === '' ? true : price <= parseFloat(maxPriceFilter);
 
       return matchesSearch && matchesLocation && matchesRarity && matchesCondition &&
-             matchesPrinting && matchesSet && matchesType && matchesSupertype &&
-             matchesCmc && matchesFavorite && matchesMinPrice && matchesMaxPrice;
+             matchesPrinting && matchesSet && matchesType && matchesColor &&
+             matchesSupertype && matchesCmc && matchesFavorite &&
+             matchesMinPrice && matchesMaxPrice;
     });
 
     if (sortBy === 'qty-desc') {
@@ -270,7 +359,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
       sortCardsByOrder(result, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest'], undefined, setsList);
     }
     return result;
-  }, [collection, searchFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilter, typeFilter, supertypeFilter, cmcFilter, favoriteOnly, minPriceFilter, maxPriceFilter, sortBy, setsList]);
+  }, [collection, searchFilter, locationFilter, rarityFilter, conditionFilter, printingFilter, setFilters, typeFilters, colorFilters, supertypeFilter, cmcFilter, favoriteOnly, minPriceFilter, maxPriceFilter, sortBy, setsList]);
 
   // Group duplicate cards if stack option is active
   const processedCollection = useMemo(() => {
@@ -332,6 +421,68 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
             <MousePointerClick size={14} />
             {t(selectMode ? 'bulk.done' : 'collection.select')}
           </button>
+
+          {/* ADD MENU. Three ways cards get into a collection; a single "+"
+              rather than three buttons competing for the header. */}
+          <div style={{ position: 'relative' }}>
+            <button
+              className={`btn ${addMenuOpen ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setAddMenuOpen(o => !o)}
+              aria-expanded={addMenuOpen}
+              aria-haspopup="menu"
+              title={t('collection.addCards')}
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', minHeight: 34 }}
+            >
+              <Plus size={16} />
+            </button>
+
+            {addMenuOpen && (
+              <>
+                {/* Full-screen catcher so a tap anywhere closes the menu. On a
+                    phone there is no Escape key and no click-outside for free. */}
+                <div
+                  onClick={() => setAddMenuOpen(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 90 }}
+                />
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 91,
+                    minWidth: 210, background: 'var(--surface-2)',
+                    border: '1px solid var(--border-glass)',
+                    borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                    boxShadow: 'var(--shadow-glow)',
+                  }}
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => { setAddMenuOpen(false); onNavigate && onNavigate('add-cards'); }}
+                    style={ADD_MENU_ITEM}
+                  >
+                    <Camera size={16} />
+                    <span>{t('collection.addScan')}</span>
+                  </button>
+                  <button
+                    role="menuitem"
+                    disabled
+                    title={t('collection.addImportSoon')}
+                    style={{ ...ADD_MENU_ITEM, opacity: 0.5, cursor: 'not-allowed' }}
+                  >
+                    <Download size={16} />
+                    <span>{t('collection.addImport')}</span>
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setAddMenuOpen(false); setShowFilters(true); }}
+                    style={{ ...ADD_MENU_ITEM, borderBottom: 0 }}
+                  >
+                    <Search size={16} />
+                    <span>{t('collection.addSearch')}</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* View Toggle */}
           <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
@@ -438,10 +589,11 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
               </Field>
 
               <Field label={t('collection.fSet')}>
-                <select className="select-control" value={setFilter} onChange={(e) => setSetFilter(e.target.value)}>
-                  <option value="">{t('collection.allSets')}</option>
-                  {uniqueSets.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <ChipRow
+                  options={uniqueSets}
+                  selected={setFilters}
+                  onToggle={(v) => setSetFilters(toggleIn(setFilters, v))}
+                />
               </Field>
 
               <Field label={t('collection.fSupertype')}>
@@ -451,11 +603,41 @@ function CollectionList({ statsTrigger, onUpdate, showToast, selectedCardFilter,
                 </select>
               </Field>
 
+              {/* COLOUR IDENTITY as WUBRG pips, not a dropdown. Players read
+                  colour as pips, and five fit where one dropdown would go.
+                  Multi-select with ANY-OF semantics: tapping B and G shows
+                  black, green AND Golgari cards, which is what two taps mean. */}
+              <Field label={t('collection.fColor')}>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  {MTG_COLORS.map(({ code, label, token }) => {
+                    const on = colorFilters.has(label);
+                    return (
+                      <button
+                        key={code} type="button" aria-pressed={on}
+                        title={label} aria-label={label}
+                        onClick={() => setColorFilters(toggleIn(colorFilters, label))}
+                        style={{
+                          width: 34, height: 34, minHeight: 34, borderRadius: '50%',
+                          border: on ? '2px solid var(--text-primary)' : '2px solid var(--surface-2)',
+                          background: on ? token : 'var(--surface-1)',
+                          color: on ? '#1a1a1a' : 'var(--text-muted)',
+                          fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer',
+                          padding: 0, transition: 'var(--transition-smooth)',
+                        }}
+                      >
+                        {code}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+
               <Field label={t('collection.fType')}>
-                <select className="select-control" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-                  <option value="">{t('collection.allTypes')}</option>
-                  {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <ChipRow
+                  options={uniqueTypes}
+                  selected={typeFilters}
+                  onToggle={(v) => setTypeFilters(toggleIn(typeFilters, v))}
+                />
               </Field>
 
               <Field label={t('collection.fRarity')}>
