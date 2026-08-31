@@ -151,9 +151,27 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsTrigger]);
 
-  const uniqueTypes = useMemo(
-    () => Array.from(new Set(collection.flatMap(c => c.types || []).filter(Boolean))).sort(),
-    [collection]);
+  // The card types in this collection, read from type_line.
+  //
+  // NOT from `types` -- that column holds COLOURS in this database, so using it
+  // made the Types sheet a second colour picker. Everything before the em dash
+  // in a type_line is the card type(s) plus supertypes ("Legendary Creature");
+  // everything after is subtypes ("Goblin Berserker"), which would flood a
+  // filter list with hundreds of entries.
+  const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
+                      'Land', 'Planeswalker', 'Sorcery'];
+
+  const cardTypesOf = (card) => {
+    const line = (card.type_line || '').split('—')[0];
+    return CARD_TYPES.filter(ty => line.includes(ty));
+  };
+
+  const uniqueTypes = useMemo(() => {
+    const found = new Set();
+    for (const c of collection) for (const ty of cardTypesOf(c)) found.add(ty);
+    return CARD_TYPES.filter(ty => found.has(ty));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collection]);
 
   const uniqueSets = useMemo(
     () => Array.from(new Set(collection.map(c => c.set_name).filter(Boolean))).sort(),
@@ -162,10 +180,10 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   const shown = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
     const out = collection.filter(item => {
-      const matchesSearch = !q
-        || item.name.toLowerCase().includes(q)
-        || (item.set_name || '').toLowerCase().includes(q)
-        || (item.number || '').includes(searchFilter.trim());
+      // NAME ONLY. Set has its own filter, and matching set names here meant
+      // typing a set returned every card in it -- drowning the card actually
+      // being looked for.
+      const matchesSearch = !q || item.name.toLowerCase().includes(q);
 
       // ANY-OF for every multi-select. Tapping B and G shows black cards, green
       // cards AND Golgari cards -- what a player means by two taps. ALL-OF
@@ -177,15 +195,34 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
       const identity = item.color_identity || [];
       const matchesColor = colorFilters.size === 0
         || [...colorFilters].every(c => identity.includes(c));
+      // ANY-OF for types: a Creature-Enchantment appears under both, and
+      // selecting Creature + Land shows all creatures and all lands. Unlike
+      // colours, "at least both types" is a question nobody asks.
       const matchesType = typeFilters.size === 0
-        || (item.types || []).some(ty => typeFilters.has(ty));
+        || cardTypesOf(item).some(ty => typeFilters.has(ty));
       const matchesSet = setFilters.size === 0 || setFilters.has(item.set_name);
 
       return matchesSearch && matchesColor && matchesType && matchesSet;
     });
 
-    sortCardsByOrder(out, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest']);
-    return out;
+    // Collapse identical copies into one tile. Key on what makes a copy
+    // genuinely different -- exact printing, condition, finish -- so a foil or
+    // a played copy stays separate rather than being silently merged into a
+    // count that misreports what he owns.
+    const groups = new Map();
+    for (const card of out) {
+      const key = [card.card_id, card.condition || '', card.printing || ''].join('|');
+      const seen = groups.get(key);
+      if (seen) {
+        seen.quantity = (seen.quantity || 1) + (card.quantity || 1);
+      } else {
+        groups.set(key, { ...card, quantity: card.quantity || 1 });
+      }
+    }
+    const grouped = [...groups.values()];
+
+    sortCardsByOrder(grouped, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest']);
+    return grouped;
   }, [collection, searchFilter, colorFilters, typeFilters, setFilters, sortBy]);
 
   const totalValue = useMemo(
@@ -238,25 +275,17 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
                   <button role="menuitem" style={MENU_ITEM}
                           onClick={() => { setAddMenuOpen(false); onNavigate && onNavigate('add-cards'); }}>
                     <Camera size={18} />
-                    <span>{t('collection.addScan')}<small style={MENU_SUB}>{t('collection.addScanSub')}</small></span>
+                    <span>{t('collection.addCardsAction')}<small style={MENU_SUB}>{t('collection.addCardsActionSub')}</small></span>
                   </button>
                   {/* Import is SHOWN but disabled until Feature 3. A control
                       that materialises later is a surprise; a disabled one that
                       says when it is coming is an answer. */}
                   <button role="menuitem" disabled title={t('collection.addImportSoon')}
-                          style={{ ...MENU_ITEM, opacity: 0.45, cursor: 'not-allowed' }}>
+                          style={{ ...MENU_ITEM, borderBottom: 0, opacity: 0.45, cursor: 'not-allowed' }}>
                     <Download size={18} />
                     <span>{t('collection.addImport')}<small style={MENU_SUB}>{t('collection.addImportSub')}</small></span>
                   </button>
-                  {/* Focuses the search box on THIS screen rather than
-                      navigating to the scanner. It previously reused the
-                      'add-cards' route, which opens the camera -- a dead end
-                      for someone who wants to type a name. */}
-                  <button role="menuitem" style={{ ...MENU_ITEM, borderBottom: 0 }}
-                          onClick={() => { setAddMenuOpen(false); searchRef.current?.focus(); }}>
-                    <Search size={18} />
-                    <span>{t('collection.addSearch')}<small style={MENU_SUB}>{t('collection.addSearchSub')}</small></span>
-                  </button>
+                  
                 </div>
               </>
             )}

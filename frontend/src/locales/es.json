@@ -1070,5 +1070,20 @@
   "deck.exportBuylist": "Export combined buylist",
   "deck.buylistCopyFailed": "Could not copy the buylist",
   "collection.types": "Types",
-  "collection.sets": "Sets"
+  "collection.sets": "Sets",
+  "deck.decks": "Decks",
+  "deck.buylistNothingNeeded": "You already own everything in these decks",
+  "collection.addCardsAction": "Add cards",
+  "collection.addCardsActionSub": "Scan with the camera or search by name",
+  "deck.bracket": "Bracket",
+  "deck.commander": "Commander",
+  "deck.commanderSearch": "Search for a commander",
+  "deck.createFailed": "Could not create the deck",
+  "deck.pickCommanderFirst": "Choose a commander first",
+  "deck.untitled": "Untitled deck",
+  "deck.fmtCommander": "100 cards, singleton, one commander",
+  "deck.fmtBrawl": "60 cards, singleton, one commander",
+  "deck.fmtSixty": "60 cards minimum, plus a 15-card sideboard",
+  "deck.fmtLimited": "40 cards minimum",
+  "deck.fmtCasual": "No size rules"
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, CheckCircle, AlertTriangle, Gamepad2, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, CheckCircle, AlertTriangle, Gamepad2, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
 
@@ -11,6 +11,7 @@ import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, fi
 import CardTile, { FinishBadge } from './CardTile';
 import MissingCardsPanel from './MissingCardsPanel';
 import DeckList from './DeckList';
+import NewDeckModal from './NewDeckModal';
 
 // Basic lands are exempt from the four-copy deck rule.
 const isBasicEnergyOrLand = (card) => {
@@ -122,29 +123,8 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
 
   // Deck Creation States & Constants
 
-  const MTG_FORMATS = ['Commander / EDH', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper'];
-  const DECK_CATEGORIES = ['Competitive', 'Casual', 'Tournament', 'Theorycraft', 'Proxy', 'Trade'];
-  const DECK_ACCENT_COLORS = [
-    { name: 'Gold', hex: '#eab308' },
-    { name: 'Red', hex: '#ef4444' },
-    { name: 'Blue', hex: '#3b82f6' },
-    { name: 'Green', hex: '#10b981' },
-    { name: 'Purple', hex: '#a855f7' },
-    { name: 'Slate', hex: '#64748b' },
-    { name: 'Pink', hex: '#ec4899' },
-    { name: 'Orange', hex: '#f97316' },
-  ];
 
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newDeckName, setNewDeckName] = useState('');
-  const [newDeckDesc, setNewDeckDesc] = useState('');
-
-  const [newDeckFormat, setNewDeckFormat] = useState('Commander / EDH');
-  const [newDeckCategory, setNewDeckCategory] = useState('Competitive');
-  const [newDeckAccentColor, setNewDeckAccentColor] = useState('#eab308');
-  const [newDeckTargetSize, setNewDeckTargetSize] = useState(100);
-  const [newDeckImportText, setNewDeckImportText] = useState('');
-  const [showImportDecklistArea, setShowImportDecklistArea] = useState(false);
 
   // COMMANDER SELECTION, for the Commander format only.
   //
@@ -158,7 +138,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // Two slots rather than one is not future-proofing: partner pairs and
   // Backgrounds are ordinary, and The Prismatic Piper is never a legal solo
   // commander, so a single slot would have been wrong on day one.
-  const [newDeckCommanders, setNewDeckCommanders] = useState([]);
   const [commanderQuery, setCommanderQuery] = useState('');
   const [commanderResults, setCommanderResults] = useState([]);
   const [commanderSearching, setCommanderSearching] = useState(false);
@@ -206,8 +185,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // Whether the deck being created is a Commander deck. Every commander
   // control on the modal is gated on this, so other formats show no extra
   // field, run no extra validation, and look exactly as they did.
-  const isCommanderFormat = (format) => /commander|edh/i.test(String(format || ''));
-  const newDeckIsCommander = isCommanderFormat(newDeckFormat);
 
   // Swap the commander of an EXISTING deck. Held here so the deck view can
   // open the same search panel the create modal uses rather than growing a
@@ -436,166 +413,16 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
     };
   };
 
-  const addCommanderChoice = (card) => {
-    // Changing the commanders INVALIDATES any refusal on screen. Without this
-    // the user could read a refusal about one pair, swap a card, and then
-    // "override" a complaint that no longer describes what they have chosen --
-    // and the recorded reason would name the wrong mechanic, poisoning the
-    // very feedback loop the reason exists to feed.
-    setCommanderRefusal(null);
-    setCommanderOverrideReason('');
-    const choice = commanderChoiceFromCard(card);
-    setNewDeckCommanders(prev => {
-      if (prev.length >= 2) return prev;
-      // The same card twice is not a partner pair. Refused here as well as on
-      // the server, so the user finds out at the moment they click rather than
-      // when the create fails.
-      if (prev.some(c => c.desired_card_id === choice.desired_card_id
-        && c.desired_finish === choice.desired_finish)) return prev;
-      return [...prev, choice];
-    });
-    setCommanderQuery('');
-    setCommanderResults([]);
-  };
 
-  const removeCommanderChoice = (index) => {
-    // Same reason as addCommanderChoice: a refusal describes a specific pair,
-    // so changing the pair must retire it.
-    setCommanderRefusal(null);
-    setCommanderOverrideReason('');
-    setNewDeckCommanders(prev => prev.filter((_, i) => i !== index));
-  };
 
   // Reset every field the create modal owns. One function rather than a list
   // of setters repeated at each exit, because a field forgotten in one of
   // those lists leaks into the next deck the user creates.
-  const resetCreateForm = () => {
-    setNewDeckName('');
-    setNewDeckDesc('');
-    setNewDeckFormat('Commander / EDH');
-    setNewDeckCategory('Competitive');
-    setNewDeckAccentColor('#eab308');
-    setNewDeckTargetSize(100);
-    setNewDeckImportText('');
-    setShowImportDecklistArea(false);
-    setNewDeckCommanders([]);
-    setCommanderQuery('');
-    setCommanderResults([]);
-    setCommanderRefusal(null);
-    setCommanderOverrideReason('');
-  };
 
   // `override` is passed ONLY when the user has explicitly confirmed a refusal
   // and typed a reason. It is a parameter rather than component state read at
   // send time so there is no path where a stale confirmation from an earlier
   // attempt silently applies to a different pair of commanders.
-  const handleCreateDeck = async (e, override = null) => {
-    e.preventDefault();
-    if (!newDeckName.trim()) return;
-
-    // A Commander deck without a commander is refused here as well as on the
-    // server. The client check exists so the user is told before the round
-    // trip; the server check exists because the client is not the authority.
-    if (newDeckIsCommander && newDeckCommanders.length === 0) {
-      showToast(t('deck.commanderRequired'));
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/decks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          name: newDeckName, 
-          description: newDeckDesc,
-          format: newDeckFormat,
-          category: newDeckCategory,
-          accent_color: newDeckAccentColor,
-          target_size: newDeckTargetSize,
-          // Sent only for Commander. Other formats post exactly the body they
-          // posted before this change.
-          ...(newDeckIsCommander ? {
-            commanders: newDeckCommanders.map(c => ({
-              desired_card_id: c.desired_card_id,
-              desired_finish: c.desired_finish
-            })),
-            // Present ONLY on an explicitly confirmed retry. Its absence is
-            // what makes the server refuse, which is the point: there must be
-            // no request shape where the override happens by default.
-            ...(override ? { commander_override: override } : {})
-          } : {})
-        })
-      });
-
-      if (response.ok) {
-        const created = await response.json().catch(() => ({}));
-        showToast(t('deck.created'));
-
-        // Quick import runs AFTER the deck exists, through the server's import
-        // endpoint. It allocates from printings the user actually owns and has
-        // free, and honours any printing a line explicitly names, so an
-        // ordinary decklist paste just works.
-        //
-        // What it CANNOT do here is ask. There is no preview on the create
-        // modal, so lines the app has no basis to decide (bare name, nothing
-        // owned) are left out of the deck rather than pinned to a guess, and
-        // the user is told how many so they can finish them from the deck's own
-        // Import screen where the picker lives. Leaving a card out is visible
-        // and recoverable; putting in the wrong physical card is neither.
-        if (newDeckImportText.trim() && created.id) {
-          const result = await postImport(created.id, newDeckImportText, { apply: true });
-          if (result) {
-            // Same rule as the deck Import screen: report COPIES, using the
-            // server's own accounting, so the message cannot overstate what
-            // reached the deck. Counting lines here previously called a line
-            // that allocated nothing a success.
-            const summary = result.summary || {};
-            if (summary.written_copies > 0) {
-              showToast(t('deck.importedCopies', { count: summary.written_copies }));
-            }
-            if (summary.unresolved_copies > 0) {
-              showToast(t('deck.importUnresolvedCopies', { count: summary.unresolved_copies }));
-            }
-          }
-        }
-
-        setShowCreateModal(false);
-        resetCreateForm();
-        fetchDecks();
-      } else {
-        // The server states WHY a create was refused (no commander, too many,
-        // a duplicated partner). Showing its message rather than a generic
-        // failure is the difference between the user fixing it and the user
-        // clicking the same button again.
-        const data = await response.json().catch(() => ({}));
-
-        // A refusal the server marks OVERRIDABLE is held on the form rather
-        // than thrown away in a toast, so the user can read what was refused
-        // and decide. A toast would vanish before they could act on it, and
-        // acting on it is the entire point.
-        //
-        // Only `overridable` refusals get this treatment. Singleton and the
-        // other fixed rules do NOT set it, so they fall through to the plain
-        // toast and stay un-overridable -- the app cannot be wrong about them,
-        // so there is nothing for the user to confirm.
-        if (data.overridable) {
-          setCommanderRefusal(data);
-          // The reason box starts EMPTY on every new refusal. Carrying a
-          // previous reason forward would be the app pre-filling the user's
-          // justification, which is exactly the "pre-ticked checkbox" the
-          // spec rules out.
-          setCommanderOverrideReason('');
-          return;
-        }
-
-        setCommanderRefusal(null);
-        showToast(data.error || t('deck.errCreate'));
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errCreateGeneric'));
-    }
-  };
 
   // Send parsed decklist lines to the server's import endpoint.
   //
@@ -2967,348 +2794,35 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
       {/* --- POPUPS & MODALS --- */}
 
       {/* A. Create Deck Modal */}
-      {showCreateModal && (
-        <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
-          <div className="glass-panel" style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overscrollBehavior: 'contain', padding: '1.75rem', position: 'relative', border: '1px solid rgba(255,255,255,0.15)' }}>
-            <button className="btn btn-secondary btn-icon-only" onClick={() => setShowCreateModal(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', borderRadius: '50%' }}>
-              <X size={16} />
-            </button>
+      {/* NEW DECK -- its own component now, built against the approved mockup
+          (sketches/005-new-deck). Zach: "the add new deck modal is completely
+          wrong why didn't we follow the mock for that??"
 
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--text-strong)', fontWeight: 800, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <FolderPlus size={20} style={{ color: 'var(--accent-yellow)' }} />
-              {t('deck.createTitle')}
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-              {t('deck.createSubtitle')}
-            </p>
+          He was right: I rebuilt the deck LIST and left this untouched, so
+          tapping "New deck" dropped out of the new design into the old one.
 
-            <form onSubmit={handleCreateDeck} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', maxHeight: '80vh', overflowY: 'auto', paddingRight: '0.25rem' }}>
-              
-              {/* Format & Target Size Row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group">
-                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.3rem', display: 'block' }}>{t('deck.format')}</label>
-                  <select
-                    className="input-control"
-                    value={newDeckFormat}
-                    onChange={(e) => {
-                      const selectedFmt = e.target.value;
-                      setNewDeckFormat(selectedFmt);
-                      if (selectedFmt.includes('Commander')) setNewDeckTargetSize(100);
-                      else if (selectedFmt.includes('Standard') || selectedFmt.includes('Modern') || selectedFmt.includes('Pioneer')) setNewDeckTargetSize(60);
-                    }}
-                    style={{ fontSize: '0.85rem' }}
-                  >
-                    {MTG_FORMATS.map(fmt => (
-                      <option key={fmt} value={fmt} style={{ background: '#1e293b', color: '#fff' }}>{fmt}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.3rem', display: 'block' }}>{t('deck.targetSize')}</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="300"
-                    className="input-control"
-                    value={newDeckTargetSize}
-                    onChange={(e) => setNewDeckTargetSize(parseInt(e.target.value, 10) || 60)}
-                    style={{ fontSize: '0.85rem' }}
-                  />
-                </div>
-              </div>
-
-              {/* Deck Name */}
-              <div className="form-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.3rem', display: 'block' }}>{t('deck.deckName')}</label>
-                <input 
-                  type="text" 
-                  className="input-control" 
-                  placeholder={t('deck.namePlaceholder')} 
-                  value={newDeckName} 
-                  onChange={(e) => setNewDeckName(e.target.value)}
-                  required 
-                  autoFocus
-                />
-              </div>
-
-              {/* COMMANDER SELECTION.
-                  Rendered ONLY for the Commander format. Every other format
-                  sees this modal exactly as it was: no field, no validation,
-                  no layout change.
-
-                  One or two slots. A single slot would be wrong on day one --
-                  partner pairs and Backgrounds are ordinary, and The Prismatic
-                  Piper is never a legal commander by itself. */}
-              {newDeckIsCommander && (
-                <div className="form-group">
-                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.3rem', display: 'block' }}>
-                    {t('deck.commanderLabel')} <span style={{ color: 'var(--accent-red)' }}>*</span>
-                  </label>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.4rem' }}>
-                    {t('deck.commanderHint')}
-                  </span>
-
-                  {/* The chosen commanders. Each shows its exact printing,
-                      because that is its identity -- the same thing every
-                      other card in the deck shows. */}
-                  {newDeckCommanders.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '0.5rem' }}>
-                      {newDeckCommanders.map((commander, index) => (
-                        <div key={`${commander.desired_card_id}-${commander.desired_finish}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.3rem 0.5rem', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 'var(--radius-sm)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-                            <img src={commander.image_url} alt={commander.name} style={{ width: '24px', height: '33px', objectFit: 'cover', borderRadius: '2px' }} />
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-strong)' }}>{commander.name}</div>
-                              <div style={{ fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
-                                {commander.set_name} • #{commander.number} · {finishLabel(commander.desired_finish)}
-                              </div>
-                            </div>
-                          </div>
-                          <button type="button" className="btn btn-secondary btn-icon-only" style={{ padding: '0.2rem' }} onClick={() => removeCommanderChoice(index)} title={t('deck.commanderRemove')}>
-                            <X size={11} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* The search. Hidden once two commanders are chosen, since
-                      there is nothing left to fill. */}
-                  {newDeckCommanders.length < 2 && (
-                    <>
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        <input
-                          type="text"
-                          className="input-control"
-                          placeholder={t('deck.commanderSearchPlaceholder')}
-                          value={commanderQuery}
-                          onChange={(e) => setCommanderQuery(e.target.value)}
-                          // Enter must not submit the create form while the
-                          // user is searching for a commander -- it would
-                          // create the deck with whatever is chosen so far.
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              searchCommanders(commanderQuery);
-                            }
-                          }}
-                          style={{ flex: 1, fontSize: '0.85rem' }}
-                        />
-                        <button type="button" className="btn btn-secondary" onClick={() => searchCommanders(commanderQuery)} style={{ padding: '0.5rem 0.8rem' }}>
-                          <Search size={14} />
-                        </button>
-                      </div>
-
-                      {commanderSearching ? (
-                        <div className="spinner" style={{ margin: '0.6rem auto' }}></div>
-                      ) : commanderResults.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.5rem', maxHeight: '160px', overflowY: 'auto', background: 'var(--surface-2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.4rem' }}>
-                          {commanderResults.map(card => (
-                            <button
-                              key={card.id}
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() => addCommanderChoice(card)}
-                              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0.4rem', fontSize: '0.72rem', textAlign: 'left' }}
-                            >
-                              <img src={card.image_url} alt={card.name} style={{ width: '20px', height: '28px', objectFit: 'cover', borderRadius: '2px' }} />
-                              <span style={{ color: 'var(--text-strong)' }}>
-                                {card.name} <span style={{ color: 'var(--text-secondary)' }}>({card.set_name} • #{card.number})</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {/* THE REFUSAL AND ITS OVERRIDE.
-                      Rendered INSIDE the existing commander field, not as a
-                      new screen or a separate modal -- it is about the
-                      commanders chosen just above it, and it belongs next to
-                      them.
-
-                      It appears only after the server has actually refused.
-                      There is no pre-armed checkbox and no default path
-                      through: the user must read the refusal, type a reason,
-                      and press a button that is disabled until they do.
-                      Silence is not consent. */}
-                  {commanderRefusal && (
-                    <div style={{ marginTop: '0.6rem', padding: '0.6rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
-                        <AlertTriangle size={14} style={{ color: 'var(--accent-red)', flexShrink: 0, marginTop: '1px' }} />
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-strong)', fontWeight: 600, lineHeight: 1.35 }}>
-                          {commanderRefusal.error}
-                        </div>
-                      </div>
-
-                      {/* Why an override exists at all, said plainly. The user
-                          needs to know this is "the app might not know that
-                          mechanic yet", not "the rules are optional". */}
-                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                        {t('deck.commanderOverrideHint')}
-                      </div>
-
-                      <input
-                        type="text"
-                        className="input-control"
-                        placeholder={t('deck.commanderOverrideReasonPlaceholder')}
-                        value={commanderOverrideReason}
-                        onChange={(e) => setCommanderOverrideReason(e.target.value)}
-                        // Enter must not submit the form from inside the
-                        // reason box: that would let a stray keypress perform
-                        // the override, which is the opposite of an explicit
-                        // confirmation.
-                        onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
-                        style={{ fontSize: '0.78rem' }}
-                      />
-
-                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          // DISABLED until a reason is typed. The reason is
-                          // what turns a bypass into a bug report the parser
-                          // can be improved from, so an override without one
-                          // is not an override -- and the server rejects it
-                          // too, because the client is not the authority.
-                          disabled={!commanderOverrideReason.trim()}
-                          onClick={(e) => handleCreateDeck(e, { reason: commanderOverrideReason.trim() })}
-                          style={{ fontSize: '0.72rem', padding: '0.35rem 0.7rem', opacity: commanderOverrideReason.trim() ? 1 : 0.5 }}
-                        >
-                          {t('deck.commanderOverrideConfirm')}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          onClick={() => { setCommanderRefusal(null); setCommanderOverrideReason(''); }}
-                          style={{ fontSize: '0.72rem', padding: '0.35rem 0.7rem' }}
-                        >
-                          {t('deck.commanderOverrideCancel')}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Category Pills */}
-              <div className="form-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.category')}</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                  {DECK_CATEGORIES.map(cat => {
-                    const isSelected = newDeckCategory === cat;
-                    return (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setNewDeckCategory(cat)}
-                        style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                          padding: '0.3rem 0.65rem',
-                          borderRadius: '12px',
-                          border: isSelected ? '1px solid var(--accent-yellow)' : '1px solid var(--border-glass)',
-                          background: isSelected ? 'rgba(234, 179, 8, 0.2)' : 'rgba(0,0,0,0.2)',
-                          color: isSelected ? 'var(--accent-yellow)' : 'var(--text-secondary)',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s'
-                        }}
-                      >
-                        {cat}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Deck Accent Color */}
-              <div className="form-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.4rem', display: 'block' }}>{t('deck.accentColor')}</label>
-                <div style={{ display: 'flex', itemsAlign: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {DECK_ACCENT_COLORS.map(c => {
-                    const isSelected = newDeckAccentColor === c.hex;
-                    return (
-                      <div
-                        key={c.hex}
-                        onClick={() => setNewDeckAccentColor(c.hex)}
-                        title={c.name}
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '50%',
-                          backgroundColor: c.hex,
-                          cursor: 'pointer',
-                          border: isSelected ? '2px solid #ffffff' : '2px solid transparent',
-                          boxShadow: isSelected ? `0 0 10px ${c.hex}` : 'none',
-                          transform: isSelected ? 'scale(1.15)' : 'scale(1)',
-                          transition: 'all 0.15s'
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Description (Optional) */}
-              <div className="form-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-strong)', marginBottom: '0.3rem', display: 'block' }}>Description (Optional)</label>
-                <textarea
-                  className="input-control"
-                  style={{ minHeight: '65px', resize: 'vertical', fontSize: '0.85rem' }}
-                  placeholder={t('deck.notesPlaceholder')}
-                  value={newDeckDesc}
-                  onChange={(e) => setNewDeckDesc(e.target.value)}
-                />
-              </div>
-
-              {/* Quick Decklist Importer Toggle */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowImportDecklistArea(!showImportDecklistArea)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--accent-yellow)',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: 0
-                  }}
-                >
-                  <FileText size={14} />
-                  {showImportDecklistArea ? 'Hide Quick Import Decklist' : '+ Quick Import Decklist (Optional)'}
-                </button>
-
-                {showImportDecklistArea && (
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <textarea
-                      className="input-control"
-                      style={{ minHeight: '90px', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre' }}
-                      placeholder={`Paste decklist (e.g. \n4 Lightning Bolt\n2 Counterspell\n1 Sol Ring)`}
-                      value={newDeckImportText}
-                      onChange={(e) => setNewDeckImportText(e.target.value)}
-                    />
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.2rem' }}>
-                      {t('deck.importOnCreateHint')}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowCreateModal(false)}>{t('common.cancel')}</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 2, fontWeight: 700 }}>{t('deck.createDeck')}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+          FORMAT COMES FIRST because it decides whether the commander question
+          exists at all. Commander and Bracket are HIDDEN for formats that do
+          not have them, not greyed -- a disabled field still makes you stop and
+          work out why it is there. */}
+      <NewDeckModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        showToast={showToast}
+        onCreate={async (payload) => {
+          const res = await fetch('/api/decks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const body = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(body?.error || t('deck.createFailed'));
+          setShowCreateModal(false);
+          showToast(t('deck.created'), 'success');
+          await fetchDecks();
+          if (body?.id) loadDeckDetails(body.id);
+        }}
+      />
 
       {/* B. Draw Hand Simulator Modal */}
       {showSimulator && (

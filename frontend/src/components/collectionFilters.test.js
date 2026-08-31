@@ -118,3 +118,80 @@ test('COLF-TC6: the component still uses AT-LEAST colour matching', () => {
   assert.ok(!/value=\{setFilter\}|value=\{typeFilter\}/.test(src),
     'the single-value dropdowns must be gone, not merely bypassed');
 });
+
+// --- GROUPING ------------------------------------------------------------
+//
+// Zach: "why are the cards not grouped. Like I have 2 avatar aangs but they
+// separate makes no sense."
+//
+// Measured on his dev data: Avatar Aang was FIVE collection rows, all Near
+// Mint, all Normal printing. The scanner writes a row per scan, so a stack of
+// five identical cards became five tiles.
+//
+// The risk in grouping is the opposite error: merging copies that are NOT the
+// same object. A foil is worth several times a non-foil; a Played copy is worth
+// less than a Near Mint one. Collapsing those into one count would misreport
+// what he owns, which is the "wrong record" failure that matters most here.
+
+// Mirrors the grouping key in CollectionList.jsx.
+const groupKey = (c) => [c.card_id, c.condition || '', c.printing || ''].join('|');
+
+function group(rows) {
+  const out = new Map();
+  for (const c of rows) {
+    const k = groupKey(c);
+    const seen = out.get(k);
+    if (seen) seen.quantity += (c.quantity || 1);
+    else out.set(k, { ...c, quantity: c.quantity || 1 });
+  }
+  return [...out.values()];
+}
+
+test('GRP-TC1: identical copies collapse into one tile with a count', () => {
+  const rows = [
+    { card_id: 'aang', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'aang', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'aang', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+  ];
+  const out = group(rows);
+  assert.equal(out.length, 1, 'three identical rows are one card');
+  assert.equal(out[0].quantity, 3, 'the count must be preserved, not lost');
+});
+
+test('GRP-TC2: a FOIL copy is NOT merged with a non-foil', () => {
+  // The load-bearing case. A foil Avatar Aang is a different object worth a
+  // different amount; merging it into "x2 Avatar Aang" would misreport the
+  // collection and its value.
+  const rows = [
+    { card_id: 'aang', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'aang', condition: 'Near Mint', printing: 'Foil', quantity: 1 },
+  ];
+  assert.equal(group(rows).length, 2, 'foil and non-foil stay separate');
+});
+
+test('GRP-TC3: a different CONDITION is not merged', () => {
+  const rows = [
+    { card_id: 'aang', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'aang', condition: 'Played', printing: 'Normal', quantity: 1 },
+  ];
+  assert.equal(group(rows).length, 2, 'Near Mint and Played are different copies');
+});
+
+test('GRP-TC4: different PRINTINGS of the same card stay separate', () => {
+  // Two Forests from different sets are different cards to a collector, and
+  // card_id is the exact printing.
+  const rows = [
+    { card_id: 'forest-msh', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'forest-lci', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+  ];
+  assert.equal(group(rows).length, 2);
+});
+
+test('GRP-TC5: the component still groups on printing AND condition AND finish', () => {
+  // Guards the mirror above. If the key is narrowed to card_id alone, foils and
+  // damaged copies would silently merge and these cases would keep passing
+  // against logic the app no longer runs.
+  const src = readFileSync(join(here, 'CollectionList.jsx'), 'utf8');
+  assert.match(src, /card\.card_id, card\.condition[^\n]*card\.printing/,
+    'the grouping key must include condition and printing, not just card_id');
+});

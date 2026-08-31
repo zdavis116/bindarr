@@ -111,7 +111,11 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   // rather each deck be built ready to go." The server already sums per deck;
   // this only presents that total.
   const items = buylist?.items || [];
-  const totalCost = items.reduce((sum, i) => sum + (i.price || 0) * (i.quantity || 0), 0);
+  // COUNTS ONLY. The endpoint does not return a price per line, and a
+  // fabricated total on a shopping list is worse than no total -- it sends him
+  // to a shop with a number that is not true. Pricing the buylist is a real
+  // feature; it needs the card_cache price joined server-side, not a guess
+  // here.
   const totalCopies = items.reduce((sum, i) => sum + (i.quantity || 0), 0);
 
   const exportBuylist = async () => {
@@ -133,7 +137,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
       {/* HEADER: title and the one mode switch, as in the mock. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.9rem' }}>
         <h2 style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
-          {t('nav.deckBuilder')}
+          {t('deck.decks')}
         </h2>
         <button
           onClick={() => (selecting ? exitSelect() : setSelecting(true))}
@@ -278,7 +282,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 {t('deck.decksSelected', { count: selected.size })}
               </span>
               <b style={{ fontSize: '1.15rem', letterSpacing: '-0.02em' }}>
-                {buylistLoading ? '…' : `$${totalCost.toFixed(2)}`}
+                {buylistLoading ? '…' : totalCopies}
               </b>
             </div>
             {/* States the RULE, because the number is only trustworthy if the
@@ -286,7 +290,9 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>
               {buylistLoading
                 ? t('common.loading')
-                : t('deck.oneCopyPerDeck', { count: totalCopies })}
+                : items.length
+                  ? t('deck.oneCopyPerDeck', { count: totalCopies })
+                  : t('deck.buylistNothingNeeded')}
             </div>
             <button
               onClick={exportBuylist}
