@@ -11,7 +11,7 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const AddCards = lazy(() => import('./components/AddCards'));
 const CollectionList = lazy(() => import('./components/CollectionList'));
 const LocationManager = lazy(() => import('./components/LocationManager'));
-const Settings = lazy(() => import('./components/Settings'));
+const Settings = lazy(() => import('./components/SettingsScreen'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const SharedCollection = lazy(() => import('./components/SharedCollection'));
 const DeckBuilder = lazy(() => import('./components/DeckBuilder'));
@@ -199,10 +199,6 @@ function App() {
     showToast(t('toast.loggedOut'));
   };
 
-  const handleUpdateUser = (updatedUser) => {
-    setUser(updatedUser);
-    localStorage.setItem('bindarr_user', JSON.stringify(updatedUser));
-  };
 
   const triggerRefresh = () => {
     setStatsTrigger(prev => prev + 1);
@@ -264,7 +260,7 @@ function App() {
         );
 
       case 'settings':
-        return <Settings user={user} onUpdateUser={handleUpdateUser} showToast={showToast} />;
+        return <Settings user={user} onNavigate={setActiveTab} showToast={showToast} />;
       case 'admin':
         return <AdminPanel showToast={showToast} />;
       default:

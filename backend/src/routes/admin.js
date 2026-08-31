@@ -381,4 +381,38 @@ router.get('/backups/:file/download', (req, res) => {
   res.download(full);
 });
 
+// Refresh the card catalogue on demand. Nightly is the normal path (server.js);
+// this exists for the day a set releases and Zach does not want to wait.
+// Auth and admin are applied router-wide at line 17.
+router.post('/refresh-catalogue', async (req, res) => {
+  const cardCatalogue = require('../cardCatalogue');
+
+  // The lock is the source of truth about whether one is already running --
+  // not a flag this route keeps, which could disagree with reality after a
+  // restart.
+  try {
+    const lock = await cardCatalogue.readLock();
+    if (lock && lock.startedAt) {
+      const age = Date.now() - new Date(lock.heartbeatAt || lock.startedAt).getTime();
+      if (age < cardCatalogue.LOCK_STALE_AFTER_MS) {
+        return res.status(409).json({
+          error: 'A catalogue refresh is already running.',
+          started_at: lock.startedAt,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('refresh-catalogue: could not read lock', error);
+  }
+
+  // FIRE AND FORGET. A full refresh takes minutes; holding the request open
+  // would time the browser out and report a failure while the work continued.
+  // The client polls GET /api/settings/catalogue to see the result.
+  cardCatalogue.refreshCatalogue({ lockLabel: 'manual' }).catch((err) => {
+    console.error('Manual catalogue refresh failed:', err.message);
+  });
+
+  res.status(202).json({ started: true });
+});
+
 module.exports = router;
