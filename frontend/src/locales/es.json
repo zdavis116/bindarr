@@ -1055,5 +1055,18 @@
   "collection.addScanSub": "Use the camera",
   "collection.addImportSub": "ManaBox, CSV or a pasted list",
   "collection.addSearchSub": "Add one by name",
-  "collection.noMatchesHint": "Try clearing a filter."
+  "collection.noMatchesHint": "Try clearing a filter.",
+  "common.done": "Done",
+  "deck.noDecks": "No decks yet",
+  "deck.noDecksHint": "Create one to start tracking what you own and what you still need.",
+  "deck.cardsMissing.one": "{count} card missing",
+  "deck.cardsMissing.other": "{count} cards missing",
+  "deck.readyToPlay": "Ready to play",
+  "deck.newDeck": "New deck",
+  "deck.decksSelected.one": "{count} deck selected",
+  "deck.decksSelected.other": "{count} decks selected",
+  "deck.oneCopyPerDeck.one": "{count} card to buy - one copy per deck",
+  "deck.oneCopyPerDeck.other": "{count} cards to buy - one copy per deck",
+  "deck.exportBuylist": "Export combined buylist",
+  "deck.buylistCopyFailed": "Could not copy the buylist"
 }

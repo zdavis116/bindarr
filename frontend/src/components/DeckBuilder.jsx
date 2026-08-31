@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, Filter, CheckCircle, AlertTriangle, Layers, Swords, Gamepad2, SlidersHorizontal, ArrowRight, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb, ShoppingCart } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, CheckCircle, AlertTriangle, Gamepad2, FolderPlus, FileText, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { shuffleArray } from '../utils/shuffle';
 
@@ -10,7 +10,7 @@ import { useT } from '../utils/i18n';
 import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
 import CardTile, { FinishBadge } from './CardTile';
 import MissingCardsPanel from './MissingCardsPanel';
-import { createBuylistSync } from './buylistSync';
+import DeckList from './DeckList';
 
 // Basic lands are exempt from the four-copy deck rule.
 const isBasicEnergyOrLand = (card) => {
@@ -115,10 +115,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   //
   // Held as transient screen state and NOT persisted: he explicitly asked for
   // no saved selections or presets, so a selection lives as long as the screen.
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedDeckIds, setSelectedDeckIds] = useState([]);
-  const [multiBuylist, setMultiBuylist] = useState(null);
-  const [multiBuylistLoading, setMultiBuylistLoading] = useState(false);
   
   // Deck View & Display Modes
   const [cardDisplayMode, setCardDisplayMode] = useState('list'); // 'list' | 'grid'
@@ -246,10 +242,11 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   const [resultsSource, setResultsSource] = useState(null);
 
   // Deck Selection Menu Controls
-  const [deckSearchTerm, setDeckSearchTerm] = useState('');
-  const [deckStatusFilter, setDeckStatusFilter] = useState('all'); // 'all' | 'ready' | 'in_progress' | 'in_play'
-  const [deckSortBy, setDeckSortBy] = useState('created_desc'); // 'created_desc' | 'created_asc' | 'name_asc' | 'cards_desc'
-  const [deckSelectionViewMode, setDeckSelectionViewMode] = useState('table'); // 'grid' | 'table'
+  // Kept as a constant: filteredDecks still reads it, but the control that
+  // set it lived in the replaced list section. DeckList does its own search.
+  const deckSearchTerm = '';
+  const deckStatusFilter = 'all'; // 'all' | 'ready' | 'in_progress' | 'in_play'
+  const deckSortBy = 'created-desc'; // 'created_desc' | 'created_asc' | 'name_asc' | 'cards_desc' // 'grid' | 'table'
 
   // Draw Simulator States
   const [showSimulator, setShowSimulator] = useState(false);
@@ -1485,61 +1482,13 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // updating safe — debounce, discarding stale answers, never requesting an
   // empty selection — lives in buylistSync.js, where it can be tested against
   // the actual out-of-order interleavings. See that file's header.
-  const buylistSyncRef = useRef(null);
-  if (buylistSyncRef.current === null) {
-    buylistSyncRef.current = createBuylistSync({
-      fetchBuylist: async (deckIds) => {
-        const response = await fetch('/api/decks/buylist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deck_ids: deckIds })
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(payload?.error || 'buylist failed');
-        return payload;
-      },
-      onState: ({ loading, buylist, error }) => {
-        setMultiBuylistLoading(loading);
-        setMultiBuylist(buylist);
-        if (error) showToast(error.message || t('deck.multiBuylistFailed'), 'error');
-      }
-    });
-  }
 
-  // THE SELECTION DRIVES THE LIST. Anything that changes selectedDeckIds —
-  // a checkbox, a row tap, leaving the mode — flows through here, so "the list
-  // matches the ticks" is true by construction rather than true wherever
-  // somebody remembered to call a refresh.
-  useEffect(() => {
-    if (!selectMode) return;
-    buylistSyncRef.current.select(selectedDeckIds);
-  }, [selectMode, selectedDeckIds]);
 
-  // Dropped on unmount so a late answer cannot land on a screen that is gone.
-  useEffect(() => () => buylistSyncRef.current?.dispose(), []);
 
-  const toggleDeckSelected = (deckId) => {
-    setSelectedDeckIds(current => current.includes(deckId)
-      ? current.filter(id => id !== deckId)
-      : [...current, deckId]);
-    // The list itself is dropped and refetched by the effect above; nothing to
-    // clear by hand here, which is the point — one path, not two.
-  };
-
-  const exitBuylistMode = () => {
-    setSelectMode(false);
-    setSelectedDeckIds([]);
-    buylistSyncRef.current.reset();
-  };
 
   // The multi-deck buylist as text, reusing the SAME exporter as the per-deck
   // one so the two can never describe different purchases — including the
   // bracket style, which is one piece of state shared by both (PR 7C).
-  const multiBuylistText = () => buildDeckExport(
-    (multiBuylist?.items || []).map(item => ({ ...item, quantity_missing: item.quantity })),
-    'buylist',
-    { bracketStyle: buylistBracketStyle }
-  );
 
   // The buylist as text, from the SERVER's lines.
   //
@@ -1931,626 +1880,30 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
     <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
       {/* 1. SELECTION MENU VIEW OF ALL DECKS */}
+      {/* DECK LIST -- now its own component, built against the approved
+          mockup (sketches/003-deck-list). Zach: "the deck list in the mock was
+          perfect please go to that."
+
+          Extracted rather than restyled in place. The 621 lines it replaces
+          held a grid/table toggle, a filter row, an inline create form, the
+          multi-deck selection bar and the buylist panel, all interleaved with
+          the detail view in one 4,351-line file.
+
+          The buylist LOGIC is unchanged: same /api/decks/buylist endpoint, same
+          buylistSync sequencing, same one-copy-per-deck arithmetic measured on
+          dev (two decks wanting one Sol Ring -> quantity 2).
+
+          filteredDecks and its search/sort state are kept: DeckList does its own
+          text search, but the surrounding screen still owns the deck fetch. */}
       {viewMode === 'list' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          
-          {/* Top Banner Header & Primary Action */}
-          <div className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', padding: '1.25rem 1.5rem', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.8))', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            <div>
-              <h2 style={{ fontSize: '1.4rem', color: 'var(--text-strong)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                <Layers size={22} style={{ color: 'var(--accent-yellow)' }} />
-                {t('deck.vaultTitle')}
-              </h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                {t('deck.vaultSubtitle')}
-              </p>
-            </div>
-            <button 
-              className="btn btn-primary" 
-              onClick={() => setShowCreateModal(true)}
-              style={{ padding: '0.6rem 1.25rem', fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 14px rgba(234, 179, 8, 0.25)' }}
-            >
-              <Plus size={18} /> {t('deck.createDeck')}
-            </button>
-          </div>
-
-          {/* Search, Filters, Sorting & View Toolbar */}
-          <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1rem 1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-              
-              {/* Search input */}
-              <div style={{ position: 'relative', flex: '1 1 240px', minWidth: '220px' }}>
-                <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input
-                  type="text"
-                  className="input-control"
-                  placeholder={t('deck.filterPlaceholder')}
-                  value={deckSearchTerm}
-                  onChange={e => setDeckSearchTerm(e.target.value)}
-                  style={{ paddingLeft: '2.25rem', width: '100%', fontSize: '0.85rem' }}
-                />
-                {deckSearchTerm && (
-                  <button
-                    className="btn btn-secondary btn-icon-only"
-                    onClick={() => setDeckSearchTerm('')}
-                    style={{ position: 'absolute', right: '0.4rem', top: '50%', transform: 'translateY(-50%)', width: '20px', height: '20px', padding: 0, fontSize: '0.7rem' }}
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-glass)' }}>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                {/* Status Filter */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Filter size={14} style={{ color: 'var(--text-muted)' }} />
-                  <select
-                    className="select-control"
-                    value={deckStatusFilter}
-                    onChange={e => setDeckStatusFilter(e.target.value)}
-                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', height: 'auto' }}
-                  >
-                    <option value="all">{t('deck.allStatuses')}</option>
-                    <option value="ready">Battle Ready (60 Cards)</option>
-                    <option value="in_progress">Building (&lt; 60 Cards)</option>
-                    <option value="in_play">Currently In Play 🎮</option>
-                  </select>
-                </div>
-
-                {/* Sort Order */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <SlidersHorizontal size={14} style={{ color: 'var(--text-muted)' }} />
-                  <select
-                    className="select-control"
-                    value={deckSortBy}
-                    onChange={e => setDeckSortBy(e.target.value)}
-                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', height: 'auto' }}
-                  >
-                    <option value="created_desc">{t('deck.sortNewest')}</option>
-                    <option value="created_asc">{t('deck.sortOldest')}</option>
-                    <option value="name_asc">Name (A-Z)</option>
-                    <option value="cards_desc">{t('deck.sortMostCards')}</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* MULTI-DECK BUYLIST entry point. Named for the OUTCOME, not the
-                  mechanism: he opens this because he wants a shopping list, and
-                  picking decks is a step inside that, not the point of it. The
-                  previous label ("Select decks") described the first interaction
-                  and left the purpose unstated until he was already inside.
-                  Once active the same button becomes the way out, so the mode
-                  can always be left from where it was entered. */}
-              <button
-                type="button"
-                className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                onClick={() => {
-                  if (selectMode) { exitBuylistMode(); return; }
-                  setSelectMode(true);
-                }}
-                title={t('deck.multiBuylistTitle')}
-              >
-                <ShoppingCart size={13} /> {t(selectMode ? 'deck.multiBuylistCancel' : 'deck.multiBuylistSelect')}
-              </button>
-
-              {/* View Mode Toggle: Grid vs Table */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--surface-2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
-                <button
-                  type="button"
-                  className={`btn ${deckSelectionViewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={() => setDeckSelectionViewMode('grid')}
-                  title={t('deck.gridView')}
-                >
-                  <LayoutGrid size={13} /> Grid
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${deckSelectionViewMode === 'table' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={() => setDeckSelectionViewMode('table')}
-                  title={t('deck.tableView')}
-                >
-                  <List size={13} /> Table
-                </button>
-              </div>
-
-            </div>
-          </div>
-
-          {/* MULTI-DECK BUYLIST: the selection bar and its result.
-              Sits between the toolbar and the deck list, so the deck list
-              itself is untouched. Only rendered while selecting. */}
-          {selectMode && (
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1rem 1.25rem' }}>
-              {/* NO "BUILD" AND NO "CLEAR" (PR 7B).
-                  The list follows the ticks live, so a build button would ask
-                  him to confirm something he already said — the same mistake as
-                  the printing picker removed in PR 6F. And "Clear" is just
-                  unticking every deck, which now empties the list by itself.
-                  The ONLY way out is the toolbar button he entered from, so the
-                  flow has one exit rather than three competing controls. Fewer
-                  buttons is also less width on a phone. */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <ShoppingCart size={15} style={{ color: 'var(--accent-yellow)' }} />
-                    {t('deck.multiBuylistTitle')}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {t('deck.multiBuylistStepHint')}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {t('deck.multiBuylistSelected', { count: selectedDeckIds.length })}
-                  </span>
-                </div>
-              </div>
-
-              {selectedDeckIds.length === 0 && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                  {t('deck.multiBuylistEmptyHint')}
-                </p>
-              )}
-
-              {multiBuylistLoading && <div className="spinner" style={{ margin: '1rem auto' }}></div>}
-
-              {multiBuylist && !multiBuylistLoading && (
-                <MissingCardsPanel
-                  buylist={multiBuylist}
-                  loading={false}
-                  bracketStyle={buylistBracketStyle}
-                  onBracketStyleChange={setBuylistBracketStyle}
-                  onCopy={() => {
-                    navigator.clipboard.writeText(multiBuylistText());
-                    showToast(t('deck.buylistCopied'), 'success');
-                  }}
-                  onOpenMassEntry={() => {
-                    navigator.clipboard.writeText(multiBuylistText());
-                    window.open('https://www.tcgplayer.com/massentry', '_blank', 'noopener');
-                  }}
-                />
-              )}
-            </div>
-          )}
-
-          {/* Decks Display Section */}
-          {loading ? (
-            <div className="spinner" style={{ margin: '3rem auto' }}></div>
-          ) : filteredDecks.length === 0 ? (
-            <div className="glass-panel" style={{ textAlign: 'center', padding: '3.5rem 1.5rem', color: 'var(--text-secondary)' }}>
-              <Layers size={36} style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', opacity: 0.5 }} />
-              <h3 style={{ color: 'var(--text-strong)', fontSize: '1.05rem', marginBottom: '0.25rem' }}>{t('deck.noMatches')}</h3>
-              <p style={{ fontSize: '0.85rem' }}>{t('deck.noMatchesHint')}</p>
-              {(deckSearchTerm || deckStatusFilter !== 'all') && (
-                <button
-                  className="btn btn-secondary"
-                  style={{ marginTop: '1rem', fontSize: '0.8rem' }}
-                  onClick={() => { setDeckSearchTerm(''); setDeckStatusFilter('all'); }}
-                >
-                  {t('deck.clearFilters')}
-                </button>
-              )}
-            </div>
-          ) : deckSelectionViewMode === 'grid' ? (
-            /* --- GRID VIEW --- */
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
-              {filteredDecks.map(deck => {
-                const targetSize = deck.target_size || 60;
-                const totalCards = deck.total_cards || 0;
-                const isComplete = totalCards >= targetSize;
-                const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
-                // SELECTED FOR THE BUYLIST. A ticked checkbox alone is too easy
-                // to miss, and the cost of missing it is real: he shops for a
-                // deck he did not mean to include. The card itself therefore
-                // carries the state, in the app's EXISTING "active" language —
-                // the same yellow already used for In Play, the picking rows
-                // and the printing editor.
-                //
-                // Border COLOR changes, never border WIDTH, and the ring is an
-                // INSET box-shadow: both are zero-width, so a selected card
-                // occupies exactly the same box as an unselected one and
-                // cannot reintroduce the PR 6I horizontal overflow on a phone.
-                const isSelected = selectMode && selectedDeckIds.includes(deck.id);
-
-                return (
-                  <div
-                    key={deck.id}
-                    className="glass-panel"
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '1rem',
-                      padding: '1.25rem',
-                      // FLAT SURFACES, matching the approved mockup
-                      // (sketches/003-deck-list). The gradients were doing two
-                      // jobs at once -- decoration AND state -- so a selected
-                      // deck and a checked-out deck differed only by opacity of
-                      // the same wash. State now changes the BORDER, which is
-                      // readable at arm's length and survives OLED dimming.
-                      borderRadius: 'var(--radius-md)',
-                      border: isSelected
-                        ? '2px solid var(--accent-blue)'
-                        : deck.checked_out
-                          ? '1px solid var(--accent-yellow)'
-                          : '1px solid var(--border-glass)',
-                      boxShadow: 'none',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      cursor: 'pointer',
-                      transition: 'var(--transition-smooth)',
-                      background: isSelected ? 'var(--surface-2)' : 'var(--surface-1)'
-                    }}
-                    /* In select mode a card TOGGLES instead of opening. The
-                       deck list is adapted in place, not replaced. */
-                    onClick={() => selectMode ? toggleDeckSelected(deck.id) : loadDeckDetails(deck.id)}
-                    // Hover only lightens the surface. The old version lifted
-                    // the card and threw a coloured shadow, which on true black
-                    // reads as a rendering artefact rather than depth. Nothing
-                    // to restore on leave, so selection can no longer be erased
-                    // by a stray hover.
-                    onMouseEnter={e => {
-                      if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)';
-                    }}
-                    onMouseLeave={e => {
-                      if (!isSelected) e.currentTarget.style.background = 'var(--surface-1)';
-                    }}
-                  >
-                    {/* SELECTION CHECKBOX, only while selecting. The card keeps
-                        its existing layout; this sits over the accent line. */}
-                    {selectMode && (
-                      <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 2 }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedDeckIds.includes(deck.id)}
-                          onChange={() => toggleDeckSelected(deck.id)}
-                          onClick={e => e.stopPropagation()}
-                          aria-label={deck.name}
-                          style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent-yellow)' }}
-                        />
-                      </div>
-                    )}
-
-                    {/* In Play Banner */}
-                    {deck.checked_out ? (
-                      <div style={{
-                        marginTop: '4px',
-                        background: 'linear-gradient(90deg, rgba(234,179,8,0.9), rgba(245,158,11,0.85))',
-                        padding: '4px 10px',
-                        borderRadius: '4px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        fontSize: '0.65rem',
-                        fontWeight: 800,
-                        color: '#000',
-                        letterSpacing: '0.06em',
-                        textTransform: 'uppercase'
-                      }}>
-                        <Gamepad2 size={12} />
-                        <span>{t('deck.inPlay')}</span>
-                        {deck.checked_out_at && (
-                          <span style={{ marginLeft: 'auto', opacity: 0.8, fontWeight: 600 }}>
-                            since {new Date(deck.checked_out_at).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
-                    ) : null}
-
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                            <h3 style={{ color: 'var(--text-strong)', fontSize: '1.15rem', fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>
-                              {deck.name}
-                            </h3>
-                            <span style={{
-                              fontSize: '0.6rem',
-                              fontWeight: 800,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                              padding: '0.1rem 0.45rem',
-                              borderRadius: '4px',
-                              background: 'rgba(239,68,68,0.15)',
-                              color: '#f87171',
-                              border: '1px solid rgba(239,68,68,0.3)',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px'
-                            }}>
-                              <Swords size={10} /> MTG
-                            </span>
-
-                            {deck.format && (
-                              <span style={{
-                                fontSize: '0.6rem',
-                                fontWeight: 700,
-                                padding: '0.1rem 0.4rem',
-                                borderRadius: '4px',
-                                background: 'rgba(255,255,255,0.06)',
-                                color: 'var(--text-secondary)',
-                                border: '1px solid var(--border-glass)'
-                              }}>
-                                {deck.format}
-                              </span>
-                            )}
-
-                            {deck.category && (
-                              <span style={{
-                                fontSize: '0.6rem',
-                                fontWeight: 700,
-                                padding: '0.1rem 0.4rem',
-                                borderRadius: '4px',
-                                background: 'rgba(59, 130, 246, 0.12)',
-                                color: '#60a5fa',
-                                border: '1px solid rgba(59, 130, 246, 0.25)'
-                              }}>
-                                {deck.category}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Status Badge */}
-                        <span style={{
-                          fontSize: '0.7rem',
-                          fontWeight: 700,
-                          padding: '0.2rem 0.5rem',
-                          borderRadius: '12px',
-                          backgroundColor: isComplete ? 'rgba(74, 222, 128, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                          color: isComplete ? '#4ade80' : '#60a5fa',
-                          border: isComplete ? '1px solid rgba(74, 222, 128, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {t(isComplete ? 'deck.statusReady' : 'deck.statusBuilding')}
-                        </span>
-                      </div>
-
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '0.6rem', minHeight: '34px', lineHeight: '1.4' }}>
-                        {deck.description || 'No description provided.'}
-                      </p>
-                    </div>
-
-                    {/* Progress Bar & Details */}
-                    {/* PROGRESS, per the approved mockup: the number leads and
-                        the bar sits under it, with no box around either. The
-                        old version wrapped this in its own bordered panel --
-                        a card inside a card, which added an edge that meant
-                        nothing.
-
-                        Green only when complete. A part-built deck is not a
-                        warning, so it stays neutral rather than amber: colour
-                        here means "done", not "how far". */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                        <span style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-                          {totalCards}<span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> / {targetSize}</span>
-                        </span>
-                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: isComplete ? 'var(--accent-green)' : 'var(--text-secondary)' }}>
-                          {isComplete ? t('deck.ready') : `${percent}%`}
-                        </span>
-                      </div>
-                      <div style={{ width: '100%', height: '5px', background: 'var(--surface-3)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{
-                          height: '100%',
-                          width: `${percent}%`,
-                          background: isComplete ? 'var(--accent-green)' : 'var(--accent-blue)',
-                          borderRadius: '3px',
-                          transition: 'width 0.35s cubic-bezier(.2,.8,.3,1)'
-                        }} />
-                      </div>
-                    </div>
-
-                    {/* Card Footer Actions */}
-                    <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        Created {new Date(deck.created_at).toLocaleDateString()}
-                      </span>
-
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        {deck.checked_out ? (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid var(--accent-yellow)', color: '#eab308' }}
-                            onClick={(e) => { e.stopPropagation(); handleReturn(deck); }}
-                            disabled={checkingOut}
-                          >
-                            <PackageCheck size={12} /> Return
-                          </button>
-                        ) : (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            onClick={(e) => { e.stopPropagation(); handleCheckout(deck); }}
-                            disabled={checkingOut}
-                          >
-                            <LogOut size={12} /> Checkout
-                          </button>
-                        )}
-
-                        <button
-                          className="btn btn-primary"
-                          style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          onClick={(e) => { e.stopPropagation(); loadDeckDetails(deck.id); }}
-                        >
-                          Open <ArrowRight size={12} />
-                        </button>
-
-                        <button
-                          className="btn btn-danger btn-icon-only"
-                          style={{ padding: '0.3rem' }}
-                          onClick={(e) => { e.stopPropagation(); handleDeleteDeck(deck.id, deck.name); }}
-                          title={t('deck.deleteDeck')}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* --- TABLE VIEW --- */
-            <div className="glass-panel" style={{ overflowX: 'auto', padding: 0 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'var(--surface-2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colGameFormat')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colNameDesc')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colCapacity')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('admin.colStatus')}</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>{t('admin.colCreated')}</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{t('admin.colActions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDecks.map(deck => {
-                    const targetSize = deck.target_size || 60;
-                    const totalCards = deck.total_cards || 0;
-                    const isComplete = totalCards >= targetSize;
-                    const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
-                    const accentColor = deck.accent_color || '#ef4444';
-                    // Same rule as the grid, same yellow. See the grid branch
-                    // for why the card/row carries this and not just a tick.
-                    const isSelected = selectMode && selectedDeckIds.includes(deck.id);
-                    // The row's resting background. Hover overwrites background
-                    // directly, so it has to be restored to THIS, not to
-                    // transparent, or hovering a selected row would clear its
-                    // selected look.
-                    const restingBackground = isSelected ? 'rgba(234,179,8,0.14)' : 'transparent';
-
-                    return (
-                      <tr
-                        key={deck.id}
-                        style={{ borderBottom: '1px solid var(--border-glass)', cursor: 'pointer', transition: 'background 0.15s', background: restingBackground }}
-                        /* In select mode a row TOGGLES instead of opening. */
-                        onClick={() => selectMode ? toggleDeckSelected(deck.id) : loadDeckDetails(deck.id)}
-                        onMouseEnter={e => e.currentTarget.style.background = isSelected ? 'rgba(234,179,8,0.2)' : 'rgba(255,255,255,0.03)'}
-                        onMouseLeave={e => e.currentTarget.style.background = restingBackground}
-                      >
-                        <td style={{
-                          padding: '0.75rem 1rem',
-                          /* INSET shadow, so the selected marker bar costs zero
-                             width — a real left border would widen the table and
-                             is exactly how PR 6I's overflow got introduced. */
-                          boxShadow: isSelected ? 'inset 3px 0 0 0 var(--accent-yellow)' : 'none'
-                        }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              {/* THE TICK IS PRESENT IN BOTH VIEWS. The table
-                                  had none at all, so the only feedback was the
-                                  counter in the panel above. It sits inside the
-                                  existing first cell rather than in a new
-                                  column, so no column is added on a phone. */}
-                              {selectMode && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedDeckIds.includes(deck.id)}
-                                  onChange={() => toggleDeckSelected(deck.id)}
-                                  onClick={e => e.stopPropagation()}
-                                  aria-label={deck.name}
-                                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--accent-yellow)', flexShrink: 0 }}
-                                />
-                              )}
-                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: accentColor, display: 'inline-block' }} />
-                              <span style={{
-                                fontSize: '0.65rem',
-                                fontWeight: 800,
-                                padding: '0.15rem 0.45rem',
-                                borderRadius: '4px',
-                                background: 'rgba(239,68,68,0.15)',
-                                color: '#f87171',
-                                border: '1px solid rgba(239,68,68,0.3)',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px'
-                              }}>
-                                <Swords size={10} /> MTG
-                              </span>
-                            </div>
-                            {deck.format && (
-                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                                {deck.format}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{deck.name}</span>
-                            {deck.category && (
-                              <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.25)' }}>
-                                {deck.category}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                            {deck.description || 'No description'}
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', width: '160px' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: isComplete ? '#4ade80' : 'var(--text-strong)' }}>
-                              {totalCards} / {targetSize} Cards
-                            </div>
-                            <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${percent}%`, background: isComplete ? '#4ade80' : '#3b82f6' }} />
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem' }}>
-                          {deck.checked_out ? (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid var(--accent-yellow)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <Gamepad2 size={11} /> In Play
-                            </span>
-                          ) : isComplete ? (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' }}>
-                              {t('deck.statusReady')}
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
-                              {t('deck.statusBuilding')}
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {new Date(deck.created_at).toLocaleDateString()}
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
-                            {deck.checked_out ? (
-                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: '#eab308' }} onClick={() => handleReturn(deck)} disabled={checkingOut}>
-                                {t('deck.return')}
-                              </button>
-                            ) : (
-                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleCheckout(deck)} disabled={checkingOut}>
-                                {t('deck.checkout')}
-                              </button>
-                            )}
-                            <button className="btn btn-primary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }} onClick={() => loadDeckDetails(deck.id)}>
-                              {t('deck.open')}
-                            </button>
-                            <button className="btn btn-danger btn-icon-only" style={{ padding: '0.25rem' }} onClick={() => handleDeleteDeck(deck.id, deck.name)}>
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-        </div>
+        <DeckList
+          decks={filteredDecks}
+          loading={loading}
+          onOpenDeck={loadDeckDetails}
+          onNewDeck={() => setShowCreateModal(true)}
+          onDeleteDeck={handleDeleteDeck}
+          showToast={showToast}
+        />
       )}
 
       {/* 2. DECK EDITOR / DETAIL VIEW */}
