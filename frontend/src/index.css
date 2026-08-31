@@ -369,14 +369,27 @@ button, input, select, textarea {
 }
 
 /* Glassmorphic Panel Component */
+/* The app's panel. Renamed in spirit but not in name: 27 components apply
+   .glass-panel, so changing the class name would be a 27-file edit to gain
+   nothing. What changed is what it looks like.
+
+   NO BACKDROP BLUR. It was doing real damage rather than being merely
+   decorative: blur(16px) saturate(180%) over card artwork tinted every panel
+   differently depending on which cards happened to be scrolling behind it, so
+   two panels side by side did not match. In an app whose job is judging card
+   art, the chrome must not restate the art.
+
+   It was also the single most expensive property on the page -- a full-screen
+   backdrop filter repaints on every scroll frame, on a phone, while the camera
+   may be running.
+
+   Flat surface, hairline border, no shadow. Depth on true black comes from the
+   surface step (#000 -> #1c1c1e), which is what the mockups use. */
 .glass-panel {
-  background: var(--bg-glass);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: var(--surface-1);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-glow);
-  padding: 1.5rem;
+  padding: 1.25rem;
   transition: var(--transition-smooth);
 }
 

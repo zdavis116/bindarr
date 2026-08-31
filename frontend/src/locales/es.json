@@ -1050,5 +1050,6 @@
   "collection.addScan": "Scan cards",
   "collection.addImport": "Import from a file",
   "collection.addImportSoon": "Coming soon",
-  "collection.addSearch": "Search for a card"
+  "collection.addSearch": "Search for a card",
+  "deck.ready": "Ready"
 }

@@ -35,7 +35,7 @@ const TONE_STYLES = {
   ok: { background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' },
   warn: { background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', border: '1px solid rgba(234, 179, 8, 0.3)' },
   unavailable: { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.35)' },
-  muted: { background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }
+  muted: { background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }
 };
 
 // The identity of an import LINE, for matching a user's printing choice back to
@@ -2029,7 +2029,7 @@ function DeckBuilder({ showToast }) {
               </button>
 
               {/* View Mode Toggle: Grid vs Table */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(0,0,0,0.3)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'var(--surface-2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                 <button
                   type="button"
                   className={`btn ${deckSelectionViewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`}
@@ -2158,45 +2158,40 @@ function DeckBuilder({ showToast }) {
                       justifyContent: 'space-between',
                       gap: '1rem',
                       padding: '1.25rem',
+                      // FLAT SURFACES, matching the approved mockup
+                      // (sketches/003-deck-list). The gradients were doing two
+                      // jobs at once -- decoration AND state -- so a selected
+                      // deck and a checked-out deck differed only by opacity of
+                      // the same wash. State now changes the BORDER, which is
+                      // readable at arm's length and survives OLED dimming.
+                      borderRadius: 'var(--radius-md)',
                       border: isSelected
-                        ? '1px solid rgba(234,179,8,0.9)'
+                        ? '2px solid var(--accent-blue)'
                         : deck.checked_out
-                          ? '1px solid rgba(234,179,8,0.5)'
-                          : `1px solid ${accentColor}40`,
-                      boxShadow: isSelected ? 'inset 0 0 0 2px rgba(234,179,8,0.45)' : 'none',
+                          ? '1px solid var(--accent-yellow)'
+                          : '1px solid var(--border-glass)',
+                      boxShadow: 'none',
                       position: 'relative',
                       overflow: 'hidden',
                       cursor: 'pointer',
-                      transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                      background: isSelected
-                        ? 'linear-gradient(145deg, rgba(234,179,8,0.16), rgba(15,23,42,0.65))'
-                        : 'linear-gradient(145deg, rgba(211,32,42,0.06), rgba(15,23,42,0.65))'
+                      transition: 'var(--transition-smooth)',
+                      background: isSelected ? 'var(--surface-2)' : 'var(--surface-1)'
                     }}
                     /* In select mode a card TOGGLES instead of opening. The
                        deck list is adapted in place, not replaced. */
                     onClick={() => selectMode ? toggleDeckSelected(deck.id) : loadDeckDetails(deck.id)}
+                    // Hover only lightens the surface. The old version lifted
+                    // the card and threw a coloured shadow, which on true black
+                    // reads as a rendering artefact rather than depth. Nothing
+                    // to restore on leave, so selection can no longer be erased
+                    // by a stray hover.
                     onMouseEnter={e => {
-                      e.currentTarget.style.transform = 'translateY(-3px)';
-                      e.currentTarget.style.boxShadow = `0 12px 30px ${accentColor}25`;
+                      if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)';
                     }}
                     onMouseLeave={e => {
-                      e.currentTarget.style.transform = 'none';
-                      // Restore the SELECTED ring rather than clearing it: hover
-                      // is transient, selection is not, and a hover that erased
-                      // the selected look would be worse than no ring at all.
-                      e.currentTarget.style.boxShadow = isSelected
-                        ? 'inset 0 0 0 2px rgba(234,179,8,0.45)'
-                        : 'none';
+                      if (!isSelected) e.currentTarget.style.background = 'var(--surface-1)';
                     }}
                   >
-                    {/* Top Accent Line */}
-                    <div style={{
-                      position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
-                      background: deck.checked_out
-                        ? 'linear-gradient(90deg, #eab308, #f59e0b)'
-                        : `linear-gradient(90deg, ${accentColor}, ${accentColor}cc)`
-                    }} />
-
                     {/* SELECTION CHECKBOX, only while selecting. The card keeps
                         its existing layout; this sits over the accent line. */}
                     {selectMode && (
@@ -2313,22 +2308,31 @@ function DeckBuilder({ showToast }) {
                     </div>
 
                     {/* Progress Bar & Details */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', background: 'rgba(0,0,0,0.2)', padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('deck.cardCapacity')}</span>
-                        <span style={{ color: isComplete ? '#4ade80' : 'var(--text-strong)', fontWeight: 700 }}>
-                          {totalCards} / {targetSize} Cards ({percent}%)
+                    {/* PROGRESS, per the approved mockup: the number leads and
+                        the bar sits under it, with no box around either. The
+                        old version wrapped this in its own bordered panel --
+                        a card inside a card, which added an edge that meant
+                        nothing.
+
+                        Green only when complete. A part-built deck is not a
+                        warning, so it stays neutral rather than amber: colour
+                        here means "done", not "how far". */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <span style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+                          {totalCards}<span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> / {targetSize}</span>
+                        </span>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: isComplete ? 'var(--accent-green)' : 'var(--text-secondary)' }}>
+                          {isComplete ? t('deck.ready') : `${percent}%`}
                         </span>
                       </div>
-                      <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: '100%', height: '5px', background: 'var(--surface-3)', borderRadius: '3px', overflow: 'hidden' }}>
                         <div style={{
                           height: '100%',
                           width: `${percent}%`,
-                          background: isComplete
-                            ? 'linear-gradient(90deg, #4ade80, #22c55e)'
-                            : 'linear-gradient(90deg, #3b82f6, #6366f1)',
+                          background: isComplete ? 'var(--accent-green)' : 'var(--accent-blue)',
                           borderRadius: '3px',
-                          transition: 'width 0.3s ease'
+                          transition: 'width 0.35s cubic-bezier(.2,.8,.3,1)'
                         }} />
                       </div>
                     </div>
@@ -2343,7 +2347,7 @@ function DeckBuilder({ showToast }) {
                         {deck.checked_out ? (
                           <button
                             className="btn btn-secondary"
-                            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid rgba(234,179,8,0.4)', color: '#eab308' }}
+                            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid var(--accent-yellow)', color: '#eab308' }}
                             onClick={(e) => { e.stopPropagation(); handleReturn(deck); }}
                             disabled={checkingOut}
                           >
@@ -2388,7 +2392,7 @@ function DeckBuilder({ showToast }) {
             <div className="glass-panel" style={{ overflowX: 'auto', padding: 0 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'var(--surface-2)', color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colGameFormat')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colNameDesc')}</th>
                     <th style={{ padding: '0.75rem 1rem' }}>{t('deck.colCapacity')}</th>
@@ -2494,7 +2498,7 @@ function DeckBuilder({ showToast }) {
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           {deck.checked_out ? (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid var(--accent-yellow)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <Gamepad2 size={11} /> In Play
                             </span>
                           ) : isComplete ? (
@@ -2502,7 +2506,7 @@ function DeckBuilder({ showToast }) {
                               {t('deck.statusReady')}
                             </span>
                           ) : (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }}>
                               {t('deck.statusBuilding')}
                             </span>
                           )}
@@ -2572,7 +2576,7 @@ function DeckBuilder({ showToast }) {
                     <span style={{
                       fontSize: '0.65rem',
                       background: 'rgba(234,179,8,0.15)',
-                      border: '1px solid rgba(234,179,8,0.4)',
+                      border: '1px solid var(--accent-yellow)',
                       color: '#eab308',
                       padding: '2px 8px',
                       borderRadius: '12px',
@@ -2619,7 +2623,7 @@ function DeckBuilder({ showToast }) {
                   className="btn btn-secondary"
                   onClick={() => handleReturn(activeDeck)}
                   disabled={checkingOut}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', border: '1px solid rgba(234,179,8,0.4)', color: '#eab308' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', border: '1px solid var(--accent-yellow)', color: '#eab308' }}
                 >
                   <PackageCheck size={14} /> Return to Storage
                 </button>
@@ -2822,7 +2826,7 @@ function DeckBuilder({ showToast }) {
                         <X size={13} />
                       </button>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.4rem', maxHeight: '240px', overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.4rem', maxHeight: '240px', overflowY: 'auto', background: 'var(--surface-2)', padding: '0.5rem', borderRadius: 'var(--radius-sm)' }}>
                       {searchResults.map(card => {
                           // "IN DECK" IS THE CROSS-DECK TOTAL, FROM THE SERVER.
                           //
@@ -3026,7 +3030,7 @@ function DeckBuilder({ showToast }) {
                     <h3 style={{ fontSize: '1rem', color: 'var(--text-strong)', borderLeft: '3px solid var(--accent-red)', paddingLeft: '0.5rem', margin: 0 }}>
                       Deck Cards ({totalDeckCardsCount} / {targetDeckCardsCount})
                     </h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--surface-2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                       <button
                         type="button"
                         className={`btn ${cardDisplayMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
@@ -3341,7 +3345,7 @@ function DeckBuilder({ showToast }) {
                                         )} />
                                         <StatusBadge card={card} />
                                         {!!card.checked_out && (
-                                          <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid var(--accent-yellow)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                                             <Gamepad2 size={9} /> In Play
                                           </span>
                                         )}
@@ -3363,7 +3367,7 @@ function DeckBuilder({ showToast }) {
                                     >
                                       <Lightbulb size={11} />
                                     </button>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--surface-2)', padding: '2px', borderRadius: '4px', border: '1px solid var(--border-glass)' }}>
                                       <button
                                         className={`btn ${card.quantity === 1 ? 'btn-danger' : 'btn-secondary'} btn-icon-only`}
                                         style={{ width: '22px', height: '22px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -3738,7 +3742,7 @@ function DeckBuilder({ showToast }) {
                       {commanderSearching ? (
                         <div className="spinner" style={{ margin: '0.6rem auto' }}></div>
                       ) : commanderResults.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.5rem', maxHeight: '160px', overflowY: 'auto', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.4rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.5rem', maxHeight: '160px', overflowY: 'auto', background: 'var(--surface-2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.4rem' }}>
                           {commanderResults.map(card => (
                             <button
                               key={card.id}
@@ -4152,7 +4156,7 @@ function DeckBuilder({ showToast }) {
                     ))}
                   </div>
                 )}
-                <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
                   {importComparison.map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
