@@ -14,11 +14,32 @@
 
 const assert = require('assert');
 const sqlite3 = require('sqlite3');
+const fs = require('fs');
 
 const DB = process.env.DB_PATH || '/tmp/devcat.db';
 
 let passed = 0;
 function pass(id, what) { console.log(`PASS: ${id} - ${what}`); passed++; }
+
+// THIS TEST NEEDS A REAL 105k-ROW CATALOGUE and cannot build one: the whole
+// point is that the fast indexed path and the original scan agree on the actual
+// data, including the awkward rows (mixed case, flavor names, basics,
+// set_name != set_id). A synthetic fixture of ten rows would pass while proving
+// nothing about the query it is guarding.
+//
+// So when no catalogue is present -- CI, or a fresh clone -- it SKIPS and says
+// so, rather than crashing with SQLITE_CANTOPEN.
+//
+// It crashed CI exactly once, on the merge of the scanner branch, because it
+// passed locally on a 325MB /tmp/devcat.db that only existed on the author's
+// machine. Local green meant "the file happens to be here", not "the code is
+// right". Skipping loudly is honest; failing the build over a missing fixture
+// trains everyone to ignore a red pipeline.
+if (!fs.existsSync(DB)) {
+  console.log(`hydration-index.test.js: SKIPPED - no catalogue at ${DB}`);
+  console.log('  (set DB_PATH to a real card_cache database to run this check)');
+  process.exit(0);
+}
 
 // Read-only: this test must never be able to modify a catalogue.
 const raw = new sqlite3.Database(DB, sqlite3.OPEN_READONLY);
