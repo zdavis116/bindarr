@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Z_MODAL } from '../utils/zLayers';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { Search, Trophy, Compass, Library, ShieldAlert, Sparkles, X, MapPin, SlidersHorizontal } from 'lucide-react';
 import Logo from './Logo';
@@ -437,7 +438,7 @@ function SharedCollection({ shareToken }) {
         <div className="modal-overlay" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: '1rem'
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: Z_MODAL, padding: '1rem'
         }} onClick={() => setActiveCard(null)}>
           <div className="glass-panel" style={{ maxWidth: '680px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overscrollBehavior: 'contain', padding: '2rem', display: 'flex', flexWrap: 'wrap', gap: '2rem', position: 'relative' }} onClick={(e) => e.stopPropagation()}>
             <button className="btn btn-secondary btn-icon-only" onClick={() => setActiveCard(null)} style={{ position: 'absolute', top: '1rem', right: '1rem', borderRadius: '50%' }}>

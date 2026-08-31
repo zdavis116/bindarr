@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Z_MODAL } from '../utils/zLayers';
 import { Shield, UserPlus, Key, Trash2, ToggleLeft, ToggleRight, Search, Users, Globe, Database, Play, RefreshCw, AlertTriangle, HardDriveDownload, Download, BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import { useBackGuard } from '../utils/useBackGuard';
 import { gameLabel, enabledGames } from '../utils/games';
@@ -1052,7 +1053,7 @@ function AdminPanel({ showToast }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 999
+          zIndex: Z_MODAL
         }}>
           <div className="glass-panel" style={{ maxWidth: '380px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overscrollBehavior: 'contain', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div>

@@ -18,6 +18,7 @@
 import { useState, useEffect } from 'react';
 import { X, Search, Check } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { Z_MODAL } from '../utils/zLayers';
 
 // [label, defaultSize, needsCommander, singleton, hasSideboard]
 const FORMATS = [
@@ -75,6 +76,15 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [query, open, format.commander]);
 
+  // A SECOND WAY OUT. The X alone stranded him once already; a modal with one
+  // exit is one z-index mistake away from a trap.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const pickFormat = (f) => {
@@ -108,8 +118,11 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
   const label = { fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-secondary)',
                   textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.45rem' };
 
+  // zIndex 1500: ABOVE the pinned nav bar (1000, index.css:666) and the sticky
+  // header, below toasts (2000). At 200 the nav rendered ON TOP of this modal
+  // and there was no way out of it.
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column',
+    <div style={{ position: 'fixed', inset: 0, zIndex: Z_MODAL, display: 'flex', flexDirection: 'column',
                   background: 'var(--bg-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: 'calc(0.8rem + env(safe-area-inset-top, 0px)) 1rem 0.8rem',
@@ -243,9 +256,17 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
       <div style={{ padding: '0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px))',
                     borderTop: '1px solid var(--border-glass)' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={onClose}
+            style={{ minHeight: 48, padding: '0 1.1rem', border: '1px solid var(--border-glass)',
+                     borderRadius: 'var(--radius-md)', background: 'transparent',
+                     color: 'var(--text-secondary)', font: 'inherit', fontSize: '0.95rem',
+                     fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+            {t('common.cancel')}
+          </button>
           <button onClick={submit} disabled={!canCreate || saving}
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                     width: '100%', minHeight: 48, border: 0, borderRadius: 'var(--radius-md)',
+                     flex: 1, minHeight: 48, border: 0, borderRadius: 'var(--radius-md)',
                      background: canCreate ? 'var(--accent-blue)' : 'var(--surface-2)',
                      color: canCreate ? 'var(--text-on-accent)' : 'var(--text-muted)',
                      font: 'inherit', fontSize: '0.98rem', fontWeight: 600,
@@ -253,6 +274,7 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
             {canCreate ? <Check size={18} /> : null}
             {saving ? t('common.loading') : canCreate ? t('deck.createDeck') : t('deck.pickCommanderFirst')}
           </button>
+          </div>
         </div>
       </div>
     </div>

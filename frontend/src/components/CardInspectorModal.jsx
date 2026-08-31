@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Z_MODAL } from '../utils/zLayers';
 import { X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { displayName, secondaryName } from '../utils/cardName';
@@ -222,7 +223,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 999
+      zIndex: Z_MODAL
     }} onClick={handleClose}>
       <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-secondary btn-icon-only" onClick={handleClose} style={{

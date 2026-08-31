@@ -67,13 +67,19 @@ test('NAV-TC4: STORAGE IS STILL REACHABLE', () => {
 
   // A general entry point, not only the per-card "where is this?" jump. That
   // one requires having already picked a card, so it cannot be the only way in.
-  const toggleStart = collection.indexOf('{/* View Toggle */}');
-  assert.ok(toggleStart > 0, 'view toggle not found in CollectionList');
-  const toggleBlock = collection.slice(toggleStart, toggleStart + 3000);
-  assert.ok(toggleBlock.includes("onNavigate('storage')"),
-    'Collection must offer a way into Storage from the view toggle. Without it '
-    + 'the only route is a single card\'s "where is this?" action, which a user '
-    + 'browsing the collection may never trigger.');
+  // Anchored to the BUTTON, not to a comment. The previous version keyed off a
+  // "{/* View Toggle */}" marker, so rewording a comment failed the test while
+  // Storage was perfectly reachable -- a test that cries wolf gets ignored,
+  // which is worse than no test.
+  assert.ok(collection.includes("onNavigate('storage')"),
+    'Collection must offer a general way into Storage. Without it the only '
+    + 'route is a single card\'s "where is this?" action, which a user browsing '
+    + 'the collection may never trigger.');
+
+  // ...and it must be a real control the user can press, not a handler defined
+  // and never rendered.
+  assert.match(collection, /onClick=\{openStorage\}|onClick=\{\(\) => onNavigate\('storage'\)/,
+    'the storage entry point must be wired to a button');
 });
 
 test('NAV-TC5: notes is gone completely, not just hidden', () => {

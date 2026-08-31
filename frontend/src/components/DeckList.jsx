@@ -20,6 +20,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
 import { createBuylistSync } from './buylistSync';
 import { buildDeckExport, DEFAULT_BRACKET_STYLE } from '../utils/deckText';
 
@@ -271,9 +272,15 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           so the total stays visible while scrolling the list it describes. */}
       {selecting && selected.size > 0 && (
         <div style={{
-          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 60,
+          position: 'fixed', left: 0, right: 0, bottom: 0,
+          // ABOVE the pinned nav bar (zIndex 1000, index.css:666), which
+          // occupies this exact strip on a phone. At 60 this bar rendered
+          // underneath it: invisible, with an untappable export button.
+          zIndex: Z_BOTTOM_BAR,
           background: 'var(--surface-2)', borderTop: '1px solid var(--border-glass)',
-          padding: '0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px))',
+          // Clear the nav bar's own height as well as the home indicator, so
+          // the export button is not merely visible but reachable.
+          padding: `0.85rem 1rem calc(0.85rem + ${NAV_BAR_CLEARANCE} + env(safe-area-inset-bottom, 0px))`,
           boxShadow: '0 -8px 24px rgba(0,0,0,.5)',
         }}>
           <div style={{ maxWidth: 680, margin: '0 auto' }}>

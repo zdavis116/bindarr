@@ -31,8 +31,13 @@ const matchesColor = (item, filters) =>
     ? true
     : [...filters].every(c => (item.color_identity || []).includes(c));
 
+// Mirrors CollectionList.jsx: every SELECTED type must be present on the card.
+// Zach: "if I select artifact and creature it should show me artifact creatures
+// not creatures, artifacts and artifact creatures".
 const matchesType = (item, filters) =>
-  filters.size === 0 ? true : (item.types || []).some(ty => filters.has(ty));
+  filters.size === 0
+    ? true
+    : [...filters].every(ty => (item.types || []).includes(ty));
 
 const CARDS = [
   { name: 'Lightning Bolt',   color_identity: ['Red'],           types: ['Instant'] },
@@ -85,14 +90,29 @@ test('COLF-TC3b: a superset card still matches a narrower selection', () => {
     'a mono-blue card does NOT contain green or red');
 });
 
-test('COLF-TC4: a card with SEVERAL types matches any of them', () => {
-  const asCreature = names(CARDS.filter(c => matchesType(c, new Set(['Creature']))));
-  const asEnchantment = names(CARDS.filter(c => matchesType(c, new Set(['Enchantment']))));
+test('COLF-TC4: several types means AT LEAST all of them', () => {
+  // THE CASE ZACH CORRECTED. Artifact + Creature must show Artifact Creatures
+  // only -- not every artifact plus every creature.
+  const cards = [
+    { name: 'Sol Ring',        types: ['Artifact'] },
+    { name: 'Grizzly Bears',   types: ['Creature'] },
+    { name: 'Solemn Simulacrum', types: ['Artifact', 'Creature'] },
+  ];
+  const out = cards.filter(c => matchesType(c, new Set(['Artifact', 'Creature'])))
+                   .map(c => c.name);
+  assert.deepEqual(out, ['Solemn Simulacrum'],
+    'only cards that are BOTH an artifact and a creature');
+});
 
-  assert.ok(asCreature.includes('Dryad of the Ilysian Grove'));
-  assert.ok(asEnchantment.includes('Dryad of the Ilysian Grove'),
-    'a Creature AND Enchantment must appear under both -- this is exactly what '
-    + 'a single-value type filter could not do');
+test('COLF-TC4b: one type selected still shows every card of that type', () => {
+  const cards = [
+    { name: 'Sol Ring',          types: ['Artifact'] },
+    { name: 'Solemn Simulacrum', types: ['Artifact', 'Creature'] },
+    { name: 'Grizzly Bears',     types: ['Creature'] },
+  ];
+  const out = cards.filter(c => matchesType(c, new Set(['Artifact']))).map(c => c.name);
+  assert.deepEqual(out, ['Sol Ring', 'Solemn Simulacrum'],
+    'a lone type must not exclude multi-type cards');
 });
 
 test('COLF-TC5: colourless cards are hidden by any colour filter', () => {
@@ -113,7 +133,7 @@ test('COLF-TC6: the component still uses AT-LEAST colour matching', () => {
     'colour matching must be AT-LEAST (every selected colour present), not '
     + 'ANY-OF -- Zach: "if I select blue green red I should only see cards that '
     + 'require atleast blue green and red mana"');
-  assert.match(src, /typeFilters\.size === 0[\s\S]{0,120}\.some\(/,
+  assert.match(src, /typeFilters\.size === 0[\s\S]{0,200}\.every\(/,
     'type matching must be ANY-OF over types');
   assert.ok(!/value=\{setFilter\}|value=\{typeFilter\}/.test(src),
     'the single-value dropdowns must be gone, not merely bypassed');

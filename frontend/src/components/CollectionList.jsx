@@ -28,6 +28,7 @@ import {
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { useT } from '../utils/i18n';
+import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import CardInspectorModal from './CardInspectorModal';
 import CardTile from './CardTile';
 
@@ -195,11 +196,13 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
       const identity = item.color_identity || [];
       const matchesColor = colorFilters.size === 0
         || [...colorFilters].every(c => identity.includes(c));
-      // ANY-OF for types: a Creature-Enchantment appears under both, and
-      // selecting Creature + Land shows all creatures and all lands. Unlike
-      // colours, "at least both types" is a question nobody asks.
+      // AT LEAST these types, matching the colour rule. Selecting Artifact +
+      // Creature shows Artifact Creatures -- not every artifact plus every
+      // creature. Selecting more always narrows, which is what a filter row
+      // full of chips implies.
+      const cardTypes = cardTypesOf(item);
       const matchesType = typeFilters.size === 0
-        || cardTypesOf(item).some(ty => typeFilters.has(ty));
+        || [...typeFilters].every(ty => cardTypes.includes(ty));
       const matchesSet = setFilters.size === 0 || setFilters.has(item.set_name);
 
       return matchesSearch && matchesColor && matchesType && matchesSet;
@@ -459,9 +462,9 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
           cannot drift apart. */}
       {sheet && (
         <>
-          <div onClick={() => setSheet(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 120 }} />
+          <div onClick={() => setSheet(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: Z_BACKDROP }} />
           <div style={{
-            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 121,
+            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: Z_MODAL,
             background: 'var(--surface-1)', borderTopLeftRadius: 20, borderTopRightRadius: 20,
             maxHeight: '70vh', display: 'flex', flexDirection: 'column',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
