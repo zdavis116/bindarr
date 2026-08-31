@@ -75,10 +75,8 @@
   .rule .dot{width:15px;height:15px;border-radius:50%;flex:0 0 15px;display:grid;place-items:center;margin-top:1px}
   .rule.err  .dot{background:rgba(255,69,58,.16);color:var(--red)}
   .rule.warn .dot{background:rgba(255,159,10,.16);color:var(--amber)}
-  .rule.ok   .dot{background:rgba(48,209,88,.16);color:var(--green)}
   .rule b{font-weight:600}
   .rule span{color:var(--t2)}
-  .rule.ok span{color:var(--t3)}
 
   /* ---- TABS ---- */
   .seg{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px}
@@ -207,6 +205,10 @@
     </div>
     <div class="bar"><i style="width:87%"></i></div>
 
+    <!-- Rendered ONLY when there is something wrong. An empty rules block
+         still draws its border-top, which reads as a broken layout rather than
+         a clean deck. Zach: "we don't need a green check telling us everything
+         is good. I can assume that by not seeing any errors/warnings." -->
     <div class="rules">
       <div class="rule err">
         <span class="dot">
@@ -214,12 +216,6 @@
         </span>
         <div><b>2 cards outside Krenko&rsquo;s colours.</b>
           <span>Mono-red commander &mdash; Kodama&rsquo;s Reach and Llanowar Elves are not legal here.</span></div>
-      </div>
-      <div class="rule ok">
-        <span class="dot">
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>
-        </span>
-        <div><b>Singleton rule met.</b> <span>No duplicates outside basic lands.</span></div>
       </div>
     </div>
   </div>
