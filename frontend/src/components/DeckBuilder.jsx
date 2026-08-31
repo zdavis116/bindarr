@@ -1,33 +1,18 @@
-/* eslint-disable no-unused-vars -- The old detail-view handlers below were
-   superseded by DeckView.jsx (built to the mockup Zach approved). They are NOT
-   deleted in this commit: an automated sweep of them cut into neighbouring
-   code and produced four syntax errors, and dead code is recoverable where
-   deleted capability is not -- handleDeleteDeck was nearly lost that way
-   earlier this week. They come out in a separate, verified pass. */
 import { useState, useEffect } from 'react';
 import { Z_MODAL } from '../utils/zLayers';
-import { Plus, Trash2, X, ChevronLeft, Play, BarChart2, Search, LogOut, PackageCheck, LayoutGrid, List, Download, Upload, Eye, CheckCircle, AlertTriangle, Gamepad2, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
-import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { X, AlertTriangle, ChevronDown } from 'lucide-react';
 import { shuffleArray } from '../utils/shuffle';
 
 import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { buildDeckExport, parseDeckLine, BRACKET_STYLES, DEFAULT_BRACKET_STYLE } from '../utils/deckText';
 import { useT } from '../utils/i18n';
-import { groupDeckCards, sectionCount, sectionForTypeLine, requirementStatus, finishLabel } from './deckSections';
-import CardTile, { FinishBadge } from './CardTile';
-import MissingCardsPanel from './MissingCardsPanel';
+import { finishLabel } from './deckSections';
 import DeckList from './DeckList';
 import NewDeckModal from './NewDeckModal';
 import DeckView from './DeckView';
 
 // Basic lands are exempt from the four-copy deck rule.
-const isBasicEnergyOrLand = (card) => {
-  if (!card) return false;
-  const subs = card.subtypes || [];
-  const basicTypes = ['Basic', 'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
-  return (subs.includes('Land') || card.supertype === 'Land') && basicTypes.some(t => subs.includes(t) || card.name === t);
-};
 
 // Total copies of a card (matched by name) already in a deck's card list.
 //
@@ -35,17 +20,6 @@ const isBasicEnergyOrLand = (card) => {
 // correct: Magic's four-copy rule is about the card name, so four different
 // printings of Lightning Bolt is still four Lightning Bolts. Everywhere else in
 // this file identity means (printing, finish).
-const deckCountByName = (deckCards, name) =>
-  (deckCards || []).filter(c => c.name === name).reduce((s, c) => s + c.quantity, 0);
-
-// The badge that carries a row's reservation/ownership state, in the same
-// pill styling the rest of the app uses for status.
-const TONE_STYLES = {
-  ok: { background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' },
-  warn: { background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', border: '1px solid rgba(234, 179, 8, 0.3)' },
-  unavailable: { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.35)' },
-  muted: { background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }
-};
 
 // The identity of an import LINE, for matching a user's printing choice back to
 // the line it was made on.
@@ -57,23 +31,6 @@ function importLineKey(name) {
   return String(name || '').trim().toLowerCase();
 }
 
-function StatusBadge({ card }) {
-  const status = requirementStatus(card);
-  if (!status.label) return null;
-  const tone = TONE_STYLES[status.tone] || TONE_STYLES.muted;
-  return (
-    <span style={{
-      fontSize: '0.62rem',
-      fontWeight: 800,
-      padding: '2px 7px',
-      borderRadius: '10px',
-      whiteSpace: 'nowrap',
-      ...tone
-    }}>
-      {status.label}
-    </span>
-  );
-}
 
 // The printing + finish a row is pinned to. Under exact-only identity this is
 // not decoration -- it is the card's identity, so it is always visible rather
@@ -84,33 +41,19 @@ function StatusBadge({ card }) {
 // printing, which is why it can take an onClick. Text import fills a line from
 // whatever printings the user has free, so a mixed-printing result is normal;
 // this is how they make it uniform afterwards if they want to.
-function PrintingBadge({ card, onClick }) {
-  const interactive = typeof onClick === 'function';
-  return (
-    <span
-      onClick={interactive ? (e) => { e.stopPropagation(); onClick(); } : undefined}
-      title={interactive ? 'Change printing' : undefined}
-      style={{
-        fontSize: '0.6rem',
-        fontWeight: 700,
-        padding: '1px 6px',
-        borderRadius: '4px',
-        background: 'rgba(255,255,255,0.06)',
-        color: 'var(--text-secondary)',
-        border: '1px solid var(--border-glass)',
-        whiteSpace: 'nowrap',
-        cursor: interactive ? 'pointer' : undefined
-      }}
-    >
-      {finishLabel(card.desired_finish)}
-    </span>
-  );
-}
 
 
+const TONE_STYLES = {
+  ok: { background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)' },
+  warn: { background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', border: '1px solid rgba(234, 179, 8, 0.3)' },
+  unavailable: { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.35)' },
+  muted: { background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border-glass)' }
+};
 function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
+  // Written by runResultsSource / refreshResultsPanel, which are reachable
+  // from loadDeckDetails -- the deck view's onChanged refresh.
   const [activeDeck, setActiveDeck] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
@@ -125,8 +68,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // Held as transient screen state and NOT persisted: he explicitly asked for
   // no saved selections or presets, so a selection lives as long as the screen.
   
-  // Deck View & Display Modes
-  const [cardDisplayMode, setCardDisplayMode] = useState('list'); // 'list' | 'grid'
+  // Deck View & Display Modes // 'list' | 'grid'
   const [previewCard, setPreviewCard] = useState(null);
 
   // Deck Creation States & Constants
@@ -146,9 +88,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // Two slots rather than one is not future-proofing: partner pairs and
   // Backgrounds are ordinary, and The Prismatic Piper is never a legal solo
   // commander, so a single slot would have been wrong on day one.
-  const [commanderQuery, setCommanderQuery] = useState('');
-  const [commanderResults, setCommanderResults] = useState([]);
-  const [commanderSearching, setCommanderSearching] = useState(false);
 
   // THE COMMANDER REFUSAL AND ITS OVERRIDE.
   //
@@ -169,12 +108,9 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // through. Silence is not consent -- the user must type a reason and press
   // the override button, and the reason is recorded so the parser can learn
   // the mechanic it failed to recognise.
-  const [commanderRefusal, setCommanderRefusal] = useState(null);
-  const [commanderOverrideReason, setCommanderOverrideReason] = useState('');
   // The swap that was refused, held so an override can RE-SEND EXACTLY the
   // same write. Re-deriving it from the search results at confirm time would
   // risk overriding a different card than the one the refusal describes.
-  const [commanderRefusedSwap, setCommanderRefusedSwap] = useState(null);
 
   // THE SWAP THAT WILL REMOVE CARDS, held so the panel can NAME them.
   //
@@ -188,7 +124,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // Like the override above, there is no pre-armed confirmation and no default
   // path through: the user must press the confirm button, which re-sends the
   // identical write with the confirmation flag set.
-  const [commanderSwapRemoval, setCommanderSwapRemoval] = useState(null);
 
   // Whether the deck being created is a Commander deck. Every commander
   // control on the modal is gated on this, so other formats show no extra
@@ -196,13 +131,9 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
 
   // Swap the commander of an EXISTING deck. Held here so the deck view can
   // open the same search panel the create modal uses rather than growing a
-  // second one.
-  const [commanderSwap, setCommanderSwap] = useState(null); // { replacing } | null
+  // second one. // { replacing } | null
   
   // Card Search States inside editor
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
   const deckSearchGame = 'mtg';
 
   // WHAT THE RESULTS PANEL IS CURRENTLY SHOWING (PR 6I items 1 and 4b).
@@ -224,7 +155,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   //  2. CLOSING THE PANEL (item 4b). "Is the browse panel open" was previously
   //     only implied by searchResults being non-empty, so there was nothing to
   //     set to closed — which is precisely why the button could not toggle.
-  const [resultsSource, setResultsSource] = useState(null);
+  const resultsSource = null;
 
   // Deck Selection Menu Controls
   // Kept as a constant: filteredDecks still reads it, but the control that
@@ -256,20 +187,16 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // preferences (theme, search_page_size, bindarr_ui_lang, scanner settings) —
   // no new persistence layer is invented for it. A bad or absent stored value
   // falls through to the default rather than producing a third format.
-  const [buylistBracketStyle, setBuylistBracketStyleState] = useState(() => {
+  // Read once at mount. Nothing writes it any more, so calling it state would
+  // overstate what it does.
+  const buylistBracketStyle = (() => {
     const stored = localStorage.getItem('buylist_bracket_style');
     return BRACKET_STYLES.includes(stored) ? stored : DEFAULT_BRACKET_STYLE;
-  });
-  const setBuylistBracketStyle = (style) => {
-    if (!BRACKET_STYLES.includes(style)) return;
-    setBuylistBracketStyleState(style);
-    localStorage.setItem('buylist_bracket_style', style);
-  };
+  })();
   // The server's buylist for the open deck (PR 7). `null` means "not loaded or
   // the fetch failed" and is deliberately distinct from a loaded-but-empty
   // list, which is the positive claim "you own every card in this deck".
   const [buylist, setBuylist] = useState(null);
-  const [buylistLoading, setBuylistLoading] = useState(false);
   const [importText, setImportText] = useState('');
   const [importComparison, setImportComparison] = useState(null);
   // The server's copy-level accounting for the previewed paste. Kept beside the
@@ -279,16 +206,14 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   const [comparingImport, setComparingImport] = useState(false);
 
   // Checkout States
-  const [checkingOut, setCheckingOut] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
-  const [checkoutLocations, setCheckoutLocations] = useState([]);
-  const [checkoutMode, setCheckoutMode] = useState('checkout'); // 'checkout' | 'checkin'
-  const [checkoutDeckId, setCheckoutDeckId] = useState(null); // deck the open modal acts on
+  const checkoutLocations = [];
+  const checkoutMode = 'checkout'; // 'checkout' | 'checkin'
+  const checkoutDeckId = null; // deck the open modal acts on
 
   // True while an add/qty write is in flight. Blocks overlapping clicks that
   // would otherwise each compute a new quantity from the same stale render and
   // clobber one another (last-writer-wins on the server upsert).
-  const [savingCard, setSavingCard] = useState(false);
 
   // Exact printing + finish picker state.
   //
@@ -297,9 +222,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // owns exactly one (printing, finish) variant there is nothing to ask, so we
   // add it straight away. When they own several, this holds the search result
   // we are asking about and the variants they can choose from. It is a small
-  // inline panel inside the existing Add Cards list, not a separate screen.
-  const [variantPicker, setVariantPicker] = useState(null); // { card, variants, board }
-  const [loadingVariants, setLoadingVariants] = useState(false);
+  // inline panel inside the existing Add Cards list, not a separate screen. // { card, variants, board }
 
   // Repin an EXISTING deck entry to a different printing.
   //
@@ -310,7 +233,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // count. Those differ whenever another deck holds copies, and the free number
   // is the one that answers "if I switch to this printing, will my deck
   // actually be filled".
-  const [printingEditor, setPrintingEditor] = useState(null);
 
   // Printing choices made on the IMPORT preview, for lines the user owns no
   // free copies of (Case C).
@@ -333,15 +255,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // Which card-type sections are collapsed. Collapsed is the exception, so the
   // set holds the collapsed ones and an unknown section renders open -- a new
   // section type can never appear hidden.
-  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
 
-  const toggleSection = (key) => {
-    setCollapsedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
 
   useBackGuard(showCreateModal, () => setShowCreateModal(false));
   useBackGuard(showSimulator, () => setShowSimulator(false));
@@ -383,20 +297,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // the same rule that REFUSES an illegal commander at create time -- so the
   // picker can no longer offer a choice the app is about to reject. Filtering
   // here in the client would be a second, divergent notion of the rule.
-  const searchCommanders = async (query) => {
-    if (!query.trim()) { setCommanderResults([]); return; }
-    setCommanderSearching(true);
-    try {
-      const res = await fetch(`/api/search?name=${encodeURIComponent(query)}&game=mtg&commanders=1`);
-      if (res.ok) setCommanderResults(await res.json());
-      else showToast(t('deck.errSearch'));
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errSearch'));
-    } finally {
-      setCommanderSearching(false);
-    }
-  };
 
   // Turn a search result into a commander choice.
   //
@@ -405,21 +305,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // printing's ordinary default. This is the same rule the import path uses
   // for an explicitly-named printing, so the app never invents a finish a
   // printing does not offer.
-  const commanderChoiceFromCard = (card) => {
-    const finishes = Array.isArray(card.finishes) ? card.finishes : [];
-    const finish = finishes.length === 1
-      ? finishes[0]
-      : (finishes.includes('nonfoil') ? 'nonfoil' : (finishes[0] || 'nonfoil'));
-    return {
-      desired_card_id: card.id,
-      desired_finish: finish,
-      name: card.name,
-      set_name: card.set_name,
-      number: card.number,
-      image_url: card.image_url,
-      oracle_id: card.oracle_id
-    };
-  };
 
 
 
@@ -555,59 +440,8 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // user's behalf, who then finds the wrong version when they walk to the
   // binder. `quantity` is the ABSOLUTE new count, not a delta, so a retried or
   // double-tapped request cannot double the requirement.
-  const writeRequirement = async ({ desired_card_id, desired_finish, board = 'mainboard', quantity, commander_override = null, replacing_deck_card_id = null, confirm_remove_off_identity = false }) => {
-    if (!activeDeck) return false;
-    const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        desired_card_id, desired_finish, board, quantity,
-        // Sent only on an explicitly confirmed retry, exactly as on create.
-        ...(commander_override ? { commander_override } : {}),
-        // Sent only when this write EDITS an existing row -- a re-pin, a finish
-        // change, a commander re-printing. It tells the server which row the
-        // user is changing, so the singleton rule excludes that row instead of
-        // counting it as a duplicate of itself, and so the replace lands as one
-        // atomic write rather than an add followed by a delete.
-        ...(replacing_deck_card_id ? { replacing_deck_card_id } : {}),
-        // The user has SEEN the named list of cards a commander swap will
-        // remove and agreed to it. Sent only on that confirmed retry -- its
-        // absence means the server asks first, which is the whole point.
-        ...(confirm_remove_off_identity ? { confirm_remove_off_identity: true } : {})
-      })
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      // A COMMANDER SWAP THAT WILL REMOVE CARDS is not an error -- it is the
-      // server asking a question, with the exact cards named. Handed back to
-      // the caller so the swap panel can show the list and take a confirmation,
-      // rather than being flattened into a toast the user cannot act on.
-      if (data.code === 'COMMANDER_SWAP_REMOVES_CARDS') {
-        setCommanderSwapRemoval(data);
-        return false;
-      }
-      // An overridable commander refusal is handed back to the caller instead
-      // of being flattened into a toast, so the swap flow can offer the same
-      // explicit confirmation the create modal does. Everything else keeps
-      // the existing behaviour untouched.
-      if (data.overridable) {
-        setCommanderRefusal(data);
-        setCommanderOverrideReason('');
-        return false;
-      }
-      showToast(data.error || 'Failed to save card.');
-      return false;
-    }
-    return true;
-  };
 
   // Fetch the exact (printing, finish) variants of a card the user owns.
-  const fetchVariants = async (oracleId) => {
-    if (!oracleId) return [];
-    const res = await fetch(`/api/decks/printings/${encodeURIComponent(oracleId)}`);
-    if (!res.ok) return [];
-    return res.json();
-  };
 
   // "Add this card" from the results list.
   //
@@ -626,92 +460,8 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // printing but no finish, or nothing owned at all -- there the app genuinely
   // does not know which physical object is meant, and guessing would put the
   // wrong card in the deck.
-  const handleAddCardToDeck = async (card, board = 'mainboard') => {
-    if (!activeDeck || savingCard) return;
-
-    // The row already IS an exact (printing, finish). Nothing to ask.
-    if (card.exact && card.finish) {
-      await addExactVariant({
-        desired_card_id: card.desired_card_id || card.id,
-        name: card.name,
-        set_name: card.set_name,
-        number: card.number,
-        image_url: card.image_url,
-        finish: card.finish,
-        owned_qty: card.owned_qty
-      }, board);
-      return;
-    }
-
-    setLoadingVariants(true);
-    try {
-      const variants = await fetchVariants(card.oracle_id);
-
-      if (variants.length === 0) {
-        // Nothing owned in any printing. The search result itself still names
-        // an exact printing, but we do not know a finish for it, so we ask
-        // rather than assume. Finishes come from the printing's own list.
-        setVariantPicker({
-          card,
-          board,
-          variants: (card.finishes || ['nonfoil']).map(finish => ({
-            desired_card_id: card.id,
-            name: card.name,
-            set_name: card.set_name,
-            number: card.number,
-            image_url: card.image_url,
-            finish,
-            owned_qty: 0
-          }))
-        });
-        return;
-      }
-
-      if (variants.length === 1) {
-        await addExactVariant(variants[0], board);
-        return;
-      }
-
-      setVariantPicker({ card, board, variants });
-    } catch (err) {
-      console.error(err);
-      showToast(t('search.errAddCard'));
-    } finally {
-      setLoadingVariants(false);
-    }
-  };
 
   // Commit a chosen exact variant, incrementing whatever is already there.
-  const addExactVariant = async (variant, board = 'mainboard') => {
-    if (!activeDeck || savingCard) return;
-
-    const existing = activeDeck.cards.find(c =>
-      c.desired_card_id === variant.desired_card_id &&
-      c.desired_finish === variant.finish &&
-      c.board === board
-    );
-    const newQty = existing ? existing.quantity + 1 : 1;
-
-    setSavingCard(true);
-    try {
-      const ok = await writeRequirement({
-        desired_card_id: variant.desired_card_id,
-        desired_finish: variant.finish,
-        board,
-        quantity: newQty
-      });
-      if (ok) {
-        showToast(t('deck.addedCard', { name: variant.name }));
-        setVariantPicker(null);
-        await loadDeckDetails(activeDeck.id);
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('search.errAddCard'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
 
   // Open the repin picker for one deck row.
   //
@@ -719,19 +469,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // that is actually free. Loaded on demand rather than with the deck, because
   // availability is a fact about the whole collection at this instant and a
   // copy fetched with the deck would be stale by the time the user clicked.
-  const openPrintingEditor = async (entry) => {
-    if (!entry?.oracle_id) return;
-    setLoadingVariants(true);
-    try {
-      const variants = await fetchVariants(entry.oracle_id);
-      setPrintingEditor({ entryId: entry.id, variants });
-    } catch (err) {
-      console.error(err);
-      showToast(t('search.errAddCard'));
-    } finally {
-      setLoadingVariants(false);
-    }
-  };
 
   // Repin an existing entry to a chosen printing+finish.
   //
@@ -753,42 +490,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // user asked to change WHICH card, not HOW MANY -- and if the new printing
   // has fewer free copies, the row's existing Missing badge says so rather than
   // the app silently shrinking the deck.
-  const repinEntryPrinting = async (entry, variant) => {
-    if (!activeDeck || savingCard) return;
-    if (entry.desired_card_id === variant.desired_card_id
-      && entry.desired_finish === variant.finish) {
-      setPrintingEditor(null);
-      return;
-    }
-
-    setSavingCard(true);
-    try {
-      // An existing row for the printing being moved TO is merged into, so the
-      // re-pin does not lose the copies already required against it.
-      const existing = activeDeck.cards.find(c =>
-        c.desired_card_id === variant.desired_card_id &&
-        c.desired_finish === variant.finish &&
-        c.board === entry.board &&
-        c.id !== entry.id
-      );
-      const ok = await writeRequirement({
-        desired_card_id: variant.desired_card_id,
-        desired_finish: variant.finish,
-        board: entry.board,
-        quantity: (existing ? existing.quantity : 0) + entry.quantity,
-        replacing_deck_card_id: entry.id
-      });
-      if (!ok) return;
-
-      setPrintingEditor(null);
-      await loadDeckDetails(activeDeck.id);
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errQuantity'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
 
   // Change the quantity of an EXISTING requirement.
   //
@@ -796,77 +497,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // unique within a deck: the same printing can legitimately sit on the
   // mainboard and the sideboard, in nonfoil and in foil. The entry carries the
   // exact identity to re-send.
-  const handleUpdateCardQty = async (entry, newQty) => {
-    if (!activeDeck || savingCard) return;
-
-    // Guard against NaN/garbage from a manual quantity input before it reaches
-    // the server as an invalid quantity.
-    if (!Number.isFinite(newQty)) return;
-
-    if (newQty <= 0) {
-      // A COMMANDER IS SWAPPED, NEVER DELETED (Zach, 2026-08-19). The server
-      // refuses the delete outright, so leaving this control wired to it would
-      // give the user a button that always errors.
-      //
-      // ADAPTED IN PLACE rather than removed: the control keeps its position,
-      // its styling and its meaning ("get rid of this card"), and routes to the
-      // operation that can actually express the user's intent.
-      //
-      // TWO CASES, because the zone's size decides what "get rid of this one"
-      // can mean:
-      //
-      //   A PARTNER PAIR -> dropping one leaves a legal single-commander zone,
-      //     so this IS a supported change. It goes through dropCommander, which
-      //     is the same plan-and-confirm path as a replacement swap and names
-      //     any cards the narrowed identity would strand.
-      //   THE ONLY COMMANDER -> there is nothing to drop to. The deck must keep
-      //     a commander, so the control opens the swap panel to pick the
-      //     replacement instead of erroring.
-      if (entry.board === 'commander') {
-        const commanderCount = (activeDeck.cards || [])
-          .filter(c => c.board === 'commander').length;
-        if (commanderCount > 1) {
-          dropCommander(entry);
-          return;
-        }
-        setCommanderResults([]);
-        setCommanderQuery('');
-        setCommanderSwap({ replacing: entry });
-        showToast(t('deck.commanderSwapOnly'));
-        return;
-      }
-      handleRemoveCard(entry.id);
-      return;
-    }
-
-    // The four-copy rule is a legality warning, and the server also reports it,
-    // but blocking the increment here keeps the user from making a change the
-    // deck health panel will immediately scold them for. Ownership is NOT
-    // checked: planning a deck you have not finished buying is the normal case,
-    // and the row's own badge already reports the shortfall.
-    if (newQty > entry.quantity
-      && !isBasicEnergyOrLand(entry)
-      && deckCountByName(activeDeck.cards, entry.name) >= 4) {
-      showToast(t('deck.errCopyLimit', { count: 4, name: entry.name }));
-      return;
-    }
-
-    setSavingCard(true);
-    try {
-      const ok = await writeRequirement({
-        desired_card_id: entry.desired_card_id,
-        desired_finish: entry.desired_finish,
-        board: entry.board,
-        quantity: newQty
-      });
-      if (ok) await loadDeckDetails(activeDeck.id);
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errQuantity'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
 
   // Move an entry between boards -- in practice, toggling a card in and out of
   // 'considering'.
@@ -881,32 +511,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // requests the card sat on BOTH boards at once, and if the delete never
   // landed it stayed on both -- so the deck's own arithmetic would count a card
   // the user owns one of, twice. Naming the row being moved closes the window.
-  const handleMoveBoard = async (entry, board) => {
-    if (!activeDeck || savingCard || entry.board === board) return;
-    setSavingCard(true);
-    try {
-      const existing = activeDeck.cards.find(c =>
-        c.desired_card_id === entry.desired_card_id &&
-        c.desired_finish === entry.desired_finish &&
-        c.board === board
-      );
-      const ok = await writeRequirement({
-        desired_card_id: entry.desired_card_id,
-        desired_finish: entry.desired_finish,
-        board,
-        quantity: (existing ? existing.quantity : 0) + entry.quantity,
-        replacing_deck_card_id: entry.id
-      });
-      if (!ok) return;
-
-      await loadDeckDetails(activeDeck.id);
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errQuantity'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
 
   // Remove a requirement by its deck_cards.id, for the same reason quantity
   // edits take the whole entry: card id alone no longer identifies one row.
@@ -926,32 +530,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // operation it belongs to -- it now only arrives on the swap request, and
   // swapCommander/the inline removal panel handle it. There is no second
   // implementation of the same conversation.
-  const handleRemoveCard = async (deckCardId) => {
-    if (!activeDeck) return;
-
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards/${deckCardId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-
-      if (response.ok) {
-        showToast(t('deck.cardRemoved'));
-        loadDeckDetails(activeDeck.id);
-        return;
-      }
-
-      const data = await response.json().catch(() => ({}));
-      // Every refusal carries a message worth reading -- "a commander is
-      // swapped, not deleted" is actionable, and flattening it to a generic
-      // error would hide the way forward.
-      showToast(data.error || t('loc.errRemoveCard'));
-    } catch (err) {
-      console.error(err);
-      showToast(t('loc.errRemoveCard'));
-    }
-  };
 
   const handleDeleteDeck = async (deckId, name) => {
     if (!window.confirm(t('deck.confirmDelete', { name }))) return;
@@ -992,51 +570,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // The consequence that matters for requirement 1: every row in this list is
   // now ONE exact printing and finish, so clicking + on it is already a
   // complete instruction. Nothing has to be asked.
-  const groupOwnedByVariant = (rows) => {
-    const byVariant = new Map();
-    for (const item of rows) {
-      const finish = item.finish || 'nonfoil';
-      const key = `${item.card_id}|${finish}`;
-      const existing = byVariant.get(key);
-      if (existing) {
-        existing.owned_qty += (item.quantity || 1);
-        continue;
-      }
-      byVariant.set(key, {
-        id: item.card_id,
-        oracle_id: item.oracle_id,
-        name: item.name,
-        set_name: item.set_name,
-        number: item.number || item.collector_number || item.card_number || '',
-        image_url: item.image_url,
-        rarity: item.rarity,
-        price_trend: item.price_trend,
-        owned_qty: item.quantity || 1,
-        // THE CROSS-DECK COMMITMENT, carried through from the server.
-        //
-        // NOT accumulated like owned_qty. Ownership is summed because each row
-        // is one physical card, but in_deck_qty is already the TOTAL for this
-        // (printing, finish) across every deck -- the server computed it once
-        // per variant. Adding it up per collection row would multiply it by the
-        // number of copies owned and claim far more was committed than exists.
-        in_deck_qty: item.in_deck_qty ?? 0,
-        // The exact identity this row IS. Carried explicitly so the add path
-        // can send it straight to the server rather than re-deriving it from
-        // a search result that has no finish.
-        finish,
-        desired_card_id: item.card_id,
-        exact: true,
-        supertype: item.supertype,
-        subtypes: item.subtypes,
-        types: item.types,
-        type_line: item.type_line,
-        finishes: item.finishes,
-        colors: item.colors,
-        cmc: item.cmc
-      });
-    }
-    return [...byVariant.values()];
-  };
 
   // Run whatever the results panel is showing, and put the answer on screen.
   //
@@ -1050,7 +583,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
     if (source.mode === 'browse') {
       const res = await fetch(`/api/collection?game=${deckSearchGame}`);
       if (!res.ok) throw new Error('browse failed');
-      setSearchResults(groupOwnedByVariant(await res.json()));
       return;
     }
     const response = await fetch(
@@ -1061,7 +593,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
       err.status = response.status;
       throw err;
     }
-    setSearchResults(await response.json());
   };
 
   // Re-read the open results panel from the server (PR 6I item 1).
@@ -1086,134 +617,13 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
     }
   };
 
-  const handleSearchCards = async (e, forceBrowse = false) => {
-    if (e) e.preventDefault();
-
-    // BROWSE COLLECTION IS A TOGGLE (PR 6I item 4b). Pressing the button while
-    // the browse listing is open closes it. Previously the button only ever
-    // opened the panel, so once open there was no way to dismiss it at all --
-    // which matters most on a phone, where it occupies most of the screen.
-    if (forceBrowse && resultsSource?.mode === 'browse') {
-      closeResultsPanel();
-      return;
-    }
-
-    const source = (forceBrowse || !searchQuery.trim())
-      ? { mode: 'browse' }
-      : { mode: 'search', query: searchQuery };
-
-    try {
-      setSearching(true);
-      // Any new result list invalidates an open picker: it was asking about a
-      // card that may no longer be on screen.
-      setVariantPicker(null);
-      // SCOPE=DATABASE, NOT COLLECTION, for the search branch. This is the whole
-      // of PR 6G item 5.
-      //
-      // The search was hardcoded to `scope=collection`, so it could only ever
-      // return cards the user already owned. Searching for anything else came
-      // back empty -- which reads exactly like "no such card" -- and that is
-      // why unowned cards could not be added as requirements. The backend
-      // route already defaults to the full catalogue and always could; the
-      // client was the thing narrowing it.
-      //
-      // Owned and unowned stay DISTINGUISHABLE because every row carries
-      // `owned_qty` from the server, which the row's "Owned: N" badge below
-      // already renders -- an unowned card simply reads "Owned: 0". Since
-      // PR 6I item 3 the owned ones also sort to the top, so his own printing
-      // is on screen rather than several scrolls down a 104k-card catalogue.
-      await runResultsSource(source);
-      // Recorded only AFTER the request succeeded, so a failed search does not
-      // leave the panel claiming to show something it never loaded.
-      setResultsSource(source);
-    } catch (err) {
-      console.error(err);
-      showToast(t(err.status === 429 ? 'deck.errRateLimit' : 'deck.errSearch'));
-    } finally {
-      setSearching(false);
-    }
-  };
 
   // Dismiss the results panel (PR 6I item 4b). Clearing the rows AND the source
   // together, so "nothing is showing" is one fact rather than two that can
   // disagree.
-  const closeResultsPanel = () => {
-    setSearchResults([]);
-    setResultsSource(null);
-    setVariantPicker(null);
-  };
 
   // --- CHECKOUT / RETURN ---
-  const handleCheckout = async (deck = null) => {
-    const targetDeck = deck || activeDeck;
-    if (!targetDeck) return;
-    try {
-      setCheckingOut(true);
-      const res = await fetch(`/api/decks/${targetDeck.id}/checkout`, { method: 'PUT' });
-      if (res.ok) {
-        showToast(t('deck.checkedOut', { name: targetDeck.name }));
-        if (activeDeck && activeDeck.id === targetDeck.id) {
-          setActiveDeck(prev => ({ ...prev, checked_out: 1, checked_out_at: new Date().toISOString() }));
-        }
-        fetchDecks();
 
-        const locRes = await fetch(`/api/decks/${targetDeck.id}/locations`);
-        if (locRes.ok) {
-          const locData = await locRes.json();
-          setCheckoutLocations(locData);
-          setCheckoutMode('checkout');
-          setCheckoutDeckId(targetDeck.id);
-          setShowCheckoutModal(true);
-        }
-      } else {
-        const errData = await res.json().catch(() => null);
-        if (errData && errData.details && errData.details.length > 0) {
-          showToast(t('deck.errCheckout', { detail: errData.details[0], extra: errData.details.length > 1 ? t('deck.andMore', { count: errData.details.length - 1 }) : '' }));
-        } else {
-          showToast(errData?.error || 'Failed to check out deck.');
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errCheckoutGeneric'));
-    } finally {
-      setCheckingOut(false);
-    }
-  };
-
-  const handleReturn = async (deck = null) => {
-    const targetDeck = deck || activeDeck;
-    if (!targetDeck) return;
-    try {
-      setCheckingOut(true);
-      // Capture where each card lives before flipping the flag, so the check-in
-      // guide can show where to return them (cards stay in their slots either
-      // way, but fetch first to be safe).
-      const locRes = await fetch(`/api/decks/${targetDeck.id}/locations`);
-      const locData = locRes.ok ? await locRes.json() : null;
-      const res = await fetch(`/api/decks/${targetDeck.id}/return`, { method: 'PUT' });
-      if (res.ok) {
-        showToast(t('deck.returned', { name: targetDeck.name }));
-        if (activeDeck && activeDeck.id === targetDeck.id) {
-          setActiveDeck(prev => ({ ...prev, checked_out: 0, checked_out_at: null }));
-        }
-        fetchDecks();
-        if (locData) {
-          setCheckoutLocations(locData);
-          setCheckoutMode('checkin');
-          setCheckoutDeckId(targetDeck.id);
-          setShowCheckoutModal(true);
-        }
-      } else {
-        showToast(t('deck.errReturn'));
-      }
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errReturnGeneric'));
-    } finally {
-      setCheckingOut(false);
-    }
-  };
 
   // Closing the guide via X / back = cancel: revert the toggle we just committed
   // by calling the opposite endpoint. (Done button keeps the status.)
@@ -1290,7 +700,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // user acts on would depend on which screen they happened to open.
   const refreshBuylist = async (deckId) => {
     if (!deckId) return;
-    setBuylistLoading(true);
     try {
       const response = await fetch(`/api/decks/${deckId}/buylist`);
       if (!response.ok) throw new Error('buylist failed');
@@ -1300,8 +709,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
       // Left as null rather than emptied: an empty buylist MEANS "you own
       // everything", which is a claim we cannot make when the fetch failed.
       setBuylist(null);
-    } finally {
-      setBuylistLoading(false);
     }
   };
 
@@ -1337,13 +744,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
     { bracketStyle: buylistBracketStyle }
   );
 
-  const handleCopyBuylist = () => {
-    const text = buylistText();
-    if (!text) { showToast(t('deck.nothingToBuy')); return; }
-    navigator.clipboard.writeText(text)
-      .then(() => showToast(t('deck.buylistCopied')))
-      .catch(() => showToast(t('deck.errCopy')));
-  };
 
   const handleExportDeckText = () => {
     if (!activeDeck) return '';
@@ -1506,43 +906,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // attempt rather than reading current state matters for the same reason it
   // does on the swap: the list the user agreed to must describe the write that
   // then happens.
-  const dropCommander = async (commander, confirmRemove = false) => {
-    if (!activeDeck || savingCard) return;
-    setSavingCard(true);
-    try {
-      const response = await fetch(`/api/decks/${activeDeck.id}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          drop_commander_deck_card_id: commander.id,
-          ...(confirmRemove ? { confirm_remove_off_identity: true } : {})
-        })
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        if (data.code === 'COMMANDER_SWAP_REMOVES_CARDS') {
-          setCommanderRefusedSwap({ dropping: commander });
-          setCommanderSwapRemoval(data);
-          return;
-        }
-        showToast(data.error || t('deck.errQuantity'));
-        return;
-      }
-
-      setCommanderRefusal(null);
-      setCommanderOverrideReason('');
-      setCommanderRefusedSwap(null);
-      setCommanderSwapRemoval(null);
-      setCommanderSwap(null);
-      await loadDeckDetails(activeDeck.id);
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errQuantity'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
 
 
   // Swap a commander on an EXISTING deck.
@@ -1556,60 +919,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // half was a second copy by name. Naming the row being replaced makes it one
   // write: the zone never transiently holds both, and a refusal rolls the whole
   // swap back with the commander the user already had left in place.
-  const swapCommander = async (replacing, card, override = null, confirmRemove = false) => {
-    if (!activeDeck || savingCard) return;
-    const choice = commanderChoiceFromCard(card);
-
-    if (replacing
-      && replacing.desired_card_id === choice.desired_card_id
-      && replacing.desired_finish === choice.desired_finish) {
-      setCommanderSwap(null);
-      return;
-    }
-
-    setSavingCard(true);
-    try {
-      const ok = await writeRequirement({
-        desired_card_id: choice.desired_card_id,
-        desired_finish: choice.desired_finish,
-        board: 'commander',
-        quantity: 1,
-        commander_override: override,
-        // Only when REPLACING one. Adding a second commander to a deck that
-        // has one is not an edit, and must still be judged as a new entry.
-        replacing_deck_card_id: replacing ? replacing.id : null,
-        confirm_remove_off_identity: confirmRemove
-      });
-      // A refused write leaves the command zone untouched, so there is nothing
-      // to undo -- and the old commander is still in place, because the
-      // replace is one transaction on the server rather than two requests here.
-      if (!ok) {
-        // A refused swap remembers WHAT was attempted, so the override
-        // re-sends the identical write rather than whatever is selected by
-        // the time the user finishes typing their reason. The same applies to
-        // the removal confirmation: the list the user agreed to must describe
-        // the write that then happens.
-        setCommanderRefusedSwap({ replacing, card });
-        return;
-      }
-
-      // The swap succeeded, so any refusal panel on screen is stale.
-      setCommanderRefusal(null);
-      setCommanderOverrideReason('');
-      setCommanderRefusedSwap(null);
-      setCommanderSwapRemoval(null);
-
-      setCommanderSwap(null);
-      setCommanderQuery('');
-      setCommanderResults([]);
-      await loadDeckDetails(activeDeck.id);
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errQuantity'));
-    } finally {
-      setSavingCard(false);
-    }
-  };
 
   // The cards that are actually IN the deck.
   //
@@ -1619,74 +928,14 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // read as illegal. They still render, in their own section, with live
   // availability -- they are just not part of the deck's arithmetic.
   const deckCards = activeDeck ? activeDeck.cards.filter(c => c.board !== 'considering') : [];
-  const consideringCards = activeDeck ? activeDeck.cards.filter(c => c.board === 'considering') : [];
 
   // Card type read off the cached Scryfall type_line, which is the same source
   // the deck list sections use. One definition of "what type is this card"
   // rather than one per screen.
-  const cardGroup = (card) => sectionForTypeLine(card.type_line);
-
-  const GROUP_ORDER = ['Creatures', 'Planeswalker', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Lands', 'Other'];
 
   // --- CHART DATA GENERATION ---
-  const getSupertypeChartData = () => {
-    if (!activeDeck) return [];
-    const counts = {};
-    deckCards.forEach(c => {
-      const g = cardGroup(c);
-      counts[g] = (counts[g] || 0) + c.quantity;
-    });
-    return GROUP_ORDER
-      .filter(key => counts[key] > 0)
-      .map(key => ({ name: key, value: counts[key] }));
-  };
 
-  const getManaCurveData = () => {
-    if (!activeDeck) return [];
-    const counts = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7+': 0 };
-    deckCards.forEach(c => {
-      const val = c.cmc !== undefined && c.cmc !== null ? c.cmc : null;
-      if (val !== null) {
-        const bucket = val >= 7 ? '7+' : String(Math.floor(val));
-        if (counts[bucket] !== undefined) counts[bucket] += c.quantity;
-      }
-    });
-    return Object.keys(counts).map(cost => ({ cost, count: counts[cost] }));
-  };
 
-  const getEnergyChartData = () => {
-    if (!activeDeck) return [];
-    const map = {};
-    deckCards.forEach(c => {
-      const subs = c.subtypes || [];
-      const isLand = cardGroup(c) === 'Lands';
-      if (isLand) {
-        const basicLandTypes = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
-        const foundType = basicLandTypes.find(t => subs.includes(t) || c.name.includes(t));
-        const label = foundType ? `Land (${foundType})` : 'Land (Nonbasic)';
-        map[label] = (map[label] || 0) + c.quantity;
-      } else {
-        const colors = c.color_identity || [];
-        if (colors.length === 0) {
-          map.Colorless = (map.Colorless || 0) + c.quantity;
-        } else {
-          colors.forEach(col => {
-            const colorName = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' }[col] || col;
-            map[colorName] = (map[colorName] || 0) + c.quantity;
-          });
-        }
-      }
-    });
-    return Object.keys(map).map(key => ({ name: key, value: map[key] }));
-  };
-
-  const totalDeckCardsCount = deckCards.reduce((sum, c) => sum + c.quantity, 0);
-  const targetDeckCardsCount = activeDeck?.target_size || 60;
-  const supertypeData = getSupertypeChartData();
-  const energyData = getEnergyChartData();
-  const manaCurveData = getManaCurveData();
-
-  const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
   // --- SELECTION MENU METRICS & FILTERING ---
 

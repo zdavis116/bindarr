@@ -1,44 +1,36 @@
-Show the printing in search results, and fix a raw key on screen
+Remove the dead detail-view code and drop the eslint-disable
 
-Two things Zach hit on the deployed build.
+DeckBuilder.jsx: 2,209 -> 1,459 lines. 772 deletions, 21 insertions.
 
-A RAW KEY RENDERED WHERE A SENTENCE SHOULD BE.
+When DeckView.jsx replaced the old 1,056-line detail view, ~40 handlers, state
+pairs and chart builders were orphaned. An automated sweep of them produced
+four syntax errors by brace-matching into neighbouring code, so they were
+parked behind `/* eslint-disable no-unused-vars */` with a note, rather than
+deleted in a hurry. This removes them properly and takes the banner off.
 
-He saw "deck.overCommitted" in the search row. This project's t() resolves a
-plural key ONLY when vars.count is a number (translate.js:10). The key is
-stored as .one/.other and I called it with { owned, decks } -- no count -- so
-the siblings were never consulted and the bare key, which does not exist, fell
-through to the screen.
+METHOD: one declaration at a time, rebuilding after each, reverting the single
+edit that breaks the build rather than the file. A bad match then costs one
+function instead of an afternoon.
 
-THIRD TIME on this branch, and every time the build and all 343 tests passed.
-localeKeys.test.js checked that keys EXIST; nothing checked that a plural key
-is called with a count. I18N-TC4 now does, and it immediately paid for itself:
-it flagged ExportModal's `t('deck.copyCards', { count })` as missing a count,
-which was MY REGEX failing to read ES6 shorthand. A guard with a false positive
-is worse than no guard, so that was fixed before the guard was trusted.
+THE BANNER WAS HIDING REAL BUGS, which is the argument for removing it rather
+than leaving it parked. With no-unused-vars off, no-undef was also suppressed,
+and two live symbols turned out to be broken by earlier passes:
 
-Verified by removing the count again and watching TC4 name the exact call.
+  * TONE_STYLES looked dead because StatusBadge and PrintingBadge -- its only
+    obvious users -- were dead. A LIVE import-preview panel still uses it.
+  * searchResults / buylistLoading were removed while runResultsSource,
+    refreshResultsPanel and refreshBuylist still wrote to them. Those three are
+    reachable from loadDeckDetails, which DeckView calls through onChanged
+    after every edit.
 
-FOUR IDENTICAL-LOOKING ROWS WERE FOUR DIFFERENT CARDS.
+Both surfaced only once the rule was back on.
 
-  "we need set numbers in the search results because the 2nd photo is what I
-   see so how do I know which to choose?"
+The second one was fixed by removing the WRITES, not by restoring the state:
+the panels that read those values became DeckView, so a setState with no reader
+was re-rendering a 1,500-line component on every deck refresh for nothing.
 
-Measured -- "Tony Stark" returns four rows reading "Tony Stark / Marvel Super
-Heroes", and they are distinct printings:
+KEPT DELIBERATELY: loadDeckDetails and the three refresh functions beneath it
+are live, not dead. buylistBracketStyle became a plain const -- nothing writes
+it any more, so calling it state overstated what it does.
 
-    #350  Mythic  nonfoil, foil
-    #363  Mythic  nonfoil, foil
-    #392  Mythic  FOIL ONLY
-
-This app's premise is exact identity: it records the printing owned, not the
-card name. A picker that hides the printing asks him to choose blind and then
-stores that blind choice as a fact about his cardboard. #392 being foil-only
-means one of those rows silently commits to a foil, at a real price
-difference -- so foil-only printings are now marked.
-
-Rows show SET #NUMBER, the foil-only marker, then the set name. The commander
-picker gets the same treatment, for the same reason.
-
-TESTS: I18N-TC4, DV-TC16 through DV-TC18. 343 pass, 0 fail. Lint and build
-clean.
+343 tests pass, 0 fail. Lint clean with no suppressions. Build clean.
