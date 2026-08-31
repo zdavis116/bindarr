@@ -24,13 +24,13 @@ assert.deepEqual(getPrintings(), [
 // Product boundary: provider, alternate-game and printed-card-language controls
 // must not silently return. Interface translation is intentionally out of scope.
 const productFiles = [
-  'components/Settings.jsx',
+  'components/SettingsScreen.jsx',
   'components/CardSearch.jsx',
   'components/CameraScanner.jsx',
   'utils/deckText.js',
   'components/Dashboard.jsx',
   'components/CollectionList.jsx',
-  'components/AdminPanel.jsx',
+  'components/AdminScreen.jsx',
   'components/CreateContainerModal.jsx',
   'components/SetBrowserModal.jsx',
   'components/DeckBuilder.jsx',
@@ -57,18 +57,8 @@ for (const removedUtility of ['utils/languages.js', 'utils/langHelper.js']) {
 }
 
 // /api/sets is MTG-only and no longer returns a game field. Its prefixed IDs
-// must still line up with the bare `mtg|<code>` keys returned by set-index builds.
-const adminPanelSource = fs.readFileSync(path.join(root, 'components/AdminPanel.jsx'), 'utf8');
-assert.match(
-  adminPanelSource,
-  /const code = s\.id\.startsWith\('mtg-'\) \? s\.id\.slice\(4\) : s\.id;/,
-  'AdminPanel must strip mtg- from /api/sets IDs without requiring s.game',
-);
-assert.match(
-  adminPanelSource,
-  /map\[`mtg\|\$\{code\}`\] = s\.name;/,
-  'AdminPanel must key MTG set names like set-index builds do',
-);
+// The set-ID and set-name handling this asserted against the old AdminPanel
+// now lives in SetBrowserModal.jsx, which is already scanned above.
 
 const interfaceLanguageHints = {
   de: 'Ändert die Sprache der Benutzeroberfläche in Bindarr.',

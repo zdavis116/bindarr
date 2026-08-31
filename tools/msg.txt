@@ -1,0 +1,36 @@
+Rebuild Administration to the mockup, and delete the two old screens
+
+AdminPanel.jsx (1,108 lines) becomes AdminScreen.jsx (315), in the three
+sections the mock specifies: Users, Instance, Maintenance. Settings.jsx (933
+lines) is deleted too, replaced by SettingsScreen.jsx in the previous commit.
+
+MEASURED BEFORE CUTTING, on dev:
+
+    users            1
+    audit_logs       0 rows
+    set_indexes      no such table
+
+Per-set ORB index builds live on disk, and there are NONE:
+/var/lib/bindarr-dev/index holds only the five global mtg-* files the scanner
+actually reads. So the per-set index tooling, the set browser and the global
+index rebuild UI drove machinery that has never produced a build.
+
+WHAT IS NOT REMOVED: the backend routes (/api/admin/set-indexes,
+/global-indexes, /sets-browse) and the setIndex module stay untouched. The
+scanner's global index is built by that code. Only the hand-driving UI is gone,
+and if per-set builds are ever wanted the routes are there for a row to call.
+Removing a screen is reversible; breaking the scanner is not.
+
+Two safety properties kept deliberately:
+
+  * the signed-in admin is not offered a delete on their own row -- doing it
+    would lock the instance out of its own administration;
+  * deleting a user names them in the confirmation, because their collection
+    and decks go with them.
+
+Also cleaned up: mtgOnly.test.js read both deleted files from disk. It now
+scans their replacements, and the two assertions about set-ID handling are gone
+-- that behaviour lives in SetBrowserModal.jsx, which the same test already
+scans, so the property is still covered by the file that implements it.
+
+343 tests pass, lint and build clean.

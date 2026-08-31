@@ -12,7 +12,7 @@ const AddCards = lazy(() => import('./components/AddCards'));
 const CollectionList = lazy(() => import('./components/CollectionList'));
 const LocationManager = lazy(() => import('./components/LocationManager'));
 const Settings = lazy(() => import('./components/SettingsScreen'));
-const AdminPanel = lazy(() => import('./components/AdminPanel'));
+const AdminPanel = lazy(() => import('./components/AdminScreen'));
 const SharedCollection = lazy(() => import('./components/SharedCollection'));
 const DeckBuilder = lazy(() => import('./components/DeckBuilder'));
 
