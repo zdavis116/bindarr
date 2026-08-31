@@ -1,66 +1,56 @@
-Fix three unusable surfaces hidden under the nav bar, and make types an AND
+Build the deck view to the approved mockup
 
-THE BUYLIST WAS NEVER BROKEN. IT WAS INVISIBLE.
+DeckView.jsx replaces 1,056 lines inside DeckBuilder.jsx. Zach reviewed the
+mockup (sketches/009-deck-view) line by line and approved it, so the mock was
+the spec here rather than the inspiration -- the mistake that cost three rounds
+of rework on Collection and the deck list.
 
-Zach reported it twice: "the buylist when selecting multiple decks still
-doesn't work at all. I don't understand the mock has it right."
+KEPT at his direction after I listed what the rebuild would drop: quantity
+editing, commander swap, and moving cards between the deck and Considering.
+DROPPED, agreed: checkout / in-play, the printing picker, card categories,
+playtest.
 
-I verified the endpoint in-process. Then again over real HTTP with a session
-token -- HTTP 200, correct items. Then I wrote BUY-TC1..TC4 against the client
-sequencing and all four passed. Every piece worked.
+FOUR BUGS CAUGHT BEFORE SHIPPING, all by asking the real API instead of
+assuming:
 
-The bar renders `position: fixed; bottom: 0; zIndex: 60`. The pinned mobile nav
-bar is `zIndex: 1000` (index.css, inside the max-width:768px query) and sits in
-exactly that strip. The buylist appeared UNDERNEATH it: invisible, with an
-untappable export button.
+  1. COST TO FINISH WOULD HAVE BEEN ZERO ON EVERY DECK. The deck query joins
+     card_cache but never selected a price. Fixed server-side in
+     deckIdentity.js so the figure comes from the database, not a client guess
+     -- the same trap that had the multi-deck buylist reading $0.00 for two
+     rounds.
 
-Verifying the half that was never broken is not debugging. I spent two rounds
-confirming the backend worked while the actual failure was three lines of CSS
-in my own component.
+  2. THE EXPORT CHIPS WERE FICTION. The mock drew five: Plain, Moxfield,
+     Archidekt, TCGplayer, Manapool. buildDeckExport supports three things --
+     buylist, mtga, and plain -- differing by bracket style. Four of those five
+     chips would have emitted identical text, which is worse than three honest
+     ones: an export that looks richer than it is hands over the wrong format
+     silently. Now Moxfield, Manapool and Names only, named for where they are
+     pasted.
 
-THE SAME BUG HID THE NEW-DECK MODAL. Zach: "the create deck modal has no way of
-closing it so you get stuck on that screen." The X button existed, had a
-working onClose, and was covered by the same nav bar -- modal at 200, nav at
-1000. It now sits above the nav, closes on Escape, and has a Cancel button
-beside Create, because a modal with one exit is one mistake away from a trap.
+  3. WARNINGS WOULD HAVE RENDERED BLANK. They arrive as { code, message }; I
+     read .text. A column of empty, alarming rows. MISSING_COPIES is also
+     filtered out -- the Missing tab and the cost already say it, and Zach cut
+     the equivalent "short of 100" warning for exactly that reason.
 
-...AND THE COLLECTION FILTER SHEET, at 121.
+  4. THE COMMANDER-SWAP CONFIRMATION WOULD NEVER HAVE APPEARED. The error
+     handler SPREADS details at the top level of the body; I read
+     body.details.removing. The swap would have surfaced as a bare error toast,
+     losing the named list of cards it wanted to remove -- which is the whole
+     point of the refusal.
 
-That is the sixth, seventh and eighth control on this project that rendered,
-was wired correctly, passed every test, and could not be used -- three of them
-in one session, after I had already named this as my blind spot. So it stops
-being something to remember:
+Also: POST /api/decks/:id/cards takes flat fields, not { cards: [...] }, so
+every add would have been a 400 with the search appearing to work.
 
-  - frontend/src/utils/zLayers.js gives the stacking order names and reasons.
-    Bare numbers scattered through JSX cannot be reasoned about; these can.
-  - fixedSurfaceStacking.test.js reads the nav's z-index FROM THE STYLESHEET
-    and fails any fixed bottom-anchored surface below it.
+deckView.test.js pins eight properties. Five were verified by REINTRODUCING the
+bug and watching the case fail: sections read from the colours column,
+considering counted in the deck, the invented price field, quantity sent as a
+delta, and the 409 treated as a plain error.
 
-That guard immediately found six MORE, all pre-existing and none mine:
-CardInspectorModal, AdminPanel, SharedCollection and three in DeckBuilder, all
-at 999 -- one below the nav. 999 looks like "on top of everything" and is not.
-CardInspectorModal is where a card's quantity and condition are edited, so this
-was not cosmetic.
-
-What the guard cannot do: it reads z-index numbers, not rendered geometry. It
-cannot see below-the-fold, overflow:hidden clipping, or overlap. Only a person
-holding a phone catches those, which is still how every one of these was found.
-
-TYPES ARE NOW AND. Zach: "if I select artifact and creature it should show me
-artifact creatures not creatures, artifacts and artifact creatures". I had
-ANY-OF and argued in a comment that "at least both types is a question nobody
-asks" -- he asks it, and an Artifact Creature is a common thing to want. Now
-containment, matching the colour rule, so selecting more always narrows.
-
-COLF-TC4 is rewritten for the new meaning rather than left passing against
-logic the app no longer runs, and TC6 now guards types as well as colours.
-Verified both fail when reverted.
-
-Also: the nav tab says "Decks", not "Deck Builder".
-
-NAV-TC4 was re-anchored. It keyed off a "{/* View Toggle */}" comment the
-Collection rewrite removed, so it failed while Storage was perfectly reachable.
-A test that cries wolf gets ignored, which is worse than no test. It now checks
-the button and its handler, verified by unwiring them.
+The old detail-view handlers are now unreferenced but NOT deleted. An automated
+sweep of them cut into neighbouring code and produced four syntax errors; dead
+code is recoverable where deleted capability is not, and handleDeleteDeck was
+nearly lost that way earlier this week. They come out in a separate verified
+pass, with an eslint-disable banner and a note at the render site so the build
+stays honest in the meantime.
 
 378 tests pass; lint and build clean.

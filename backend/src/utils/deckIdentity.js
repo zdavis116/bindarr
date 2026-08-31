@@ -272,7 +272,11 @@ async function availabilityForDeck(database, deckId, userId) {
             dc.board, dc.quantity, dc.checked_out,
             cc.name, cc.set_id, cc.set_name, cc.number, cc.image_url, cc.color_identity,
             cc.legalities, cc.type_line, cc.mana_cost, cc.cmc, cc.supertype,
-            cc.subtypes, cc.types, cc.rarity, cc.finishes
+            cc.subtypes, cc.types, cc.rarity, cc.finishes,
+            -- Price for "cost to finish" and the per-card figure on the Missing
+            -- tab. price_trend is Cardmarket's trend price, the same field the
+            -- collection totals use, so the two screens cannot disagree.
+            cc.price_trend
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
      WHERE dc.deck_id = ?
