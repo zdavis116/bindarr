@@ -2134,7 +2134,6 @@ function DeckBuilder({ showToast }) {
                 const totalCards = deck.total_cards || 0;
                 const isComplete = totalCards >= targetSize;
                 const percent = Math.min(100, Math.round((totalCards / targetSize) * 100));
-                const accentColor = deck.accent_color || '#ef4444';
                 // SELECTED FOR THE BUYLIST. A ticked checkbox alone is too easy
                 // to miss, and the cost of missing it is real: he shops for a
                 // deck he did not mean to include. The card itself therefore

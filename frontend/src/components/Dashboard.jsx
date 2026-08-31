@@ -50,7 +50,7 @@ function ProgressRing({ pct, size = 42 }) {
   );
 }
 
-function Dashboard({ statsTrigger, onNavigate, showToast }) {
+function Dashboard({ statsTrigger, onNavigate }) {
   const { t } = useT();
   const [stats, setStats] = useState(null);
   const [decks, setDecks] = useState([]);
