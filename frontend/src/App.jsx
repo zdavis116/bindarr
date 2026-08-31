@@ -106,6 +106,12 @@ function App() {
   // switch pushes a fresh entry so the back button walks through tab history.
   // Disposing with history.back() would race during rapid switches and navigate
   // the browser past the app origin into about:blank.
+  // Which deck to open when Decks is entered from elsewhere. Zach: "when you
+  // click on the deck in the deck in progress it should take you into that
+  // deck." Same shape as focusEntryId for cards -- the target is handed over
+  // with the navigation rather than guessed at by the destination.
+  const [focusDeckId, setFocusDeckId] = useState(null);
+
   const goTab = (tab) => {
     if (tab === activeTab) return;
     const prev = activeTab;
@@ -219,7 +225,7 @@ function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard statsTrigger={statsTrigger} onNavigate={goTab} setSelectedLocationId={setSelectedLocationId} setFocusEntryId={setFocusEntryId} onUpdate={triggerRefresh} showToast={showToast} />;
+        return <Dashboard statsTrigger={statsTrigger} onNavigate={goTab} onOpenDeck={(id) => { setFocusDeckId(id); goTab('deckbuilder'); }} setSelectedLocationId={setSelectedLocationId} setFocusEntryId={setFocusEntryId} onUpdate={triggerRefresh} showToast={showToast} />;
       case 'add-cards':
         return <AddCards onAddSuccess={triggerRefresh} showToast={showToast} setActiveTab={goTab} />;
       case 'collection':
@@ -249,7 +255,13 @@ function App() {
           />
         );
       case 'deckbuilder':
-        return <DeckBuilder showToast={showToast} />;
+        return (
+          <DeckBuilder
+            showToast={showToast}
+            focusDeckId={focusDeckId}
+            onFocusDeckHandled={() => setFocusDeckId(null)}
+          />
+        );
 
       case 'settings':
         return <Settings user={user} onUpdateUser={handleUpdateUser} showToast={showToast} />;

@@ -99,7 +99,7 @@ function PrintingBadge({ card, onClick }) {
 }
 
 
-function DeckBuilder({ showToast }) {
+function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
   const [activeDeck, setActiveDeck] = useState(null);
@@ -660,6 +660,16 @@ function DeckBuilder({ showToast }) {
     return response.json();
   };
 
+
+  // Open a deck requested by another screen (Home's "decks in progress").
+  // Waits for the list to load, then clears the request -- otherwise returning
+  // to this tab later would silently re-open the same deck.
+  useEffect(() => {
+    if (!focusDeckId || !decks.length) return;
+    loadDeckDetails(focusDeckId);
+    onFocusDeckHandled && onFocusDeckHandled();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDeckId, decks.length]);
 
   const loadDeckDetails = async (deckId) => {
     try {

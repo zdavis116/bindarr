@@ -50,7 +50,7 @@ function ProgressRing({ pct, size = 42 }) {
   );
 }
 
-function Dashboard({ statsTrigger, onNavigate }) {
+function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
   const { t } = useT();
   const [stats, setStats] = useState(null);
   const [decks, setDecks] = useState([]);
@@ -171,7 +171,11 @@ function Dashboard({ statsTrigger, onNavigate }) {
             {inProgress.slice(0, 5).map(deck => (
               <button
                 key={deck.id}
-                onClick={() => onNavigate && onNavigate('deckbuilder')}
+                // Open THIS deck, not the deck list. Zach: "when you click
+                // on the deck in the deck in progress it should take you
+                // into that deck." Falls back to the list if the handler is
+                // missing, so the row is never a dead tap.
+                onClick={() => (onOpenDeck ? onOpenDeck(deck.id) : onNavigate && onNavigate('deckbuilder'))}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '0.8rem', width: '100%',
                   textAlign: 'left', border: 0, cursor: 'pointer', font: 'inherit',
