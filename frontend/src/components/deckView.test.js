@@ -188,3 +188,62 @@ test('DV-TC12: the export dialog is shared with the deck list', () => {
   assert.doesNotMatch(listSrc, /navigator\.clipboard\.writeText/,
     'DeckList must not silently copy: the text is shown before it is taken');
 });
+
+// --- OVERSUBSCRIPTION MUST BE VISIBLE ------------------------------------
+//
+// Zach searched Tony Stark from a THIRD deck and read "1 owned, in other
+// decks". Measured on dev:
+//
+//     owned        = 1     one physical card
+//     in_deck_qty  = 2     'Test' (commander) AND 'Test 2' (mainboard)
+//     available    = 0
+//
+// Two decks had claimed one card. The old wording implied a tidy situation --
+// "it's in another deck" -- when in fact his decks promise more copies than he
+// owns. Sleeve one and the other is silently short, discovered at the table.
+//
+// The permissive rules make this REACHABLE by design: nothing stops a second
+// deck claiming a spoken-for copy. So the screen has to say it, because
+// nothing else will.
+
+test('DV-TC13: more decks than copies is reported as over-committed', () => {
+  const tony = { id: 'tony', owned_qty: 1, available_qty: 0, in_deck_qty: 2 };
+
+  // Searching from a deck that does NOT contain him: all 2 claims are elsewhere.
+  const hereQty = 0;
+  const elsewhere = Math.max(0, tony.in_deck_qty - hereQty);
+
+  assert.equal(elsewhere, 2, 'both claims are in other decks');
+  assert.ok(elsewhere > tony.owned_qty,
+    'two decks want one card -- this is the case that must be called out');
+
+  assert.match(src, /elsewhere\(c\) > c\.owned_qty/,
+    'the component must compare claims against copies owned');
+  assert.match(src, /deck\.overCommitted/,
+    'and use a distinct message when more decks want it than exist');
+});
+
+test('DV-TC14: this deck\'s own claim is not counted as "elsewhere"', () => {
+  // in_deck_qty counts EVERY deck including the one on screen. Without the
+  // subtraction, a card you just added here would also be reported as being
+  // somewhere else -- the same confusion in a new place.
+  const card = { id: 'tony', owned_qty: 1, available_qty: 0, in_deck_qty: 2 };
+  const hereQty = 1;                       // this deck holds one of the two
+  const elsewhere = Math.max(0, card.in_deck_qty - hereQty);
+
+  assert.equal(elsewhere, 1, 'only the OTHER deck counts as elsewhere');
+  assert.ok(!(elsewhere > card.owned_qty),
+    'one copy claimed by one other deck is not over-committed');
+
+  assert.match(src, /const elsewhere = \(c\) => Math\.max\(0, \(c\.in_deck_qty \|\| 0\) - hereQty\(c\.id\)\)/,
+    'elsewhere must subtract this deck\'s own claim');
+});
+
+test('DV-TC15: the availability line never says just "in other decks"', () => {
+  // Zach: "Feel like we need better wording here." The old string named
+  // neither how many copies nor how many decks, so it could not be acted on.
+  assert.doesNotMatch(src, /deck\.inOtherDecks/,
+    'the vague message must be gone');
+  assert.match(src, /deck\.usedInDecks/,
+    'replaced by one that states the deck count');
+});

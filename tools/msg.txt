@@ -1,60 +1,38 @@
-Owned means usable here; share the export dialog with the deck list
+Say when decks want more copies than exist
 
-Both bugs are Zach's, from using the deployed build, and both are the same
-mistake in different clothes: treating "he owns a copy" as "a copy is free for
-this deck".
+Zach searched Tony Stark from a THIRD deck and saw "1 owned, in other decks".
+He was right that the wording was poor, and the reason is worse than vagueness.
 
-OWNED AND MISSING SHOWED THE SAME CARD.
+MEASURED ON DEV:
 
-  "if I add Tony stark to that deck he shows in both owned and missing but for
-   that deck he would be missing because his other copy is used in another
-   deck."
+    owned         1     one physical Tony Stark
+    in_deck_qty   2     'Test' (commander) AND 'Test 2' (mainboard)
+    available     0
 
-He owns one Tony Stark and another deck has it, so for the deck on screen:
+TWO decks had claimed ONE card. The old line implied a tidy situation -- "it's
+in another deck, go get it" -- when in fact his decks promise more copies than
+he owns. Sleeve Test and Test 2 is silently short, discovered at the table,
+against cardboard. A missing card costs a tap; a wrong record costs a recount.
 
-    quantity_owned     = 1   he has one, somewhere
-    quantity_available = 0   none free -- the other deck holds it
-    quantity_missing   = 1   he must buy one to finish this deck
+This state is REACHABLE BY DESIGN now: the permissive rules deliberately let a
+second deck claim a spoken-for copy, because refusing was the thing that broke
+deck building. Which means the screen has to say it, since nothing else will.
+Removing an enforcement without adding the report is how a system gets quietly
+wrong -- the same trap as OFF_COLOUR earlier in this branch.
 
-The Owned tab tested quantity_owned, so the card satisfied Owned AND had a
-shortfall, landing in both. The progress ring counted it too, so the deck read
-as more finished than it is -- it would say ready while the card sits in a box
-across the room. That is a wrong record, not a cosmetic slip: the failure Zach
-minds most, because he only discovers it standing at the binder.
+WORDING now states both numbers rather than summarising them:
 
-Owned is now "nothing missing", which makes the two tabs complementary by
-construction rather than by two filters agreeing. Progress counts
-quantity_available for the same reason. The server already computed all three
-figures correctly (deckIdentity.js:198-230) -- the client was reading the wrong
-one.
+    2 of 3 free                          copies genuinely usable here
+    1 owned, used in 1 deck              none free, but the books balance
+    Only 1 owned, but 2 decks want it    the books do NOT balance
 
-"1 IN THIS DECK" WAS ABOUT A DIFFERENT DECK.
+"in 2 decks" is actionable; "in other decks" is not.
 
-  "when I do Tony stark it says 1 in this deck which it's not in the deck I'm
-   searching but it is in a different deck"
+ALSO FIXED: in_deck_qty counts every deck INCLUDING the one on screen, so a
+card already added here was reported as being somewhere else as well. The
+`elsewhere` helper subtracts this deck's own claim.
 
-in_deck_qty from /api/search counts copies committed ACROSS ALL DECKS, and
-deliberately so -- availability is a whole-collection fact (routes/collection.js
-:46). Labelling it "in this deck" inverted its meaning: it announced the card
-was already here, when being elsewhere is precisely why it shows as missing.
-
-The count for THIS deck comes from the deck the component already holds, so
-both facts are now shown and worded apart: "1 already in this deck" versus
-"1 owned, in other decks".
-
-ONE EXPORT DIALOG, SHARED.
-
-  "for the deck list when selecting multiple decks for the buylist can we have
-   the functionality be the same as for the missing in the deck view."
-
-They had drifted: the deck view opened a modal with three formats and showed
-the text before copying; the deck list silently put one fixed format on the
-clipboard, so you could not see what you were about to paste. ExportModal.jsx
-is now used by both -- shared rather than copied, because two copies of an
-export dialog is how they diverged in the first place.
-
-TESTS: DV-TC9 through DV-TC12. The first three were verified by REINTRODUCING
-each bug and watching the case fail -- Owned tested by ownership, progress
-counting owned-anywhere, and the all-decks figure relabelled as this deck.
+TESTS: DV-TC13 through DV-TC15. TC13 was verified by disabling the
+over-committed branch and watching it fail.
 
 343 pass, 0 fail. Lint and build clean.

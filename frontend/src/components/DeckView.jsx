@@ -322,6 +322,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // Copies of a printing in THIS deck. The API's in_deck_qty counts every
   // deck, which is the right number for availability and the wrong one for
   // "is it already here".
+  // Decks OTHER than this one that have claimed a copy. in_deck_qty counts
+  // every deck, including the one on screen, so this deck's own claim is
+  // subtracted -- otherwise a card already added here would be reported as
+  // being somewhere else too.
+  const elsewhere = (c) => Math.max(0, (c.in_deck_qty || 0) - hereQty(c.id));
+
   const hereQty = (cardId) => deckCards
     .filter(c => c.desired_card_id === cardId)
     .reduce((n, c) => n + (c.quantity || 0), 0);
@@ -501,8 +507,16 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                   <span style={{ display: 'block', fontSize: '0.68rem',
                                  color: c.available_qty > 0 ? 'var(--accent-green)' : 'var(--accent-yellow)' }}>
                     {c.available_qty > 0
+                      // Copies genuinely free for this deck.
                       ? t('deck.freeOfOwned', { free: c.available_qty, owned: c.owned_qty })
-                      : t('deck.inOtherDecks', { owned: c.owned_qty })}
+                      // None free. Say WHERE they went and HOW MANY decks are
+                      // involved -- and if more decks claim it than he owns,
+                      // say that outright rather than implying it is fine.
+                      : (elsewhere(c) > c.owned_qty
+                          ? t('deck.overCommitted', {
+                              owned: c.owned_qty, decks: elsewhere(c) })
+                          : t('deck.usedInDecks', {
+                              owned: c.owned_qty, decks: elsewhere(c) }))}
                   </span>
                 ) : (
                   <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>

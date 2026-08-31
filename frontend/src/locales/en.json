@@ -1210,5 +1210,9 @@
   "deck.alreadyHere": "{count} already in this deck",
   "deck.inOtherDecks": "{owned} owned, in other decks",
   "deck.buylist": "Buylist",
-  "deck.nothingToExport": "Nothing to export."
+  "deck.nothingToExport": "Nothing to export.",
+  "deck.usedInDecks.one": "{owned} owned, used in {decks} deck",
+  "deck.usedInDecks.other": "{owned} owned, used in {decks} decks",
+  "deck.overCommitted.one": "Only {owned} owned, but {decks} deck wants it",
+  "deck.overCommitted.other": "Only {owned} owned, but {decks} decks want it"
 }
