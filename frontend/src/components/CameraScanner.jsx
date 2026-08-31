@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine } from 'lucide-react';
+import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';

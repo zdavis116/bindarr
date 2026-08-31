@@ -381,7 +381,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                           </span>
                         </button>
                       ))}
-                      <ManualCardSearch
+                      <StagingSearch
                         disabled={busyId === entry.id}
                         onPick={(cardId) => { setOverrideId(null); resolve(entry.id, cardId); }}
                       />
