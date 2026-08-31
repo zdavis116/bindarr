@@ -118,6 +118,14 @@
 
   /* ---- CARD LIST ---- */
   .list{display:flex;flex-direction:column;gap:5px}
+  /* Section headers, sticky so you always know which type you are looking at
+     while scrolling a 100-card list. */
+  .sec{display:flex;align-items:baseline;justify-content:space-between;
+       padding:15px 2px 6px;position:sticky;top:0;background:var(--bg);z-index:5}
+  .sec:first-child{padding-top:4px}
+  .sec b{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t2)}
+  .sec span{font-size:11.5px;color:var(--t3)}
+  .cnote{font-size:11.5px;color:var(--t3);margin:-4px 0 10px}
   .row{display:flex;align-items:center;gap:11px;padding:9px 11px;background:var(--s1);
        border-radius:11px;cursor:pointer}
   .row.miss{background:rgba(255,159,10,.06)}
@@ -133,12 +141,6 @@
      Zach: "Just a considering section in the deck would be the only thing
      additional to add." Cards you are thinking about, kept out of the counts
      entirely -- a maybe must never move the percentage. */
-  .consider{margin-top:22px}
-  .chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-  .chead b{font-size:13px;font-weight:700;letter-spacing:.02em}
-  .chead .cnt{font-size:11.5px;color:var(--t3)}
-  .cnote{font-size:11.5px;color:var(--t3);margin:-4px 0 9px}
-
   /* ---- EXPORT MODAL ------------------------------------------------------
      Zach: "maybe that's a modal that pops up when you click export". */
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1100;display:none}
@@ -213,13 +215,6 @@
         <div><b>2 cards outside Krenko&rsquo;s colours.</b>
           <span>Mono-red commander &mdash; Kodama&rsquo;s Reach and Llanowar Elves are not legal here.</span></div>
       </div>
-      <div class="rule warn">
-        <span class="dot">
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M12 8v5M12 16.5v.01"/></svg>
-        </span>
-        <div><b>13 cards short of 100.</b>
-          <span>Commander decks must be exactly 100 including the commander.</span></div>
-      </div>
       <div class="rule ok">
         <span class="dot">
           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>
@@ -230,9 +225,10 @@
   </div>
 
   <div class="seg" role="tablist">
-    <button role="tab" aria-selected="true"  data-f="all">All 100</button>
-    <button role="tab" aria-selected="false" data-f="have">Owned 87</button>
-    <button role="tab" aria-selected="false" data-f="need">Missing 13</button>
+    <button role="tab" aria-selected="true"  data-f="all" data-n="all">All</button>
+    <button role="tab" aria-selected="false" data-f="have" data-n="have">Owned</button>
+    <button role="tab" aria-selected="false" data-f="need" data-n="need">Missing</button>
+    <button role="tab" aria-selected="false" data-f="consider" data-n="consider">Considering</button>
   </div>
 
   <!-- ADD CARDS -->
@@ -242,18 +238,10 @@
   </div>
   <div class="results" id="results" style="display:none"></div>
 
+  <div id="cnote"></div>
   <div id="mbar"></div>
   <div class="list" id="list"></div>
 
-  <!-- CONSIDERING -->
-  <div class="consider">
-    <div class="chead">
-      <b>Considering</b>
-      <span class="cnt">3 cards</span>
-    </div>
-    <div class="cnote">Not counted in the 100 or the cost to finish.</div>
-    <div class="list" id="clist"></div>
-  </div>
 </main>
 
 <div class="scrim" id="scrim"></div>
@@ -268,6 +256,7 @@
     <button aria-selected="false" data-x="mox">Moxfield</button>
     <button aria-selected="false" data-x="arch">Archidekt</button>
     <button aria-selected="false" data-x="tcg">TCGplayer</button>
+    <button aria-selected="false" data-x="mana">Manapool</button>
   </div>
   <pre id="out"></pre>
   <div class="sfoot">
@@ -286,24 +275,31 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  // name, set, qty, state, art tint, price
+  // name, set, qty, state, art tint, price, type
   const CARDS = [
-    ['Sol Ring','Commander Masters',1,'have','#7a6a52',0],
-    ['Krenko, Mob Boss','Jumpstart',1,'have','#9a4b30',0],
-    ['Goblin Chieftain','Modern Masters',1,'need','#8c3b2e',3.40],
-    ['Purphoros, God of the Forge','Theros',1,'need','#a8452c',8.90],
-    ['Skullclamp','Darksteel',1,'have','#6b6b6b',0],
-    ['Dockside Extortionist','Commander 2019',1,'need','#8a4433',24.00],
-    ['Mountain','Kaldheim',34,'have','#7d4a3a',0],
-    ['Impact Tremors','Dragons of Tarkir',1,'have','#9b4a33',0],
-    ['Goblin Matron','Urza\u2019s Saga',1,'need','#7e3a2c',1.20],
-    ['Coat of Arms','Tenth Edition',1,'need','#6d6455',4.10],
+    ['Krenko, Mob Boss','Jumpstart',1,'have','#9a4b30',0,'Commander'],
+    ['Goblin Chieftain','Modern Masters',1,'need','#8c3b2e',3.40,'Creature'],
+    ['Purphoros, God of the Forge','Theros',1,'need','#a8452c',8.90,'Creature'],
+    ['Dockside Extortionist','Commander 2019',1,'need','#8a4433',24.00,'Creature'],
+    ['Goblin Matron','Urza\u2019s Saga',1,'need','#7e3a2c',1.20,'Creature'],
+    ['Chaos Warp','Commander 2011',1,'have','#a04a2f',0,'Instant'],
+    ['Goblin War Strike','Onslaught',1,'have','#8e3f2d',0,'Sorcery'],
+    ['Sol Ring','Commander Masters',1,'have','#7a6a52',0,'Artifact'],
+    ['Skullclamp','Darksteel',1,'have','#6b6b6b',0,'Artifact'],
+    ['Coat of Arms','Tenth Edition',1,'need','#6d6455',4.10,'Artifact'],
+    ['Impact Tremors','Dragons of Tarkir',1,'have','#9b4a33',0,'Enchantment'],
+    ['Mountain','Kaldheim',34,'have','#7d4a3a',0,'Land'],
   ];
 
+  // Moxfield's order: the commander first because it is the deck's premise,
+  // then the types in the order a deck list is normally read.
+  const TYPE_ORDER = ['Commander','Creature','Instant','Sorcery','Artifact',
+                      'Enchantment','Planeswalker','Battle','Land'];
+
   const CONSIDERING = [
-    ['Goblin Recruiter','Battlebond','#8a4030',12.50],
-    ['Thousand-Year Elixir','Commander 2014','#6f6250',9.20],
-    ['Bitterblossom','Modern Horizons 2','#5c4a63',18.00],
+    ['Goblin Recruiter','Battlebond',1,'consider','#8a4030',12.50,'Creature'],
+    ['Thousand-Year Elixir','Commander 2014',1,'consider','#6f6250',9.20,'Artifact'],
+    ['Bitterblossom','Modern Horizons 2',1,'consider','#5c4a63',18.00,'Enchantment'],
   ];
 
   const SEARCH_POOL = [
@@ -319,14 +315,43 @@
   function art(tint){ return `<div class="art" style="background:linear-gradient(150deg,${tint},#141416)"></div>`; }
 
   function render(){
-    const rows = CARDS.filter(c => filter === 'all' || c[3] === filter);
-    $('#list').innerHTML = rows.map(c => `
-      <div class="row ${c[3] === 'need' ? 'miss' : ''}">
-        ${art(c[4])}
-        <div class="ci"><div class="cn">${c[0]}</div><div class="cs">${c[1]}</div></div>
-        ${c[2] > 1 ? `<div class="qty">\u00d7${c[2]}</div>` : ''}
-        ${c[3] === 'need' ? `<div class="pill need">$${c[5].toFixed(2)}</div>` : ''}
-      </div>`).join('');
+    // The Considering tab shows a different SET of cards, not a filtered view
+    // of the deck -- these are cards being thought about, deliberately outside
+    // the 100 and outside the cost to finish.
+    const source = filter === 'consider' ? CONSIDERING : CARDS;
+    const rows = source.filter(c => filter === 'all' || filter === 'consider' || c[3] === filter);
+
+    // GROUPED BY TYPE, Moxfield style. A flat 100-card list is unreadable; the
+    // sections are how you see "do I have enough ramp" without counting.
+    const byType = new Map();
+    for (const c of rows) {
+      if (!byType.has(c[6])) byType.set(c[6], []);
+      byType.get(c[6]).push(c);
+    }
+
+    const html = TYPE_ORDER.filter(t => byType.has(t)).map(type => {
+      const group = byType.get(type);
+      // Count CARDS, not rows: 34 Mountains is 34 cards in one row.
+      const n = group.reduce((a, c) => a + c[2], 0);
+      return `
+        <div class="sec"><b>${type}</b><span>${n}</span></div>
+        ${group.map(c => `
+          <div class="row ${c[3] === 'need' ? 'miss' : ''}">
+            ${art(c[4])}
+            <div class="ci"><div class="cn">${c[0]}</div><div class="cs">${c[1]}</div></div>
+            ${c[2] > 1 ? `<div class="qty">\u00d7${c[2]}</div>` : ''}
+            ${c[3] === 'need' ? `<div class="pill need">$${c[5].toFixed(2)}</div>` : ''}
+            ${c[3] === 'consider' ? `<div class="qty">$${c[5].toFixed(2)}</div>` : ''}
+          </div>`).join('')}`;
+    }).join('');
+
+    $('#list').innerHTML = html;
+
+    // A note on the Considering tab, so its exclusion from the counts is
+    // stated where it is relevant rather than remembered.
+    $('#cnote').innerHTML = filter === 'consider'
+      ? '<div class="cnote">Not counted in the 100 or the cost to finish.</div>'
+      : '';
 
     // THE MISSING TAB IS THE BUYLIST. No separate panel, no second surface --
     // the list of what you need and the thing you buy from are the same list.
@@ -342,14 +367,21 @@
       </div>` : '';
     const exp = $('#exp');
     if (exp) exp.onclick = openSheet;
-
-    $('#clist').innerHTML = CONSIDERING.map(c => `
-      <div class="row">
-        ${art(c[2])}
-        <div class="ci"><div class="cn">${c[0]}</div><div class="cs">${c[1]}</div></div>
-        <div class="qty">$${c[3].toFixed(2)}</div>
-      </div>`).join('');
   }
+  // Tab labels come from the data, so the counts cannot drift from the list.
+  (function labelTabs(){
+    const count = arr => arr.reduce((a, c) => a + c[2], 0);
+    const n = {
+      all: count(CARDS),
+      have: count(CARDS.filter(c => c[3] === 'have')),
+      need: count(CARDS.filter(c => c[3] === 'need')),
+      consider: count(CONSIDERING),
+    };
+    document.querySelectorAll('.seg button').forEach(b => {
+      b.textContent = b.textContent.trim() + ' ' + n[b.dataset.n];
+    });
+  })();
+
   render();
 
   document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
@@ -384,6 +416,7 @@
     mox:   '1 Goblin Chieftain (MMA) 92\n1 Purphoros, God of the Forge (THS) 145\n1 Dockside Extortionist (C19) 39\n1 Goblin Matron (USG) 190\n1 Coat of Arms (10E) 306',
     arch:  '1x Goblin Chieftain\n1x Purphoros, God of the Forge\n1x Dockside Extortionist\n1x Goblin Matron\n1x Coat of Arms',
     tcg:   'Goblin Chieftain||Purphoros, God of the Forge||Dockside Extortionist||Goblin Matron||Coat of Arms',
+    mana:  '1 Goblin Chieftain\n1 Purphoros, God of the Forge\n1 Dockside Extortionist\n1 Goblin Matron\n1 Coat of Arms',
   };
   let fmt = 'plain';
   function paint(){ $('#out').textContent = TEXTS[fmt]; }
