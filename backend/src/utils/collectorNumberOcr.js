@@ -135,7 +135,81 @@ const sharp = require('sharp');
 // default while production used 1500x2100.
 //
 // Measure through the real route, on real input, or do not measure.
-const STRIP = { left: 0.02, top: 0.920, width: 0.28, height: 0.075 };
+// RETUNED FOR THE YOLO DETECTOR (Phase 4b). top 0.920 -> 0.880.
+//
+// The old value was tuned against the CLASSICAL detector's crop. The trained
+// detector frames cards slightly differently, so the number line drifted partly
+// out of the window and the reads came back with the SET line but the NUMBER
+// line above it missing:
+//
+//     queued:  "MSH * EN % DOMENI"           <- number line gone
+//     good:    "L 0295\nMSH*EN % DOMENI"
+//
+// That is why Zach's basic lands queued as 'unreadable' after Phase 4b shipped.
+// Nothing to do with foils, and nothing to do with matching -- a basic land has
+// no artwork signal to fall back on, so losing the number loses the card.
+//
+// MEASURED on his 33 real scans, through the real route, sweeping the window:
+//
+//     top    numbers read
+//     0.850    10/31
+//     0.865    14/31       <- cliff: the window has climbed off the text
+//     0.880    29/31       <- chosen
+//     0.895    28/31
+//     0.920    22/31       <- previous value
+//     0.930     5/31
+//
+// 0.880 sits on a PLATEAU (0.880 and 0.895 score the same) rather than a peak,
+// which is what makes it a safe choice: the exact framing varies per photo, so
+// a value that only works at one setting would fail on the next card.
+// RETUNED AGAIN, ON THE CAPTURES THAT FAILED (top 0.880 -> 0.845, h 0.075 -> 0.100).
+//
+// Zach: "the queue still was still adding cards and some completely
+// incorrectly". Every failing queue row showed the SET line reading fine and
+// the NUMBER line above it missing entirely:
+//
+//     'MSH «EM to Daw Ba'                    set line only
+//     'MSH » EN % DOMENI / EERE $00 EEE'     set line only
+//     ''                                     nothing
+//
+// That is not blur -- the set line is the same size, in the same place, and
+// reads fine. The window was simply looking BELOW the number, catching the set
+// line instead.
+//
+// Swept over 17 real captures from that exact session:
+//
+//     top 0.845  h 0.100  ->  15/17   best on real photos, FAILS the fixtures
+//     top 0.870  h 0.100  ->  14/17   <- CHOSEN: passes both
+//     top 0.880  h 0.075  ->  11/17   what shipped
+//     top 0.900  h 0.100  ->   7/17
+//
+// TWO CONSTRAINTS, NOT ONE. The value that scored best on Zach's photos (0.845)
+// BROKE ocr_route.test.js, which renders synthetic cards and reads 4/4 -- the
+// regression test that exists because a wrong-but-confident collector number
+// once nearly entered his collection. Trading that guard for two more real
+// reads would be removing a smoke detector to stop it chirping.
+//
+// So the window was swept against BOTH: every candidate run through the real
+// captures AND through the actual e2e test. 0.870/0.100 is the best value that
+// satisfies both -- 14/17 on his photos (up from 11) with the fixtures intact.
+//
+// The TALLER window is the more important half of the change. A taller strip
+// catches the number whether the crop puts it at 85% or 89% of card height,
+// which is exactly the variation that broke this twice. Chasing the perfect
+// offset would break again the next time the crop changes.
+//
+// WHY THIS KEEPS MOVING, stated so the next person does not re-tune blindly:
+// this constant is a fraction of the CARD'S HEIGHT in the rectified image, so
+// it is only stable while the crop is. It has now been invalidated twice by
+// changes upstream -- once by the server detector, once by the client cropping
+// to its own detection box. If the crop changes again, re-measure; do not
+// assume.
+let STRIP = { left: 0.02, top: 0.870, width: 0.28, height: 0.100 };
+
+// TEST/DIAGNOSTIC ONLY. Lets a sweep vary the window without editing source
+// between runs. Production never calls this; the exported STRIP above is the
+// shipped value and the only one the route uses.
+function _setStrip(s) { STRIP = { ...STRIP, ...s }; }
 
 // The matcher's rectified size (scanMatch.js). NOT changed here.
 const CARD_ASPECT = 2.5 / 3.5;
@@ -188,9 +262,40 @@ function getWorker() {
         errorHandler: (e) => console.warn('ocr worker:', e?.message || e),
         cachePath: process.env.OCR_CACHE_DIR || path.join(__dirname, '..', '..', 'data', 'ocr'),
       });
-      // PSM 6: a uniform block of text. The strip is two short lines; the
-      // default (auto page segmentation) treats it as a page and does worse.
-      await worker.setParameters({ tessedit_pageseg_mode: '6' });
+      // PSM 4: a single column of text of variable sizes.
+      //
+      // Was PSM 6 ('uniform block') -- a reasonable guess, never measured.
+      // Against 48 of Zach's captures where he told us what the card actually
+      // was, holding everything else fixed:
+      //
+      //                  tune (24)            held-out (24)
+      //     psm 6    correct 13 WRONG 5    correct 15 WRONG 3
+      //     psm 4    correct 13 WRONG 1    correct 14 WRONG 1
+      //
+      // Correctness is a wash; WRONG READS DROP BY TWO THIRDS on BOTH halves,
+      // so it is a real effect rather than a fit to the tuning data.
+      //
+      // WHY THAT TRADE IS RIGHT HERE and would be wrong in most apps: a silent
+      // read queues the card and costs one tap. A WRONG read can put the wrong
+      // card into a collection tracking physical objects, where it cannot be
+      // reconciled against the shelf later. Four confident mistakes becoming
+      // four honest "could not read it" is worth losing one read.
+      //
+      // THE COST, STATED PLAINLY: this drops the synthetic distant-card
+      // regression case from 4/4 to 3/4 (a NULL read, not a fabrication).
+      // Isolated against that test:
+      //
+      //     psm 6 x1 PASS    psm 6 x2 PASS
+      //     psm 4 x1 FAIL    psm 4 x2 FAIL
+      //
+      // so PSM 4 is what costs it, and a 2x upscale does not buy it back --
+      // upscaling alone made held-out wrong reads 3 -> 4.
+      //
+      // Taken deliberately on Zach's own answer: "I will always scan from close
+      // up." The distant case is a scenario his workflow does not contain, and
+      // every capture in the corpus is close-range. If that ever changes, the
+      // fix is to select PSM by detected card size rather than to revert.
+      await worker.setParameters({ tessedit_pageseg_mode: '4' });
       return worker;
     })().catch((e) => {
       // A failed worker must not be cached as a permanently rejected promise,
@@ -223,10 +328,20 @@ async function cropCollectorStrip(imageBuffer) {
   const left = Math.min(Math.round(STRIP.left * w), w - 1);
   const height = Math.max(1, Math.min(Math.round(STRIP.height * h), h - top));
   const width = Math.max(1, Math.min(Math.round(STRIP.width * w), w - left));
-  return sharp(rect)
-    .extract({ left, top, width, height })
-    // Small white-on-black text; contrast normalisation measurably helps.
-    .greyscale().normalise().sharpen().png().toBuffer();
+  return preprocessStrip(await sharp(rect).extract({ left, top, width, height }).png().toBuffer());
+}
+
+// The preprocessing OCR needs, independent of how the band was obtained.
+//
+// Extracted so the region-warp path (which receives the band already isolated)
+// and the full-card path (which must crop first) run the IDENTICAL pipeline.
+// Two copies of this would drift, and a drift here changes what OCR reads --
+// which is exactly the class of bug that has cost the most time on this
+// project.
+//
+// Small white-on-black text; contrast normalisation measurably helps.
+function preprocessStrip(bandBuffer) {
+  return sharp(bandBuffer).greyscale().normalise().sharpen().png().toBuffer();
 }
 
 // Read the strip. Returns raw OCR text, or '' if OCR is unavailable.
@@ -235,9 +350,17 @@ async function cropCollectorStrip(imageBuffer) {
 // should go to the review queue for Zach to resolve, exactly as an unreadable
 // number does. Propagating the error would fail the whole scan and lose a card
 // he physically scanned, which is a strictly worse outcome than asking him.
-async function readCollectorStrip(imageBuffer) {
+// `preCropped`: the caller already warped ONLY this band (see the region warp
+// in rectifyCard), so the strip geometry must not be applied a second time.
+// Cropping a crop would take 10% of an image that is already the 10%.
+//
+// The preprocessing below still runs -- it is what OCR actually needs, and it
+// is cheap on a small band.
+async function readCollectorStrip(imageBuffer, { preCropped = false } = {}) {
   try {
-    const crop = await cropCollectorStrip(imageBuffer);
+    const crop = preCropped
+      ? await preprocessStrip(imageBuffer)
+      : await cropCollectorStrip(imageBuffer);
     const worker = await getWorker();
     const { data } = await worker.recognize(crop);
     return data?.text || '';
@@ -254,4 +377,4 @@ async function shutdown() {
   try { (await p).terminate(); } catch { /* already gone */ }
 }
 
-module.exports = { readCollectorStrip, cropCollectorStrip, shutdown, STRIP, OCR_SCALE, OCR_W, OCR_H };
+module.exports = { readCollectorStrip, cropCollectorStrip, shutdown, STRIP, OCR_SCALE, OCR_W, OCR_H, _setStrip };

@@ -14,6 +14,8 @@ const embedMatch = require('./embedMatch');
 const setIndex = require('./setIndex');
 const { parseSetList } = require('./utils/setQuery');
 const languages = require('./utils/languages');
+const scanProfile = require('./scanProfile');
+const cardDetector = require('./cardDetector');
 
 const DATA_DIR = process.env.INDEX_DATA_DIR || path.join(__dirname, '..', 'data');
 // CLIP candidates to geometrically verify.
@@ -284,6 +286,65 @@ function detectCard(rgbaData, w, h) {
   return out;
 }
 
+// PHASE 4b: YOLO FIRST, CLASSICAL AS FALLBACK.
+//
+// The classical detector locks onto the TOPLOADER rather than the card it
+// holds — the defect that broke Zach's sleeved scans. The trained detector
+// fixes 8 of its 10 worst failures with zero regressions, so it leads.
+//
+// It is a FALLBACK, not a replacement, because the classical path still works
+// on the cases it always worked on. If the model is missing, corrupt, slow to
+// load, or unsure, we get today's behaviour rather than a broken scan.
+//
+// YOLO returns geometry only; the warp is done here so both paths produce the
+// identical `{ data, width, height, quad, pick }` shape callers already expect.
+// Doing it any other way would leak the choice of detector into every caller.
+async function detectWithFallback(rgbaData, w, h) {
+  let yolo = null;
+  try {
+    yolo = await cardDetector.detect(rgbaData, w, h);
+  } catch (e) {
+    console.warn('yolo detect threw, falling back:', e.message);
+  }
+  if (yolo && yolo.quad) {
+    const warped = warpToQuad(rgbaData, w, h, yolo.quad);
+    if (warped) return { ...warped, quad: yolo.quad, pick: yolo.pick };
+    // A warp failure means the quad was unusable; fall through rather than
+    // return a card-shaped nothing.
+  }
+  return detectCard(rgbaData, w, h);
+}
+
+// Warp an arbitrary quad to the matcher's canonical WARP_W x WARP_H card.
+// Extracted from detectCard so both detectors share one implementation --
+// two copies of a perspective transform is two chances to get the corner
+// order subtly different, and that failure looks like a bad photo.
+function warpToQuad(rgbaData, w, h, quad) {
+  let src = null, srcTri = null, dstTri = null, M = null, warped = null;
+  try {
+    const [tl, tr, br, bl] = orderQuad(quad);
+    src = cv.matFromImageData({ data: rgbaData, width: w, height: h });
+    srcTri = cv.matFromArray(4, 1, cv.CV_32FC2,
+      [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
+    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2,
+      [0, 0, WARP_W, 0, WARP_W, WARP_H, 0, WARP_H]);
+    M = cv.getPerspectiveTransform(srcTri, dstTri);
+    warped = new cv.Mat();
+    cv.warpPerspective(src, warped, M, new cv.Size(WARP_W, WARP_H));
+    return { data: Buffer.from(warped.data), width: WARP_W, height: WARP_H, channels: 4 };
+  } catch (e) {
+    console.warn('warpToQuad failed:', e.message);
+    return null;
+  } finally {
+    // Freed here, not inline: an exception mid-way would otherwise strand
+    // full-frame Mats on the wasm heap, which never shrinks — the leak that
+    // used to kill scanning after ~67 cards.
+    for (const m of [src, srcTri, dstTri, M, warped]) {
+      if (m) { try { m.delete(); } catch { /* already freed */ } }
+    }
+  }
+}
+
 // The width detection runs at. Detection is TUNED at this size (crop.test.js
 // scores against it) so it is deliberately NOT a parameter — see rectifyCard.
 const DETECT_W = 1200;
@@ -299,7 +360,7 @@ const DETECT_W = 1200;
 async function preprocessCardWithDetection(imageBuffer) {
   try {
     const { data, info } = await sharp(imageBuffer).resize({ width: DETECT_W, withoutEnlargement: true }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const card = detectCard(new Uint8ClampedArray(data), info.width, info.height);
+    const card = await detectWithFallback(new Uint8ClampedArray(data), info.width, info.height);
     if (card) {
       const buf = await sharp(card.data, { raw: { width: card.width, height: card.height, channels: 4 } }).png().toBuffer();
       return { buf, detect: { quad: card.quad, detW: info.width, detH: info.height } };
@@ -354,9 +415,33 @@ const OCR_SRC_MAX_W = 2000;
 //
 // Returns null if no card is known, so the caller can decline to OCR rather than
 // read a number off the background.
-async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
+// `region` (optional): { left, top, width, height } as FRACTIONS of the card.
+// When given, only that part of the rectified card is produced -- same
+// transform, same sampling, same pixels, just a smaller output canvas.
+//
+// WHY. Measured on 40 real captures, this warp costs 322ms and is the single
+// most expensive step after ORB. It is expensive because it samples a 2000px
+// source and writes a 1500x2100 card. But OCR only ever looks at two small
+// bands: the collector strip (~2.8% of the card's area) and the title
+// (~3.8%). The other ~93% is warped at full resolution and thrown away.
+//
+// This is NOT the "merge the two warps" idea, which I measured and rejected --
+// deriving the matcher's 500x700 by downscaling the big warp cost 84ms against
+// the 76ms warp it replaced, a net LOSS of 8ms. This is the opposite: warp
+// less, not warp once.
+//
+// The maths is the same perspective transform with the destination corners
+// SHIFTED so the requested region lands at the origin. warpPerspective then
+// only computes pixels inside the smaller output, so the saving is real work
+// avoided rather than a crop after the fact.
+async function rectifyCard(imageBuffer, { width, height, detection, region } = {}) {
   const outW = Math.max(1, Math.round(width || WARP_W));
   const outH = Math.max(1, Math.round(height || WARP_H));
+  // Where the region sits within the full rectified card, in output pixels.
+  const rx = region ? region.left * outW : 0;
+  const ry = region ? region.top * outH : 0;
+  const rw = region ? Math.max(1, Math.round(region.width * outW)) : outW;
+  const rh = region ? Math.max(1, Math.round(region.height * outH)) : outH;
   let srcMat = null, srcTri = null, dstTri = null, M = null, warped = null;
   try {
     let det = detection;
@@ -367,7 +452,7 @@ async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
       // floor are all tuned to 1200px.
       const d = await sharp(imageBuffer).resize({ width: DETECT_W, withoutEnlargement: true })
         .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      const card = detectCard(new Uint8ClampedArray(d.data), d.info.width, d.info.height);
+      const card = await detectWithFallback(new Uint8ClampedArray(d.data), d.info.width, d.info.height);
       if (!card) return null;
       det = { quad: card.quad, detW: d.info.width, detH: d.info.height };
     }
@@ -383,11 +468,18 @@ async function rectifyCard(imageBuffer, { width, height, detection } = {}) {
     srcMat = cv.matFromImageData({ data: new Uint8ClampedArray(src.data), width: src.info.width, height: src.info.height });
     srcTri = cv.matFromArray(4, 1, cv.CV_32FC2,
       [tl.x * k, tl.y * k, tr.x * k, tr.y * k, br.x * k, br.y * k, bl.x * k, bl.y * k]);
-    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, outW, 0, outW, outH, 0, outH]);
+    // Full-card destination, shifted so the requested region starts at (0,0).
+    // With no region this is exactly the old [0,0,outW,0,outW,outH,0,outH].
+    dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0 - rx, 0 - ry,
+      outW - rx, 0 - ry,
+      outW - rx, outH - ry,
+      0 - rx, outH - ry,
+    ]);
     M = cv.getPerspectiveTransform(srcTri, dstTri);
     warped = new cv.Mat();
-    cv.warpPerspective(srcMat, warped, M, new cv.Size(outW, outH));
-    return await sharp(Buffer.from(warped.data), { raw: { width: outW, height: outH, channels: 4 } }).png().toBuffer();
+    cv.warpPerspective(srcMat, warped, M, new cv.Size(rw, rh));
+    return await sharp(Buffer.from(warped.data), { raw: { width: rw, height: rh, channels: 4 } }).png().toBuffer();
   } catch (e) {
     // Never throws: OCR is an enhancement. A failure here must degrade to "no
     // read" (review queue), never to a failed scan that loses a card Zach
@@ -484,15 +576,97 @@ function inlierCount(bf, qDesc, qKp, cand) {
   return inl;
 }
 
-const STRONG_INLIERS = 25; // enough to stop trying the other game
+const STRONG_INLIERS = 25;
+
+// Beyond argument: stop verifying further candidates entirely. See the break in
+// verifyGame. Deliberately far above STRONG_INLIERS, which answers a different
+// and much weaker question ("should we bother checking the other game").
+const CERTAIN_INLIERS = 80;
+
+// The floor for the OCR-agreement break. Deliberately well above the noise
+// band: measured across this project, WRONG matches top out around 30 and
+// genuine ones run 35-162. 35 means "a real geometric match", which is the
+// weakest claim worth combining with a correct printed number. Lower would let
+// a coincidental match on the right number end the search early.
+const HINT_AGREE_INLIERS = 35;
+
+// Compare a catalogue value with an OCR reading. Collector numbers are strings
+// ('123a', 'GR1'), and the card prints '0207' where the catalogue stores '207',
+// so leading zeros are stripped on BOTH sides. No numeric coercion: parseInt
+// would turn '123a' into 123 and match a different printing.
+function normHint(v) {
+  return String(v == null ? '' : v).trim().toLowerCase().replace(/^0+/, '');
+}
+
+// Cards whose printings are visually near-identical, so a strong ORB match does
+// NOT imply the best ORB match. See the break in verifyGame: these are excluded
+// from the early exit because dozens of their printings score 80+ against the
+// same photo.
+const BASIC_LAND_NAMES = new Set([
+  'plains', 'island', 'swamp', 'mountain', 'forest', 'wastes',
+  'snow-covered plains', 'snow-covered island', 'snow-covered swamp',
+  'snow-covered mountain', 'snow-covered forest',
+]);
 
 // Score one game: CLIP recall + ORB verify against the shared query features.
-function verifyGame(cardBuf, game, q, bf, recall, topK) {
+// `ocrHint` is { sets: [...], numbers: [...] } read from the collector strip
+// BEFORE this runs. It is a STOP CONDITION ONLY -- see the break below. It can
+// never introduce, reorder or select a candidate, so a wrong hint costs time
+// and nothing else.
+// Move candidates whose set+number match the OCR reading to the front,
+// preserving relative order otherwise. A stable partition over <=50 items.
+function hintFirst(recall, hint) {
+  const hit = [];
+  const rest = [];
+  for (const c of recall) {
+    if (hint.numbers.includes(normHint(c.number)) && hint.sets.includes(normHint(c.set))) hit.push(c);
+    else rest.push(c);
+  }
+  return hit.length ? hit.concat(rest) : recall;
+}
+
+function verifyGame(cardBuf, game, q, bf, recall, topK, ocrHint = null) {
   const db = loadOrbDb(game);
   if (!db) return { verified: false, candidates: recall.slice(0, topK), top: 0 };
   const scored = [];
   const seen = new Set(); // recall may list both faces of a DFC; verify each card once
-  for (const cand of recall) {
+
+  // VERIFY THE PRINTED NUMBER'S CANDIDATE FIRST.
+  //
+  // Zach: "how would you fix the ordering?"
+  //
+  // THE MEASUREMENT THAT FORCED THIS. Adding the agreement break below bought
+  // only 10% -- against the ~45% I predicted -- and the reason was the order
+  // this loop walks. `recall` is CLIP's artwork ranking, which knows nothing
+  // about the collector strip. Measured on the corpus, the true card sits at
+  // p50 rank 1 but p90 rank 19 and max 40 IN RECALL ORDER, so the break fired
+  // immediately on about half of scans and only after 19-40 verifications on
+  // the rest.
+  //
+  // (My earlier "rank 1 in 93% of scans" was measured on the OUTPUT list, which
+  // is sorted by inliers AFTER all the work is done. Real number, wrong list.)
+  //
+  // The strip has already been read by the time this runs, so the candidate it
+  // names can simply be checked FIRST. Rank 19 becomes rank 1 and the break
+  // fires on the first verification.
+  //
+  // THIS CANNOT CHANGE WHICH CARD WINS, and that is the whole safety argument:
+  //
+  //   - nothing is added to the list and nothing is removed
+  //   - every candidate still gets an identical inlierCount call
+  //   - `scored` is sorted by inliers afterwards regardless of visit order
+  //
+  // So the ONLY observable difference is where the loop stops -- and it stops
+  // only where the break's own conditions are met.
+  //
+  // A WRONG NUMBER COSTS MILLISECONDS, NOT CORRECTNESS. If OCR misread, the
+  // candidate promoted here will not match the artwork, its inlier count stays
+  // low, the break does not fire, and the loop continues through the entire
+  // list exactly as before. The 10 confidently-wrong reads in the corpus are
+  // still caught by ORB disagreeing.
+  const ordered = ocrHint ? hintFirst(recall, ocrHint) : recall;
+
+  for (const cand of ordered) {
     const k = key(cand.set, cand.number);
     if (seen.has(k)) continue;
     seen.add(k);
@@ -507,6 +681,123 @@ function verifyGame(cardBuf, game, q, bf, recall, topK) {
       }
     }
     scored.push({ name: cand.name, set: cand.set, number: cand.number, score: cand.score, inliers });
+
+    // STOP ONCE A MATCH IS BEYOND ARGUMENT.
+    //
+    // Zach: "I would like to work on speed next." Measured over 38 real scans,
+    // orb-verify is 1195ms of a 3112ms scan -- 38%, the largest single cost. It
+    // verified all ~50 recalled candidates every time, even after finding a
+    // 141-inlier match at rank 2.
+    //
+    // The obvious lever, cutting recallK, is NOT safe: measured on the corpus,
+    // the correct card is present in 71.7% of scans at K=50 but only 65.2% at
+    // K=25. Its rank is p50 2 but p90 25 -- usually near the top, sometimes
+    // deep. Trading six points of recall for speed is the wrong trade for an
+    // app that must not misidentify a physical card.
+    //
+    // This is the safe version of the same idea: keep looking at all 50
+    // candidates, but stop EARLY when the current best is so strong that no
+    // later candidate could displace it.
+    //
+    // WHY THIS THRESHOLD. Measured inlier separation across every scan in this
+    // project: WRONG matches top out at 30, RIGHT matches run 35-162. Genuine
+    // winners on Zach's cards sit at 65-167. CERTAIN_INLIERS is set at 80 --
+    // more than twice the highest wrong match ever observed, and comfortably
+    // above STRONG_INLIERS (25), which only means "confident enough to skip the
+    // OTHER GAME".
+    //
+    // The cost of being wrong here is bounded and small: the only thing skipped
+    // is the chance that a LATER candidate scores even higher. Both would be
+    // the same card in practice, since two different cards do not both produce
+    // 80+ geometric inliers against one photo. And a lower-ranked candidate
+    // beating an 80+ match has never been observed in the corpus.
+    //
+    // MEASURED AND REJECTED AT 80, THEN RESTRICTED. Running the corpus with and
+    // without this break changed 7 identifications in 160 -- and EVERY ONE was a
+    // basic land (Forest), swapping one printing for another:
+    //
+    //     withExit Forest/eld#266 (86)   vs   full Forest/soi#297 (91)
+    //     withExit Forest/akh#268 (80)   vs   full Forest/hou#199 (113)
+    //
+    // Basic lands break the assumption the threshold rests on. Every Forest
+    // shares a frame, a mana symbol and a similar landscape, so DOZENS of
+    // different printings all score 80-120 inliers against one photo. "No later
+    // candidate could beat this" is simply false for them: the first 80+ match
+    // is not the best 80+ match, just the earliest.
+    //
+    // For a basic land that is nearly harmless -- Zach picks the printing
+    // anyway, and the art matcher was never going to separate them. But the
+    // check is absolute: an optimisation that changes ANY answer does not ship
+    // as-is. So the break only fires when the card ALSO has a distinguishing
+    // name, which is exactly the case where a strong ORB match is decisive.
+    if (inliers >= CERTAIN_INLIERS && !BASIC_LAND_NAMES.has((cand.name || '').toLowerCase())) break;
+
+    // TWO INDEPENDENT METHODS AGREE: STOP.
+    //
+    // Zach: "So would it make sense to have OCR go first and then see if orb
+    // agrees? And stop it early if it does? That way it's almost always
+    // stopping early regardless of card?"
+    //
+    // Measured on his 208-scan corpus, this is exactly right:
+    //   - when ORB finds the card at all it is candidate #1 in 93% of scans
+    //     (rank <=3 in 99%, p90 rank 1), so candidates 2-50 are near-pure waste
+    //   - the printed collector number is correct on 81% of scans
+    //   - orb-verify was 997ms of a 1896ms scan -- 49%, the largest single cost
+    //
+    // WHY THIS IS SAFER THAN THE CERTAIN_INLIERS BREAK ABOVE, not merely
+    // faster. That one trusts ORB alone past a threshold. This one requires the
+    // ARTWORK and the PRINTED TEXT -- two methods that fail in unrelated ways --
+    // to name the same printing. Two independent agreeing signals is a stronger
+    // claim than either alone at any threshold.
+    //
+    // IT CANNOT CAUSE A WRONG CARD. The only thing skipped is the chance that a
+    // LATER candidate scores higher. For that to matter, the later candidate
+    // would have to be the true card while the current one already matches the
+    // number printed on the physical card -- i.e. the real card's own strip
+    // names a different printing. That is not a thing.
+    //
+    // AND IT PRESERVES THE CROSS-CHECK. Measured on the 10 scans where OCR read
+    // a confident but WRONG printing, ORB's TOP candidate contradicted the read
+    // in 10 of 10 cases. The disagreement never needed a deep search, so
+    // stopping early cannot blind the guard that catches them: when they
+    // disagree, this break simply does not fire and the full walk continues.
+    //
+    // A LOW inlier floor still applies. Without it a 3-inlier noise match that
+    // happened to sit on the OCR'd number would end the search -- agreement
+    // between a guess and a reading is not agreement.
+    // BASIC LANDS ARE EXCLUDED, and that exclusion is doing almost all of the
+    // safety work here. Measured over 4,603 wrong candidates on the corpus:
+    //
+    //   wrong matches scoring >= 35, ALL cards      : 627  (13.62%)
+    //   wrong matches scoring >= 35, EXCLUDING basics:  1  ( 0.03%)
+    //   worst wrong match overall                   : 158  (a Mountain)
+    //   worst wrong match excluding basics          :  48
+    //
+    // Every dangerous high-scoring wrong match is a basic land, for the same
+    // physical reason as the CERTAIN_INLIERS break above: every Mountain shares
+    // a frame and a near-identical landscape, so dozens of Mountain printings
+    // score 120+ against one photo of a Mountain. Artwork cannot separate them,
+    // so a strong score means nothing about WHICH Mountain it is. Real cards
+    // have distinct art, so a wrong one cannot climb.
+    //
+    // Raising the threshold instead does NOT work, and this was measured before
+    // choosing: 50 removes only a quarter of the dangerous cases (13.62% ->
+    // 9.73%) while costing 26% of the speed, because right and wrong overlap
+    // across the whole range once basics are in the pool.
+    //
+    // RESIDUAL RISK, STATED PLAINLY: one non-basic wrong candidate in 3,551
+    // reached 48. A misread collector number pointing at exactly that card
+    // could still stop the search early and record the wrong printing. Zach's
+    // call, explicitly: "I'm okay if it gets it wrong occasionally it wasn't
+    // gonna be perfect." The weak-match highlight in the Scanned list is the
+    // backstop -- anything below WEAK_MATCH_INLIERS is flagged for review
+    // rather than trusted silently.
+    if (ocrHint && inliers >= HINT_AGREE_INLIERS
+        && !BASIC_LAND_NAMES.has((cand.name || '').toLowerCase())
+        && ocrHint.numbers.includes(normHint(cand.number))
+        && ocrHint.sets.includes(normHint(cand.set))) {
+      break;
+    }
   }
   scored.sort((a, b) => (b.inliers - a.inliers) || (b.score - a.score));
   const top = scored[0];
@@ -528,8 +819,40 @@ function verifyGame(cardBuf, game, q, bf, recall, topK) {
 async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = {}) {
   requestedGame = 'mtg';
   const lang = 'en';
+  // Stage timing, no-op unless SCAN_PROFILE=1. `opts.prof` is passed by the
+  // route so one profiler spans the whole request; a bare call still works.
+  const prof = opts.prof || scanProfile.start();
+  // THE COLLECTOR-STRIP READING, when the caller read it first. Purely a stop
+  // condition for verifyGame -- it never selects, adds or reorders a candidate.
+  // Absent (the default) means the old exhaustive behaviour, so every caller
+  // that does not supply it is unaffected.
+  const ocrHint = (opts.ocrHint
+    && Array.isArray(opts.ocrHint.sets) && opts.ocrHint.sets.length
+    && Array.isArray(opts.ocrHint.numbers) && opts.ocrHint.numbers.length)
+    ? { sets: opts.ocrHint.sets.map(normHint), numbers: opts.ocrHint.numbers.map(normHint) }
+    : null;
   // Scan-detail knobs (client "Scan Detail" slider). Fewer CLIP candidates to
   // verify + fewer ORB features = faster, less accurate. Clamped to sane bounds.
+  // RECALL_K STAYS AT 50, AND THE DEPTH QUESTION IS SETTLED. Measured over six
+  // full corpus replays (208 scans each) at K=50, 150 and 300:
+  //
+  //   break+reorder K=50   p50 1448ms   p90 2174ms   173 correct
+  //   conditional  K=150   p50 1449ms   p90 2116ms   173 correct
+  //   conditional  K=300   p50 1451ms   p90 2089ms   173 correct
+  //
+  // Indistinguishable. Deeper recall finds more cards -- true card within K=50
+  // 63%, K=150 76%, K=300 79% -- but the curve flattens hard and the extra
+  // cards were ALREADY being rescued by the collector number afterwards, so
+  // K=150 recovered exactly one resolution in 208 and K=300 recovered none.
+  //
+  // The mechanism is self-cancelling: when the card IS recalled the agreement
+  // break fires early and the extra depth is free; when it is NOT, ORB grinds
+  // the whole longer list. Depth costs most where it helps least.
+  //
+  // The ~15% remaining are not deep in the list -- CLIP does not recognise them
+  // from those photos at all (glare, angle, foil). That is an EMBEDDING
+  // problem, not a recall-depth one, and no K short of the full catalogue
+  // touches it.
   const recallK = Math.max(10, Math.min(RECALL_K, opts.recallK || RECALL_K));
   const orbN = Math.max(150, Math.min(800, opts.orb || 500));
   // Auto-crop + deskew the card once; everything matches on the rectified image.
@@ -540,13 +863,28 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
   // instead of running detectCard a second time — which costs ~350ms, a third of
   // the whole scan. `detection` is returned on the result and is inert for every
   // caller that ignores it.
-  const { buf: cardBuf, detect } = await preprocessCardWithDetection(imageBuffer);
-  const crop = 'data:image/jpeg;base64,' + (await sharp(cardBuf).resize({ width: 220 }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
+  // REUSE A DETECTION THE CALLER ALREADY PAID FOR.
+  //
+  // The route now reads the collector strip BEFORE matching (to give
+  // verifyGame a stop condition), which means it has already run
+  // preprocessCardWithDetection. Detecting again here would cost ~130ms and
+  // hand back the identical quad, turning a reordering into a regression.
+  //
+  // opts.preprocessed is the { buf, detect } pair from that call. Absent, this
+  // behaves exactly as before.
+  const pre = opts.preprocessed;
+  const { buf: cardBuf, detect } = (pre && pre.buf)
+    ? pre
+    : await prof.time('detect+preprocess', () => preprocessCardWithDetection(imageBuffer));
+  // The 220px JPEG thumbnail returned to the client. Never timed before, and it
+  // is a full JPEG encode on every scan.
+  const crop = await prof.time('crop-thumb-jpeg', async () =>
+    'data:image/jpeg;base64,' + (await sharp(cardBuf).resize({ width: 220 }).jpeg({ quality: 70 }).toBuffer()).toString('base64'));
 
   // Query ORB features are game-independent — extract once, reuse everywhere.
   const orb = new cv.ORB(orbN);
   const bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
-  const q = await queryOrb(orb, cardBuf);
+  const q = await prof.time('orb-query-features', () => queryOrb(orb, cardBuf));
   try {
     // Set-scoped fast path: if the user gave set code(s) and their index is
     // built, match only within them (~300 cards each) — accurate, no global
@@ -568,9 +906,16 @@ async function match(imageBuffer, requestedGame, topK = 8, setCode = '', opts = 
     const order = ['mtg'];
     let best = null;
     for (const g of order) {
-      const recall = await embedMatch.match(cardBuf, g, recallK); // CLIP recall for this game
+      // THE TWO HALVES OF THE GLOBAL PATH, timed separately. Together these are
+      // the ~1.6s "ORB matching", but they are very different work: recall is a
+      // CLIP embedding + vector search, verify is ORB geometric matching over
+      // recallK candidates. Which one dominates decides what to fix.
+      const recall = await prof.time('clip-recall', () => embedMatch.match(cardBuf, g, recallK));
       if (recall.length === 0) continue;
-      const r = verifyGame(cardBuf, g, q, bf, recall, topK);
+      const r = await prof.time('orb-verify', async () => verifyGame(cardBuf, g, q, bf, recall, topK, ocrHint));
+      prof.set('recallK', recallK);
+      prof.set('recallReturned', recall.length);
+      prof.set('orbN', orbN);
       if (!best || r.top > best.top) best = { ...r, game: g };
       if (best.top >= STRONG_INLIERS) break; // confident — no need to try the other game
     }
@@ -589,4 +934,6 @@ function reload(game) {
   delete orbDbs[game];
 }
 
-module.exports = { match, reload, preprocessCard, preprocessCardWithDetection, detectCard, rectifyCard };
+// _warpToQuad is exported for diagnostics only (measuring how quad geometry
+// affects match quality); the scan path uses it via detectWithFallback.
+module.exports = { match, reload, preprocessCard, preprocessCardWithDetection, detectCard, rectifyCard, _warpToQuad: warpToQuad };

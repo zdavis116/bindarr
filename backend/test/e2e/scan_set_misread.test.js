@@ -196,7 +196,7 @@ async function main() {
       // discarded and we are left with the genuine two-way ambiguity.
       ocr_text: '0263/0281 U\nZZZ * EN',
     });
-    assert.strictEqual(body.action, 'queued',
+    assert.strictEqual(body.action, 'staged_unresolved',
       `two printings share #263 -> must ASK. got ${JSON.stringify(body)}`);
     assert.strictEqual(body.reason, 'ambiguous');
     assert.strictEqual(body.candidates.length, 2, 'both printings must be offered');
@@ -219,7 +219,7 @@ async function main() {
       name: 'Avatar Aang',
       ocr_text: 'M1508/0286\nTLA * EN',
     });
-    assert.strictEqual(body.action, 'queued',
+    assert.strictEqual(body.action, 'staged_unresolved',
       `a number matching no printing must QUEUE. got ${JSON.stringify(body)}`);
     assert.strictEqual(body.reason, 'unreadable');
     assert.strictEqual(await totalOwned(), before,
@@ -242,7 +242,7 @@ async function main() {
       // 'tla' is a REAL set code, but no Sol Ring printing is in it.
       ocr_text: '0263/0281 U\nTLA * EN',
     });
-    assert.strictEqual(body.action, 'queued',
+    assert.strictEqual(body.action, 'staged_unresolved',
       `a wrong-but-real set must not pick a printing. got ${JSON.stringify(body)}`);
     assert.strictEqual(await totalOwned(), before, 'and must add nothing');
     pass('FSET-TC5', 'a wrong set code never silently selects a printing');

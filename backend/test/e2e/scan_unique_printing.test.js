@@ -167,7 +167,7 @@ async function main() {
       ocr_text: '',   // same unreadable strip, but now it actually matters
     });
     assert.strictEqual(status, 200, `scan-resolve failed: ${JSON.stringify(body)}`);
-    assert.strictEqual(body.action, 'queued',
+    assert.strictEqual(body.action, 'staged_unresolved',
       'THE GUARANTEE: three printings share this art, so an unreadable number MUST queue rather than guess');
     assert.strictEqual(body.candidates.length, 3,
       `all three printings must be offered, got ${body.candidates.map(c => `${c.set_id}:${c.number}`).join(',')}`);
@@ -209,7 +209,7 @@ async function main() {
       ocr_text: '',
     });
     assert.strictEqual(status, 200, `scan-resolve failed: ${JSON.stringify(body)}`);
-    assert.strictEqual(body.action, 'queued', 'an unknown card must still queue');
+    assert.strictEqual(body.action, 'staged_unresolved', 'an unknown card must still queue');
     assert.strictEqual(await ownedCount(), beforeOwned,
       'an unidentifiable scan must never add anything');
     pass('FUNIQ-TC4', 'an unknown card name still queues and adds nothing');
@@ -254,7 +254,7 @@ async function main() {
       printing_hint: { set: 'zzz', number: '999' },  // no such printing
     });
     assert.strictEqual(status, 200, `scan-resolve failed: ${JSON.stringify(body)}`);
-    assert.strictEqual(body.action, 'queued',
+    assert.strictEqual(body.action, 'staged_unresolved',
       'a hint matching no catalogue row must be discarded, not invented');
     assert.strictEqual(await ownedCount(), beforeOwned,
       'a bogus hint must never add anything');

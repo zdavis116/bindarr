@@ -1,7 +1,85 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, RefreshCw, Trash2, AlertTriangle, Check, Copy, Layers } from 'lucide-react';
+import { X, RefreshCw, Trash2, AlertTriangle, Check, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
-import { describeFlag, sortForReview } from './scanStaging';
+import { sortForReview, isWeakMatch } from './scanStaging';
+
+// SEARCH FOR A PRINTING when none of the offered candidates is right.
+//
+// Zach: "allow to search manually just in case its not one of those 3." This is
+// the escape hatch that makes the top-3 list safe to keep short -- without it a
+// row the matcher got wrong would be stuck, and a stuck row blocks Add All for
+// the whole session.
+function StagingSearch({ onPick, disabled }) {
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    const term = q.trim();
+    if (!term) return;
+    setBusy(true);
+    try {
+      const p = new URLSearchParams({ game: 'mtg', lang: 'en', name: term, prints: '1' });
+      const res = await fetch(`/api/search?${p.toString()}`);
+      setHits(res.ok ? (await res.json()).slice(0, 12) : []);
+    } catch {
+      setHits([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+      <div style={{ display: 'flex', gap: '0.3rem' }}>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); run(); } }}
+          placeholder="Card name"
+          // `input-control`, NOT `input`. Zach: "when you type in it you can't
+          // see what you typed like text color blends in with white text box."
+          //
+          // There is no `.input` class in the stylesheet. This was the only
+          // input in the app using it -- the other 58 all use `input-control` --
+          // so it matched NOTHING and fell back to the browser's default
+          // styling, which in a dark app means unreadable text on an unstyled
+          // box. The class carries `color: var(--text-primary)` and the app's
+          // input background together, which is why nothing else has this bug.
+          className="input-control"
+          style={{ flex: 1, minHeight: 38, fontSize: '0.75rem' }}
+          disabled={disabled}
+        />
+        <button
+          type="button" className="btn btn-secondary"
+          style={{ minHeight: 38, minWidth: 44, fontSize: '0.72rem' }}
+          onClick={run} disabled={disabled || busy || !q.trim()}
+        >
+          {busy ? '…' : 'Go'}
+        </button>
+      </div>
+      {hits.map(h => (
+        <button
+          key={h.id}
+          type="button" className="btn btn-secondary"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem',
+            minHeight: 40, textAlign: 'left', justifyContent: 'flex-start', fontSize: '0.72rem',
+          }}
+          onClick={() => onPick(h.id)}
+          disabled={disabled}
+        >
+          {h.image_url ? (
+            <img src={h.image_url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }} />
+          ) : null}
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {h.name} · {(h.set_id || '').toUpperCase()} {h.number ? `#${h.number}` : ''}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // THE SCAN SESSION REVIEW SCREEN: everything scanned, nothing added yet.
 //
@@ -18,26 +96,19 @@ import { describeFlag, sortForReview } from './scanStaging';
 // THE FLAGGED ROWS COME FIRST. That is the whole design: he should not have to
 // hunt for the two rows that need a decision among fifty-eight that do not.
 
-const FLAG_ICON = {
-  low_confidence: AlertTriangle,
-  duplicate_in_session: Copy,
-  already_owned: Layers,
-};
-
-// low_confidence is red because it questions whether this is even the right
-// card. The other two are amber: they are worth seeing, but "you already own
-// one" is a perfectly normal thing for a collector to do on purpose.
-const FLAG_COLOR = {
-  low_confidence: 'var(--accent-red)',
-  duplicate_in_session: 'var(--accent-yellow)',
-  already_owned: 'var(--accent-yellow)',
-};
-
 export default function ScanStagingReview({ staging, onClose, onCommitted }) {
   const { t } = useT();
   const [state, setState] = useState(staging.getState());
   const [busyId, setBusyId] = useState(null);
   const [committing, setCommitting] = useState(false);
+  // Which WEAK row has its override picker open. Separate from searchId: a weak
+  // row is already resolved, so opening its picker is a deliberate "this is
+  // wrong" rather than the unavoidable step an unresolved row needs.
+  const [overrideId, setOverrideId] = useState(null);
+
+  // Which unresolved row has its manual search open. One at a time: a phone
+  // screen cannot show several open search panels usefully.
+  const [searchFor, setSearchFor] = useState(null);
   // A completed commit is reported HERE rather than by closing the screen: a
   // stack of forty cards vanishing with no confirmation is exactly the silent
   // state change Zach does not accept from software tracking physical objects.
@@ -50,6 +121,14 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
   // Read from the server on mount. This is what makes the session survive a
   // reload: the screen has no memory of its own to lose.
   useEffect(() => { sync(); }, [sync]);
+
+  const resolve = async (entry, cardId) => {
+    setBusyId(entry.id);
+    await staging.resolveEntry(entry.id, cardId);
+    setBusyId(null);
+    setSearchFor(null);
+    setState(staging.getState());
+  };
 
   const discard = async (entry) => {
     setBusyId(entry.id);
@@ -81,13 +160,44 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
     }
   };
 
-  const { entries, loading, error, flaggedCount } = state;
+  const { entries, loading, error, unresolvedCount } = state;
   const ordered = sortForReview(entries);
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 120, background: 'var(--bg-primary, #12121a)',
+      position: 'fixed', inset: 0, background: 'var(--bg-primary, #12121a)',
+      // ABOVE THE APP CHROME. This was zIndex 120 while the global bottom nav
+      // is z-index 1000 (index.css) -- so the nav, which is opaque, drew ON TOP
+      // of this full-screen overlay and covered exactly the strip where Add All
+      // and the per-row buttons live.
+      //
+      // Zach: "Scanned page is still not functional no add all or you can see
+      // some of the other buttons are covered." My previous fix addressed the
+      // notch, which was a real bug but NOT this one -- his screenshot shows the
+      // app header and the Dashboard/Add Cards/Collection nav rendering over the
+      // list, which no amount of safe-area padding can move out of the way.
+      //
+      // 1100 matches the scanner's own modals in CameraScanner.jsx, which sit
+      // above the nav for the same reason.
+      zIndex: 1100,
       display: 'flex', flexDirection: 'column',
+      // RESPECT THE NOTCH AND THE HOME BAR.
+      //
+      // Zach: "when you go to the scanned page it needs to be cleaned up the
+      // header is overlapping the top and there is no add but at all."
+      //
+      // Both symptoms, one cause. `inset: 0` on a fixed element covers the
+      // WHOLE screen including the iPhone's status bar and home indicator, so
+      // the header ran under the notch and the commit bar sat under the home
+      // bar -- off-screen far enough that Add All looked absent entirely. It
+      // was rendering the whole time; he could not reach it.
+      //
+      // The rest of the app already handles this (CardImageZoom, the scanner
+      // overlays); this screen simply never did. Padding the container rather
+      // than each bar keeps the scroll area correct too.
+      paddingTop: 'max(env(safe-area-inset-top, 0px), var(--sat, 0px))',
+      paddingBottom: 'max(env(safe-area-inset-bottom, 0px), var(--sab, 0px))',
+      boxSizing: 'border-box',
     }}>
       {/* Header stays put while the list scrolls, so the way out and the count
           are always reachable on a phone. */}
@@ -100,9 +210,9 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
           <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-strong)' }}>
             {t('scan.stagingTitle', { count: entries.length })}
           </span>
-          <span style={{ fontSize: '0.7rem', color: flaggedCount ? 'var(--accent-yellow)' : 'var(--text-secondary)' }}>
-            {flaggedCount
-              ? t('scan.stagingFlagged', { count: flaggedCount })
+          <span style={{ fontSize: '0.7rem', color: unresolvedCount ? 'var(--accent-yellow)' : 'var(--text-secondary)' }}>
+            {unresolvedCount
+              ? `${unresolvedCount} need${unresolvedCount === 1 ? 's' : ''} a printing chosen`
               : t('scan.stagingSubtitle')}
           </span>
         </div>
@@ -158,8 +268,21 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {ordered.map(entry => {
-            const Icon = entry.flag ? FLAG_ICON[entry.flag] : null;
-            const flagText = describeFlag(entry.flag);
+            const isUnresolved = !!entry.unresolved;
+            // THE UNCERTAIN MIDDLE BAND (33-49 inliers, non-basic).
+            //
+            // Zach accepted the residual risk in the ocrHint break rather than
+            // give up the speed -- "I'm okay if it gets it wrong occasionally
+            // it wasn't gonna be perfect" -- and asked for a marker plus an
+            // override instead.
+            //
+            // He also caught my first attempt aiming at the wrong number: I
+            // flagged the LOWEST artwork scores, which turned out to contain
+            // zero errors. Measured on the corpus, all four wrong records
+            // scored 41-55 -- mediocre matches, strong enough to end the search
+            // and not strong enough to be right. See isWeakMatch for the full
+            // band-by-band split.
+            const isWeak = !isUnresolved && isWeakMatch(entry);
             return (
               <div
                 key={entry.id}
@@ -167,11 +290,23 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                 style={{
                   padding: '0.7rem', display: 'flex', gap: '0.7rem', alignItems: 'flex-start',
                   opacity: busyId === entry.id ? 0.5 : 1,
-                  // Flagged rows are outlined, not just annotated: on a phone
-                  // the eye finds an edge before it reads a caption.
-                  border: entry.flag
-                    ? `1px solid ${FLAG_COLOR[entry.flag] || 'var(--accent-yellow)'}`
-                    : '1px solid transparent',
+                  // UNRESOLVED IS THE ONLY THING THAT STANDS OUT NOW.
+                  //
+                  // Zach removed the advisory flags: "The only cards that should
+                  // stand out are the ones that unresolved." An outline rather
+                  // than a caption, because on a phone the eye finds an edge
+                  // before it reads text -- and these are the rows that block
+                  // Add All, so he has to be able to spot them while scrolling.
+                  // Unresolved = SOLID yellow (blocks Add All, must be acted on).
+                  // Weak match  = DASHED yellow (committable, worth a glance).
+                  // Different edges so a stack of both is still readable at a
+                  // glance, without either one moving in the list -- Zach:
+                  // "Don't pop issues to the top."
+                  border: isUnresolved
+                    ? '1px solid var(--accent-yellow)'
+                    : isWeak
+                      ? '1px dashed var(--accent-yellow)'
+                      : '1px solid transparent',
                 }}
               >
                 {/* The crop he actually photographed. Without it a list of forty
@@ -187,20 +322,123 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                 )}
 
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {entry.name || entry.card_id}
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isUnresolved ? 'var(--accent-yellow)' : 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {isUnresolved
+                      ? (entry.matched_name || 'Unidentified card')
+                      : (entry.name || entry.card_id)}
                   </div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                    {(entry.set_id || '').toUpperCase()} {entry.number ? `#${entry.number}` : ''} · {entry.finish}
+                    {isUnresolved
+                      ? 'Which printing is this?'
+                      : `${(entry.set_id || '').toUpperCase()} ${entry.number ? `#${entry.number}` : ''} · ${entry.finish}`}
                   </div>
 
-                  {flagText && (
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem',
-                      fontSize: '0.68rem', color: FLAG_COLOR[entry.flag] || 'var(--accent-yellow)',
-                    }}>
-                      {Icon ? <Icon size={12} style={{ flexShrink: 0 }} /> : null}
-                      <span>{flagText}</span>
+                  {/* WEAK MATCH: say so, and offer a way out.
+                      A caption under the name rather than a badge beside it,
+                      because the row already carries a dashed edge and two
+                      markers for one condition is noise.
+                      "Change" reuses the SAME picker the unresolved rows use --
+                      the candidates are already stored on every row, so
+                      overriding is choosing from what the matcher actually saw
+                      plus a search, not a separate screen. */}
+                  {isWeak && (
+                    <div style={{ marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.66rem', color: 'var(--accent-yellow)' }}>
+                        Not fully confirmed — worth a look
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.66rem', padding: '0.15rem 0.5rem', minHeight: 26 }}
+                        onClick={() => setOverrideId(overrideId === entry.id ? null : entry.id)}
+                        disabled={busyId === entry.id}
+                      >
+                        {overrideId === entry.id ? 'Keep' : 'Change'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* The override picker: identical mechanism to the unresolved
+                      one, so a weak row and an unknown row are fixed the same
+                      way. Opened deliberately -- it must not appear on every
+                      weak row at once and bury the list. */}
+                  {isWeak && overrideId === entry.id && (
+                    <div style={{ marginTop: '0.45rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {(entry.candidates || []).slice(0, 3).map(c => (
+                        <button
+                          key={c.id || `${c.set_id}-${c.number}`}
+                          type="button" className="btn btn-secondary"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem',
+                            minHeight: 40, textAlign: 'left', justifyContent: 'flex-start', fontSize: '0.72rem',
+                          }}
+                          disabled={busyId === entry.id}
+                          onClick={() => { setOverrideId(null); resolve(entry.id, c.id); }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{c.name}</span>
+                          <span style={{ color: 'var(--text-muted)' }}>
+                            {(c.set_id || '').toUpperCase()} {c.number ? `#${c.number}` : ''}
+                          </span>
+                        </button>
+                      ))}
+                      <StagingSearch
+                        disabled={busyId === entry.id}
+                        onPick={(cardId) => { setOverrideId(null); resolve(entry.id, cardId); }}
+                      />
+                    </div>
+                  )}
+
+                  {/* THE TOP 3, THEN A SEARCH. Zach: "if we are unsure of the
+                      card give the top 3 options and then allow to search
+                      manually just in case its not one of those 3."
+                      The search matters as much as the options: when the
+                      matcher is wrong, restricting him to its guesses would
+                      make the row impossible to resolve. */}
+                  {isUnresolved && (
+                    <div style={{ marginTop: '0.45rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {/* THREE, as asked. The row STORES every candidate the
+                          matcher found -- truncating in the database would make
+                          a fourth-place correct printing reachable only by
+                          search -- but a phone row cannot show eight buttons
+                          without rebuilding the cluttered screen this replaced.
+                          Anything past three is reached via the search below. */}
+                      {(entry.candidates || []).slice(0, 3).map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                            padding: '0.35rem 0.5rem', minHeight: 40, textAlign: 'left',
+                            justifyContent: 'flex-start', fontSize: '0.72rem',
+                          }}
+                          onClick={() => resolve(entry, c.id)}
+                          disabled={busyId === entry.id}
+                        >
+                          {c.image_url ? (
+                            <img src={c.image_url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }} />
+                          ) : null}
+                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.name} · {(c.set_id || '').toUpperCase()} {c.number ? `#${c.number}` : ''}
+                          </span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ minHeight: 40, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.4rem', justifyContent: 'center' }}
+                        onClick={() => setSearchFor(searchFor === entry.id ? null : entry.id)}
+                        disabled={busyId === entry.id}
+                      >
+                        <Search size={13} />
+                        {(entry.candidates || []).length ? 'None of these — search' : 'Search for this card'}
+                      </button>
+                      {searchFor === entry.id && (
+                        <StagingSearch
+                          onPick={(cardId) => resolve(entry, cardId)}
+                          disabled={busyId === entry.id}
+                        />
+                      )}
                     </div>
                   )}
 
@@ -247,7 +485,10 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
         <div style={{
           flexShrink: 0, padding: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.1)',
           display: 'flex', gap: '0.5rem', alignItems: 'center',
-          paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
+          // The container now owns the safe-area inset, so this bar just needs
+          // ordinary padding -- adding it twice would float it above the home
+          // bar with a visible gap.
+          paddingBottom: '0.75rem',
         }}>
           <button
             type="button" className="btn btn-secondary"
@@ -262,15 +503,24 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
           >
             {t('scan.stagingDiscardAll')}
           </button>
+          {/* ADD ALL IS BLOCKED WHILE ANYTHING IS UNRESOLVED, and says so.
+              Zach chose this over committing the resolved rows and leaving the
+              rest: a partial commit empties the list halfway, and a stack that
+              half-disappears is exactly the silent state change he does not
+              accept from software tracking physical cardboard.
+              The server enforces the same rule (409 unresolved_entries) -- this
+              button is the explanation, not the guard. */}
           <button
             type="button" className="btn btn-primary"
             style={{ flex: 1, minHeight: 46, fontWeight: 700 }}
             onClick={commit}
-            disabled={committing}
+            disabled={committing || unresolvedCount > 0}
           >
             {committing
               ? t('scan.stagingAdding')
-              : t('scan.stagingAddAll', { count: entries.length })}
+              : unresolvedCount > 0
+                ? `${unresolvedCount} card${unresolvedCount === 1 ? '' : 's'} need a printing`
+                : t('scan.stagingAddAll', { count: entries.length })}
           </button>
         </div>
       )}

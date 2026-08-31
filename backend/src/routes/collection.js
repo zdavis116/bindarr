@@ -18,6 +18,8 @@ const { FinishError, finishColumnsFromBody } = require('../utils/finishes');
 const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
 const collectorNumberOcr = require('../utils/collectorNumberOcr');
 const cardTitleOcr = require('../utils/cardTitleOcr');
+const rgbArtMatch = require('../rgbArtMatch');
+const scanProfile = require('../scanProfile');
 const { parseCollectorStrip } = require('../utils/collectorNumberParse');
 const {
   InvariantError,
@@ -213,14 +215,67 @@ router.get('/search', searchLimiter, async (req, res) => {
 // The OCR read is RETURNED, not acted upon. This route stays READ-ONLY — it
 // identifies, it does not add. The client passes the read to /scan-resolve,
 // which is the only place that decides between adding and queueing.
+// The set code to SHOW for a queued scan. Prefers a candidate the catalogue
+// recognises over the raw first token: 'MSH*EN' parses to 'mshen' first, which
+// is not a real set, while 'msh' is right there in the candidate list. Falls
+// back to the raw token when nothing validates, so a genuinely unreadable strip
+// still shows what was read.
+// GROUND TRUTH FOR THE CAPTURE CORPUS.
+//
+// Zach asked whether scanning ~40 varied cards could be turned into a
+// regression corpus. It can, but ONLY if each capture is paired with what the
+// card ACTUALLY was -- an image with no label is a picture, not a test case.
+//
+// Every capture I have investigated so far needed him to tell me the answer in
+// chat ("should be namor the sub-mariner"), which does not scale past a handful
+// and is exactly the manual step a corpus is supposed to remove.
+//
+// The app already knows the truth at two moments:
+//   - he resolves a queued scan by PICKING the right card
+//   - he corrects or confirms a staged row before committing
+//
+// Both are recorded here as a sidecar JSON next to the image. Diagnostics only:
+// this never affects a scan, and a failure is swallowed.
+let lastDumpName = null;
+
+async function labelCapture(file, truth) {
+  if (!process.env.SCAN_DUMP_DIR || !file) return;
+  try {
+    const dir = process.env.SCAN_DUMP_DIR;
+    await fsp.writeFile(
+      path.join(dir, file.replace(/\.jpg$/, '.json')),
+      JSON.stringify({ ...truth, labelled_at: new Date().toISOString() }, null, 2));
+  } catch { /* a labelling failure must never affect a scan */ }
+}
+
+async function pickDisplaySet(ocr) {
+  const cands = ocr?.setLineCandidates?.length
+    ? ocr.setLineCandidates
+    : (ocr?.setCandidates || []);
+  for (const c of cands) {
+    const row = await db.get(
+      'SELECT 1 FROM card_cache WHERE LOWER(set_id) = LOWER(?) LIMIT 1', [c]);
+    if (row) return c;
+  }
+  return ocr?.set ?? null;
+}
+
 router.post('/scan-match', searchLimiter, async (req, res) => {
+  // STAGE PROFILING, off unless SCAN_PROFILE=1. See scanProfile.js: the stages
+  // we have measured only account for ~2.2s of a scan that runs 2.1-4.9s, so
+  // this times EVERY stage including the ones never looked at (base64 decode,
+  // DB hydration, JSON serialisation) and reports what is left over.
+  const prof = scanProfile.start();
   try {
     const { image, set = '', recallK, orb, ocr } = req.body || {};
     const game = 'mtg';
     const lang = 'en';
     if (!image || typeof image !== 'string') return res.status(400).json({ error: 'Missing image' });
+    prof.set('b64len', image.length);
     const base64 = image.includes(',') ? image.slice(image.indexOf(',') + 1) : image;
     const buf = Buffer.from(base64, 'base64');
+    prof.mark('base64-decode');
+    prof.set('bytes', buf.length);
     if (buf.length < 100) return res.status(400).json({ error: 'Invalid image data' });
 
     // FULL-RESOLUTION SCAN DUMP — diagnostics only, OFF unless explicitly asked
@@ -237,38 +292,165 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     // Fire-and-forget and fully swallowed: a diagnostics feature must never be
     // able to fail a scan of a card Zach is physically holding.
     if (process.env.SCAN_DUMP_DIR) {
+      // NAMED SYNCHRONOUSLY, WRITTEN ASYNCHRONOUSLY.
+      //
+      // The write is fire-and-forget so diagnostics can never delay a scan. But
+      // the NAME has to be recorded now: /scan-resolve arrives later and stamps
+      // it onto the queue row, and if the name were assigned inside the async
+      // block it could still be the PREVIOUS capture's when that happens.
+      //
+      // Known limitation, stated rather than hidden: this is module-level, so
+      // it assumes scans are handled one at a time. That holds for one person
+      // scanning a stack -- the flow is scan, resolve, scan -- but two
+      // simultaneous scanners would cross their labels. The corpus is a
+      // single-user debugging aid, so that is acceptable; a second user would
+      // need the name carried through the request instead.
+      const dumpName = `scan-${Date.now()}.jpg`;
+      lastDumpName = dumpName;
       (async () => {
         try {
           const dir = process.env.SCAN_DUMP_DIR;
           await fsp.mkdir(dir, { recursive: true });
-          const files = await fsp.readdir(dir).catch(() => []);
-          // Bounded: this is a debugging aid on a 25GB dev box, not a log.
-          if (files.filter(f => f.endsWith('.jpg')).length < 40) {
-            await fsp.writeFile(path.join(dir, `scan-${Date.now()}.jpg`), buf);
+          // KEEP THE NEWEST, NOT THE OLDEST.
+          //
+          // This used to STOP WRITING once 40 files existed, so the dump froze
+          // on the first 40 scans ever taken and every later session wrote
+          // nothing. Twice now Zach has reported a specific bad card and the
+          // capture simply was not there -- once I compared unrelated photos
+          // because of it, and once (Turtle-Duck) I could not investigate at
+          // all and had to ask him to rescan.
+          //
+          // A debugging aid that silently keeps the LEAST relevant data is
+          // worse than none: it looks like it is working.
+          //
+          // Now it always writes and evicts the oldest, so the dump is a
+          // rolling window over the MOST RECENT scans -- which is the only part
+          // anyone ever wants. Still bounded, still a debugging aid.
+          await fsp.writeFile(path.join(dir, dumpName), buf);
+          const files = (await fsp.readdir(dir).catch(() => []))
+            .filter(f => f.endsWith('.jpg'))
+            .sort();
+          // CAP RAISED FOR A LABELLED CAPTURE SESSION.
+          //
+          // Zach is scanning ~40 varied cards deliberately, to build a real
+          // regression corpus. At 40 the dump would evict the first half of his
+          // own session while he was still scanning it -- and a scan session is
+          // 2-4 captures per card, not one, so 40 cards is well over 100 files.
+          //
+          // 400 files at ~700KB is under 300MB against 18GB free on dev. Still
+          // bounded, still rotating newest-first.
+          const KEEP = Number(process.env.SCAN_DUMP_KEEP || 400);
+          for (const stale of files.slice(0, Math.max(0, files.length - KEEP))) {
+            await fsp.unlink(path.join(dir, stale)).catch(() => {});
           }
         } catch { /* diagnostics must never affect a scan */ }
       })();
     }
 
-    const result = await scanMatch.match(buf, game, 8, set, { recallK, orb, lang });
+    // READ THE COLLECTOR STRIP BEFORE MATCHING, so ORB can stop as soon as it
+    // agrees with the printed number.
+    //
+    // Zach: "So would it make sense to have OCR go first and then see if orb
+    // agrees? And stop it early if it does? That way it's almost always
+    // stopping early regardless of card?"
+    //
+    // Measured on his 208-scan corpus: ORB puts the correct card at rank 1 in
+    // 93% of scans, and the printed number is correct on 81% -- so on most
+    // scans the answer is settled by candidate one, and orb-verify (997ms of a
+    // 1896ms scan) spends the rest of its time confirming it 49 more times.
+    //
+    // THE DETECTION IS COMPUTED ONCE AND SHARED. It used to come out of
+    // scanMatch.match(), which is why the strip could only be read afterwards.
+    // preprocessCardWithDetection is the same call match() makes internally, so
+    // this is a reordering, not extra work -- the detection is passed straight
+    // back in and match() skips its own.
+    //
+    // FAILURE IS FREE. If the pre-read finds nothing, ocrHint is null and
+    // verifyGame walks every candidate exactly as before. Nothing downstream
+    // depends on this read: the real OCR pass still runs after the match and is
+    // still what the resolver uses. This is a stop condition, not an identity.
+    let preHint = null;
+    let preStrip = null;
+    let preDetection = null;
+    let prePre = null;
+    try {
+      prePre = await prof.time('pre-detect', () => scanMatch.preprocessCardWithDetection(buf));
+      preDetection = prePre.detect || null;
+      if (preDetection) {
+        const stripImg = await prof.time('pre-ocr-warp', () => scanMatch.rectifyCard(buf, {
+          width: collectorNumberOcr.OCR_W,
+          height: collectorNumberOcr.OCR_H,
+          detection: preDetection,
+          region: collectorNumberOcr.STRIP,
+        }));
+        if (stripImg) {
+          preStrip = await prof.time('pre-ocr-strip',
+            () => collectorNumberOcr.readCollectorStrip(stripImg, { preCropped: true }));
+          const p = parseCollectorStrip(preStrip || '');
+          const numbers = [p.number, p.numberAlt].filter(Boolean);
+          const sets = (p.setCandidates?.length ? p.setCandidates : [p.set]).filter(Boolean);
+          if (numbers.length && sets.length) preHint = { sets, numbers };
+        }
+      }
+    } catch { /* a failed pre-read must never fail the scan */ }
+
+    const result = await scanMatch.match(buf, game, 8, set, {
+      recallK, orb, lang, prof, ocrHint: preHint, preprocessed: prePre,
+    });
     if (result.candidates && result.candidates.length > 0) {
+      // DB HYDRATION — up to 8 candidates, each up to 2 queries, never timed.
+      await prof.time('db-hydrate-candidates', async () => {
       const hydrated = await Promise.all(result.candidates.map(async (cand) => {
         let row = null;
+        // INDEXED LOOKUP FIRST, then the slow general form only if it misses.
+        //
+        // Both of these queries used to SCAN all 105,156 rows of card_cache, up
+        // to 16 times per scan (8 candidates x 2 queries) -- measured at 249ms,
+        // 8% of the scan.
+        //
+        // The cause is that `OR LOWER(set_name) = LOWER(?)` and
+        // `LOWER(name) = LOWER(?)` are not sargable: wrapping an indexed column
+        // in a function throws the index away, and the OR forces a scan even
+        // though idx_card_cache_set_num(set_id, number) exists and matches the
+        // first half perfectly.
+        //
+        // EXPLAIN QUERY PLAN before: SCAN card_cache (both queries).
+        //
+        // So try the indexed equality first. It answers the overwhelming
+        // majority of lookups, because `cand.set` comes from the catalogue in
+        // the first place and is already lowercase. The permissive form is kept
+        // verbatim as a fallback for the cases it was added for -- a set_name
+        // spelled out, or a name differing in case -- so NOTHING that resolved
+        // before stops resolving. It just no longer costs a table scan every
+        // time.
         if (cand.set && cand.number) {
           row = await db.get(
-            `SELECT * FROM card_cache WHERE (set_id = ? OR LOWER(set_name) = LOWER(?)) AND number = ? LIMIT 1`,
-            [cand.set, cand.set, cand.number]
+            `SELECT * FROM card_cache WHERE set_id = ? AND number = ? LIMIT 1`,
+            [cand.set, cand.number]
           );
+          if (!row) {
+            row = await db.get(
+              `SELECT * FROM card_cache WHERE (set_id = ? OR LOWER(set_name) = LOWER(?)) AND number = ? LIMIT 1`,
+              [cand.set, cand.set, cand.number]
+            );
+          }
         }
         if (!row && cand.name) {
           row = await db.get(
-            `SELECT * FROM card_cache WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+            `SELECT * FROM card_cache WHERE name = ? LIMIT 1`,
             [cand.name]
           );
+          if (!row) {
+            row = await db.get(
+              `SELECT * FROM card_cache WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+              [cand.name]
+            );
+          }
         }
         return row ? { ...cand, card: parseCardRow(row) } : cand;
       }));
       result.candidates = hydrated;
+      });
     }
 
     // OCR gets its OWN rectification of the card, from the ORIGINAL upload.
@@ -293,16 +475,75 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     if (ocr) {
       const t0 = Date.now();
       try {
-        const rectified = await scanMatch.rectifyCard(buf, {
-          width: collectorNumberOcr.OCR_W,
-          height: collectorNumberOcr.OCR_H,
-          detection: result.detection,
-        });
+        // WARP ONLY THE TWO BANDS OCR ACTUALLY READS.
+        //
+        // Zach: "I would rather not have duplicate work."
+        //
+        // This warp was 322-345ms, the most expensive step after ORB, because it
+        // sampled a 2000px source and wrote a full 1500x2100 card. OCR only ever
+        // looks at the collector strip (~2.8% of the card) and the title
+        // (~3.8%) -- the other ~93% was warped at full resolution and discarded.
+        //
+        // NOT the "merge the two warps" idea, which I measured and rejected:
+        // deriving the matcher's 500x700 by downscaling the big warp cost 84ms
+        // against the 76ms warp it replaced, a net LOSS. This is the opposite --
+        // warp LESS, not warp once.
+        //
+        // Same transform, same 2000px source, same sampling; only the output
+        // canvas is smaller. Verified pixel-identical to cropping the full warp
+        // across 25 captures, worst channel difference 0/255. That matters
+        // beyond tidiness: every OCR threshold in this project was tuned on
+        // those exact pixels, so anything less than identical invalidates them.
+        //
+        //     full-card warp   345ms
+        //     strip-only        52ms
+        //     title-only        54ms
+        //     -------------------------
+        //     saving           239ms per scan
+        //
+        // The two run concurrently, as the OCR passes already do.
+        const [stripImg, titleImg] = await prof.time('ocr-rectify-warp', () => Promise.all([
+          scanMatch.rectifyCard(buf, {
+            width: collectorNumberOcr.OCR_W,
+            height: collectorNumberOcr.OCR_H,
+            detection: result.detection,
+            region: collectorNumberOcr.STRIP,
+          }),
+          scanMatch.rectifyCard(buf, {
+            width: collectorNumberOcr.OCR_W,
+            height: collectorNumberOcr.OCR_H,
+            detection: result.detection,
+            region: cardTitleOcr.TITLE_BAND,
+          }),
+        ]));
+        // Preserves the existing contract: `rectified` is truthy only when a
+        // card was actually found, which is what gates OCR below.
+        const rectified = stripImg;
         // No card found -> no read. Reading the strip position off a photo that
         // was never rectified would OCR the background, and a confident number
         // from the background is worse than no number: the review queue exists
         // for "we don't know", it cannot catch "we're sure and wrong".
-        const raw = rectified ? await collectorNumberOcr.readCollectorStrip(rectified) : '';
+        // BOTH OCR PASSES RUN AT ONCE.
+        //
+        // Zach: "I would like to work on speed next." Measured over 38 real
+        // scans, the two reads cost 378ms (collector strip) and 291ms (title)
+        // and ran STRICTLY ONE AFTER THE OTHER -- 669ms of a 3112ms scan spent
+        // waiting on two independent operations.
+        //
+        // They are independent in every way that matters: different crops of
+        // the same rectified image, and DIFFERENT TESSERACT WORKERS. The
+        // workers were already separate (see cardTitleOcr's comment: sharing
+        // one would mean calling setParameters per crop and racing on shared
+        // worker state), so nothing is contended by overlapping them.
+        //
+        // Started here, awaited together below. Neither read can affect the
+        // other's result, so the only change is which of them we wait for.
+        const titlePromise = rectified
+          ? prof.time('ocr-card-title', () => cardTitleOcr.readCardTitle(titleImg, { preCropped: true }))
+          : Promise.resolve('');
+        const raw = rectified
+          ? await prof.time('ocr-collector-strip', () => collectorNumberOcr.readCollectorStrip(stripImg, { preCropped: true }))
+          : '';
 
         // SCAN TRACE. Off unless SCAN_TRACE=1.
         //
@@ -362,8 +603,55 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
         // printed title is still legible in the same photo. Reading it here
         // means /scan-resolve can identify the card even when the match above
         // returned noise.
-        const titleRaw = rectified ? await cardTitleOcr.readCardTitle(rectified) : '';
+        // Already running -- started alongside the collector strip above.
+        const titleRaw = await titlePromise;
         result.ocr = { ...parseCollectorStrip(raw), title: titleRaw.trim(), ms: Date.now() - t0 };
+
+        // PHASE 1b: rgbArt SHADOW MODE. Off unless RGBART_SHADOW=1.
+        //
+        // Computes the rgbArt hash of this scan and logs its answer ALONGSIDE
+        // the ORB answer. Nothing is returned to the client and nothing about
+        // the scan changes — Gate 1b is "rgbArt >= ORB on real scans", and that
+        // has to be measured on Zach's actual photos before rgbArt is trusted
+        // with an identification.
+        //
+        // It hashes the SAME rectified image the OCR path already produced, so
+        // it costs one hash (~30ms) and no extra detection or warp.
+        //
+        // WHY IT REUSES `rectified` RATHER THAN THE RAW UPLOAD. The index was
+        // built from Scryfall's flat card images. A raw phone photo is angled,
+        // cropped loose and lit unevenly; rectified is the warped, card-shaped
+        // version. Comparing like with like is the whole point — hashing the
+        // raw upload would measure the detector's failures, not rgbArt's.
+        //
+        // Consequence, stated honestly: when detection fails, rectified is null
+        // and rgbArt gets no turn at all. Those scans are logged as skipped
+        // rather than as rgbArt failures, because they are not.
+        if (process.env.RGBART_SHADOW) {
+          const tShadow = Date.now();
+          try {
+            const shadow = rectified ? await rgbArtMatch.identify(rectified, 3) : null;
+            const orbTop = result.candidates?.[0] ?? null;
+            console.log('RGBART_SHADOW ' + JSON.stringify({
+              ts: new Date().toISOString(),
+              skipped: rectified ? null : 'no-detection',
+              orb: orbTop ? { name: orbTop.name, set: orbTop.set, number: orbTop.number,
+                              inliers: orbTop.inliers ?? null } : null,
+              rgb: shadow ? { name: shadow.top.name, set: shadow.top.set,
+                              number: shadow.top.number, dist: shadow.top.dist,
+                              margin: shadow.margin, ms: shadow.ms } : null,
+              rgbRunners: shadow ? shadow.hits.slice(1).map(h => ({ name: h.name, dist: h.dist })) : null,
+              ocrNumber: result.ocr?.number ?? null,
+              ocrTitle: (result.ocr?.title || '').slice(0, 40),
+              agree: (shadow && orbTop)
+                ? shadow.top.name.toLowerCase() === String(orbTop.name || '').toLowerCase()
+                : null,
+            }));
+          } catch { /* shadow mode must never affect a scan */ }
+          // Attribute shadow mode's own cost, so the profile shows what the
+          // scan would cost WITHOUT this measurement running.
+          prof.set('shadowMs', Date.now() - tShadow);
+        }
       } catch (e) {
         console.warn('scan-match OCR failed:', e.message);
         result.ocr = { number: null, set: null, confident: false, raw: '', title: '', ms: Date.now() - t0 };
@@ -376,9 +664,17 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
     // deleted rather than shipped.
     delete result.detection;
 
-    res.json(result);
+    // RESPONSE SERIALISATION. The payload carries a base64 JPEG thumbnail and
+    // up to 8 hydrated card rows, so this is not free and has never been timed.
+    prof.mark('pre-serialise');
+    const payload = JSON.stringify(result);
+    prof.mark('json-serialise');
+    prof.set('respBytes', payload.length);
+    res.type('application/json').send(payload);
+    prof.done();
   } catch (error) {
     console.error('scan-match failed:', error.message);
+    prof.done();
     res.status(500).json({ error: 'Scan match failed' });
   }
 });
@@ -408,14 +704,37 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
   }));
   const result = await db.run(
     `INSERT INTO scan_review_queue
-      (user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident, ocr_raw, candidates_json, crop_data_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident, ocr_raw, candidates_json, crop_data_url, dump_file)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       userId, matchedName, reason,
-      ocr?.number ?? null, ocr?.set ?? null, ocr?.confident ? 1 : 0,
+      ocr?.number ?? null,
+      // SHOW THE SET CODE THE CATALOGUE BELIEVES, NOT THE RAW FIRST TOKEN.
+      //
+      // Zach: "the queue had MSHEN as the set code that wasn't right."
+      //
+      // `ocr.set` is whatever set-shaped token appeared FIRST on the strip. For
+      // 'MSH*EN' that is 'mshen' -- the set code fused with the language code,
+      // which is not a real set and never was. The parser knows this: it also
+      // returns 'msh' in setCandidates, and every resolution path tries those
+      // candidates against the catalogue.
+      //
+      // Storing the raw first token made the queue display a set code that does
+      // not exist, so a row the resolver had understood perfectly well looked
+      // like a failed read. Reporting our best VALIDATED reading instead means
+      // the queue shows Zach what the scanner actually concluded.
+      //
+      // Purely a display concern -- ocr_raw still carries the unedited text, so
+      // nothing diagnostic is lost.
+      await pickDisplaySet(ocr),
+      ocr?.confident ? 1 : 0,
       (ocr?.raw ?? '').slice(0, 500),
       JSON.stringify(slim),
       crop || null,
+      // PIN THE CAPTURE TO THE ROW, not to whatever was scanned most recently.
+      // Resolving 18 queued cards after a session would otherwise write all 18
+      // labels onto the last image scanned.
+      lastDumpName,
     ]
   );
   return { id: result.lastID };
@@ -434,7 +753,7 @@ async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates,
 // There is no third branch and no "most likely" fallback.
 router.post('/scan-resolve', async (req, res) => {
   try {
-    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity, stage } = req.body || {};
+    const { name, title_text = '', ocr_text = '', printing_hint = null, crop, quantity, stage, match_inliers } = req.body || {};
     // NAME IS NO LONGER REQUIRED, and that is the point of PR 11.
     //
     // It used to be, because CLIP's match was the only way to identify a card.
@@ -504,6 +823,18 @@ router.post('/scan-resolve', async (req, res) => {
       ocrText: ocr_text,
       printingHint: hint,
       userId: req.user.id,
+      // HOW GOOD THE ART MATCH ACTUALLY WAS.
+      //
+      // Without this the resolver cannot tell a 141-inlier identification from
+      // an 8-inlier guess, so it treats both as "the art decided it" and the
+      // printed collector number never gets to contradict a confident-looking
+      // wrong answer. On Zach's foils ORB returned 8-12 inliers -- noise -- and
+      // named four different wrong cards for the same card, while OCR read its
+      // number correctly every time.
+      //
+      // Bounded and validated like every other client value; a missing or
+      // bogus value simply means "strength unknown" and the old behaviour.
+      matchInliers: Number.isFinite(match_inliers) ? match_inliers : null,
     });
 
     if (outcome.action === 'add') {
@@ -530,7 +861,6 @@ router.post('/scan-resolve', async (req, res) => {
         return res.json({
           action: 'staged',
           staged_id: staged.id,
-          flag: staged.flag,
           card: parseCardRow(outcome.printing),
           ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
           resolved_by: outcome.titleName && outcome.usedName === outcome.titleName ? 'title' : 'clip',
@@ -560,29 +890,54 @@ router.post('/scan-resolve', async (req, res) => {
       });
     }
 
-    // Queued. The card is NOT in the collection and must not be counted as
-    // owned anywhere until Zach resolves it.
-    const entry = await enqueueScanReview({
+    // COULD NOT RESOLVE A PRINTING -> STAGE IT UNRESOLVED, DO NOT QUEUE IT.
+    //
+    // This used to write to scan_review_queue, a second table with its own
+    // screen. Zach, after a session that produced 24 staged rows and zero queue
+    // rows: "get rid of the queue because having the queue and scanner section
+    // seem redundant. What I would like is all cards to go into the scanned but
+    // if we are unsure of the card give the top 3 options and then allow to
+    // search manually just in case its not one of those 3."
+    //
+    // So the row lands in the SAME list as everything else, with card_id NULL.
+    // Nothing is owned either way -- staging is not the collection -- and Add
+    // All refuses while any unresolved row remains, so an unidentified card can
+    // never slip into the collection by being forgotten in a second list.
+    //
+    // ALL CANDIDATES ARE STORED; THE UI SHOWS THREE.
+    //
+    // Zach asked for "the top 3 options", and three is right for a phone-sized
+    // row -- eight buttons per card rebuilds the cluttered screen he just
+    // deleted. But TRUNCATING HERE would be a data loss: for a card with four
+    // near-identical printings the correct one can be fourth, and dropping it
+    // makes the row resolvable only by manual search.
+    //
+    // So the cap is a PRESENTATION decision and lives in the UI. The row keeps
+    // everything the matcher found, which also keeps the stored candidates
+    // useful for diagnosing a bad batch later.
+    const candidateCards = outcome.candidates.map(parseCardRow);
+    const staged = await stageScannedCard({
       userId: req.user.id,
+      body: req.body,
+      cardId: null,
+      quantity: qty,
+      crop,
+      matchInliers: Number.isFinite(req.body?.match_inliers) ? req.body.match_inliers : null,
       // THE NAME THE RESOLVER ACTUALLY USED, not the one CLIP guessed.
       //
-      // The queue entry is what Zach reads when deciding, so it must name the
-      // card the candidates below it belong to. With text-first resolution the
-      // title routinely identifies a card CLIP got wrong (that is the whole
-      // point), and labelling the entry with CLIP's discarded guess would show
-      // him 'Avatar Aang' above a list of Fated Firepower printings. Falling
-      // back to `name` covers the case where the title read nothing.
+      // This label is what Zach reads when deciding, so it must name the card
+      // the candidates below it belong to. With text-first resolution the title
+      // routinely identifies a card CLIP got wrong -- that is the whole point --
+      // and labelling the row with CLIP's discarded guess would show him
+      // 'Avatar Aang' above a list of Fated Firepower printings.
       matchedName: outcome.usedName || name || '',
-      reason: outcome.reason,
-      ocr: outcome.ocr,
-      candidates: outcome.candidates,
-      crop,
+      candidates: candidateCards,
     });
     return res.json({
-      action: 'queued',
-      queue_id: entry.id,
+      action: 'staged_unresolved',
+      staged_id: staged.id,
       reason: outcome.reason,
-      candidates: outcome.candidates.map(parseCardRow),
+      candidates: candidateCards,
       ocr: { number: outcome.ocr.number, set: outcome.ocr.set, confident: outcome.ocr.confident },
     });
   } catch (error) {
@@ -651,6 +1006,21 @@ router.post('/scan-queue/:id/resolve', async (req, res) => {
     }
 
     const added = await addCardToCollection(req.user, { ...req.body, card_id });
+    // GROUND TRUTH: he just told us what the card really is by picking it.
+    // The queue row carries the raw OCR that produced the mistake, so the
+    // sidecar records both the truth and what the scanner had believed.
+    const truthRow = await db.get(
+      `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [card_id]);
+    await labelCapture(entry.dump_file || null, {
+      source: 'queue-resolve',
+      truth: truthRow || { card_id },
+      scanner_said: { matched_name: entry.matched_name || null, reason: entry.reason || null },
+      ocr: {
+        number: entry.ocr_number ?? null,
+        set: entry.ocr_set ?? null,
+        raw: entry.ocr_raw ?? null,
+      },
+    });
     await db.run(`DELETE FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
     res.json({ resolved: true, entry_id: added.id, card_id });
   } catch (error) {
@@ -720,7 +1090,7 @@ router.post('/scan-stage', async (req, res) => {
       matchInliers: Number.isFinite(match_inliers) ? match_inliers : null,
     });
 
-    res.json({ staged: true, id: staged.id, card_id, name: card.name, flag: staged.flag });
+    res.json({ staged: true, id: staged.id, card_id, name: card.name });
   } catch (error) {
     if (error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });
@@ -731,8 +1101,12 @@ router.post('/scan-stage', async (req, res) => {
 });
 
 // The staged session, oldest first — the order he scanned, which is the order
-// the physical stack is in. Flagged rows are counted separately so the UI can
-// lead with "3 need a look" instead of making him find them.
+// the physical stack is in.
+//
+// UNRESOLVED rows (card_id IS NULL) are counted separately. They are the only
+// rows that need anything from Zach now that the advisory flags are gone, and
+// Add All refuses while any exist -- so the count is what the UI leads with
+// instead of making him hunt for them in a fifty-row list.
 router.get('/scan-stage', async (req, res) => {
   try {
     const rows = await db.all(
@@ -754,13 +1128,22 @@ router.get('/scan-stage', async (req, res) => {
         finish: r.finish,
         condition: r.condition,
         location_id: r.location_id,
-        flag: r.flag,
         match_inliers: r.match_inliers,
         crop: r.crop_data_url || null,
         created_at: r.created_at,
+        // UNRESOLVED: scanned and held, but no printing chosen yet. The label
+        // and candidates come from the matcher so the row is readable and
+        // actionable without a round trip.
+        unresolved: !r.card_id,
+        matched_name: r.matched_name || null,
+        candidates: (() => {
+          // A corrupt candidates_json must not take down the whole list -- the
+          // row is still recoverable by searching manually.
+          try { return JSON.parse(r.candidates_json || '[]'); } catch { return []; }
+        })(),
       })),
       total: rows.length,
-      flagged: rows.filter(r => r.flag).length,
+      unresolved: rows.filter(r => !r.card_id).length,
     });
   } catch (error) {
     console.error('scan-stage list failed:', error);
@@ -784,18 +1167,130 @@ router.patch('/scan-stage/:id', async (req, res) => {
     const qty = quantity === undefined ? row.quantity
       : positiveInteger(quantity, { name: 'quantity', max: 1000 });
 
+    // VALIDATE THE FINISH AT WRITE TIME. Review finding S3.
+    //
+    // This used to store `finish` straight from the body. An unrepresentable
+    // value ('Holofoil', a future dropdown sending a display label) was accepted
+    // silently and only surfaced at COMMIT, where finishColumnsFromBody throws.
+    // Commit is all-or-nothing, so ONE bad row blocked the entire session -- and
+    // the error names the allowed values, not which row is at fault, and the
+    // review UI has no finish editor to fix it with. The session became
+    // uncommittable with no route forward except discarding it.
+    //
+    // finishColumnsFromBody is the single place that interprets a finish
+    // anywhere in the app; using it here means a bad value is a 400 on the
+    // request that caused it.
+    const canonicalFinish = finish === undefined
+      ? row.finish
+      : finishColumnsFromBody({ finish }).finish;
+
     await db.run(
       `UPDATE scan_staging SET quantity = ?, finish = ?, condition = ?, location_id = ?
         WHERE id = ? AND user_id = ?`,
-      [qty, finish || row.finish, condition || row.condition,
+      [qty, canonicalFinish, condition || row.condition,
        location_id === undefined ? row.location_id : location_id, id, req.user.id]);
     res.json({ updated: true, id });
   } catch (error) {
-    if (error instanceof RequestBoundsError) {
-      return res.status(error.status).json({ error: error.message });
+    // FinishError is a 400: the caller sent an unrepresentable finish, which is
+    // their mistake to fix, not a server fault. Before S3 this could not happen
+    // here at all -- the bad value was stored and blew up at commit instead.
+    if (error instanceof RequestBoundsError || error instanceof FinishError) {
+      return res.status(error.status || 400).json({ error: error.message });
     }
     console.error('scan-stage patch failed:', error);
     res.status(500).json({ error: 'Failed to update staged scan' });
+  }
+});
+
+// RESOLVE A STAGED ROW: choose which printing it actually is.
+//
+// CANDIDATES ARE KEPT, NOT CLEARED. This used to set candidates_json = '[]' on
+// resolve, on the reasoning that a resolved row has no more decision to make.
+// Two things make that wrong:
+//
+//   1. Picking the wrong one of three options is easy on a phone. Clearing the
+//      list left the row "resolved" with no picker, so the only way back was
+//      delete and rescan the physical card -- for a mis-tap.
+//   2. The weak-match override needs them. A row can be resolved AND still be
+//      worth changing, which is exactly what that button is for.
+//
+// Keeping them costs a few hundred bytes per row on a table that is emptied at
+// every Add All. The UI decides what to show from `unresolved` (card_id IS
+// NULL) and the weak-match score, never from whether candidates exist.
+//
+// This is what replaces the review queue. Zach: "if we are unsure of the card
+// give the top 3 options and then allow to search manually just in case its not
+// one of those 3." The top 3 come from candidates_json; a manual search sends
+// any card_id at all, which is why this accepts an arbitrary id rather than
+// only one of the offered candidates -- if the matcher was wrong, restricting
+// him to its guesses would make the row unresolvable.
+//
+// The card must EXIST in the catalogue. That is the one thing worth enforcing:
+// a staged row pointing at a card_id that is not real would fail later, inside
+// the commit transaction, and take the whole Add All down with it.
+router.post('/scan-stage/:id/resolve', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const { card_id, finish, condition, quantity } = req.body || {};
+    if (!card_id || typeof card_id !== 'string') {
+      return res.status(400).json({ error: 'card_id is required' });
+    }
+    const row = await db.get(
+      `SELECT * FROM scan_staging WHERE id = ? AND user_id = ?`, [id, req.user.id]);
+    if (!row) return res.status(404).json({ error: 'Staged entry not found' });
+
+    const card = await db.get(`SELECT * FROM card_cache WHERE id = ?`, [card_id]);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const qty = quantity === undefined ? row.quantity : Number.parseInt(quantity, 10);
+    if (!Number.isSafeInteger(qty) || qty < 1) {
+      return res.status(400).json({ error: 'quantity must be a positive integer' });
+    }
+
+    // Same S3 validation as the PATCH endpoint: a finish that cannot be
+    // represented must fail HERE, not silently poison the row and block the
+    // whole Add All later.
+    const canonicalFinish = finish === undefined
+      ? row.finish
+      : finishColumnsFromBody({ finish }).finish;
+
+    await db.run(
+      `UPDATE scan_staging
+          SET card_id = ?, finish = ?, condition = ?, quantity = ?
+        WHERE id = ? AND user_id = ?`,
+      [card_id, canonicalFinish, condition || row.condition, qty, id, req.user.id]);
+
+    // GROUND TRUTH, AND THE BEST KIND. He looked at the physical card and told
+    // the app what it is, on a scan the matcher could not resolve -- exactly the
+    // failures the corpus needs and the hardest ones to obtain. Same reasoning
+    // as the old queue-resolve labelling this replaces.
+    // THE ROW'S OWN CAPTURE, not whatever was scanned most recently.
+    //
+    // Review finding S5. lastDumpName is module scope and holds the LAST image
+    // scanned; resolving happens after the whole stack has been scanned, so
+    // every resolve in a session used to write its label onto the same final
+    // image. scan_review_queue carried dump_file to prevent exactly this and
+    // the replacement table dropped it.
+    await labelCapture(row.dump_file || null, {
+      source: 'stage-resolve',
+      truth: { name: card.name, set_id: card.set_id, number: card.number },
+      scanner_said: { matched_name: row.matched_name || null },
+      match_inliers: Number.isFinite(row.match_inliers) ? row.match_inliers : null,
+    });
+
+    res.json({ resolved: true, id, card: parseCardRow(card) });
+  } catch (error) {
+    // Same as the PATCH endpoint: an unrepresentable finish is the caller's
+    // mistake and must be a 400 on this request, not a 500 here or a blocked
+    // Add All later.
+    if (error instanceof FinishError) {
+      return res.status(error.status || 400).json({ error: error.message });
+    }
+    console.error('scan-stage resolve failed:', error);
+    res.status(500).json({ error: 'Failed to resolve staged scan' });
   }
 });
 
@@ -830,6 +1325,39 @@ router.post('/scan-stage/commit', async (req, res) => {
       [req.user.id]);
     if (!rows.length) return res.json({ committed: 0, entries: [] });
 
+    // REFUSE WHILE ANYTHING IS UNRESOLVED. Zach chose this rule explicitly.
+    //
+    // Now that unresolved scans live in this same list, a row can exist with no
+    // card_id. Three things could happen on Add All, and only one is acceptable:
+    //
+    //   A. refuse until everything is resolved      <- he picked this
+    //   B. commit the resolved, leave the rest
+    //   C. commit everything, guessing the unresolved ones
+    //
+    // C is the one that puts a wrong card in his collection silently, which
+    // costs a recount against cardboard. B never does that, but it empties the
+    // list PARTIALLY, and a stack that half-disappears is the silent state
+    // change he does not accept from software tracking physical objects.
+    //
+    // A is also the only rule that keeps this endpoint's existing promise: all
+    // or nothing. So the check is a precondition, before the transaction opens
+    // and before anything is written.
+    //
+    // Without it, addCardToCollection would be handed card_id = null and either
+    // throw deep inside a transaction or -- far worse -- write a row pointing at
+    // no card.
+    const unresolved = rows.filter(r => !r.card_id);
+    if (unresolved.length) {
+      return res.status(409).json({
+        error: 'unresolved_entries',
+        unresolved: unresolved.length,
+        unresolved_ids: unresolved.map(r => r.id),
+        message: unresolved.length === 1
+          ? '1 scanned card still needs a printing chosen.'
+          : `${unresolved.length} scanned cards still need a printing chosen.`,
+      });
+    }
+
     const added = [];
     // db.withTransaction, not raw BEGIN/COMMIT: addCardToCollection opens its
     // own transaction, and this helper makes a nested call JOIN the outer one
@@ -847,7 +1375,26 @@ router.post('/scan-stage/commit', async (req, res) => {
         });
         added.push({ staged_id: r.id, entry_id: entry.id, card_id: r.card_id });
       }
-      await db.run(`DELETE FROM scan_staging WHERE user_id = ?`, [req.user.id]);
+      // DELETE ONLY WHAT WE JUST COMMITTED, never "everything for this user".
+      //
+      // Review finding S2. `rows` is read before the transaction opens; an
+      // unscoped delete here also destroys anything staged in between, WITHOUT
+      // adding it to the collection. The symptom is the worst kind: a card he
+      // scanned, that never arrived, and left no trace to notice it by.
+      //
+      // The primary fix is on the client -- auto-scan is now paused while the
+      // Scanned list is open, so nothing can be inserted during a commit. This
+      // is defence in depth: two phones, a retried request, or any future
+      // caller that stages without going through that screen would reopen the
+      // window, and the cost of scoping the delete is one WHERE clause.
+      const committedIds = added.map(a => a.staged_id);
+      if (committedIds.length) {
+        await db.run(
+          `DELETE FROM scan_staging
+            WHERE user_id = ? AND id IN (${committedIds.map(() => '?').join(', ')})`,
+          [req.user.id, ...committedIds],
+        );
+      }
     });
     res.json({ committed: added.length, entries: added });
   } catch (error) {
@@ -875,45 +1422,86 @@ router.delete('/scan-stage', async (req, res) => {
 // Put a resolved scan into the staging session, and work out whether the row
 // deserves a second look.
 //
-// SHARED by /scan-stage and by /scan-resolve's stage mode, so the flag rules
-// exist in exactly one place. Two copies would drift, and a flag that means
-// something different depending on which endpoint created it is worse than no
-// flag at all.
+// SHARED by /scan-stage and by /scan-resolve's stage mode, so staging behaves
+// identically no matter which endpoint created the row.
 //
-// FLAGS ARE COMPUTED NOW AND STORED, not derived when the list renders: the
-// answer depends on the state of the session AT THE MOMENT OF THE SCAN ("was
-// this already staged when I scanned it?"), and recomputing later against a
-// mutated session would silently change what Zach is being told.
-async function stageScannedCard({ userId, body = {}, cardId, quantity, crop, matchInliers }) {
+// NO FLAGS. This function used to compute 'duplicate_in_session' and
+// 'low_confidence' and store them for the review list to highlight. Zach removed
+// both, from evidence rather than taste:
+//
+//   "I dont want any of the warnings like dupe card or weak match because now
+//    the scanner only scans a dupe if I press it and the weak match has been
+//    right 100% of the time I have yet to see it be wrong."
+//
+// Both hold up. A duplicate is now only reachable when he TAPS to force one, so
+// flagging it warns him about the intended result of an explicit instruction.
+// And low_confidence fired on 3 of his 24 staged rows -- at 7 and 10 inliers --
+// and was correct in every case. My older "4-23 inliers means the matcher is
+// guessing" measurement predates the set+number resolution path, which is what
+// now decides the printing; his newer observation supersedes my older number.
+//
+// The remaining reason to highlight a row is that it is UNRESOLVED, which is
+// structural (card_id IS NULL) rather than advisory. "The only cards that
+// should stand out are the ones that unresolved."
+//
+// match_inliers is still recorded. It drives nothing, but it is what makes a bad
+// batch diagnosable after the fact.
+async function stageScannedCard({
+  userId, body = {}, cardId, quantity, crop, matchInliers,
+  matchedName = null, candidates = [],
+}) {
   const finish = body.finish || body.printing || 'nonfoil';
   const condition = body.condition || 'Near Mint';
   const locationId = body.location_id || null;
 
-  let flag = null;
-  const dup = await db.get(
-    `SELECT id FROM scan_staging WHERE user_id = ? AND card_id = ? AND finish = ?`,
-    [userId, cardId, finish]);
-  if (dup) {
-    flag = 'duplicate_in_session';
-  } else {
-    const owned = await db.get(
-      `SELECT id FROM collection WHERE user_id = ? AND card_id = ? AND finish = ? AND list_type = 'collection'`,
-      [userId, cardId, finish]);
-    if (owned) flag = 'already_owned';
-  }
-  // A weak match outranks the others: it questions whether this is even the
-  // right card, where the others only say "you have one already" — which is a
-  // perfectly normal thing for a collector to do on purpose.
-  if (Number.isFinite(matchInliers) && matchInliers < 25) flag = 'low_confidence';
-
+  // cardId may be null: that is an UNRESOLVED row -- scanned and held, but not
+  // yet pinned to a printing. It carries the matcher's best guess as a label and
+  // its candidates so the review screen can offer them.
   const ins = await db.run(
+    // dump_file PINS THE ROW TO THE CAPTURE THAT PRODUCED IT. Review finding
+    // S5: resolving used to label `lastDumpName`, the most recently scanned
+    // image at module scope. Resolving happens after the stack is scanned, so
+    // every label landed on the last capture of the session. Wrong labels are
+    // worse than none -- every future measurement inherits them silently.
     `INSERT INTO scan_staging
-       (user_id, card_id, quantity, finish, condition, location_id, flag, match_inliers, crop_data_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [userId, cardId, quantity, finish, condition, locationId, flag,
+       (user_id, card_id, quantity, finish, condition, location_id, match_inliers,
+        crop_data_url, matched_name, candidates_json, dump_file)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, cardId || null, quantity, finish, condition, locationId,
      Number.isFinite(matchInliers) ? matchInliers : null,
-     typeof crop === 'string' ? crop.slice(0, 200000) : null]);
-  return { id: ins.lastID, flag };
+     typeof crop === 'string' ? crop.slice(0, 200000) : null,
+     matchedName || null,
+     // Stored in full -- see the note at the call site. The review screen caps
+     // what it SHOWS at three; the row keeps every candidate so the right
+     // printing is never unreachable.
+     JSON.stringify(Array.isArray(candidates) ? candidates : []),
+     // The capture this row came from, captured NOW while it is still the
+     // current scan. Reading it at resolve time is the S5 bug.
+     lastDumpName || null]);
+
+  // LABEL THE SUCCESSES TOO, not only the failures.
+  //
+  // Only queue-resolve was labelling, which meant the corpus could only ever
+  // learn from scans that went WRONG. The staged rows are the POSITIVE controls
+  // -- they are how a tuning run proves a change did not break what already
+  // worked. Skipped for unresolved rows: there is no ground truth yet, and
+  // guessing one would poison the corpus that has already caught two of my
+  // regressions.
+  //
+  // Diagnostics only: labelCapture swallows its own failures and returns
+  // immediately when no dump is configured.
+  if (cardId) {
+    const truth = await db.get(
+      `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [cardId]);
+    await labelCapture(lastDumpName, {
+      source: 'scan-stage',
+      truth: truth || { card_id: cardId },
+      scanner_said: { matched_name: truth?.name || null },
+      match_inliers: Number.isFinite(matchInliers) ? matchInliers : null,
+    });
+  }
+
+  return { id: ins.lastID, unresolved: !cardId };
 }
 
 // Build/verify a per-set ORB index

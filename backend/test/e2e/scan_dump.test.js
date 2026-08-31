@@ -128,12 +128,29 @@ async function main() {
     const dir = path.join(os.tmpdir(), `dump-cap-${process.pid}`);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    for (let i = 0; i < 40; i++) fs.writeFileSync(path.join(dir, `scan-${i}.jpg`), 'x');
+    // ROTATES, RATHER THAN STOPPING. This test used to assert the dump STOPPED
+    // writing at its cap, which is what it did -- and that was a bug: the dump
+    // froze on the first N scans ever taken and every later session wrote
+    // nothing. Twice a card Zach reported could not be investigated because its
+    // capture was never saved.
+    //
+    // The invariant that matters is BOUNDED SIZE, not "stops writing". Keeping
+    // the NEWEST captures is the whole point of a debugging aid.
+    const KEEP = Number(process.env.SCAN_DUMP_KEEP || 400);
+    process.env.SCAN_DUMP_KEEP = '5';
+    for (let i = 0; i < 5; i++) {
+      // Deliberately older names, so sort order makes them the eviction targets.
+      fs.writeFileSync(path.join(dir, `scan-000000000${i}.jpg`), 'x');
+    }
     await scan(dir);
     await new Promise(r => setTimeout(r, 250));
-    assert.strictEqual(fs.readdirSync(dir).filter(f => f.endsWith('.jpg')).length, 40,
-      'the dump must stop at its cap rather than growing without limit');
-    pass('FSD-TC4', 'stops at the cap instead of filling the disk');
+    const after = fs.readdirSync(dir).filter(f => f.endsWith('.jpg'));
+    assert.ok(after.length <= 5,
+      `the dump must stay bounded, found ${after.length}`);
+    assert.ok(after.some(f => !/^scan-000000000\d\.jpg$/.test(f)),
+      'the NEW capture must be kept — a dump that evicts the newest scan is useless');
+    process.env.SCAN_DUMP_KEEP = String(KEEP);
+    pass('FSD-TC4', 'rotates within a bounded cap, keeping the newest capture');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 

@@ -47,6 +47,108 @@ const { normaliseTitle, bestTitleMatch } = require('./cardTitleMatch');
 // not assert something about the card that we cannot actually check.
 const FRAME_REDESIGN_YEAR = 2015;
 
+// BELOW THIS, AN ART MATCH IS NOISE RATHER THAN AN IDENTIFICATION.
+//
+// Measured on Zach's 33-scan session, ORB inliers for the top candidate:
+//
+//   correct identifications   47, 61, 63, 65, 68, 73, 84, 96, 98, 100, 105, 116, 126, 141
+//   wrong / foil guesses       4,  7,  8,  8,  8,  9,  9, 10, 10, 10, 11, 12, 19, 23
+//
+// The two populations barely overlap, and 25 sits in the gap. It is deliberately
+// set at the TOP of the noise band rather than the middle: the cost of calling a
+// real match "weak" is only that the printed number gets consulted too, which is
+// harmless when they agree. The cost of calling noise "strong" is a wrong card
+// entering the collection silently, which is the failure Bindarr must not have.
+// RAISED 25 -> 32, ON A MUCH LARGER SAMPLE.
+//
+// Zach: "set number and code where exactly right but name is wrong the 2nd one
+// shouldn't happen." He is right that it should not.
+//
+// Super-Soldier Serum. The strip read PERFECTLY -- 'R 0038 / MSH AEN > RAFATES'
+// -> msh #38, confident -- and msh #38 IS Super-Soldier Serum. But the artwork
+// matched 'Marked by Honor' at 27 inliers. 27 > 25, so the art counted as a
+// TRUSTED identification, the printed address was not allowed to overrule it,
+// and a card that had stated exactly what it was went to the review queue.
+//
+// 25 came from an early sample (correct 65-141, wrong 8-23). Across every
+// session since, the observations are:
+//
+//     WRONG art matches (16 observed):   4 .. 30
+//     RIGHT art matches (39 observed):  35 .. 162
+//
+// A clean gap between 30 and 35, with nothing inside it. 32 sits in the middle
+// of that gap rather than at either edge, so a slightly noisier scan does not
+// tip a wrong match into being trusted.
+//
+// THE ASYMMETRY THAT SETS THE DIRECTION, unchanged: calling a RIGHT match
+// "weak" is harmless -- it only matters when the print disagrees, and then the
+// print is the card's own catalogue address, which is better evidence than an
+// art similarity score. Calling a WRONG match "trusted" is the failure Bindarr
+// must not have: a wrong card entering the collection silently, or as here, a
+// correctly-identified card being queued for no reason.
+//
+// So the threshold is tuned to sit ABOVE every wrong match observed, and being
+// somewhat above some right ones too is an acceptable price.
+const WEAK_MATCH_INLIERS = 32;
+
+// Resolve a collector strip to exactly one real printing, or null.
+//
+// EVERY set candidate is tried, not just the first: parseCollectorStrip has no
+// catalogue, so it returns every set-shaped token it saw, and on real scans the
+// first is wrong roughly a quarter of the time ('mshen' for 'MSH*EN', artist
+// names, noise). The catalogue is the judge. Exactly one hit is an answer; two
+// different hits are ambiguity and must not resolve.
+async function printingsFromStripTiered(ocr) {
+  // TIER THE CANDIDATES: SET LINE FIRST.
+  //
+  // Zach: "namor is wrong should be namor the sub-mariner not the one it
+  // shows." The strip read cleanly -- num=69, set line ['msh', 'chris'] -- and
+  // msh #69 IS Namor the Sub-Mariner. He got msc #631 instead.
+  //
+  // This function tried EVERY candidate and returned null when more than one
+  // resolved. 'chris' is the artist Chris Rahn; chris #69 does not exist, but
+  // other artist-derived stems do resolve, and any second hit made the whole
+  // read collapse to null. The correct answer was then discarded and the weak
+  // art match (13 inliers -- noise) was left to decide, which is exactly the
+  // failure this function exists to prevent.
+  //
+  // The set code is printed ON THE SET LINE; an artist name is not. So try the
+  // set line's own candidates first and only fall back to the rest if none
+  // resolve -- the same tiering the fallback path already uses. Centralised
+  // here so both paths cannot drift apart again.
+  //
+  // The safety property is unchanged: a tier wins only when it yields EXACTLY
+  // ONE printing. Two hits inside a tier is real ambiguity and still returns
+  // null, which queues.
+  const all = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
+  const onSetLine = new Set(ocr.setLineCandidates || []);
+  const tiers = onSetLine.size
+    ? [all.filter(c => onSetLine.has(c)), all.filter(c => !onSetLine.has(c))]
+    : [all];
+  const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
+  for (const tier of tiers) {
+    if (!tier.length) continue;
+    const hits = [];
+    for (const code of tier) {
+      for (const num of numbers) {
+        const hit = await printingBySetNumber(code, num);
+        if (hit && !hits.some(h => h.id === hit.id)) hits.push(hit);
+      }
+    }
+    // This tier decided it, one way or the other. Do not fall through to a
+    // lower-quality tier after a real answer was found here.
+    if (hits.length) return hits;
+  }
+  return [];
+}
+
+// Exactly one printing, or nothing. The single-answer form used by the paths
+// that must either be certain or defer.
+async function printingFromStrip(ocr) {
+  const hits = await printingsFromStripTiered(ocr);
+  return hits.length === 1 ? hits[0] : null;
+}
+
 function framePrintsNumber(releaseDate) {
   if (!releaseDate) return true;             // unknown -> assume readable, queue as 'unreadable'
   const year = parseInt(String(releaseDate).slice(0, 4), 10);
@@ -306,7 +408,7 @@ async function nameFromTitle(titleText) {
 //   3. CLIP is the FALLBACK, used when the title is unreadable — which is
 //      today's behaviour, unchanged, and still 100% on clean images.
 //   4. A title matching nothing NEVER adds. The catalogue is still the validator.
-async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId, printingHint = null }) {
+async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId, printingHint = null, matchInliers = null }) {
   const ocr = parseCollectorStrip(ocrText);
 
   // STEP 1: the title decides the card, when it can.
@@ -335,6 +437,66 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   if (!all.length && matchedName) {
     all = await printingsByName(matchedName);
     if (all.length) usedName = matchedName;
+  }
+
+  // STEP 3b: THE PRINTED CATALOGUE ADDRESS, WHEN THE ART IS GUESSING.
+  //
+  // Zach: "For the OCR first you could use set code and set number you don't
+  // need title if you have those both."
+  //
+  // He is right, and the measurement backs him: on his 33 real scans the
+  // collector strip read 29/31, while TITLE OCR resolved 0 of 6 judged scans
+  // ("SuPer poNper Serum", "| ron Strucker, Hypyg,"). The title sits on top of
+  // foiled artwork in a stylised font; the number is matte black on a white
+  // strip in a fixed position with a rigid, catalogue-checkable format. So the
+  // "OCR first" architecture for Bindarr means SET+NUMBER first, not title
+  // first — which is why this no longer waits on a title read.
+  //
+  // FOILS. ORB returned 8-12 inliers — noise — and named FOUR DIFFERENT wrong
+  // cards across four photos of the same Evil's Thrall, while OCR read msh #128
+  // correctly every time. The problem was not that the art match was weak; it
+  // is that nothing downstream KNEW it was weak, so the strip's answer was
+  // demoted to a tiebreak inside a candidate list built around the wrong card.
+  //
+  // WHAT THIS DELIBERATELY DOES NOT DO: override a STRONG art match. Zach's
+  // earlier rule stands — "it should flag with the option to chose the
+  // set+number" — so a confident match that disagrees with the strip still goes
+  // to the review queue rather than being silently swapped. This only refuses
+  // to let a guess suppress a fact.
+  const artIsNoise = Number.isFinite(matchInliers) && matchInliers <= WEAK_MATCH_INLIERS;
+  if (artIsNoise && ocr.number) {
+    const exact = await printingFromStrip(ocr);
+    // AGREEMENT IS THE STRONGEST CASE, NOT A DISQUALIFIER.
+    //
+    // Zach's Evil's Thrall queued with ocr_number=128, ocr_set='mshen',
+    // confident=1 and exactly ONE candidate -- Evil's Thrall. The strip resolved
+    // cleanly to msh #128, which IS Evil's Thrall, and it queued anyway.
+    //
+    // This branch used to require `!all.some(r => r.id === exact.id)` -- it only
+    // fired when the strip DISAGREED with the art match. When they agreed, it
+    // fell through to the ordinary path, where a weak match cannot add and the
+    // scan queues as 'unreadable'. So two independent signals pointing at the
+    // same card was treated as a worse outcome than one signal pointing
+    // somewhere new.
+    //
+    // That guard was written when the strip was only a corrective for wrong art.
+    // Once the strip became the primary identifier for weak matches, "the art
+    // guessed the same card the print names" is the most confident state the
+    // scanner can reach, not a reason to defer.
+    //
+    // The safety property is untouched: `exact` is non-null only when set+number
+    // resolved to EXACTLY ONE printing, which is the same bar every other add
+    // path clears.
+    if (exact) {
+      return {
+        action: 'add',
+        printing: exact,
+        ocr,
+        titleName,
+        usedName: exact.name,
+        resolvedBy: 'ocr-over-weak-art',
+      };
+    }
   }
 
   // Neither the title nor CLIP found a card in the catalogue.
@@ -369,15 +531,33 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
     // different candidates each resolve, that is ambiguity and it queues rather
     // than picking. More signal, not looser rules.
     if (ocr.number) {
-      const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
-      const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
-      const hits = [];
-      for (const code of codes) {
-        for (const num of numbers) {
-          const exact = await printingBySetNumber(code, num);
-          if (exact && !hits.some(h => h.id === exact.id)) hits.push(exact);
-        }
-      }
+      // TRY THE SET LINE'S OWN CANDIDATES FIRST.
+      //
+      // Zach: "evils thrall has set code and number but still didn't match not
+      // sure why."
+      //
+      // The strip read 'uv 0128 / MSH ®EN ¥% Mintav / Nemes 5 BE'. Candidates
+      // came back as ['msh', 'nemes', 'nem'] -- 'nem' being the artist's name
+      // 'Nemes' with its last letter stripped by the language-suffix rule I
+      // added for glued tokens ('mshen' -> 'msh').
+      //
+      // 'nem' is a REAL set (Nemesis) and nem #128 is a REAL card (Complex
+      // Automaton). So msh #128 and nem #128 both resolved, the code correctly
+      // called that ambiguous, and a card it had actually identified went to
+      // the queue.
+      //
+      // The set code is printed ON THE SET LINE; an artist name is not. So try
+      // the set line's candidates first, and only fall back to the rest if none
+      // of them resolve. That keeps the extra candidates useful for genuinely
+      // mangled reads while stopping a stray word from manufacturing ambiguity.
+      //
+      // The safety property is unchanged: a winner still requires EXACTLY ONE
+      // printing, and two winners within the same tier still queue.
+      // Uses the SAME tiering as printingFromStrip (set line first). Kept as one
+      // call rather than a second copy of the loop: the Namor bug happened
+      // because two paths that must agree about "which set code do we believe"
+      // had drifted apart.
+      const hits = await printingsFromStripTiered(ocr);
       if (hits.length === 1) {
         return {
           action: 'add',
@@ -428,19 +608,22 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   // which says something is wrong without saying what. Both readings are put in
   // front of him and he picks in one tap. That is what the review queue is FOR.
   if (ocr.number) {
-    const codes = ocr.setCandidates?.length ? ocr.setCandidates : (ocr.set ? [ocr.set] : []);
-    const numbers = [ocr.number, ocr.numberAlt].filter(Boolean);
+    // SAME TIERING AS EVERY OTHER STRIP LOOKUP (set line first).
+    //
+    // Zach: "the forest one has a wrong set number should be 295". A Forest was
+    // staged as soi #296 rather than msh #295. This loop tried EVERY candidate,
+    // including stems taken off the artist line, so a wrong-set Forest -- and
+    // every set has a Forest -- could be produced from a stray word and then
+    // offered as though the card had said it.
+    //
+    // Using the shared helper means there is exactly one answer to "which set
+    // code do we believe", instead of three copies that drift.
     const matchedIds = new Set(all.map(r => r.id));
-    const strip = [];
-    for (const code of codes) {
-      for (const num of numbers) {
-        const hit = await printingBySetNumber(code, num);
-        // Only a DISAGREEMENT matters. A strip that resolves to one of the
-        // printings the matcher already offered is agreement, and agreement
-        // needs no decision from him.
-        if (hit && !matchedIds.has(hit.id) && !strip.some(s => s.id === hit.id)) strip.push(hit);
-      }
-    }
+    const strip = (await printingsFromStripTiered(ocr))
+      // Only a DISAGREEMENT matters. A strip that resolves to one of the
+      // printings the matcher already offered is agreement, and agreement needs
+      // no decision from him.
+      .filter(hit => !matchedIds.has(hit.id));
     if (strip.length === 1) {
       return {
         action: 'queue',
@@ -484,8 +667,36 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   // legibility, so the strip is only consulted when it can actually change the
   // outcome. Multi-printing cards are untouched — they still require the number
   // and still queue without it, so no printing is ever silently guessed.
-  if (all.length === 1) {
+  //
+  // BUT UNIQUENESS IS NOT IDENTIFICATION. Zach: "check the namor card because it
+  // should be namor the sub-mariner".
+  //
+  // He scanned Namor the Sub-Mariner (msh #69). The artwork matched "Namor,
+  // Scourge of the Seas" at 16 INLIERS -- noise, not recognition -- and the
+  // strip read nothing. That name has exactly ONE printing (msc #631), so this
+  // branch fired and added it with no confidence check whatsoever.
+  //
+  // The reasoning above is sound but assumed the NAME was right. It answers
+  // "which printing of this card?", and a unique name makes that question
+  // trivially answerable -- while saying nothing about whether the matcher
+  // identified the card at all. A noise-level guess that happens to name a
+  // one-printing card was the single most direct route into the collection.
+  //
+  // So uniqueness still short-circuits the printing question, but only once the
+  // art match is trustworthy. A weak match with no number to corroborate it is
+  // not an identification, and it queues -- which is what the queue is for.
+  if (all.length === 1 && !artIsNoise) {
     return { action: 'add', printing: all[0], ocr, titleName, usedName };
+  }
+  if (all.length === 1 && artIsNoise) {
+    return {
+      action: 'queue',
+      reason: 'unreadable',
+      candidates: await sortOwnedFirst(all, userId),
+      ocr,
+      titleName,
+      usedName,
+    };
   }
 
   // THE ARTWORK NAMED A SPECIFIC PRINTING — the alt-art case.
@@ -613,11 +824,29 @@ async function resolveScannedPrinting({ matchedName, titleText, ocrText, userId,
   }
 
   let matches = byNumber;
-  if (ocr.set && byNumber.length > 1) {
-    // Only consulted when there is a genuine ambiguity to break. When the
-    // number already yields exactly one printing there is nothing to
-    // disambiguate, so a misread set has no way to do damage.
-    const bySet = matches.filter(r => String(r.set_id || '').toLowerCase() === ocr.set);
+  if (byNumber.length > 1) {
+    // EVERY SET CANDIDATE, NOT JUST THE FIRST.
+    //
+    // parseCollectorStrip hands back every set-shaped token it saw, in reading
+    // order, precisely because it cannot tell which is the set — it has no
+    // catalogue. This code was using only `ocr.set`, which is the FIRST token,
+    // and throwing the rest away.
+    //
+    // Zach's basic land: the strip read "| ABS a / L 0295 / MSH *EN % DOMEN".
+    // Candidates were ['abs', 'msh', 'domen'] — the correct 'msh' was RIGHT
+    // THERE in second place, but 'abs' was tried alone, matched nothing, and
+    // the card queued as ambiguous with four identical Forests to choose
+    // between. Using the whole list resolves it outright.
+    //
+    // This cannot loosen anything. The set is still only ever a TIE-BREAKER
+    // among printings the NUMBER already matched: it can neither promote a row
+    // the number missed nor empty the list. If two different candidates each
+    // narrow to a different printing, that is genuine ambiguity and the
+    // `matches.length > 1` check below still queues it.
+    const codes = ocr.setCandidates?.length
+      ? ocr.setCandidates
+      : (ocr.set ? [ocr.set] : []);
+    const bySet = matches.filter(r => codes.includes(String(r.set_id || '').toLowerCase()));
     // A set filter that empties the list is a MISREAD, not a signal. Zach's
     // Avatar Aang read as set 'taa' when the catalogue stores 'tla' — one
     // letter. Letting that veto the candidates would discard a correct number
@@ -649,4 +878,5 @@ module.exports = {
   sameNumber,
   framePrintsNumber,
   FRAME_REDESIGN_YEAR,
+  WEAK_MATCH_INLIERS,
 };

@@ -1,19 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
-import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings, ScanLine, Maximize, Minimize } from 'lucide-react';
+import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
 import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
+import { initCardDetector, detectCardOnDevice, detectorReady } from '../utils/onDeviceCardDetect';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
-import ScanReviewQueue from './ScanReviewQueue';
 import { createScanReviewQueue } from './scanReviewQueue';
 import ScanStagingReview from './ScanStagingReview';
 import { createScanStaging } from './scanStaging';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { laplacianVarianceScore, decideCapture, newGateState } from '../utils/frameSharpness';
+import { laplacianVarianceScore, decideCapture, newGateState, SHARPNESS_WINDOW } from '../utils/frameSharpness';
 
 import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
@@ -151,6 +151,153 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 const SCAN_RETRY_REJECTED_MS = 350;
 const SCAN_RETRY_SETTLE_MS = 400;
 const SCAN_RETRY_ERROR_MS = 2500;
+
+// ---------------------------------------------------------------------------
+// STABILITY GATING — capture when the detection HOLDS STILL, never on a timer.
+//
+// Zach: "this scanner is not working it's just not getting any better.
+// Recommending researching the internet for the best way to scan cards by
+// detecting one is in the camera view."
+//
+// He was right that patching was not converging. Three attempts tried to answer
+// "is this a DIFFERENT card?" from a preview frame -- luma fingerprint, then
+// detector geometry, then match identity -- and all three skipped real cards.
+// That question is not answerable from a preview: he stacks each card in the
+// same position, so nothing moves, and two cards under the same light look
+// nearly identical at any coarse measure.
+//
+// WHAT EVERY MATURE SCANNER DOES INSTEAD (see SCANNER_CAPTURE_REDESIGN.md):
+// capture when the detected quad has held still across N consecutive frames.
+// Four independent implementations of the same rule --
+//   Dynamsoft QuadStabilizer   IoU 0.85, area delta 0.15, 3 stable frames
+//   docuSnap                   10 consecutive passing frames + hold-still
+//   CamScanner                 stability + occlusion + clarity before capture
+//   Scanbot                    sensitivity threshold + post-detect delay
+//
+// The question changes from one that cannot be answered to one that can: "has
+// the detection held still long enough to be a deliberate presentation?" A
+// stable quad IS a card sitting in view, observed rather than assumed.
+//
+// Zach's workflow decides the duplicate rule: "I just drop cards on top."
+// Dropping a card disturbs the quad, which resets the counter and produces a
+// FRESH stable period -- that is the new-card event, and it needs no "leave the
+// frame" requirement (option (a), his choice). The existing identity check
+// remains the backstop for true duplicates. This errs toward scanning, which is
+// the correct direction: a duplicate is visible and one tap to remove, while a
+// skipped card is only findable by recounting physical cardboard.
+
+// Overlap between two axis-aligned boxes, 0..1. The standard IoU that
+// Dynamsoft's stabilizer uses: it is scale-invariant, so it behaves the same
+// whether the card fills the frame or sits far away.
+function boxIoU(a, b) {
+  if (!a || !b) return 0;
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  if (inter <= 0) return 0;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+// Is this detection in the same place as the previous one?
+//
+// Both tests must pass. IoU alone accepts a box creeping steadily across the
+// frame if each step is small; the area check catches a card being moved
+// toward or away from the camera, which IoU is relatively insensitive to.
+const STABLE_IOU = 0.85;          // Dynamsoft's published default
+const STABLE_AREA_DELTA = 0.15;   // fractional area change allowed
+function detectionsAgree(a, b) {
+  if (!a || !b) return false;
+  if (boxIoU(a, b) < STABLE_IOU) return false;
+  const areaA = a.w * a.h, areaB = b.w * b.h;
+  if (areaA <= 0 || areaB <= 0) return false;
+  return Math.abs(areaA - areaB) / Math.max(areaA, areaB) <= STABLE_AREA_DELTA;
+}
+
+// How many consecutive agreeing frames before the card counts as presented.
+//
+// The live loop runs at ~7 fps (140ms), so 3 frames is ~420ms of stillness.
+// Long enough that a hand moving through the frame cannot trigger it, short
+// enough to feel immediate. Dynamsoft ships 3 at comparable frame rates.
+//
+// NOT A TIMER. Zach: "Nothing should be measured on time." This counts EVENTS
+// from the detector -- if the camera stalls, the count stalls with it, which is
+// the correct behaviour and is exactly what a wall-clock would get wrong.
+const STABLE_FRAMES_REQUIRED = 3;
+
+// EXTRA SETTLING FRAMES BEFORE THE SHUTTER, on top of stability.
+//
+// Zach: "scanning seems to be getting worse at one point it was doing really
+// good". Four of seven queues came back with the collector-number line MISSING
+// from the OCR text entirely -- 'MSH *EN Wo DOMIN' with no 'L 0295' above it,
+// and one completely blank. The text was never in the image, so this is a
+// CAPTURE QUALITY problem, not a parsing one.
+//
+// WHAT I CHANGED THAT CAUSED IT. Stability gating fires the shutter the moment
+// the detection has agreed for STABLE_FRAMES_REQUIRED frames. That is the
+// EARLIEST instant the card is arguably still -- the hand may only just have
+// left, the card may still be rocking, and the lens has had no time to refocus
+// on the new depth. The old timer-based path happened to wait longer, which is
+// the "really good" behaviour he remembers.
+//
+// The sharpness gate does not save us here, and it is worth understanding why:
+// it compares each frame to a MEDIAN OF RECENT FRAMES. During a card swap those
+// recent frames are all motion-blurred, so the baseline sinks and a merely
+// less-blurred frame clears it. The gate is relative by design (it adapts to
+// each device), and that same property makes it blind right after motion.
+//
+// So: hold a few more frames of agreement past the point of stability. The
+// collector number is ~3mm of text and the first thing to dissolve in blur,
+// which is exactly the symptom.
+//
+// Counted detector frames, not milliseconds -- Zach's rule. A stalled camera
+// stalls the count.
+const SETTLE_FRAMES_BEFORE_CAPTURE = 3;
+
+// HOW MANY CONSECUTIVE DISTURBED FRAMES COUNT AS A NEW PLACEMENT.
+//
+// Zach: "evil thrall scanned twice even though I never tapped or anything after
+// it scanned the first time."
+//
+// The one-scan-per-stable-period latch used to clear on ANY single frame whose
+// detection disagreed with the last. The trained detector regresses a fresh box
+// every frame, so its output jitters by a pixel or two even on a motionless
+// card -- and one frame drifting past the IoU threshold re-armed capture, so
+// the same card scanned again with nothing having happened.
+//
+// A genuine placement disturbs the view for SEVERAL consecutive frames: the
+// hand enters, the card falls, the box moves and resizes. Detector jitter does
+// not. 2 frames (~280ms at this loop rate) is comfortably longer than a
+// single-frame wobble and far shorter than any real hand movement.
+//
+// Still no clock: these are counted detector EVENTS, per Zach's rule.
+const DISTURBED_FRAMES_TO_REARM = 2;
+
+// THE LOAD-BEARING ASSUMPTION, STATED EXPLICITLY BECAUSE IT WAS MEASURED.
+//
+// Checked against Zach's 33 real scans: two DIFFERENT cards resting in the same
+// spot produce detections with IoU 0.98-1.00. Settled frames alone therefore
+// would NEVER break stability -- 0 of 4 consecutive pairs did.
+//
+// So re-arming does not depend on the new card looking different once it has
+// landed. It depends on the live loop OBSERVING THE DROP: the hand entering
+// frame, the card in motion, the momentary occlusion. At ~7 fps a hand movement
+// spans several frames, each of which fails the IoU or area test and resets the
+// counter.
+//
+// This is the same physical event barcode scanners key on ("remove and
+// re-present"), just observed as motion rather than as absence. It is why the
+// design should work where three attempts at "does this card LOOK different"
+// failed -- but it is an assumption about the live camera, and the only way to
+// confirm it is a real scanning session.
+//
+// IF IT PROVES WRONG, the fix is NOT to loosen these thresholds -- that would
+// rescan a still card forever. It is to require the frame to CLEAR between
+// cards (option (b) Zach declined), or to add his suggested tap-to-force.
+
+// ---------------------------------------------------------------------------
 // HOW FAR TO ZOOM THE LENS IN FOR SCANNING.
 //
 // Zach: "I think our zoom needs to mimic mana boxes I think we are zoomed to
@@ -174,7 +321,38 @@ const SCAN_RETRY_ERROR_MS = 2500;
 //
 // WHY NOT LESS THAN 1.0, EVER: below 1.0 iOS switches to the ULTRA-WIDE lens,
 // which is softer and lower resolution. See the lens pin in startCamera.
-const SCAN_ZOOM = 1.6;
+// RETUNED 1.6 -> 1.5 ON MEASURED CAPTURES.
+//
+// Zach: "currently at 1.6 seems a tad close but also can leave at 1.6 because
+// everything seems to be working." His feel was right, and there is hard
+// evidence for it. Across 160 detections in his corpus:
+//
+//     card width  / frame width :  p50 0.827   p95 1.063   max 1.132
+//     card height / frame height:  p50 0.865   p95 1.049   max 1.187
+//
+// Values ABOVE 1.0 mean the card runs off the edge of the frame. That happened
+// on 28 of 160 captures -- 18% -- and it is the failure mode PR #38 documented:
+// the detector needs visible margin AROUND the card to find its border, and a
+// card filling the crop dropped collector-number reads from 8/8 to 1/8.
+//
+// Scaling linearly:
+//
+//     zoom 1.6   28/160 overflowing   strip pixels 100%
+//     zoom 1.5    9/160 overflowing   strip pixels  88%
+//     zoom 1.4    1/160 overflowing   strip pixels  77%
+//     zoom 1.3    0/160 overflowing   strip pixels  66%
+//
+// WHY 1.5 AND NOT 1.4. The competing cost is real: the collector number is
+// ~2mm of text and OCR is already the weakest link, so every pixel removed from
+// the strip is paid for at the hardest step. 1.5 removes two thirds of the
+// overflow for 12% of the strip's pixels; 1.4 removes almost all of it but
+// costs nearly a quarter.
+//
+// 1.5 is the conservative move against a MEASURED harm, without spending much
+// on the signal that is already marginal. If overflow still shows up in the
+// next corpus, 1.4 is the next step -- and that will be a measurement, not
+// another guess.
+const SCAN_ZOOM = 1.5;
 
 // THE CANCEL WINDOW before an auto-add commits. Lowered 2 -> 1.
 //
@@ -228,7 +406,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // Camera active states
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraErrorKey, setCameraErrorKey] = useState('');
-  const [autoScan, setAutoScan] = useState(false);
+  // AUTO-SCAN IS ALWAYS ON. Zach: "for the auto on I just want it always on no
+  // more click to capture button."
+  //
+  // A constant rather than state. It was state with a toggle AND a reset to
+  // false on every camera stop, which is why it kept turning itself off between
+  // sessions. Keeping the name lets the existing gates read naturally; the
+  // dead branches behind `!autoScan` are removed rather than left implying a
+  // mode that no longer exists.
+  const autoScan = true;
   const [showScanSettings, setShowScanSettings] = useState(false);
   // The review queue: cards scanned but not yet resolved to an exact printing.
   //
@@ -236,19 +422,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // pending count across re-renders; recreating it would silently reset the
   // badge to zero mid-stack. React state mirrors it purely for rendering — the
   // SERVER remains the source of truth, and `refresh()` reconciles the count.
-  const [showReviewQueue, setShowReviewQueue] = useState(false);
-  const [queuePending, setQueuePending] = useState(0);
   const reviewQueueRef = useRef(null);
   if (!reviewQueueRef.current) {
     reviewQueueRef.current = createScanReviewQueue({
-      onChange: (s) => setQueuePending(s.pendingCount),
     });
   }
   const reviewQueue = reviewQueueRef.current;
   // Reconcile against the server on mount, so a queue left over from a previous
   // session (or a reload mid-stack) shows its real size immediately rather than
   // appearing empty until something new is queued.
-  useEffect(() => { reviewQueue.refresh(); }, [reviewQueue]);
 
   // THE SCAN SESSION. Same controller shape and the same reasoning as the review
   // queue above: created once so its count survives re-renders, mirrored into
@@ -259,11 +441,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // ensure there isn't any dupes."
   const [showStaging, setShowStaging] = useState(false);
   const [stagedCount, setStagedCount] = useState(0);
-  const [stagedFlagged, setStagedFlagged] = useState(0);
+  // How many staged rows still need a printing chosen. Replaces the old
+  // `flaggedCount`, which read a field the staging controller no longer
+  // publishes -- it was left over from the queue merge and quietly evaluated to
+  // undefined, so the badge could never show the amber "needs you" state.
+  const [stagedUnresolved, setStagedUnresolved] = useState(0);
   const stagingRef = useRef(null);
   if (!stagingRef.current) {
     stagingRef.current = createScanStaging({
-      onChange: (s) => { setStagedCount(s.stagedCount); setStagedFlagged(s.flaggedCount); },
+      onChange: (s) => { setStagedCount(s.stagedCount); setStagedUnresolved(s.unresolvedCount); },
     });
   }
   const staging = stagingRef.current;
@@ -334,6 +520,42 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // different kinds of value in one ref would make a future "why doesn't this
   // match?" bug very hard to see.
   const lastQueuedNameRef = useRef(null);
+  // The identity a TAP has already forced past the queue dedupe guard. Lets the
+  // first tap through and refuses a second one on the same card, so a double tap
+  // cannot stage two rows for one piece of cardboard. Cleared alongside
+  // lastQueuedNameRef when the card leaves the frame, because at that point a
+  // genuine second copy must be scannable again.
+  const manualForcedNameRef = useRef(null);
+  // MANUAL INTENT IS PER-SCAN, AND MUST NOT BE A SHARED MUTABLE FLAG.
+  //
+  // The first version of this used a single `manualScanRef` set at the top of
+  // handleCapture and cleared in its finally. Review found that to be a genuine
+  // duplicate-record bug, and it is worth recording why, because the mistake is
+  // easy to repeat.
+  //
+  // handleCapture is async AND deliberately re-enterable: the tap overlay calls
+  // it with force=true, which skips the `loading` guard on purpose so a wedged
+  // scanner can be recovered. So two invocations overlap, and a shared flag is
+  // read by whichever scan happens to be running -- not by the scan that set it.
+  //
+  //   auto scan A starts            manual = false
+  //   A awaits /api/scan-match      (~160 lines of async work follow, with no
+  //                                  staleness re-check before the queue guard)
+  //   user taps -> scan T starts    manual = TRUE
+  //   A resumes, reads the flag     sees TRUE, skips its dedupe guard,
+  //                                 and stages a duplicate row
+  //
+  // That is precisely the failure Zach pays for in a physical recount, caused by
+  // the change meant to protect him. The reverse interleaving is also broken: A
+  // finishing inside T's window runs A's finally, clearing T's intent, so the
+  // tap override silently stops working -- non-deterministically.
+  //
+  // The fix is structural rather than another guard: intent is a plain local
+  // `const isManual = !auto` in handleCapture, captured by that scan's closure
+  // and passed explicitly to applyMatches. Concurrent scans then cannot see
+  // each other's intent AT ALL, so this class of interleaving becomes
+  // unrepresentable rather than merely unlikely. There is no shared cell left
+  // to corrupt, which is why no ref is declared here.
 
   // BUG 2 (auto-scan blur): the sharpness gate's rolling state.
   //
@@ -351,6 +573,9 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // scanner. It changes on every auto tick, and a re-render per tick would
   // restart the capture effect below and disturb the very cadence it gates.
   const sharpnessRef = useRef(newGateState());
+  // Scratch canvas for scoring settled preview frames. Reused rather than
+  // allocated per frame: this runs several times a second on a phone.
+  const sharpProbeRef = useRef(null);
 
   // The last few gate decisions, kept ONLY so Zach can read the numbers.
   //
@@ -405,6 +630,27 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // from a previous render — and cropping to a stale detection would frame the
   // card's PREVIOUS position. The ref always holds the latest.
   const liveDetectRef = useRef(null);
+  // STABILITY GATING. `stableCountRef` counts consecutive frames whose
+  // detection agrees with the previous one; `prevDetRef` is that previous
+  // detection. Refs, not state: the live loop writes these ~7x/second and
+  // re-rendering on each frame would cost more than the detection itself.
+  const prevDetRef = useRef(null);
+  const stableCountRef = useRef(0);
+  // Set once a stable period has already fired a capture, so ONE stable period
+  // produces exactly ONE scan. Cleared when the detection is disturbed --
+  // which is what dropping the next card on the stack does.
+  const stablePeriodConsumedRef = useRef(false);
+  // Consecutive frames whose detection disagreed with the previous one. Used to
+  // tell a real placement from detector jitter -- see DISTURBED_FRAMES_TO_REARM.
+  const disturbedRunRef = useRef(0);
+  // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
+  // A scanner that has silently decided not to scan is indistinguishable from a
+  // broken one.
+  const [cardPresent, setCardPresent] = useState(false);
+  // Has the detection held still long enough to count as a deliberate
+  // presentation? Drives both the capture trigger and the on-screen status, so
+  // what Zach sees and what the scanner decides cannot disagree.
+  const [steady, setSteady] = useState(false);
 
   // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
   // of the change is that a phone preview must fill the screen: the guide box is
@@ -417,17 +663,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // same controls, the same diagnostics panel, the same review-queue banner —
   // only the container class changes. That keeps the drag/rotate/pinch guide
   // adjustment, the settings panel and the queue reachable exactly as before.
-  const [fullscreenScan, setFullscreenScan] = useState(() => {
-    try {
-      // matchMedia is guarded: it is absent in some embedded webviews and this
-      // must never be the thing that stops the scanner rendering.
-      return typeof window !== 'undefined'
-        && typeof window.matchMedia === 'function'
-        && window.matchMedia('(max-width: 900px)').matches;
-    } catch {
-      return false;
-    }
-  });
+  // THE SCANNER IS FULLSCREEN, ALWAYS. Zach: "I want full screen only."
+  //
+  // This used to be a mode toggled by a maximize button, defaulting to
+  // fullscreen only on narrow viewports. He scans on a phone, always in
+  // fullscreen, so the windowed path was a second layout to keep working for
+  // nobody -- and it is where the "Scanned" badge tap silently failed.
+  const fullscreenScan = true;
 
   const beepCtxRef = useRef(null); // reused AudioContext for the scan cue
   const handleCaptureRef = useRef(null); // always the latest handleCapture, for timers
@@ -545,14 +787,29 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [dupConfirmCard, setDupConfirmCard] = useState(null);
   const [dupQty, setDupQty] = useState(1);
 
+  // stopCamera is defined further down, so the back guard reaches it through a
+  // ref rather than a use-before-define.
+  const stopCameraRef = useRef(null);
+
   useBackGuard(scanMatches.length > 0, () => setScanMatches([]));
   // Android hardware back / iOS swipe closes the review screen instead of
   // leaving the scanner entirely, matching every other overlay here.
-  useBackGuard(showReviewQueue, () => setShowReviewQueue(false));
 
   useBackGuard(!!dupConfirmCard, () => setDupConfirmCard(null));
   useBackGuard(!!inspectorEntry, () => setInspectorEntry(null));
   useBackGuard(recentSelect.selectMode, recentSelect.exitSelectMode);
+  // The staged list closes on back, like every other overlay here.
+  useBackGuard(showStaging, () => setShowStaging(false));
+  // AND SO DOES THE CAMERA ITSELF -- a SECOND way out, not the only one.
+  //
+  // Zach got trapped in the fullscreen scanner because the only exit was a
+  // button the camera covered. The X button above is the fix; this is the
+  // belt-and-braces, because "I can't back out of it" should never depend on a
+  // single control rendering correctly.
+  //
+  // Registered LAST so it has the lowest priority: any open overlay consumes
+  // the gesture first, and only a bare camera view closes the camera.
+  useBackGuard(cameraActive, () => stopCameraRef.current?.());
   
   // Form states
   const [quantity, setQuantity] = useState(1);
@@ -675,21 +932,111 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // uses for long stretches is a liability, not a spare option.
   useEffect(() => {
     let timerId;
-    if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard) {
+    // `!showStaging` is a CORRECTNESS condition, not a nicety. Zach: "when I
+    // look at the scanned cards, scanning should stop in the background."
+    //
+    // Auto-scan is permanently on and the Scanned overlay does not stop the
+    // camera, so while he reviewed the list the scanner kept firing at whatever
+    // the phone was pointing at -- the table, his lap, the next card in the
+    // stack -- and every one of those inserted a staging row he never asked for.
+    //
+    // It also opened a real data-loss race (review finding S2): /scan-stage/
+    // commit reads the rows to commit and then deletes ALL rows for the user.
+    // A row inserted between the read and the delete is destroyed without ever
+    // reaching the collection, and the symptom is a card that was scanned,
+    // never arrived, and left no trace. Pausing capture while the list is open
+    // closes that window at its source -- the only thing that inserts is off.
+    if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard && !showStaging) {
       const outcome = lastTickOutcomeRef.current;
       const delay = outcome === 'rejected' ? SCAN_RETRY_REJECTED_MS
         : outcome === 'error' ? SCAN_RETRY_ERROR_MS
         : SCAN_RETRY_SETTLE_MS;
       timerId = setTimeout(() => {
+        // TWO GATES BEFORE CAPTURING, both from Zach's rule: "We shouldn't
+        // capture a card until we know there is a card in view and if a new
+        // card doesn't come in view we shouldn't just keep scanning the same
+        // card."
+        //
+        // 1. IS A CARD ACTUALLY IN VIEW? Previously auto-scan fired on a timer
+        //    regardless, so an empty mat or a hand was uploaded and matched
+        //    against 57,000 cards. `liveDetectRef` is what draws the outline he
+        //    already sees, so the gate agrees with the UI by construction.
+        //
+        // 2. IS IT A DIFFERENT CARD FROM THE ONE JUST SCANNED? Being slow to
+        //    swap cards previously scanned the same card twice, which for
+        //    software tracking physical objects reports owning two of something
+        //    he owns one of.
+        //
+        // The effect re-runs on every state change in the dep list, so this
+        // re-checks continuously rather than deciding once. Failing a gate here
+        // is NOT an error and must not back off: the moment he swaps cards the
+        // signature changes and the next tick fires normally.
+        // CAPTURE ON STABILITY. The detection must have held still for
+        // STABLE_FRAMES_REQUIRED consecutive frames, and this stable period
+        // must not have already produced a scan.
+        //
+        // This replaces three failed attempts to infer "is this a different
+        // card?" from a preview frame. That question is unanswerable; this one
+        // is not. See SCANNER_CAPTURE_REDESIGN.md and the constants above.
+        //
+        // The timer that still schedules this callback is a POLL, not a
+        // deadline: it decides how often the condition is re-checked, never
+        // whether to capture. Nothing here is measured on elapsed time.
+        if (!liveDetectRef.current) return;
+        if (stableCountRef.current < STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE) return;
+        if (stablePeriodConsumedRef.current) return;
+        // One capture per stable period. Cleared when the detection is disturbed
+        stablePeriodConsumedRef.current = true;
         handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
       }, delay);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
     };
-  // The dep list is now exhaustive on its own: dropping `scanDetail` (which the
-  // effect never actually read) removed the reason this needed a suppression.
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard]);
+  // `cardPresent` and `steady` are in the dep list so the effect re-evaluates
+  // the moment a card enters or leaves the frame, or the moment the detection
+  // settles -- rather than waiting for an unrelated state change to wake it.
+  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent, steady, showStaging]);
+
+  // WHY AUTO-SCAN IS WAITING, in Zach's words rather than the code's.
+  //
+  // A scanner that has silently decided not to fire is indistinguishable from a
+  // broken one — that is the whole reason the status line exists. Both new gates
+  // therefore say what they are waiting for.
+  //
+  // NOW IT NAMES EVERY BLOCKER, not just the first two. Three sessions in a row
+  // have been spent guessing which latch stopped the scanner from my side of
+  // the wire, while Zach could see the screen and I could not. The screen is
+  // the fastest instrument available and it was reporting almost nothing:
+  // "it stopped scanning and tapping didn't do anything" is all the UI allowed
+  // him to tell me. Every condition that can suppress a capture now says so by
+  // name, so the next report identifies the latch instead of the symptom.
+  const autoScanWaitReason = (() => {
+    if (!cameraActive || !autoScan) return '';
+    // Ordered by how early each one short-circuits the capture effect, so the
+    // message names the FIRST thing actually blocking.
+    // FIRST, because it is the only pause the user deliberately caused. A
+    // scanner that has silently stopped is indistinguishable from a broken one,
+    // and this one stops for a whole minute at a time while he reads the list.
+    if (showStaging) return 'Paused — reviewing scanned cards';
+    if (loading) return 'Scanning…';
+    if (isDrawerOpen) return 'Waiting — a panel is open';
+    if (scanMatches.length > 0) return 'Waiting — pick a match';
+    if (autoAddTargetCard) return 'Waiting — confirming a card';
+    if (dupConfirmCard) return 'Waiting — confirming a duplicate';
+    // NAME THE DETECTOR WHEN NOTHING IS FOUND.
+    //
+    // "Waiting for a card" is ambiguous between "point the camera at a card"
+    // and "the detector is broken again", and that ambiguity has cost several
+    // rounds of guessing. If the trained detector failed to load, the preview
+    // is running on the edge detector -- which finds 9/33 -- and Zach needs to
+    // see that on screen rather than have me infer it later.
+    if (!cardPresent) {
+      return detectorReady() ? t('scan.waitingForCard') : 'Waiting for a card (basic detector)';
+    }
+    if (!steady) return t('scan.holdSteady');
+    return '';
+  })();
 
   // THE LIVE DETECTION LOOP — the outline Zach sees.
   //
@@ -704,8 +1051,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   useEffect(() => {
     if (!cameraActive) { liveDetectRef.current = null; setLiveDetect(null); return undefined; }
     let cancelled = false;
+    // Start loading the detector when the camera opens. Fire-and-forget: the
+    // loop runs on the edge detector until the model is ready, and for ever if
+    // it never loads.
+    initCardDetector();
 
-    const tick = () => {
+    const tick = async () => {
       if (cancelled) return;
       const video = videoRef.current;
       if (!video || !video.videoWidth) return;
@@ -726,9 +1077,44 @@ function CameraScanner({ onAddSuccess, showToast }) {
           gray[i] = (data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114) | 0;
         }
 
-        const det = detectCardInFrame(gray, DW, DH);
+        // THE TRAINED DETECTOR LEADS; THE EDGE DETECTOR FALLS BACK.
+        //
+        // Zach: "yeah I said this earlier about using the yolo detector for
+        // measuring this please build it."
+        //
+        // Measured on his 33 real scans: the edge detector finds a card in
+        // 9/33, and 21 of the 24 misses fail the ASPECT test -- it latches onto
+        // the strongest edges, which on a STACK OF CARDS are not the card's
+        // outline. The trained detector finds 31/33 of the same photos, and
+        // Phase 4a measured it at 142ms on his iPhone over 2,195 inferences.
+        //
+        // YOLO needs COLOUR, so it gets the RGBA buffer; the edge detector
+        // keeps the greyscale copy it was written for. Both return the same
+        // { x, y, w, h, confidence } shape in detection-pixel space, so the
+        // outline mapping and stability logic below are untouched.
+        //
+        // detectCardOnDevice returns null for "no card" AND for every failure,
+        // including "model never loaded" -- so this degrades to exactly today's
+        // behaviour rather than to a frozen preview.
+        let det = null;
+        if (detectorReady()) det = await detectCardOnDevice(data, DW, DH);
+        if (!det) det = detectCardInFrame(gray, DW, DH);
         if (cancelled) return;
-        if (!det) { liveDetectRef.current = null; setLiveDetect(null); return; }
+        if (!det) {
+          liveDetectRef.current = null;
+          setLiveDetect(null);
+          // No card: the run of stable frames is over. Resetting here is also
+          // what re-arms capture after a card is lifted away.
+          prevDetRef.current = null;
+          stableCountRef.current = 0;
+          disturbedRunRef.current = 0;
+          stablePeriodConsumedRef.current = false;
+          setCardPresent(false);
+          setSteady(false);
+          return;
+        }
+        setCardPresent(true);
+
 
         // Map from detection pixels to the PREVIEW ELEMENT's box. The video is
         // object-fit: cover, so it is centre-cropped: the scale is the LARGER
@@ -746,6 +1132,154 @@ function CameraScanner({ onAddSuccess, showToast }) {
           h: det.h * scale,
           confidence: det.confidence,
         };
+        // COUNT CONSECUTIVE AGREEING FRAMES. Movement resets the run and, with
+        // it, the "already captured" latch -- so dropping the next card on the
+        // stack disturbs the quad and re-arms capture without Zach having to
+        // clear the frame. That is his stated workflow: "I just drop cards on
+        // top."
+        if (detectionsAgree(mapped, prevDetRef.current)) {
+          stableCountRef.current += 1;
+          disturbedRunRef.current = 0;
+        } else {
+          stableCountRef.current = 1;
+          // RE-ARM ONLY AFTER A SUSTAINED DISTURBANCE, NOT A SINGLE ODD FRAME.
+          //
+          // Zach: "evil thrall scanned twice even though I never tapped or
+          // anything after it scanned the first time."
+          //
+          // This used to clear the latch on ANY disagreeing frame. The trained
+          // detector regresses a box per frame, so its output naturally jitters
+          // by a pixel or two even on a motionless card; one frame drifting past
+          // the IoU threshold re-armed capture and the same card scanned again.
+          //
+          // A real placement disturbs the view for SEVERAL consecutive frames --
+          // the hand enters, the card falls, the box moves and resizes. Jitter
+          // does not. Requiring a run of disturbed frames separates them without
+          // needing to know anything about what the card looks like, and without
+          // a clock.
+          disturbedRunRef.current += 1;
+          if (disturbedRunRef.current >= DISTURBED_FRAMES_TO_REARM) {
+            stablePeriodConsumedRef.current = false;
+          }
+        }
+        prevDetRef.current = mapped;
+
+        // RE-ARM WHEN THE CARD ITSELF CHANGES, NOT ONLY WHEN THE BOX MOVES.
+        //
+        // Zach: "I put down 3 forest in a row and it only scanned the 1st
+        // because it thought the next 2 were the same card."
+        //
+        // Re-arming depended ENTIRELY on the detected box disagreeing for
+        // DISTURBED_FRAMES_TO_REARM consecutive frames. That works when the new
+        // card lands askew and fails completely when it does not: a Forest
+        // dropped squarely onto a stack of Forests produces an IDENTICAL box, so
+        // nothing ever re-armed.
+        //
+        // It is also why he kept seeing "waiting for steady frame" and had to
+        // tap every card. The latch clears only on box movement, so a card that
+        // settles cleanly leaves it stuck. Both of his complaints are this one
+        // bug -- and it explains his own observation that after tapping, the
+        // card "always chose the right card": the frame WAS steady, the latch
+        // just never reopened.
+        //
+        // NO ARTWORK RE-ARM. MEASURED AGAINST ZACH'S CORPUS AND REMOVED.
+        //
+        // A fingerprint of the artwork was used here to answer "is this a
+        // DIFFERENT card in the same spot?", to fix his "3 forests in a row and
+        // it only scanned the 1st". It is gone because it cannot work, and the
+        // numbers are worth keeping so nobody rebuilds it:
+        //
+        //   consecutive REAL captures, SAME card  min 9.0   p50 18.6  max 28.6
+        //   consecutive REAL captures, DIFF card  min 19.0  p50 39.0  max 67.8
+        //
+        // Measured over 140 labelled scans in /var/lib/bindarr-dev/scandump via
+        // tools/measure-artprint-corpus.cjs. THE TWO RANGES OVERLAP, so no
+        // threshold separates them. At 10 it called the same card "different"
+        // in 7 of 9 cases -- which is Zach's report exactly: "the scanner just
+        // keeps scanning, doesn't wait for a new card to be put down."
+        //
+        // WHY THE ORIGINAL MEASUREMENT SAID 1.3-2.4 WITH AN EIGHT-FOLD GAP: it
+        // compared SYNTHETIC consecutive frames, where only sensor noise
+        // differs. Real captures also differ by autofocus breathing, exposure
+        // drift, hand shadow and shifting glare -- an order of magnitude more.
+        // The same mistake, in the same file, that the deleted comment itself
+        // warned about. Synthetic frames cannot validate a threshold that has
+        // to survive a phone camera.
+        //
+        // So re-arming stays on box movement alone, and the TAP is the reliable
+        // way to force a scan the detector will not volunteer. Per Zach:
+        // "Let's make tap reliable for now."
+
+
+        // TEACH THE SHARPNESS BASELINE FROM SETTLED FRAMES ONLY.
+        //
+        // Zach: "scanning seems to be getting worse at one point it was doing
+        // really good". Four of seven queues had NO collector-number line in
+        // the OCR text -- the capture was blurred, so the text was never in the
+        // image.
+        //
+        // The sharpness gate is RELATIVE: it rejects a frame scoring below 0.6x
+        // the median of recent frames. Its window was sized for the old ~3s
+        // cadence, where most observed frames were of a settled card. Stability
+        // gating changed that: captures now cluster around card swaps, so the
+        // window filled with post-motion frames, the median sank to the blur
+        // level, and blurred frames read as "sharp".
+        //
+        // Driving the real decideCapture with a realistic swap/settle sequence
+        // accepted 8 of 12 BLURRED frames -- the gate was blind exactly when he
+        // was scanning fast.
+        //
+        // The fix is to feed it the frames it was always meant to judge
+        // against: those observed while the detection is STABLE. Then the
+        // baseline describes a settled card on this device, and a frame grabbed
+        // mid-swap is measured against that rather than against other blur.
+        if (stableCountRef.current >= STABLE_FRAMES_REQUIRED) {
+          try {
+            const gw = 160, gh = Math.max(3, Math.round(DH * (gw / DW)));
+            const gc = sharpProbeRef.current || (sharpProbeRef.current = document.createElement('canvas'));
+            if (gc.width !== gw || gc.height !== gh) { gc.width = gw; gc.height = gh; }
+            const gctx = gc.getContext('2d', { willReadFrequently: true });
+            gctx.drawImage(video, 0, 0, gw, gh);
+            const gp = gctx.getImageData(0, 0, gw, gh);
+            const sc = laplacianVarianceScore(gp.data, gw, gh);
+            // OBSERVE ONLY. This records what a settled frame scores; it does
+            // NOT decide anything and must never trigger a capture.
+            sharpnessRef.current = {
+              ...sharpnessRef.current,
+              recent: [...(sharpnessRef.current.recent || []), sc].slice(-SHARPNESS_WINDOW),
+            };
+          } catch {
+            // A tainted canvas must not break the preview. The gate keeps
+            // whatever baseline it already had.
+          }
+        }
+        // `steady` MUST MEAN "CAPTURE-READY", NOT MERELY "STABLE".
+        //
+        // Zach: "it wasn't auto scanning I had to tap on the screen to initiate
+        // every scan."
+        //
+        // THIS WAS A DEADLOCK, and it is worth understanding because it is the
+        // second time a React dep list has silently stopped the scanner.
+        //
+        // The capture effect only re-runs when something in its dep list
+        // changes, and `steady` is what wakes it. `steady` used to flip true at
+        // STABLE_FRAMES_REQUIRED (3 frames) -- but after adding settling, the
+        // capture gate needs STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE
+        // (6). So the effect woke at frame 3, found 3 < 6, returned... and
+        // nothing ever woke it again, because `steady` was already true and no
+        // other dependency changed. The count kept climbing in a ref, which
+        // React does not watch.
+        //
+        // Auto-scan was therefore dead on every card, and tapping was the only
+        // way through -- exactly what he experienced.
+        //
+        // Tying `steady` to the SAME threshold the capture gate uses makes that
+        // class of bug unrepresentable: the signal that wakes the effect and the
+        // condition the effect tests are now one value.
+        const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE
+          && !stablePeriodConsumedRef.current;
+        setSteady(isSteady);
+
         liveDetectRef.current = mapped;
         setLiveDetect(mapped);
       } catch {
@@ -754,8 +1288,26 @@ function CameraScanner({ onAddSuccess, showToast }) {
       }
     };
 
-    const id = setInterval(tick, 140);
-    return () => { cancelled = true; clearInterval(id); };
+    // SELF-SCHEDULING, NOT setInterval.
+    //
+    // The tick is now async: on-device inference measured ~142ms on Zach's
+    // iPhone, against a 140ms interval. setInterval does not wait, so ticks
+    // would overlap and pile up -- each one holding a frame buffer, on a phone,
+    // in a loop that runs for as long as he is scanning.
+    //
+    // Chaining the next tick from the end of the previous one makes the loop
+    // self-limiting: it runs as fast as inference allows and no faster, and it
+    // cannot queue work behind itself. The 140ms is a floor on the gap, not a
+    // deadline for the work.
+    let timer = null;
+    const pump = async () => {
+      if (cancelled) return;
+      await tick();
+      if (cancelled) return;
+      timer = setTimeout(pump, 140);
+    };
+    pump();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [cameraActive]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {
@@ -991,7 +1543,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
       setStream(null);
     }
     setCameraActive(false);
-    setAutoScan(false); // Reset autoScan on camera stop
     setIsTorchOn(false);
     // The negotiated mode belongs to the track that just stopped. Leaving it on
     // screen would show a resolution no live camera is producing, and a stale
@@ -1004,6 +1555,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setDebugCandidates([]);
     setDebugScoped(null);
   };
+  // Keep the back-gesture handler pointing at the current stopCamera closure.
+  stopCameraRef.current = stopCamera;
 
   const autoAddCard = async (card, qty = 1, overrides = null) => {
     // Mark the dup guard BEFORE the await: a fast cooldown can fire the next
@@ -1190,7 +1743,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // result too — used when the image match is confident and the printing is
   // unambiguous (only one printing, or the set code narrowed it to one). Ambiguous
   // MTG (many printings, no set code) still shows the picker.
-  const applyMatches = async (matches, notFoundMsg, autoSingle = false) => {
+  // `manualOverride` is the calling scan's own intent, passed explicitly rather
+  // than read from shared state -- see the note by lastQueuedNameRef for the
+  // duplicate-record bug that a shared flag caused here.
+  const applyMatches = async (matches, notFoundMsg, autoSingle = false, matchInliers = null, manualOverride = false) => {
     setScanMatches(matches);
     if (matches.length === 0) {
       // Nothing in frame — the resolved-duplicate card has left, so clear the
@@ -1204,14 +1760,56 @@ function CameraScanner({ onAddSuccess, showToast }) {
     if (matches.length === 1 && (scanGame !== 'mtg' || autoSingle)) {
       if (autoScan) {
         const id = matches[0].id;
-        if (id === resolvedDupIdRef.current) {
+        // A LOW-CONFIDENCE MATCH IS NOT AN IDENTITY, so it must not drive the
+        // duplicate guards below.
+        //
+        // Zach: "It's not really scanning each new card on top." The trace
+        // showed why: two DIFFERENT foil cards both matched as 'Jeskai
+        // Ascendancy' at 11 and 14 inliers -- noise. The second was then
+        // suppressed as "same card still in view" and never scanned. The guard
+        // was working correctly on an identity that was simply wrong.
+        //
+        // Below WEAK_MATCH_INLIERS the matcher is guessing (measured on Zach's
+        // scans: correct matches 47-141, wrong ones 4-23), so a repeated name
+        // carries no information about whether the CARDBOARD is the same. Let
+        // it through and let the server's set+number resolution decide -- that
+        // path reads the printed catalogue address and is right where the art
+        // is not.
+        const WEAK_MATCH_INLIERS = 25;
+        const inl = Number.isFinite(matchInliers) ? matchInliers : matches[0].inliers;
+        const identityIsTrusted = Number.isFinite(inl) && inl > WEAK_MATCH_INLIERS;
+
+        // A MANUAL TAP OVERRIDES EVERY DEDUPE GUARD.
+        //
+        // Zach: "no card would scan twice even with a tap trying to override
+        // it."
+        //
+        // The tap path already clears the capture-side latches
+        // (stablePeriodConsumedRef, loading, currentScanId) -- but the scan then
+        // completed and died HERE instead, in the match-side guards, showing
+        // "Same card still in view". So the tap did fire a real scan and its
+        // result was thrown away, which looks identical to the tap doing
+        // nothing.
+        //
+        // The guards exist to stop a card LINGERING in frame from being counted
+        // twice on its own. A tap is not lingering -- it is Zach explicitly
+        // asserting "this is a new card, scan it". He is holding the cardboard;
+        // the app is inferring from 64 brightness samples. He wins.
+        //
+        // This is deliberately NOT extended to the auto path: there, a repeat
+        // identity really is ambiguous, and a wrong count against physical
+        // cardboard costs a recount while a missed card costs a tap.
+        if (identityIsTrusted && manualOverride && id === resolvedDupIdRef.current) {
+          resolvedDupIdRef.current = null;
+        }
+        if (identityIsTrusted && !manualOverride && id === resolvedDupIdRef.current) {
           // Same card we already handled, still sitting in frame — wait for a
           // different card before doing anything.
           setScanMatches([]);
           setScanStatus('Same card still in view — swap in the next card.');
           return;
         }
-        if (id === lastAddedIdRef.current) {
+        if (identityIsTrusted && id === lastAddedIdRef.current) {
           // Repeat of the card just auto-added: could be a real second copy or
           // just the same card lingering. Make the user decide.
           setDupConfirmCard(matches[0]);
@@ -1237,8 +1835,17 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // `auto` distinguishes the two callers, and it is the ONLY thing the
   // sharpness gate keys on. The metronome effect passes true; the scan BUTTON
   // passes nothing, so a manual tap is never gated and always produces a scan.
-  const handleCapture = async (auto = false) => {
-    if (loading || !videoRef.current || !cameraActive) return;
+  const handleCapture = async (auto = false, force = false) => {
+    // `loading` guards against two scans running at once. A MANUAL tap may
+    // override it, because a stuck `loading` is otherwise unrecoverable without
+    // restarting the camera -- Zach: "tapping didn't get it to scan again".
+    // Auto-scan never forces: only a deliberate tap does.
+    if ((loading && !force) || !videoRef.current || !cameraActive) return;
+
+    // THE INTENT BEHIND THIS SCAN, as a local. `auto === false` means a tap.
+    // Captured by this invocation's closure, so a concurrent scan starting
+    // mid-flight cannot change what this one believes about itself.
+    const isManual = !auto;
 
     setLoading(true);
     const scanId = ++currentScanId.current;
@@ -1695,11 +2302,44 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // of glared cards with no CLIP name would all share the key ''
                   // and every card after the first would be silently skipped.
                   const identified = clipName || titleText;
-                  if (identified === lastQueuedNameRef.current) {
+                  // A TAP OVERRIDES THIS GUARD -- BUT ONLY ONCE PER CARD.
+                  //
+                  // The guard exists so a card LINGERING in frame is not staged
+                  // repeatedly on its own. A tap is Zach asserting "this is a
+                  // new card", so it must get through; that is the whole point
+                  // of the escape hatch.
+                  //
+                  // But an unconditional override means a double tap -- or one
+                  // stray double-click on the full-bleed transparent overlay --
+                  // stages TWO rows for one piece of cardboard, with no
+                  // confirmation anywhere on this path. Given his stated cost
+                  // asymmetry (a duplicate costs a recount against cardboard, a
+                  // miss costs a tap) that trade is the wrong way round.
+                  //
+                  // So: the first tap on an identity forces through, a second
+                  // tap on the SAME identity is refused AND SAYS SO. If it
+                  // really is a second physical copy, the message tells him to
+                  // lift and re-present the card, which clears the guard
+                  // legitimately. That costs a tap in the rare case and prevents
+                  // a recount in the likely one.
+                  const repeatIdentity = identified === lastQueuedNameRef.current;
+                  if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
+                    setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+                    return;
+                  }
+                  if (repeatIdentity && !isManual) {
                     setScanStatus(t('scan.sameCardAgain'));
                     return;
                   }
+                  // Claim the override BEFORE the await, so a second tap that
+                  // arrives while this submit is in flight sees it.
+                  if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
                   setScanStatus('');
+                  // DO NOT WRITE ON BEHALF OF A SUPERSEDED SCAN. This check used
+                  // to sit only AFTER submitScan returned, which is too late --
+                  // the row already exists. Two rapid taps both reach here, and
+                  // the second bumps currentScanId, so the first must abandon.
+                  if (scanId !== currentScanId.current) return;
                   const outcome = await reviewQueue.submitScan({
                     // HOW STRONG THE MATCH WAS. The staging row stores this and
                     // the low_confidence flag keys on it -- a flag that has never
@@ -1757,15 +2397,14 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     // told us in THIS response, so the badge stays honest for
                     // free. It is not a local guess: the row exists because the
                     // server said 'staged'.
-                    staging.noteStaged(outcome.flag);
+                    staging.noteStaged(false);   // resolved: a printing was chosen
                     setRecentScans(prev => [{
                       ...outcome.card, card_id: outcome.card?.id, entry_id: null,
                       quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
                       staged: true,
                     }, ...prev].slice(0, 10));
-                    showToast(outcome.flag
-                      ? t('scan.stagedFlaggedToast', { name: outcome.card?.name || identified })
-                      : t('scan.stagedToast', { name: outcome.card?.name || identified }));
+                    // No flag variant any more -- the advisory flags are gone.
+                    showToast(t('scan.stagedToast', { name: outcome.card?.name || identified }));
                     signal('success');
                   } else if (outcome.action === 'added') {
                     lastAddedIdRef.current = outcome.card?.id;
@@ -1778,12 +2417,15 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     }));
                     signal('success');
                     if (onAddSuccess) onAddSuccess();
-                  } else if (outcome.action === 'queued') {
-                    // NOT added to the collection. The badge moves; the
-                    // collection does not. No modal, by design — he reviews the
-                    // whole queue when the stack is done.
-                    setScanStatus(t('scan.queuedForReview', { name: identified }));
-                    showToast(t('scan.queuedToast', { name: identified }));
+                  } else if (outcome.action === 'staged_unresolved') {
+                    // SCANNED AND HELD, but we could not tell which printing.
+                    // It sits in the SAME Scanned list as everything else,
+                    // outlined and sorted to the top, and Add All refuses until
+                    // he picks. Nothing is owned, so no modal interrupts the
+                    // stack -- he resolves them when he is done scanning.
+                    staging.noteStaged(true);
+                    setScanStatus(`${identified} — needs a printing chosen`);
+                    showToast(`${identified} — pick a printing in Scanned`);
                     signal('capture');
                   } else {
                     setScanStatus(outcome.error || t('scan.unknownError'));
@@ -1803,7 +2445,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // Instant path: if scan-match pre-hydrated the card from local card_cache,
                   // apply it directly without waiting for a second /api/search HTTP round-trip!
                   if (top.card) {
-                    await applyMatches([top.card], '', true);
+                    await applyMatches([top.card], '', true, top.inliers, isManual);
                     return;
                   }
 
@@ -1832,40 +2474,134 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   }
                   // Confident image match on an exact set+number is unambiguous, so
                   // take the fast path (single result auto-adds).
-                  if (matches.length) { await applyMatches(matches, '', true); return; }
+                  // A CONFIDENT MATCH WITH SEVERAL PRINTINGS IS STILL A QUESTION,
+                  // so it must not interrupt a stack either.
+                  //
+                  // applyMatches shows the picker whenever it receives more than
+                  // one card. This call passes autoSingle, so ONE result
+                  // auto-adds -- but the by-name fallback above deliberately
+                  // fetches every printing, and that reopens the modal on a card
+                  // the matcher was actually sure about. Same interruption, a
+                  // different door.
+                  //
+                  // One result: take it, that is the fast path working.
+                  // Several: fall through to the queue with the candidates, and
+                  // he picks the printing when the stack is done.
+                  // One result: take it, that is the fast path working.
+                  // Several: fall through to the queue with the candidates.
+                  //
+                  // There was a second line here for the auto-scan-OFF case,
+                  // which showed the picker. Auto-scan is permanent now, so it
+                  // was unreachable -- and leaving it would imply a mode that
+                  // no longer exists.
+                  if (matches.length === 1) { await applyMatches(matches, '', true, null, isManual); return; }
                 }
 
-                // If not confident (or multiple printings), check if candidates are pre-hydrated
-                const preHydrated = candidates.slice(0, 8).map(c => c.card).filter(Boolean);
-                if (preHydrated.length === candidates.slice(0, 8).length) {
-                  await applyMatches(preHydrated, 'No matching cards found.');
+                // A LOW-CONFIDENCE MATCH GOES TO THE QUEUE, NOT A POPUP.
+                //
+                // Zach, on the "Identified Cards Found" modal: "Why does this
+                // screen still pop up? Feels like it doesn't belong with the
+                // scanned section now... a low confidence match should go to
+                // the queue with maybe the top 3 cards it thinks and I can
+                // search for it otherwise."
+                //
+                // He is right, and the screenshot proves the modal was never a
+                // real question: it offered Katerina of Myra's Marvels next to
+                // Twisted Experiment -- unrelated cards, not two printings of
+                // one. That is the matcher saying "I don't know" while looking
+                // like a choice, and it stops a stack mid-flow to ask.
+                //
+                // The queue already does this properly: it stores the
+                // candidates, the review screen renders them to pick from, and
+                // it offers a manual search when none of them are right. So
+                // this path submits and moves on, and he reviews the whole
+                // queue when the stack is done -- which is the entire point of
+                // having a queue.
+                //
+                // NOTHING IS ADDED TO THE COLLECTION HERE. A queue entry costs
+                // a tap later; a wrong card costs a recount against cardboard.
+                // THE GATE IS THE QUEUE'S, NOT A GUESS AT ONE.
+                //
+                // This first read `if (autoScan && (clipName || titleText))`,
+                // which is why Zach still saw the modal after the last deploy:
+                // the popup fires precisely when the matcher is LEAST sure, and
+                // those are exactly the scans with no CLIP name and no readable
+                // title. His screenshot -- Ceremonial Knife beside Inspiring
+                // Call, an artifact and an instant from unrelated sets -- is a
+                // scan where nothing was identified at all.
+                //
+                // The server accepts a staging row on name, title_text OR
+                // ocr_text (collection.js:730), so a scan with only OCR text is
+                // queueable. Gating on name/title alone rejected the very cases
+                // this change exists to capture and dropped them back into the
+                // picker.
+                //
+                // Anything the queue will accept goes to the queue.
+                // `ocr.raw`, NOT `ocr.text`. The server builds this object from
+                // parseCollectorStrip (collection.js:608) whose field is `raw`;
+                // there has never been a `text` key, so this read was always
+                // undefined and the whole condition below collapsed to
+                // (clipName || titleText).
+                //
+                // CONSEQUENCE, and it is the worst kind: exactly the scans this
+                // fallback was added for -- no CLIP name, no readable title, but
+                // a legible collector strip, i.e. the glare and foil cases --
+                // fell through to "No confident match" and were SILENTLY
+                // DROPPED. No staging row, no unresolved row, nothing to
+                // resolve. The card simply went missing from the stack, and
+                // lastQueuedNameRef is reset on that path so there was not even
+                // a status trace to notice it by.
+                //
+                // The other call site (:2343) had it right, which is what made
+                // this invisible.
+                const ocrText = ocr?.raw || '';
+                if (autoScan && (clipName || titleText || ocrText)) {
+                  // The dedup key must survive having no name at all: fall back
+                  // to the OCR text so a stack of unidentifiable cards does not
+                  // share one empty key and silently skip every card after the
+                  // first.
+                  const identified = clipName || titleText || ocrText;
+                  const repeatIdentity = identified === lastQueuedNameRef.current;
+                  if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
+                    setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+                    return;
+                  }
+                  if (repeatIdentity && !isManual) {
+                    setScanStatus(t('scan.sameCardAgain'));
+                    return;
+                  }
+                  if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
+                  if (scanId !== currentScanId.current) return;
+                  const outcome = await reviewQueue.submitScan({
+                    matchInliers,
+                    name: clipName,
+                    titleText,
+                    ocrText,
+                    crop,
+                    quantity: 1,
+                  });
+                  if (scanId !== currentScanId.current) return;
+                  if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
+                  // Never show raw OCR text as if it were a card name -- when
+                  // nothing was identified, say so plainly.
+                  const label = clipName || titleText || 'Unidentified card';
+                  if (outcome.action === 'staged_unresolved') staging.noteStaged(true);
+                  setScanStatus(`${label} — needs a printing chosen`);
+                  showToast(`${label} — pick a printing in Scanned`);
+                  signal('capture');
+                  setScanMatches([]);
                   return;
                 }
 
-                // Fallback: fetch full card info for candidates and show the picker.
-                setScanStatus('Fetching candidate cards...');
-                const fullCandidates = await Promise.all(
-                  candidates.slice(0, 8).map(async cand => {
-                    if (cand.card) return cand.card;
-                    const p = new URLSearchParams({ game: matchGame, lang: 'en' });
-                    if (cand.set) p.append('set', cand.set);
-                    if (cand.number) p.append('number', cand.number);
-                    if (cand.name) p.append('name', cand.name);
-                    const res = await fetch(`/api/search?${p.toString()}`);
-                    if (res.ok) {
-                      const m = await res.json();
-                      return m[0]; // Take the closest printing
-                    }
-                    return null;
-                  })
-                );
-                
-                if (scanId !== currentScanId.current) return;
-                const validCandidates = fullCandidates.filter(c => c);
-                if (validCandidates.length > 0) {
-                  await applyMatches(validCandidates, '', false);
-                  return;
-                }
+                // THE PICKER IS GONE. There was a fallback here that fetched
+                // every candidate and showed the "Identified Cards Found"
+                // modal, kept for the auto-scan-OFF case. Auto-scan is
+                // permanent now -- "I just want it always on no more click to
+                // capture button" -- so the queue branch above always returns
+                // and this was unreachable.
+                //
+                // Deleted rather than left behind: dead code that renders a
+                // screen Zach removed twice is how it comes back.
               }
             }
           } catch (e) { console.warn('scan-match request failed:', e); }
@@ -1881,6 +2617,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // this, scanning two real copies of the same card in one stack would
       // silently record only the first.
       lastQueuedNameRef.current = null;
+      manualForcedNameRef.current = null;
       signal('error');
     } catch (err) {
       console.error('Scan match failed:', err);
@@ -1890,7 +2627,29 @@ function CameraScanner({ onAddSuccess, showToast }) {
       lastTickOutcomeRef.current = 'error';
       if (scanId === currentScanId.current) setScanStatus('Scan failed. Please search manually.');
     } finally {
-      if (scanId === currentScanId.current) setLoading(false);
+      // ALWAYS CLEAR `loading`, EVEN FOR A SUPERSEDED SCAN.
+      //
+      // Zach: "it stopped scanning eventually and tapping didn't get it to scan
+      // again". This is why. `loading` gates BOTH auto-scan and the tap
+      // override (handleCapture's first line returns immediately when it is
+      // true), so if it is ever left stuck the scanner is dead until the camera
+      // is restarted -- and no amount of tapping recovers it.
+      //
+      // The guard used to be `if (scanId === currentScanId.current)`, which
+      // skips the reset whenever this scan was superseded: a cancel, or a new
+      // capture starting, bumps currentScanId. The NEW scan then owns `loading`
+      // and clears it on its own path -- but if that newer scan returned early
+      // (a stale-id check, an englishOnly bail, a missing guide element), the
+      // flag was never cleared by anyone. Terminal, and exactly the symptom he
+      // hit: works for a while, then stops forever.
+      //
+      // Clearing unconditionally is safe. A superseded scan setting `loading`
+      // to false at worst lets one extra capture start a moment early, which
+      // the stability gate then has to approve anyway. A stuck `true` is
+      // unrecoverable. Prefer the recoverable failure.
+      setLoading(false);
+      // The STATUS text still belongs to the newest scan only, so a stale scan
+      // cannot overwrite what the current one is saying.
     }
   };
   // Keep the ref pointing at the latest handleCapture so timers (metronome /
@@ -1898,7 +2657,30 @@ function CameraScanner({ onAddSuccess, showToast }) {
   handleCaptureRef.current = handleCapture;
   // Metronome reads this (not effect deps) to decide whether to fire a capture,
   // so a modal/picker/drawer pauses the beat without restarting the interval.
-  captureBlockedRef.current = isDrawerOpen || scanMatches.length > 0 || !!autoAddTargetCard || !!dupConfirmCard;
+  //
+  // `showStaging` is in this list, and it is a CORRECTNESS fix rather than a
+  // nicety. Zach: "when I look at the scanned cards, scanning should stop in
+  // the background."
+  //
+  // Auto-scan is permanently on now, and the Scanned overlay does not stop the
+  // camera. So while he reviewed the list, the scanner kept firing at whatever
+  // the phone happened to be pointing at -- the table, his lap, the next card
+  // in the stack -- and each of those inserted a staging row he never asked
+  // for.
+  //
+  // It also created a real data-loss race (review finding S2): /scan-stage/
+  // commit reads the rows to commit, then deletes ALL rows for the user. Any
+  // row inserted between the read and the delete is destroyed without ever
+  // reaching the collection. With the camera live behind the overlay that
+  // window is wide open, and the symptom would be a card that was scanned,
+  // never appeared in the collection, and left no trace anywhere.
+  //
+  // Pausing capture while the list is up closes the race at its source: no
+  // insert can happen during a commit, because the only thing that inserts is
+  // switched off. The scoped DELETE is still worth doing as defence in depth,
+  // but this is the fix that makes the window not exist.
+  captureBlockedRef.current = isDrawerOpen || scanMatches.length > 0
+    || !!autoAddTargetCard || !!dupConfirmCard || showStaging;
   loadingRef.current = loading;
 
   const openQuickAdd = (card) => {
@@ -2043,26 +2825,41 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 is what puts pixels on the card (see .camera-fullscreen in
                 index.css), but it must be escapable: the boxed layout is the
                 production look and the only way to see the rest of the page. */}
+            {/* THE WAY OUT. Zach: "there is no button to get out of the camera
+                so if I go in there and scan no cards I can't back out of it."
+                He was trapped, and that is my regression.
+                
+                A Stop button has always existed -- but it lives in the control
+                bar BELOW the preview, which the fullscreen camera covers. In
+                windowed mode that was fine and the maximize toggle was the
+                secondary escape. Making fullscreen permanent removed the toggle
+                and left the only exit off-screen, so the scanner became a room
+                with no door unless a scan happened to produce a modal.
+                
+                Top-LEFT, where the fullscreen toggle used to be: the corner a
+                thumb already reaches for to leave a screen, and diagonally
+                opposite the torch so it cannot repeat the overlap that made the
+                Scanned badge untappable. */}
             <button
               type="button"
               className="btn btn-secondary"
-              aria-label={t(fullscreenScan ? 'scan.exitFullscreen' : 'scan.enterFullscreen')}
-              title={t(fullscreenScan ? 'scan.exitFullscreen' : 'scan.enterFullscreen')}
+              onClick={(e) => { e.stopPropagation(); stopCamera(); }}
+              aria-label={t('scan.stopCamera')}
+              title={t('scan.stopCamera')}
               style={{
                 position: 'absolute',
-                top: `calc(1rem + ${fullscreenScan ? 'env(safe-area-inset-top)' : '0px'})`,
+                top: `calc(1rem + env(safe-area-inset-top))`,
                 left: '1rem',
-                zIndex: 20,
+                zIndex: 22,
                 borderRadius: '50%',
                 padding: '0.6rem',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
               }}
-              onClick={(e) => { e.stopPropagation(); setFullscreenScan((v) => !v); }}
             >
-              {fullscreenScan ? <Minimize size={18} /> : <Maximize size={18} />}
+              <X size={18} />
             </button>
 
             {/* Torch Toggle Overlay Button */}
@@ -2098,7 +2895,79 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 of truth: one state, shown where the user is actually looking.
                 Only rendered in fullscreen, so the boxed desktop layout keeps
                 its production appearance and does not get a duplicate line. */}
-            {fullscreenScan && (scanStatus || loading) && (
+            {/* TAP TO FORCE A SCAN. Zach: "if it doesnt scan that card we can
+                have a tap feature that will force scanning".
+
+                Built now rather than later because it is the escape hatch for
+                the one measured risk in stability gating: two different cards
+                resting in the same spot produce detections with IoU 0.98-1.00,
+                so re-arming depends on the live loop SEEING the drop. If that
+                assumption fails on his phone, this is the difference between
+                "occasionally tap" and "the scanner is broken again".
+
+                Deliberately bypasses the stability gate but NOT the sharpness
+                gate: forcing a blurred frame would trade a missed card for a
+                wrong one, which is the worse outcome. Marking the period as
+                consumed prevents the auto path immediately firing a second
+                scan of the same card. */}
+            {/* RENDERED EVEN WHILE `loading`. If the tap target disappears
+                whenever the scanner thinks it is busy, then a wedged `loading`
+                flag removes the very control that exists to recover from it --
+                which is what Zach hit: "tapping didn't get it to scan again".
+                handleCapture still refuses to run two scans at once, so the
+                worst case of a tap during a real scan is that nothing
+                happens. */}
+            {fullscreenScan && cameraActive && autoScan && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // NO DETECTION REQUIREMENT. This gate was `if
+                  // (!liveDetectRef.current) return;` and it is very likely why
+                  // Zach's taps did nothing at all: "The first card I put in
+                  // never scanned and tapping didn't resolve it". If the live
+                  // detector is not producing a box -- and a card that never
+                  // auto-scans is exactly that case -- then tap silently did
+                  // nothing too, for the SAME reason the auto path was stuck.
+                  //
+                  // A manual tap is an explicit instruction. It must not be
+                  // conditional on the subsystem that is already failing. The
+                  // server does its own detection on the full-resolution frame
+                  // and is far better at it than the 160px preview detector, so
+                  // a scan with no preview box is still worth sending.
+                  // TAP MUST ALSO RECOVER A WEDGED SCANNER.
+                  //
+                  // Zach: "it stopped scanning eventually and tapping didn't get
+                  // it to scan again". Two independent latches can wedge
+                  // auto-scan, and tap has to clear BOTH or it is not an escape
+                  // hatch at all -- it just fails the same way the auto path
+                  // did, which is precisely what he experienced.
+                  //
+                  //   stablePeriodConsumedRef  one-scan-per-stable-period latch
+                  //   currentScanId            bumped so any in-flight scan's
+                  //                            late callbacks cannot clobber
+                  //                            the state this tap is about to
+                  //                            set
+                  //
+                  // `loading` is the third, and it is cleared unconditionally
+                  // in handleCapture's finally now -- see the note there.
+                  stablePeriodConsumedRef.current = true;
+                  stableCountRef.current = 0;
+                  prevDetRef.current = null;
+                  currentScanId.current += 1;
+                  handleCaptureRef.current?.(false, true);  // manual + force past a stuck `loading`
+                }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 15,
+                  cursor: 'pointer',
+                  background: 'transparent',
+                }}
+                aria-label={t('scan.tapToScan')}
+              />
+            )}
+
+            {fullscreenScan && (scanStatus || loading || autoScanWaitReason) && (
               <div
                 style={{
                   position: 'absolute',
@@ -2135,7 +3004,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     }}
                   />
                 )}
-                <span>{scanStatus || t('scan.working')}</span>
+                <span>{scanStatus || autoScanWaitReason || t('scan.working')}</span>
               </div>
             )}
 
@@ -2147,30 +3016,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 full banner is one tap away via the fullscreen exit. Tapping it
                 leaves fullscreen rather than opening review directly, so the
                 camera is never torn down underneath an unrelated screen. */}
-            {fullscreenScan && queuePending > 0 && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setFullscreenScan(false); }}
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  top: `calc(1rem + env(safe-area-inset-top))`,
-                  zIndex: 21,
-                  padding: '0.35rem 0.8rem',
-                  borderRadius: 999,
-                  background: 'rgba(0,0,0,0.72)',
-                  border: '1px solid var(--accent-yellow)',
-                  color: 'var(--accent-yellow)',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                {t('scan.queuedBadge', { count: queuePending })}
-              </button>
-            )}
-
             {/* THE SESSION BADGE — how many cards are waiting, and the way in.
                 Placed in-frame because in fullscreen the camera covers the
                 screen: a count rendered below the preview is invisible, which
@@ -2187,21 +3032,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 aria-label={t('scan.stagingOpen')}
                 style={{
                   position: 'absolute',
+                  // BELOW THE TORCH, NOT UNDERNEATH IT.
+                  //
+                  // Zach: "for the scanned button when I click it on full
+                  // screen mode nothing happens."
+                  //
+                  // This badge and the torch button were BOTH top:1rem
+                  // right:1rem. They overlapped, and the torch (rendered later
+                  // in the same stacking context) took the tap -- so pressing
+                  // "N scanned" toggled the torch instead of opening the list.
+                  // A higher zIndex does not help when the elements are
+                  // literally stacked on the same coordinates; they have to not
+                  // share the spot.
                   right: '1rem',
-                  top: `calc(1rem + env(safe-area-inset-top))`,
+                  top: `calc(4.5rem + env(safe-area-inset-top))`,
                   zIndex: 21,
                   padding: '0.35rem 0.8rem',
                   borderRadius: 999,
                   background: 'rgba(0,0,0,0.72)',
-                  border: `1px solid ${stagedFlagged ? 'var(--accent-yellow)' : 'var(--type-grass)'}`,
-                  color: stagedFlagged ? 'var(--accent-yellow)' : 'var(--type-grass)',
+                  border: `1px solid ${stagedUnresolved ? 'var(--accent-yellow)' : 'var(--type-grass)'}`,
+                  color: stagedUnresolved ? 'var(--accent-yellow)' : 'var(--type-grass)',
                   fontSize: '0.72rem',
                   fontWeight: 700,
                   cursor: 'pointer',
                 }}
               >
-                {stagedFlagged
-                  ? t('scan.stagingBadgeFlagged', { count: stagedCount, flagged: stagedFlagged })
+                {stagedUnresolved
+                  ? `${stagedCount} scanned · ${stagedUnresolved} need a printing`
                   : t('scan.stagingBadge', { count: stagedCount })}
               </button>
             )}
@@ -2602,53 +3459,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
               the whole safety property of the queue is that a pending decision
               is not a card he owns. Tapping is the ONLY way to the review
               screen; nothing opens it automatically mid-scan. */}
-          {queuePending > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowReviewQueue(true)}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
-                width: '100%', minHeight: 44, padding: '0.5rem 0.75rem', marginBottom: '0.5rem',
-                background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)',
-                borderRadius: 'var(--radius-sm)', color: 'var(--text-strong)', cursor: 'pointer',
-                fontSize: '0.75rem', fontWeight: 700,
-              }}
-            >
-              <span>{t('scan.pendingReview', { count: queuePending })}</span>
-              <span style={{ color: 'var(--accent-yellow)' }}>{t('scan.pendingReviewCta')}</span>
-            </button>
-          )}
+
 
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
             <button className="btn btn-secondary" onClick={stopCamera} style={{ flex: 1 }} title={t('scan.stopCamera')}>
               {t('scan.stop')}
             </button>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoScan}
-              className="btn btn-secondary"
-              onClick={() => setAutoScan(!autoScan)}
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.7rem', borderColor: autoScan ? 'var(--type-grass)' : undefined, color: autoScan ? 'var(--type-grass)' : undefined }}
-              title={t('scan.autoCaptureHint')}
-            >
-              <ScanLine size={15} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>{t('scan.auto')}</span>
-              <span style={{ width: 28, height: 15, borderRadius: 999, background: autoScan ? 'var(--type-grass)' : 'rgba(255,255,255,0.22)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
-                <span style={{ position: 'absolute', top: 2, left: autoScan ? 15 : 2, width: 11, height: 11, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
-              </span>
-            </button>
-            {loading ? (
+            {/* NO CAPTURE BUTTON. Zach: "I just want it always on no more
+                click to capture button." Auto-scan fires on its own, and
+                tapping the preview forces a scan when the detector will not
+                volunteer one -- that tap target is the full-screen overlay
+                above, which is the control he actually uses.
+
+                Cancel stays: a scan in flight has to be interruptible. */}
+            {loading && (
               <button className="btn btn-primary" onClick={handleCancelScan} style={{ flex: 2, backgroundColor: 'var(--accent-red)', borderColor: 'var(--accent-red)' }}>
                 {t('scan.cancelScan')}
-              </button>
-            ) : (
-              // NOTE: the arrow wrapper is load-bearing. onClick={handleCapture}
-              // would pass the CLICK EVENT as `auto`, which is truthy, and a
-              // manual tap would then be silently subject to the sharpness gate
-              // — the one thing that must never happen.
-              <button className="btn btn-primary" onClick={() => handleCapture(false)} style={{ flex: 2 }}>
-                {t('scan.captureIdentify')}
               </button>
             )}
             <button
@@ -2895,9 +3721,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => {
+                  // Suppress THIS card rather than switching auto-scan off.
+                  // Auto is permanent now, so the old setAutoScan(false) would
+                  // be a no-op -- resolvedDupIdRef is what actually stops the
+                  // same card being scanned again while it sits in frame.
                   resolvedDupIdRef.current = dupConfirmCard.id;
                   setDupConfirmCard(null);
-                  setAutoScan(false);
                   showToast(t('scan.secondPhoto'));
                 }}
                 style={{ width: '100%', fontSize: '0.8rem', padding: '0.45rem 0' }}
@@ -3011,7 +3840,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 onClick={() => {
                   setScanMatches([]);
                   setScanStatus('');
-                  setAutoScan(false);
                   if (!stream || !cameraActive) startCamera();
                 }}
                 style={{ flex: 1 }}
@@ -3155,17 +3983,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
         />
       )}
 
-      {/* The review screen. Rendered LAST so it overlays the scanner, and only
-          on an explicit tap — never opened by a scan. Resolving an entry adds
-          the card through the server, so onAddSuccess refreshes the collection
-          totals that the queue was deliberately excluded from. */}
-      {showReviewQueue && (
-        <ScanReviewQueue
-          queue={reviewQueue}
-          onClose={() => setShowReviewQueue(false)}
-          onResolved={() => { if (onAddSuccess) onAddSuccess(); }}
-        />
-      )}
     </div>
   );
 }

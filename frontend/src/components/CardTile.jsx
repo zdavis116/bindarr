@@ -27,6 +27,7 @@ import {
   tileFinish
 } from '../utils/cardPrinting';
 import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '../utils/cardRarity';
+import { displayName, secondaryName } from '../utils/cardName';
 import { formatPrice } from '../utils/formatPrice';
 
 // The yellow FOIL badge, exactly as the Collection screen draws it.
@@ -155,7 +156,19 @@ function CardTile({
         </div>
       </div>
       <div className="tcg-card-info">
-        <div className="tcg-card-name">{card.name}</div>
+        {/* The name Zach can actually READ on the card. For a crossover
+            printing that is the flavor name in large type, with the real card
+            name beneath, mirroring the card itself. Ordinary cards render
+            exactly as before -- secondaryName() returns '' for them. */}
+        <div className="tcg-card-name">{displayName(card)}</div>
+        {secondaryName(card) && (
+          <div style={{
+            fontSize: '0.62rem', color: 'var(--text-muted)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {secondaryName(card)}
+          </div>
+        )}
         <div className="tcg-card-meta">
           <span style={{ fontSize: '0.7rem' }}>{card.set_name} • #{card.number}</span>
           {meta === undefined

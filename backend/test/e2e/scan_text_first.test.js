@@ -180,7 +180,7 @@ async function main() {
   // not add, and must not be allowed to drag CLIP's answer in behind it either.
   //
   // REVISED FOR THE OCR FALLBACK. This case originally supplied a clean
-  // '0132 . TLA . EN' alongside the gibberish title, and asserted 'queued'
+  // '0132 . TLA . EN' alongside the gibberish title, and asserted 'staged_unresolved'
   // because at the time a name and a title were the ONLY two routes to a card —
   // so a scan with neither had no legitimate answer.
   //
@@ -188,7 +188,7 @@ async function main() {
   // number we should just use OCR as the fallback"), and tla/132 is not an
   // inference drawn from the bad title — it is the card's own printed catalogue
   // address. That scenario therefore HAS a right answer now, and asserting
-  // 'queued' would be asserting the old sequence rather than a rule.
+  // 'staged_unresolved' would be asserting the old sequence rather than a rule.
   //
   // The property this case exists to protect is unchanged and is what is tested
   // here: a garbage title must not pull a card in on its own. So the collector
@@ -203,7 +203,7 @@ async function main() {
       title_text: 'Qwzzx Vermilion Nonesuch',
       ocr_text: '',                        // nothing readable on the strip
     });
-    assert.strictEqual(out.action, 'queued',
+    assert.strictEqual(out.action, 'staged_unresolved',
       `a title matching nothing must never add. got ${JSON.stringify(out)}`);
     assert.deepStrictEqual(await owned(), before, 'nothing entered the collection');
     pass('FTF-TC4', 'a title matching nothing queues and adds nothing');
@@ -243,7 +243,7 @@ async function main() {
       title_text: 'Fxtxd Fxrxpxwxr',
       ocr_text: '',                        // nothing readable on the strip
     });
-    assert.strictEqual(out.action, 'queued',
+    assert.strictEqual(out.action, 'staged_unresolved',
       `a title outside tolerance must NOT match. got ${JSON.stringify(out)}`);
     assert.deepStrictEqual(await owned(), before, 'and must add nothing');
     pass('FTF-TC6', 'a title outside the measured tolerance refuses and queues');
@@ -267,7 +267,7 @@ async function main() {
       title_text: 'Avatar of Wope',
       ocr_text: '',                        // nothing readable on the strip
     });
-    assert.strictEqual(out.action, 'queued',
+    assert.strictEqual(out.action, 'staged_unresolved',
       `a read between two real close names must refuse. got ${JSON.stringify(out)}`);
     assert.deepStrictEqual(await owned(), before, 'and must add nothing');
     pass('FTF-TC7', 'a title equidistant between two real card names refuses (margin gate)');
@@ -317,7 +317,7 @@ async function main() {
       title_text: 'Sol Ring',
       ocr_text: '0263',
     });
-    assert.strictEqual(out.action, 'queued', `got ${JSON.stringify(out)}`);
+    assert.strictEqual(out.action, 'staged_unresolved', `got ${JSON.stringify(out)}`);
     assert.strictEqual(out.reason, 'ambiguous');
     assert.strictEqual(out.candidates.length, 2, 'both printings offered');
     assert.deepStrictEqual(await owned(), before, 'a queued card is never owned');
@@ -335,7 +335,7 @@ async function main() {
       title_text: 'Sol Ring',
       ocr_text: '',
     });
-    assert.strictEqual(out.action, 'queued',
+    assert.strictEqual(out.action, 'staged_unresolved',
       `a title with no number must not pick a printing. got ${JSON.stringify(out)}`);
     assert.ok(out.candidates.length >= 2);
     assert.deepStrictEqual(await owned(), before);
@@ -421,7 +421,7 @@ async function main() {
       title_text: 'Sandstalker A',
       ocr_text: '',                        // nothing readable on the strip
     });
-    assert.strictEqual(out.action, 'queued',
+    assert.strictEqual(out.action, 'staged_unresolved',
       `a truncated title must not resolve to the shorter card. got ${JSON.stringify(out)}`);
     assert.deepStrictEqual(await owned(), before, 'and must add nothing');
     pass('FTF-TC15', 'a glare-truncated title refuses instead of resolving to a shorter name');

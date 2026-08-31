@@ -75,7 +75,12 @@ const { OCR_W, OCR_H } = require('./collectorNumberOcr');
 // returns border noise and the fuzzy matcher REFUSES it rather than landing on
 // a wrong card. That is the safety property the number crop could not claim —
 // it had a cliff at 0.940 where digits merged into confident wrong numbers.
-const TITLE_BAND = { left: 0.06, top: 0.052, width: 0.64, height: 0.060 };
+let TITLE_BAND = { left: 0.06, top: 0.052, width: 0.64, height: 0.060 };
+
+// TEST/DIAGNOSTIC ONLY. Lets a sweep vary the band without editing source
+// between runs, exactly like collectorNumberOcr._setStrip. Production never
+// calls this.
+function _setBand(b) { TITLE_BAND = { ...TITLE_BAND, ...b }; }
 
 let workerPromise = null;
 
@@ -107,17 +112,26 @@ function getWorker() {
 
 async function cropTitleBand(imageBuffer) {
   const rect = await sharp(imageBuffer).resize(OCR_W, OCR_H, { fit: 'fill' }).toBuffer();
-  return sharp(rect)
+  return preprocessTitle(await sharp(rect)
     .extract({
       left: Math.round(TITLE_BAND.left * OCR_W),
       top: Math.round(TITLE_BAND.top * OCR_H),
       width: Math.round(TITLE_BAND.width * OCR_W),
       height: Math.round(TITLE_BAND.height * OCR_H),
-    })
-    // Titles are dark text on a light nameplate on most frames and light on
-    // dark on full-art ones. normalise() handles both by stretching whatever
-    // contrast is there; it is not polarity-specific.
-    .greyscale().normalise().sharpen().png().toBuffer();
+    }).png().toBuffer());
+}
+
+// The preprocessing OCR needs, independent of how the band was obtained.
+//
+// Extracted so the region-warp path (band already isolated by rectifyCard) and
+// the full-card path (must crop first) run the IDENTICAL pipeline. Two copies
+// would drift, and a drift changes what OCR reads.
+//
+// Titles are dark text on a light nameplate on most frames and light on dark on
+// full-art ones. normalise() handles both by stretching whatever contrast is
+// there; it is not polarity-specific.
+function preprocessTitle(bandBuffer) {
+  return sharp(bandBuffer).greyscale().normalise().sharpen().png().toBuffer();
 }
 
 // Read the title band. Returns raw OCR text, or '' when unavailable.
@@ -125,9 +139,13 @@ async function cropTitleBand(imageBuffer) {
 // NEVER THROWS, for the same reason the number reader does not: OCR is an
 // ENHANCEMENT. A failure must degrade to "no title read" — which falls back to
 // CLIP — not to a failed scan that loses a card Zach physically scanned.
-async function readCardTitle(imageBuffer) {
+// `preCropped`: the caller already warped ONLY this band, so the title geometry
+// must not be applied a second time.
+async function readCardTitle(imageBuffer, { preCropped = false } = {}) {
   try {
-    const crop = await cropTitleBand(imageBuffer);
+    const crop = preCropped
+      ? await preprocessTitle(imageBuffer)
+      : await cropTitleBand(imageBuffer);
     const worker = await getWorker();
     const { data } = await worker.recognize(crop);
     return data?.text || '';
@@ -144,4 +162,4 @@ async function shutdown() {
   try { (await p).terminate(); } catch { /* already gone */ }
 }
 
-module.exports = { readCardTitle, cropTitleBand, shutdown, TITLE_BAND };
+module.exports = { readCardTitle, cropTitleBand, shutdown, TITLE_BAND, _setBand };

@@ -41,6 +41,50 @@ const NOT_A_SET = new Set([
 // Rarity letters that sit beside the number. Not part of it.
 const RARITY = new Set(['c', 'u', 'r', 'm', 's', 't', 'l', 'p']);
 
+// LANGUAGE CODES THAT GLUE THEMSELVES TO THE SET CODE.
+//
+// The set line reads "<SET> <sep> <LANG> <sep> <ARTIST>", where the separator
+// is a tiny glyph OCR renders as *, A, «, ®, or drops entirely. When it drops,
+// the set and language fuse: 'MSH*EN' becomes 'mshen', which matches no set.
+//
+// Only two-letter codes, and only as a SUFFIX. A stem is offered as an extra
+// candidate alongside the glued token, never as a replacement, so the
+// catalogue still decides which is real.
+const LANG_SUFFIXES = ['en', 'de', 'fr', 'it', 'es', 'pt', 'ja', 'ko', 'ru', 'zh'];
+
+// HOW TO RECOGNISE THE SET LINE.
+//
+// The line carrying the set code has a distinctive shape: a 3-5 character code
+// followed by a two-letter language code, separated by a glyph OCR mangles
+// ('MSH*EN', 'MSH « EN', 'MSHAEN').
+//
+// THE SEPARATOR IS REQUIRED, and that requirement is load-bearing. A permissive
+// version matched the ARTIST line 'Nemes 5 BE' -- because 'Nemes' is itself
+// <3-5 chars><language code 'es'> with nothing between them. That made the
+// artist line look like the set line, which is exactly the confusion this
+// pattern exists to prevent.
+//
+// So: either an explicit separator character between the code and the language,
+// or whitespace. Two letters merely ending a word do not qualify.
+// ONE TO THREE separator characters, not exactly one.
+//
+// The glyph between the set code and the language code is a tiny symbol that
+// OCR renders unpredictably -- and sometimes as SEVERAL characters. Measured on
+// Zach's corpus, 'MSH +« EN % DOMENIC' produced TWO ('+«'), so this pattern
+// missed the set line entirely, setLineCandidates came back empty, and a
+// perfectly correct read of msh #295 was treated as having no set at all.
+//
+// That mattered beyond the parse: set-line candidates are tried FIRST when
+// resolving, so an empty list silently demotes a clean read to the same footing
+// as an artist name.
+//
+// Still bounded at 3 so this cannot swallow a whole word: the artist line
+// 'Nemes 5 BE' is still correctly rejected, which is what stops a surname
+// becoming the set code (the Evil's Thrall 'nem' bug).
+const SET_LINE_HINT = new RegExp(
+  `\\b[a-z0-9]{3,5}\\s*[^a-z0-9\\s]{1,3}\\s*(${LANG_SUFFIXES.join('|')})\\b`
+  + `|\\b[a-z0-9]{3,5}\\s+(${LANG_SUFFIXES.join('|')})\\b`, 'i');
+
 // A collector number token. Deliberately narrow:
 //   123        digits
 //   0263       zero-padded (printed form)
@@ -135,15 +179,25 @@ function parseCollectorStrip(raw) {
   let set = null;
   // Every set-shaped token seen, in reading order. See the collection loop.
   const setCandidates = [];
+  // The subset of those found ON THE SET LINE itself. The set code is printed
+  // there; an artist name is not. Lets the resolver prefer real set codes over
+  // stems accidentally derived from surrounding words -- see the Evil's Thrall
+  // case, where the artist 'Nemes' produced 'nem', a real set whose #128 is a
+  // real card, manufacturing ambiguity for a card already identified.
+  const setLineCandidates = [];
+  // Every number-shaped token seen, with the line it came from. See the
+  // selection below: the FIRST one is not necessarily the card's own.
+  const numberTokens = [];
 
-  for (const line of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     const tokens = line.split(/[\s,]+/).filter(Boolean);
     for (let i = 0; i < tokens.length; i++) {
       const tok = tokens[i].replace(/[^A-Za-z0-9/\-]/g, '');
       if (!tok) continue;
 
       // Number first: the printed "263/281" form, or a bare token.
-      if (number == null) {
+      {
         const head = beforeSlash(tok);
         // Must contain a digit and match one of the accepted shapes. The digit
         // requirement is what excludes the artist credit.
@@ -156,9 +210,96 @@ function parseCollectorStrip(raw) {
           // alongside a copyright word).
           const looksLikeYear = /^(19|20)\d{2}$/.test(head) && !tok.includes('/');
           const copyrightish = /(c|©|\(c\)|copyright|wizards|illus)/i.test(line) && looksLikeYear;
-          if (!copyrightish) number = head;
+          if (!copyrightish) numberTokens.push({ head, line, li });
         }
       }
+    }
+  }
+
+  // CHOOSE THE CARD'S OWN NUMBER, NOT THE FIRST DIGITS ON THE STRIP.
+  //
+  // Zach: "one scan was bad marked super solider serum as kid Loki". THE WORST
+  // FAILURE THIS APP HAS -- a confident wrong card in his collection, which he
+  // cannot reconcile against the physical stack without recounting it.
+  //
+  // The capture is unambiguous: 'R 0038 / MSH*EN / Rafater'. OCR read it fine:
+  //
+  //     "| iil 63\nrR 0038\nMSH *EN be RAFAT\nNET Ue SRT\nEr\n"
+  //          ^^                ^^^^
+  //       bleed-through      the real number
+  //
+  // The first line is blurred text from the card BEHIND/ABOVE this one in the
+  // stack, caught because the OCR strip window was made taller to stop missing
+  // the number. Taking the first number-shaped token in reading order took the
+  // noise, and 63 is a real Marvel card (Kid Loki) -- so it resolved cleanly to
+  // the wrong card. Nothing about the result looked wrong.
+  //
+  // THE STRUCTURAL FIX: prefer the number printed IMMEDIATELY ABOVE the set
+  // line. Real cards print
+  //
+  //     <RARITY> <NUMBER>
+  //     <SET>*<LANG> <ARTIST>
+  //
+  // so the card's own number sits directly above its set line. Bleed-through
+  // from another card does not. This uses the strip's own layout rather than
+  // hoping the noise sorts itself out.
+  //
+  // ONLY THE LINE ABOVE, NEVER THE SET LINE ITSELF. Set codes may contain
+  // digits -- 'C21' is a real set (Commander 2021) and matches the number
+  // shape. Accepting a token from the set line would read the SET as the
+  // NUMBER, which F8P-TC1/TC14/TC18 caught immediately.
+  //
+  // Falls back to the first token when no set line is found, which is exactly
+  // the previous behaviour -- so a strip with no legible set code is no worse
+  // off than before.
+  if (numberTokens.length) {
+    const setLine = lines.findIndex(l => SET_LINE_HINT.test(l));
+    if (setLine >= 0) {
+      // WHEN A SET LINE EXISTS, THE NUMBER IS THE ONE ABOVE IT -- OR NOTHING.
+      //
+      // Zach: "one had the wrong set number turtle duck". The strip read:
+      //
+      //     line 0  'Ww WE V WV'            noise
+      //     line 1  'TLA * EN % SYLVAIN'    the real set line
+      //     line 2  '"MSH XEN 8 RAFATE'     a SECOND set line, bleeding
+      //                                     through from the card below
+      //
+      // The Turtle-Duck's own number was not legible at all. The old code found
+      // nothing above the set line and fell back to "the first number-shaped
+      // token anywhere" -- which was the '8' sitting in the NEIGHBOURING card's
+      // set line. tla #8 is a real card, so it resolved confidently to the
+      // wrong printing.
+      //
+      // That fallback made sense before the strip window was widened; now the
+      // window routinely contains a second card's text, so "anywhere on the
+      // strip" is no longer a safe place to look.
+      //
+      // If the number above the set line is not readable, we did not read this
+      // card's number. Report nothing and let it queue. A queue entry costs a
+      // tap; a confidently wrong printing costs a recount against physical
+      // cardboard.
+      // SOME PRINTINGS PUT THE NUMBER AND SET ON ONE LINE.
+      //
+      // '1508 SLD * EN ANDREA RADECK' is a real strip (Secret Lair). So the
+      // card's own number is the one ABOVE the set line, or one ON it -- but
+      // ONLY a token that appears BEFORE the set code, which is how the layout
+      // reads. The '8' in the Turtle-Duck's neighbouring line came AFTER its
+      // set code ('MSH XEN 8 RAFATE'), so this stays excluded.
+      const above = numberTokens.find(t => t.li === setLine - 1);
+      let onLine = null;
+      if (!above) {
+        const m = SET_LINE_HINT.exec(lines[setLine]);
+        const setAt = m ? m.index : -1;
+        onLine = numberTokens.find(t => t.li === setLine
+          && setAt > 0
+          && lines[setLine].indexOf(t.head) >= 0
+          && lines[setLine].indexOf(t.head) < setAt);
+      }
+      number = (above || onLine) ? (above || onLine).head : null;
+    } else {
+      // NO SET LINE AT ALL: keep the original behaviour exactly. A strip with
+      // no legible set code is no worse off than before this rule existed.
+      number = numberTokens[0].head;
     }
   }
 
@@ -169,13 +310,65 @@ function parseCollectorStrip(raw) {
     const tokens = line.split(/[\s,]+/).map(t => t.replace(/[^A-Za-z0-9]/g, '')).filter(Boolean);
     for (const tok of tokens) {
       const low = tok.toLowerCase();
-      if (!SET_CODE.test(tok)) continue;
+      // ACCEPT UP TO 7 CHARACTERS HERE, NOT 5.
+      //
+      // SET_CODE is 3-5 because that is what a real set code is. But a GLUED
+      // token is set + separator + language: 'MSHAEN' is six characters and was
+      // being discarded before the stem logic below could ever see it -- which
+      // is why Zach's fourth queue had no 'msh' candidate at all.
+      //
+      // This does not loosen what counts as a set: only STEMS derived below are
+      // added as candidates, and a 6-7 character token that yields no stem
+      // still contributes nothing. The catalogue remains the judge.
+      const isGluedCandidate = /^[a-z0-9]{6,7}$/i.test(tok)
+        && LANG_SUFFIXES.some(l => low.endsWith(l));
+      if (!SET_CODE.test(tok) && !isGluedCandidate) continue;
       if (NOT_A_SET.has(low)) continue;
       if (RARITY.has(low) && tok.length === 1) continue;
       if (/^\d+$/.test(tok)) continue;          // all digits = a number, not a set
       if (!/[a-z]/i.test(tok)) continue;        // a set code has letters
       if (number != null && tok === number) continue;
       if (!set) set = low;
+      // SPLIT THE LANGUAGE SUFFIX OFF A GLUED TOKEN.
+      //
+      // Zach: "I count queues as failures... I would expect maybe 1 not 4."
+      // All four queues in that session read the NUMBER correctly and then
+      // failed on the set:
+      //
+      //   'MSH*EN % RYTIS SA'  -> ['mshen', 'rytis']   the separator vanished
+      //   'MSHAEN ¥% DAVID'    -> ['david']            '*' read as 'A'
+      //
+      // The set line is "<SET> <separator> <LANG> <sep> <ARTIST>", and the
+      // separator is a tiny glyph OCR reads as *, A, «, ®, or nothing at all.
+      // When it vanishes the set and the language fuse into one token, and
+      // 'mshen' matches no set in the catalogue.
+      //
+      // So a token ending in a known language code also contributes its stem.
+      // This ADDS candidates, never replaces them: 'mshen' still gets tried in
+      // case some set really is called that, and the catalogue remains the
+      // judge of which candidate is real. A stem that matches nothing simply
+      // loses, exactly like any other wrong candidate.
+      const stems = [low];
+      for (const lang of LANG_SUFFIXES) {
+        if (low.length > lang.length + 1 && low.endsWith(lang)) {
+          stems.push(low.slice(0, -lang.length));
+          // THE SEPARATOR MAY HAVE BEEN READ AS A LETTER, NOT DROPPED.
+          //
+          // 'MSH*EN' came back as 'MSHAEN': the '*' was recognised as an 'A',
+          // so stripping 'en' leaves 'msha' rather than 'msh'. One more
+          // character has to come off, but ONLY when what remains is still a
+          // plausible 3-4 character set code -- otherwise this would start
+          // inventing stems from ordinary words.
+          const stem = low.slice(0, -lang.length);
+          if (stem.length >= 4) stems.push(stem.slice(0, -1));
+        }
+      }
+      const onSetLine = SET_LINE_HINT.test(line);
+      for (const st of stems) {
+        if (!setCandidates.includes(st)) setCandidates.push(st);
+        if (onSetLine && !setLineCandidates.includes(st)) setLineCandidates.push(st);
+      }
+      continue;
       // COLLECT EVERY PLAUSIBLE SET CODE, not just the first one.
       //
       // Zach: "You should use all information possible."
@@ -243,14 +436,36 @@ function parseCollectorStrip(raw) {
   const confident = number != null && !digitsGluedToJunk && numberIsClean;
   // `numberAlt` is a SECOND CANDIDATE READING, not a correction (see
   // RARITY_PREFIXED_NUMBER above). `number` is always exactly what was read.
+  //
+  // A SPURIOUS DIGIT INSIDE THE ZERO PADDING IS ALSO A CANDIDATE READING.
+  //
+  // Zach's queue: 'L 02906' where the card is #296. Collector numbers print
+  // zero-padded to four digits ('0296'), and OCR inserted a fifth. Five digits
+  // is not a real collector number -- the largest sets are in the hundreds --
+  // so a 5-digit token starting with 0 is almost certainly a 4-digit one with
+  // an extra character.
+  //
+  // Offered as an ALTERNATIVE, never a rewrite: the catalogue decides. If both
+  // readings resolve to real printings that is genuine ambiguity and the
+  // resolver queues it, exactly as it does for the rarity-letter case.
+  const paddedAlt = (() => {
+    const s = String(number || '');
+    // The parser normalises away the leading zero, so '02906' arrives as
+    // '2906'. Match on the RAW text to confirm the zero-padded shape, then
+    // drop the surplus digit from the normalised value.
+    if (!/^\d{4}$/.test(s)) return null;
+    if (!new RegExp(`0${s}(?![0-9])`).test(String(raw || ''))) return null;
+    return String(Number(s.slice(0, 2) + s.slice(3)));
+  })();
   return {
     number,
-    numberAlt: rarityStrippedAlternative(number),
+    numberAlt: rarityStrippedAlternative(number) || paddedAlt,
     set,
     // EVERY set-shaped token, for the resolver to validate against the
     // catalogue. `set` stays as the first one so existing callers are
     // unchanged; setCandidates is what lets a caller do better.
     setCandidates,
+    setLineCandidates,
     confident,
     raw: String(raw || ''),
   };

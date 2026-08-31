@@ -402,6 +402,10 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS card_cache (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      -- The name printed in LARGE type on a crossover printing, when it differs
+      -- from the real card name: 'Splinter, Vengeful Sensei' over 'Ink-Eyes,
+      -- Servant of Oni'. NULL for the ~99% of cards without one.
+      flavor_name TEXT,
       supertype TEXT,
       subtypes TEXT,
       types TEXT,
@@ -671,10 +675,44 @@ async function initDb() {
   // Marketplace links as the PROVIDER gives them. Building them from name+set+number
   // only works for English cards: searching TCGplayer for "ヒトカゲ ポケモンカード151"
   // Provider-supplied marketplace links are stored verbatim.
-  for (const col of ['tcgplayer_url', 'cardmarket_url']) {
+  for (const col of ['tcgplayer_url', 'cardmarket_url', 'flavor_name']) {
     if (!cardCacheCols.some(c => c.name === col)) {
       await run(`ALTER TABLE card_cache ADD COLUMN ${col} TEXT`);
     }
+  }
+
+  // Searching by the name the owner can actually SEE. Without this index every
+  // flavor-name search is a full scan of ~100k rows; with it the LIKE is still
+  // unanchored ('%splinter%') so SQLite cannot use it for a prefix seek, but
+  // the column stays cheap to filter and the intent is recorded. Kept separate
+  // from the name index so neither query plan changes for the other.
+  await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_flavor_name
+             ON card_cache(flavor_name) WHERE flavor_name IS NOT NULL`);
+
+  // WHICH CAPTURE PRODUCED THIS QUEUE ROW.
+  //
+  // Zach is scanning a labelled corpus so the OCR parameters can be tuned
+  // against real cards instead of my eyeballing 15 captures. The label is
+  // written when he resolves a queued scan by picking the right card -- that is
+  // the moment the app learns ground truth.
+  //
+  // Without this column the label attaches to `lastDumpName`, a module-level
+  // variable holding whatever image was scanned MOST RECENTLY. Resolving 18
+  // queued cards after a session would write all 18 labels onto the same
+  // capture -- the last one scanned -- producing a corpus that is not merely
+  // incomplete but actively WRONG, and wrong labels are worse than none because
+  // every future measurement inherits them silently.
+  const queueCols = await all(`PRAGMA table_info(scan_review_queue)`);
+  // scan_staging gained dump_file for the same reason scan_review_queue did: a
+  // resolve must label the capture it came FROM, not whatever was scanned last.
+  // Additive, so it is safe on a database that already ran the rebuild above.
+  const stagingCols = await all(`PRAGMA table_info(scan_staging)`).catch(() => []);
+  if (stagingCols.length && !stagingCols.some(c => c.name === 'dump_file')) {
+    await run(`ALTER TABLE scan_staging ADD COLUMN dump_file TEXT`);
+  }
+
+  if (queueCols.length && !queueCols.some(c => c.name === 'dump_file')) {
+    await run(`ALTER TABLE scan_review_queue ADD COLUMN dump_file TEXT`);
   }
 
   const collectionCols = await all(`PRAGMA table_info(collection)`);
@@ -1012,6 +1050,12 @@ async function initDb() {
       -- The cropped scan thumbnail, so he can see the card he actually scanned
       -- when deciding. Without it a queue of 40 entries is unresolvable.
       crop_data_url TEXT,
+      -- WHICH CAPTURE PRODUCED THIS ROW, for the labelled corpus. When Zach
+      -- resolves a queued scan he tells the app what the card really is, and
+      -- that truth is written beside this image. Without the column the label
+      -- would attach to whatever was scanned most recently, so resolving a
+      -- session's queue would put every label on the last capture.
+      dump_file TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -1040,27 +1084,49 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS scan_staging (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
-      -- The resolved printing. Unlike the review queue this IS a concrete card:
-      -- staging holds scans we are confident about, and the queue continues to
-      -- hold the ones we are not. Two different questions, two different tables.
-      card_id TEXT NOT NULL,
+      -- The resolved printing, or NULL when the scan is UNRESOLVED.
+      --
+      -- There used to be a second table (scan_review_queue) for scans we could
+      -- not pin to a printing. Zach: "get rid of the queue because having the
+      -- queue and scanner section seem redundant." So one list holds both, and
+      -- NULL is the honest representation of "scanned, held, not yet
+      -- identified" -- rows in that state carry candidates_json instead.
+      card_id TEXT,
       quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
       finish TEXT NOT NULL DEFAULT 'nonfoil',
       condition TEXT NOT NULL DEFAULT 'Near Mint',
       location_id INTEGER,
-      -- WHY THIS ROW MIGHT DESERVE A SECOND LOOK, or NULL when nothing is odd.
-      -- Computed at stage time and stored, so the review list can lead with the
-      -- rows that need attention instead of making him find them:
-      --   'duplicate_in_session'  the same printing was already staged
-      --   'already_owned'         he already has this printing already
-      --   'low_confidence'        the match was weak enough to be worth a look
-      flag TEXT CHECK(flag IN ('duplicate_in_session', 'already_owned', 'low_confidence')),
-      -- Match confidence at scan time (ORB inliers), kept so the list can sort
-      -- weakest-first and so a bad batch is diagnosable after the fact.
+      -- NO flag COLUMN. There was one, carrying 'duplicate_in_session',
+      -- 'already_owned' and 'low_confidence'. Zach removed all three from
+      -- evidence: duplicates now only happen when he TAPS to force one, so
+      -- flagging them second-guesses an explicit instruction, and weak matches
+      -- were correct in every case he observed. "The only cards that should
+      -- stand out are the ones that unresolved."
+      --
+      -- Match confidence at scan time (ORB inliers), kept so a bad batch is
+      -- diagnosable after the fact. It no longer drives any UI.
       match_inliers INTEGER,
       -- The scan thumbnail. Same reasoning as the review queue: a list of forty
       -- rows he cannot see the cards for is not reviewable.
       crop_data_url TEXT,
+      -- What the matcher thought this was, so an unresolved row still has a
+      -- readable label before anything has been picked.
+      matched_name TEXT,
+      -- Candidate printings, best first, as JSON. '[]' when the matcher had
+      -- nothing to offer -- then the row can only be resolved by searching.
+      candidates_json TEXT NOT NULL DEFAULT '[]',
+      -- WHICH CAPTURE THIS ROW CAME FROM. Review finding S5.
+      --
+      -- Resolving a staged row writes a corpus label, and without this it
+      -- labelled lastDumpName -- the most recently scanned image, held at
+      -- module scope. Resolving happens AFTER the stack is scanned, so every
+      -- label landed on the last capture of the session.
+      --
+      -- scan_review_queue already carried dump_file for exactly this reason;
+      -- the table that replaced it dropped the column and reintroduced the
+      -- bug. Wrong labels are worse than none: every future measurement
+      -- inherits them silently, and the corpus gates tuning decisions.
+      dump_file TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -1121,10 +1187,130 @@ async function initDb() {
     console.warn('scan_review_queue reason migration skipped:', e.message);
   }
 
+  // --- MIGRATION: staging holds UNRESOLVED scans, and no longer flags ------
+  //
+  // Zach, after a 25-card session that produced 24 staged rows and ZERO queue
+  // rows: "I would like to make a change and get rid of the queue because
+  // having the queue and scanner section seem redundant. What I would like is
+  // all cards to go into the scanned but if we are unsure of the card give the
+  // top 3 options and then allow to search manually just in case its not one
+  // of those 3."
+  //
+  // TWO SHAPE CHANGES, both of which SQLite can only do by rebuilding:
+  //
+  // 1. card_id becomes NULLABLE. This is the whole merge. Staging used to mean
+  //    "a resolved printing" and the queue meant "we do not know which card
+  //    this is"; one list now holds both, so a row may legitimately have no
+  //    card_id yet and carry candidates instead.
+  //
+  // 2. THE flag COLUMN AND ITS CHECK CONSTRAINT GO. He asked for this from
+  //    evidence, not preference: "I dont want any of the warnings like dupe
+  //    card or weak match because now the scanner only scans a dupe if I press
+  //    it and the weak match has been right 100% of the time I have yet to see
+  //    it be wrong."
+  //
+  //    Both halves check out. duplicate_in_session is now only reachable when
+  //    he deliberately taps to force a second copy, so flagging it is the app
+  //    second-guessing an explicit instruction. And low_confidence fired on 3
+  //    of his 24 rows (7 and 10 inliers) and was correct every time -- my older
+  //    "4-23 inliers means wrong" measurement predates the set+number
+  //    resolution path, so his newer observation supersedes it.
+  //
+  //    "The only cards that should stand out are the ones that unresolved."
+  //
+  // The CHECK on the old flag column would REJECT any row this code writes
+  // without one, and the scan path catches insert failures -- so leaving it in
+  // place would silently drop scanned cards. That is the exact failure the
+  // migration below this one was written to prevent, so it follows the same
+  // rebuild-copy-swap shape and is guarded to run exactly once.
+  try {
+    const existing = await get(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='scan_staging'`);
+    if (existing?.sql && existing.sql.includes('card_id TEXT NOT NULL')) {
+      // WRAPPED IN A TRANSACTION, AND CLEANS UP BEFORE IT STARTS.
+      //
+      // Review finding S4. The rebuild is CREATE -> INSERT SELECT -> DROP ->
+      // RENAME. Unwrapped, a crash or a throw anywhere after the CREATE leaves
+      // scan_staging_new behind AND the original still named scan_staging. The
+      // next boot re-enters this branch (the old table still says
+      // card_id TEXT NOT NULL), CREATE fails with "table already exists", the
+      // catch below swallows it as "migration skipped", and the app runs on the
+      // OLD shape forever.
+      //
+      // That failure is quiet and total. With card_id NOT NULL, every
+      // unresolved stage violates the constraint, so a card the matcher could
+      // not pin down is rejected by the database and lost from the stack with
+      // only a toast. One bad boot would kill the feature permanently on that
+      // machine, and the log line says "skipped" rather than "broken".
+      //
+      // SQLite DDL is transactional, so the rebuild now either lands whole or
+      // not at all. PRAGMA foreign_keys is a no-op INSIDE a transaction, hence
+      // set before BEGIN and restored in a finally.
+      await run('PRAGMA foreign_keys=OFF');
+      try {
+        // Clear any orphan from an interrupted attempt, or the retry can never
+        // succeed.
+        await run('DROP TABLE IF EXISTS scan_staging_new');
+        await run('BEGIN');
+        await run(`
+          CREATE TABLE scan_staging_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            card_id TEXT,
+            quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
+            finish TEXT NOT NULL DEFAULT 'nonfoil',
+            condition TEXT NOT NULL DEFAULT 'Near Mint',
+            location_id INTEGER,
+            match_inliers INTEGER,
+            crop_data_url TEXT,
+            matched_name TEXT,
+            candidates_json TEXT NOT NULL DEFAULT '[]',
+            dump_file TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+        await run(`
+          INSERT INTO scan_staging_new
+            (id, user_id, card_id, quantity, finish, condition, location_id,
+             match_inliers, crop_data_url, matched_name, candidates_json,
+             dump_file, created_at)
+          SELECT id, user_id, card_id, quantity, finish, condition, location_id,
+                 match_inliers, crop_data_url, NULL, '[]', NULL, created_at
+            FROM scan_staging
+        `);
+        await run('DROP TABLE scan_staging');
+        await run('ALTER TABLE scan_staging_new RENAME TO scan_staging');
+        await run(`CREATE INDEX IF NOT EXISTS idx_scan_staging_user ON scan_staging(user_id, created_at)`);
+        await run('COMMIT');
+        console.log('Migrated scan_staging: unresolved rows allowed, flags removed.');
+      } catch (e) {
+        await run('ROLLBACK').catch(() => { /* nothing open */ });
+        throw e;
+      } finally {
+        // ALWAYS restore FK enforcement. Leaving it off for the process
+        // lifetime is a second silent failure: user deletes stop cascading and
+        // rows referencing missing users become insertable.
+        await run('PRAGMA foreign_keys=ON').catch(() => { /* best effort */ });
+      }
+    }
+  } catch (e) {
+    // Booting matters more than the migration. On failure the old shape still
+    // works for resolved rows, which is every row that exists today.
+    console.warn('scan_staging merge migration skipped:', e.message);
+  }
+
   // --- PERFORMANCE INDEXES ---
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_comp_user_qty ON collection(compartment_id, user_id, quantity)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_collection_loc_pos ON collection(location_id, position)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_set_num ON card_cache(set_id, number)`);
+
+  // NAME LOOKUP DURING SCAN HYDRATION.
+  //
+  // Every scan hydrates up to 8 candidates, and any that miss on set+number fall
+  // back to a lookup by name. Without this index that is a full SCAN of ~105k
+  // rows, up to 8 times per scan -- measured at 249ms, 8% of a scan.
+  await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_name ON card_cache(name)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_card_cache_oracle ON card_cache(oracle_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_deck_cards_checkout ON deck_cards(deck_id, checked_out)`);
   // Reservation scans every requirement for one exact variant across all of a

@@ -8,6 +8,21 @@ const COLUMNS = [
   'number', 'image_url', 'price_trend', 'price_normal', 'price_holofoil',
   'price_reverse_holofoil', 'price_avg1', 'price_avg7', 'price_avg30', 'cmc',
   'color_identity',
+  // THE NAME PRINTED IN LARGE TYPE ON A CROSSOVER CARD.
+  //
+  // Zach scanned a card reading 'SPLINTER, VENGEFUL SENSEI' and Bindarr called
+  // it 'Ink-Eyes, Servant of Oni'. Both are correct: it is one Secret Lair card
+  // with a flavor name on top and the real card name in small type beneath.
+  //
+  // 648 cards across Magic have one (TMNT, Marvel, Doctor Who, Fallout). For
+  // those, `name` is a name the owner CANNOT SEE on the card in their hand --
+  // so a collection of them is unrecognisable and unsearchable. Zach: "if I
+  // want the splinter card I would search that card not ink-eyes."
+  //
+  // Stored alongside `name` rather than replacing it: `name` remains the
+  // catalogue identity everything else keys on, and this is purely what to show
+  // and what to match against.
+  'flavor_name',
   'oracle_id', 'oracle_name', 'mana_cost', 'oracle_text', 'type_line', 'keywords',
   'legalities', 'finishes', 'layout',
   'tcgplayer_url', 'cardmarket_url',
@@ -36,6 +51,13 @@ async function cacheNormalizedCards(cards, opts = {}) {
         num(c.price_holofoil), num(c.price_reverse_holofoil), num(c.price_avg1),
         num(c.price_avg7), num(c.price_avg30), num(c.cmc),
         JSON.stringify(c.color_identity || []),
+        // MUST STAY IN LOCK-STEP WITH `COLUMNS` ABOVE. This list is positional:
+        // adding a column there without adding its value here shifts every
+        // field after it, silently writing each value into the WRONG column.
+        // That is exactly what happened when flavor_name was added -- the
+        // oracle-card-cache suite failed with "normal is not valid JSON",
+        // because a price string had landed where `finishes` was expected.
+        c.flavor_name || null,
         c.oracle_id || null, c.oracle_name || '', c.mana_cost || '',
         c.oracle_text || '', c.type_line || '', JSON.stringify(c.keywords || []),
         JSON.stringify(c.legalities || {}), JSON.stringify(c.finishes || []),

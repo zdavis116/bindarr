@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
+import { displayName, secondaryName } from '../utils/cardName';
 import { tcgplayerUrl, cardmarketUrl, priceSource, noLinkReason } from '../utils/marketplaceLinks';
 import CardImageZoom from './CardImageZoom';
 import CardEntryFields from './CardEntryFields';
@@ -293,9 +294,20 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               )}
             </div>
 
+            {/* Large type is the name printed large on the card. See
+                utils/cardName.js -- one rule, so the inspector and the grid can
+                never disagree about what a card is called. */}
             <h3 style={{ fontSize: '1.65rem', color: 'var(--text-strong)', fontWeight: 800, lineHeight: 1.15, marginBottom: '0.25rem' }}>
-              {card.name}
+              {displayName(card)}
             </h3>
+            {secondaryName(card) && (
+              <p style={{
+                color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500,
+                marginBottom: '0.25rem',
+              }}>
+                {secondaryName(card)}
+              </p>
+            )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
               {card.set_name}
               {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''} • {t('inspector.owned', { count: card.quantity ?? 1 })}

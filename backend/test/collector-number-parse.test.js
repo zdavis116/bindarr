@@ -235,5 +235,172 @@ check('F8P-TC19', 'every set-shaped token is offered, not just the first', () =>
     'and the wrong first guess must not be the only option offered');
 });
 
+
+check('F8P-TC20', 'a set code glued to its language suffix still yields the set', () => {
+  // Zach: "I count queues as failures... I would expect maybe 1 not 4."
+  //
+  // ALL FOUR queues in that session read the NUMBER correctly and then failed
+  // on the set. The set line is "<SET> <sep> <LANG> <sep> <ARTIST>" and the
+  // separator is a tiny glyph OCR renders as *, A, «, ® — or drops entirely.
+  // When it drops, set and language fuse into one token that matches no set.
+  //
+  // Real raw reads from his scans, with what the card actually is:
+  const cases = [
+    ['Pr\nL 0296\nMSH*EN % RYTIS SA\n', 'msh'],      // separator vanished
+    ['RS S=,\nC 0247\nMSHAEN \u00a5% DAVID\n', 'msh'],    // '*' read as 'A'
+    ['REE\nL 0295\nMSH*EN \u00bb DOMENIC\n', 'msh'],
+    ['L 02906\nMSH \u00ab EN % RYTIS SA\n', 'msh'],
+  ];
+  for (const [raw, want] of cases) {
+    const p = parseCollectorStrip(raw);
+    assert.ok(p.setCandidates.includes(want),
+      `expected '${want}' among candidates for ${JSON.stringify(raw)}, `
+      + `got ${JSON.stringify(p.setCandidates)}`);
+  }
+});
+
+check('F8P-TC21', 'a spurious digit in the zero padding is offered as an alternative', () => {
+  // 'L 02906' on a card that is #296. Collector numbers print zero-padded to
+  // four digits and OCR inserted a fifth. Offered as an ALTERNATIVE reading,
+  // never a rewrite: the catalogue decides, and if both readings resolve the
+  // resolver queues it as genuine ambiguity.
+  const p = parseCollectorStrip('L 02906\nMSH \u00ab EN % RYTIS SA\n');
+  assert.strictEqual(p.number, '2906', 'the literal reading must be preserved');
+  assert.strictEqual(p.numberAlt, '296', 'the padded-digit alternative must be offered');
+});
+
+check('F8P-TC22', 'the language split does not invent sets from ordinary words', () => {
+  // The stem logic must not fire on any word that happens to end in a language
+  // code. 'garden' ends in 'en'; 'gard' is not a set and must not be asserted
+  // as one — but the parser has no catalogue, so the real guarantee is that the
+  // ORIGINAL token is still offered and the stem is only ever an ADDITION.
+  const p = parseCollectorStrip('R 0100\nGARDEN % SOMEONE\n');
+  assert.ok(p.setCandidates.includes('garden'),
+    'the token as read must still be offered');
+  // A stem may be present, but it can never REPLACE the literal reading.
+  assert.ok(p.setCandidates.indexOf('garden') >= 0);
+});
+
+
+check('F8P-TC23', "bleed-through from the card above must not become this card's number", () => {
+  // THE WORST BUG THIS PROJECT HAS HAD. Zach: "one scan was bad marked super
+  // solider serum as kid Loki" -- a confident WRONG card in his collection,
+  // which he cannot reconcile against the physical stack without recounting it.
+  //
+  // The capture clearly showed 'R 0038 / MSH*EN / Rafater'. OCR read it fine:
+  //
+  //     "| iil 63\nrR 0038\nMSH *EN be RAFAT\nNET Ue SRT\nEr\n"
+  //          ^^                ^^^^
+  //     bleed-through       the real number
+  //
+  // The first line is blurred text from the card BEHIND this one in the stack,
+  // caught because the OCR window was widened to stop missing numbers. Taking
+  // the first number-shaped token took the noise -- and 63 is a REAL Marvel
+  // card (Kid Loki), so it resolved cleanly to the wrong card. Nothing about
+  // the result looked wrong.
+  //
+  // The card's own number is always printed directly above its set line, so
+  // that adjacency is what identifies it.
+  const p = parseCollectorStrip('| iil 63\nrR 0038\nMSH *EN be RAFAT\nNET Ue SRT\nEr\n');
+  assert.strictEqual(p.number, '38',
+    `expected the number adjacent to the set line (38), got ${p.number}`);
+  assert.ok(p.setCandidates.includes('msh'));
+});
+
+check('F8P-TC24', 'a set code containing digits is never read as the number', () => {
+  // My first version of the adjacency rule accepted a number token from the SET
+  // LINE ITSELF as well as the line above. F8P-TC1/TC14/TC18 caught it at once:
+  // 'C21' is a real set (Commander 2021) and matches the number shape, so the
+  // parser returned the SET as the NUMBER.
+  //
+  // Only the line ABOVE the set line counts.
+  const p = parseCollectorStrip('263/281 U\nC21 * EN MIKE BIEREK');
+  assert.strictEqual(p.number, '263', `read the set code as the number: ${p.number}`);
+  assert.strictEqual(p.set, 'c21');
+});
+
+check('F8P-TC25', 'with no legible set line, the old first-token behaviour remains', () => {
+  // The adjacency rule is an IMPROVEMENT where the set line is readable, not a
+  // new requirement. A strip with no recognisable set line must be no worse off
+  // than before this change.
+  const p = parseCollectorStrip('R 0213\nsome noise here\n');
+  assert.strictEqual(p.number, '213');
+});
+
+
+check('F8P-TC26', 'an artist name is not mistaken for the set line', () => {
+  // Zach: "evils thrall has set code and number but still didn't match not sure
+  // why."
+  //
+  // The strip read 'uv 0128 / MSH (R)EN % Mintav / Nemes 5 BE'. Candidates came
+  // back as ['msh', 'nemes', 'nem'] -- 'nem' is the artist's name 'Nemes' with
+  // its last letter stripped by the language-suffix rule added for glued tokens
+  // ('mshen' -> 'msh').
+  //
+  // 'nem' is a REAL set (Nemesis) and nem #128 is a REAL card (Complex
+  // Automaton). So msh #128 and nem #128 BOTH resolved, the resolver correctly
+  // called that ambiguous, and a card it had actually identified was queued.
+  //
+  // The set code is printed ON THE SET LINE; an artist name is not. The parser
+  // reports which candidates came from that line so the resolver can prefer
+  // them.
+  //
+  // NOTE the separator requirement: 'Nemes' is itself <3-5 chars><lang 'es'>
+  // with nothing between, so a permissive pattern matched the ARTIST line too.
+  const p = parseCollectorStrip('uv 0128\nMSH \u00aeEN \u00a5% Mintav\nNemes 5 BE\n');
+  assert.strictEqual(p.number, '128');
+  assert.ok(p.setCandidates.includes('msh'), 'the real set must still be offered');
+  assert.deepStrictEqual(p.setLineCandidates, ['msh'],
+    `only the set line's own candidates may be flagged, got `
+    + `${JSON.stringify(p.setLineCandidates)}`);
+});
+
+check('F8P-TC27', 'setLineCandidates is a subset of setCandidates', () => {
+  // The resolver tiers on this. If a set-line candidate were ever absent from
+  // the full list, the tiering would silently drop a real reading.
+  for (const raw of [
+    'uv 0128\nMSH \u00aeEN \u00a5% Mintav\nNemes 5 BE\n',
+    '| iil 63\nrR 0038\nMSH *EN be RAFAT\n',
+    '263/281 U\nC21 * EN MIKE BIEREK',
+    'RS S=,\nC 0247\nMSHAEN \u00a5% DAVID\n',
+  ]) {
+    const p = parseCollectorStrip(raw);
+    for (const c of p.setLineCandidates || []) {
+      assert.ok(p.setCandidates.includes(c),
+        `set-line candidate '${c}' missing from setCandidates for ${JSON.stringify(raw)}`);
+    }
+  }
+});
+
+
+check('F8P-TC28', "a neighbouring card's set line must not donate a number", () => {
+  // Zach: "one had the wrong set number turtle duck".
+  //
+  //     line 0  'Ww WE V WV'            noise
+  //     line 1  'TLA * EN % SYLVAIN'    the real set line
+  //     line 2  '"MSH XEN 8 RAFATE'     a SECOND set line, bleeding through
+  //                                     from the card below in the stack
+  //
+  // The Turtle-Duck's own number was not legible. The parser found nothing
+  // above the set line and fell back to "the first number-shaped token
+  // anywhere", which was the '8' inside the NEIGHBOURING card's set line.
+  // tla #8 is a real card, so it resolved confidently to the wrong printing.
+  //
+  // When a set line exists, this card's number is the one above it -- or we did
+  // not read it. Reporting nothing queues; reporting a neighbour's digits puts
+  // the wrong card in his collection.
+  const p = parseCollectorStrip('Ww WE V WV\nTLA \u00ab EN % SYLVAIN\n\u201cMSH XEN 8 RAFATE\n');
+  assert.strictEqual(p.number, null,
+    `expected no number when this card's own line is illegible, got ${p.number}`);
+  assert.ok(p.setCandidates.includes('tla'), 'the set code is still read normally');
+});
+
+check('F8P-TC29', 'the number above the set line is still preferred over noise above it', () => {
+  // The guard must not have broken the case it was built for: junk on line 0,
+  // the real number on line 1, the set line on line 2.
+  const p = parseCollectorStrip('| iil 63\nrR 0038\nMSH *EN be RAFAT\n');
+  assert.strictEqual(p.number, '38');
+});
+
 console.log(`\nCollector-number parser: ${passed} cases passed.`);
 if (process.exitCode) process.exit(process.exitCode);

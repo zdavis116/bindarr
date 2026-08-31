@@ -130,19 +130,26 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
         emit();
         return {
           action: 'staged', added: false, card: data.card,
-          staged_id: data.staged_id, flag: data.flag || null, ocr: data.ocr,
+          staged_id: data.staged_id, ocr: data.ocr,
         };
       }
 
-      // Queued: NOT in the collection. The badge moves, the collection does not.
-      pendingCount += 1;
+      // UNRESOLVED: staged with no printing chosen. NOT in the collection.
+      //
+      // This used to be action 'queued', writing to a separate review queue with
+      // its own screen. Zach deleted that: "get rid of the queue because having
+      // the queue and scanner section seem redundant." The row now lands in the
+      // same Scanned list as everything else, carrying its candidates, and Add
+      // All refuses while any such row remains -- so an unidentified card cannot
+      // be forgotten in a second list and can never reach the collection
+      // unnoticed.
       error = null;
       emit();
       return {
-        action: 'queued',
+        action: 'staged_unresolved',
         added: false,
         reason: data.reason,
-        queue_id: data.queue_id,
+        staged_id: data.staged_id,
         candidates: data.candidates || [],
         ocr: data.ocr,
       };
@@ -153,91 +160,20 @@ export function createScanReviewQueue({ fetchImpl = fetch, onChange = () => {} }
     }
   }
 
-  // Re-read the queue from the server. This is the ONLY thing that populates
-  // `entries`, which is what makes a reload safe.
-  async function refresh() {
-    loading = true;
-    emit();
-    try {
-      const res = await fetchImpl('/api/scan-queue');
-      const data = await readJson(res);
-      if (!res.ok) {
-        error = data.error || 'Could not load the review queue.';
-        return state();
-      }
-      // Candidate order is the SERVER'S owned-first banding and is preserved
-      // verbatim. Re-sorting here would break the one-tap common case.
-      entries = data.entries || [];
-      pendingCount = entries.length;
-      error = null;
-      return state();
-    } catch (e) {
-      error = e.message || 'Could not load the review queue.';
-      return state();
-    } finally {
-      loading = false;
-      emit();
-    }
-  }
-
-  // Zach picked a printing. The server moves it into the collection through the
-  // same addCardToCollection path a manual add uses and deletes the queue row.
-  async function resolveEntry(id, { card_id, printing, condition, quantity, location_id } = {}) {
-    try {
-      const body = { card_id };
-      if (printing !== undefined) body.printing = printing;
-      if (condition !== undefined) body.condition = condition;
-      if (quantity !== undefined) body.quantity = quantity;
-      if (location_id !== undefined) body.location_id = location_id;
-
-      const res = await fetchImpl(`/api/scan-queue/${id}/resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await readJson(res);
-      // Re-read either way. On success the row is gone; on FAILURE the row must
-      // still be there, and asking the server is the only way to be sure of
-      // that rather than assuming it.
-      await refresh();
-      if (!res.ok) {
-        error = data.error || 'Could not add that printing.';
-        emit();
-        return { ok: false, error };
-      }
-      return { ok: true, entry_id: data.entry_id, card_id };
-    } catch (e) {
-      error = e.message || 'Could not add that printing.';
-      await refresh();
-      return { ok: false, error };
-    }
-  }
-
-  // Discard: a misscan, or a card he does not want. Safe precisely BECAUSE the
-  // queue is not the collection — nothing he owns is removed.
-  async function discardEntry(id) {
-    try {
-      const res = await fetchImpl(`/api/scan-queue/${id}`, { method: 'DELETE' });
-      const data = await readJson(res);
-      await refresh();
-      if (!res.ok) {
-        error = data.error || 'Could not discard that entry.';
-        emit();
-        return { ok: false, error };
-      }
-      return { ok: true };
-    } catch (e) {
-      error = e.message || 'Could not discard that entry.';
-      await refresh();
-      return { ok: false, error };
-    }
-  }
+  // THE QUEUE-READING HALF OF THIS MODULE IS GONE.
+  //
+  // refresh(), resolveEntry() and discardEntry() read and wrote /api/scan-queue,
+  // which no longer exists. Zach deleted the review queue: "get rid of the queue
+  // because having the queue and scanner section seem redundant." Unresolved
+  // scans now live in scan_staging alongside resolved ones and are read,
+  // resolved and discarded through the staging controller (scanStaging.js).
+  //
+  // What remains here is submitScan -- the SCAN endpoint client. It kept its
+  // name for now because every call site uses it; the name is a leftover, not a
+  // second queue.
 
   return {
     submitScan,
-    refresh,
-    resolveEntry,
-    discardEntry,
     describeReason,
     getState: state,
   };

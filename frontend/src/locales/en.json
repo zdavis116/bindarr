@@ -590,6 +590,8 @@
   "scan.exactMatch": "Exact Match Identified!",
   "scan.setOptionalHint": "Scanning all sets — no set needed. Pick set(s) below only if you want faster scans on a box you already know.",
   "scan.holdSteady": "Hold steady — waiting for a sharp frame…",
+  "scan.waitingForCard": "Waiting for a card…",
+  "scan.tapToScan": "Tap anywhere to scan now",
   "scan.focusGateDebug": "Focus scores (score/baseline, green = captured)",
   "scan.queuedForReview": "{name} — needs a printing chosen. Added to review.",
   "scan.queuedToast": "{name} → review queue (not added yet)",
@@ -1120,5 +1122,8 @@
   "scan.stagedToast": "{{name}} — waiting in this session",
   "scan.stagedFlaggedToast": "{{name}} — needs a look before adding",
   "scan.stagingBadge": "{{count}} scanned",
-  "scan.stagingBadgeFlagged": "{{count}} scanned · {{flagged}} to check"
+  "scan.stagingBadgeFlagged": "{{count}} scanned · {{flagged}} to check",
+  "scan.reviewFindManually": "Find this card manually",
+  "scan.reviewSearchPlaceholder": "Type the card name…",
+  "scan.reviewSearching": "Searching…"
 }

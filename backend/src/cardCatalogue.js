@@ -139,6 +139,12 @@ function stagingParams(card) {
     numeric(card.price_holofoil), numeric(card.price_reverse_holofoil), numeric(card.price_avg1),
     numeric(card.price_avg7), numeric(card.price_avg30), numeric(card.cmc),
     JSON.stringify(card.color_identity || []),
+    // LOCK-STEP WITH CARD_CACHE_COLUMNS. Second positional list of the same
+    // columns -- cardCache.js has the other. Adding a column to the shared list
+    // without adding its value HERE shifts every later field into the wrong
+    // column. This is the fourth time in this project a change has landed in
+    // one path and not its twin, so FFLV-TC6 now checks both.
+    card.flavor_name || null,
     card.oracle_id || null, card.oracle_name || '', card.mana_cost || '',
     card.oracle_text || '', card.type_line || '', JSON.stringify(card.keywords || []),
     JSON.stringify(card.legalities || {}), JSON.stringify(card.finishes || []),

@@ -102,7 +102,7 @@ async function main() {
       name: '',
       ocr_text: '0295',                           // number, no set code
     });
-    assert.strictEqual(r.body.action, 'queued',
+    assert.strictEqual(r.body.action, 'staged_unresolved',
       'a number with no set code must NEVER be resolved to a printing');
     pass('FOF-TC2', 'a number without a set code queues instead of guessing');
   }
@@ -115,7 +115,7 @@ async function main() {
       name: '',
       ocr_text: 'L 0999\nZZZ \u2022 EN',
     });
-    assert.strictEqual(r.body.action, 'queued',
+    assert.strictEqual(r.body.action, 'staged_unresolved',
       'a set+number that matches no catalogue row must queue');
     pass('FOF-TC3', 'an unmatched set+number queues rather than inventing a card');
   }
@@ -166,7 +166,7 @@ async function main() {
       name: 'Canyon Crawler',                     // the art says this
       ocr_text: 'L 0295\nMSH \u2022 EN',           // the CARD says this
     });
-    assert.strictEqual(r.body.action, 'queued',
+    assert.strictEqual(r.body.action, 'staged_unresolved',
       `a strip pointing at a different real card must not add silently: ${JSON.stringify(r.body)}`);
     assert.strictEqual(r.body.reason, 'disagreement');
     const ids = (r.body.candidates || []).map(c => c.id);
@@ -222,7 +222,7 @@ async function main() {
       printing_hint: { set: 'msh' },
       ocr_text: '0999\nrvryg',          // no msh Forest #999 exists
     });
-    assert.strictEqual(r.body.action, 'queued',
+    assert.strictEqual(r.body.action, 'staged_unresolved',
       `a number matching nothing in the hinted set must queue: ${JSON.stringify(r.body)}`);
     pass('FOF-TC7', 'a hinted set with an unmatched number still queues');
   }

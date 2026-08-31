@@ -82,3 +82,21 @@ asckey.b64
 
 # Card art cached by backend/test/crop.test.js (re-downloaded on demand)
 .bench-cache/
+
+# Scanner rebuild: build inputs and derived artefacts.
+# The bulk file (74MB) is a download; the index (16MB JSON) is derived and
+# will ship as a packed ~2MB binary in Phase 3. Neither belongs in git.
+hash-index/
+.hermes/
+
+# Phase 4a spike: vendored onnxruntime + model binaries (32MB). The spike page
+# itself is tracked; the binaries are fetched by backend/spike/phase4a/fetch.sh
+backend/spike/phase4a/*.wasm
+backend/spike/phase4a/*.onnx
+backend/spike/phase4a/*.mjs
+yolo11n-obb.pt
+*.pt
+
+# One-off patch scripts used while developing. Never imported by the app.
+/wire_fp.py
+/thresh.py
