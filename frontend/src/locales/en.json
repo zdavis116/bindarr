@@ -1214,5 +1214,6 @@
   "deck.usedInDecks.one": "{owned} owned, used in {decks} deck",
   "deck.usedInDecks.other": "{owned} owned, used in {decks} decks",
   "deck.overCommitted.one": "Only {owned} owned, but {decks} deck wants it",
-  "deck.overCommitted.other": "Only {owned} owned, but {decks} decks want it"
+  "deck.overCommitted.other": "Only {owned} owned, but {decks} decks want it",
+  "deck.foilOnly": "Foil only"
 }

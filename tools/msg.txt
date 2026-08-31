@@ -1,38 +1,44 @@
-Say when decks want more copies than exist
+Show the printing in search results, and fix a raw key on screen
 
-Zach searched Tony Stark from a THIRD deck and saw "1 owned, in other decks".
-He was right that the wording was poor, and the reason is worse than vagueness.
+Two things Zach hit on the deployed build.
 
-MEASURED ON DEV:
+A RAW KEY RENDERED WHERE A SENTENCE SHOULD BE.
 
-    owned         1     one physical Tony Stark
-    in_deck_qty   2     'Test' (commander) AND 'Test 2' (mainboard)
-    available     0
+He saw "deck.overCommitted" in the search row. This project's t() resolves a
+plural key ONLY when vars.count is a number (translate.js:10). The key is
+stored as .one/.other and I called it with { owned, decks } -- no count -- so
+the siblings were never consulted and the bare key, which does not exist, fell
+through to the screen.
 
-TWO decks had claimed ONE card. The old line implied a tidy situation -- "it's
-in another deck, go get it" -- when in fact his decks promise more copies than
-he owns. Sleeve Test and Test 2 is silently short, discovered at the table,
-against cardboard. A missing card costs a tap; a wrong record costs a recount.
+THIRD TIME on this branch, and every time the build and all 343 tests passed.
+localeKeys.test.js checked that keys EXIST; nothing checked that a plural key
+is called with a count. I18N-TC4 now does, and it immediately paid for itself:
+it flagged ExportModal's `t('deck.copyCards', { count })` as missing a count,
+which was MY REGEX failing to read ES6 shorthand. A guard with a false positive
+is worse than no guard, so that was fixed before the guard was trusted.
 
-This state is REACHABLE BY DESIGN now: the permissive rules deliberately let a
-second deck claim a spoken-for copy, because refusing was the thing that broke
-deck building. Which means the screen has to say it, since nothing else will.
-Removing an enforcement without adding the report is how a system gets quietly
-wrong -- the same trap as OFF_COLOUR earlier in this branch.
+Verified by removing the count again and watching TC4 name the exact call.
 
-WORDING now states both numbers rather than summarising them:
+FOUR IDENTICAL-LOOKING ROWS WERE FOUR DIFFERENT CARDS.
 
-    2 of 3 free                          copies genuinely usable here
-    1 owned, used in 1 deck              none free, but the books balance
-    Only 1 owned, but 2 decks want it    the books do NOT balance
+  "we need set numbers in the search results because the 2nd photo is what I
+   see so how do I know which to choose?"
 
-"in 2 decks" is actionable; "in other decks" is not.
+Measured -- "Tony Stark" returns four rows reading "Tony Stark / Marvel Super
+Heroes", and they are distinct printings:
 
-ALSO FIXED: in_deck_qty counts every deck INCLUDING the one on screen, so a
-card already added here was reported as being somewhere else as well. The
-`elsewhere` helper subtracts this deck's own claim.
+    #350  Mythic  nonfoil, foil
+    #363  Mythic  nonfoil, foil
+    #392  Mythic  FOIL ONLY
 
-TESTS: DV-TC13 through DV-TC15. TC13 was verified by disabling the
-over-committed branch and watching it fail.
+This app's premise is exact identity: it records the printing owned, not the
+card name. A picker that hides the printing asks him to choose blind and then
+stores that blind choice as a fact about his cardboard. #392 being foil-only
+means one of those rows silently commits to a foil, at a real price
+difference -- so foil-only printings are now marked.
 
-343 pass, 0 fail. Lint and build clean.
+Rows show SET #NUMBER, the foil-only marker, then the set name. The commander
+picker gets the same treatment, for the same reason.
+
+TESTS: I18N-TC4, DV-TC16 through DV-TC18. 343 pass, 0 fail. Lint and build
+clean.

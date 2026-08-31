@@ -247,3 +247,44 @@ test('DV-TC15: the availability line never says just "in other decks"', () => {
   assert.match(src, /deck\.usedInDecks/,
     'replaced by one that states the deck count');
 });
+
+// --- SEARCH RESULTS MUST IDENTIFY THE PRINTING ---------------------------
+//
+// Zach: "we need set numbers in the search results because the 2nd photo is
+// what I see so how do I know which to choose?"
+//
+// Measured on dev -- searching "Tony Stark" returns four rows that all read
+// "Tony Stark / Marvel Super Heroes" and are four DIFFERENT cards:
+//
+//     #350  Mythic  nonfoil, foil
+//     #363  Mythic  nonfoil, foil
+//     #392  Mythic  FOIL ONLY
+//
+// This app's premise is exact identity: it records the printing owned, not the
+// card name. A picker that hides the printing asks him to choose blind and
+// then stores that blind choice as a fact about his cardboard. #392 being
+// foil-only means one of those rows silently commits to a foil.
+
+test('DV-TC16: search rows show the collector number, not just the set', () => {
+  assert.match(src, /\{c\.number \? ` #\$\{c\.number\}` : ''\}/,
+    'the collector number is the only thing distinguishing same-set printings');
+  assert.match(src, /\(c\.set_id \|\| ''\)\.toUpperCase\(\)/,
+    'the set code should be shown alongside it');
+});
+
+test('DV-TC17: a foil-only printing says so', () => {
+  // Choosing it commits to a foil, which is a real price difference. The
+  // finishes array is already on every search result.
+  assert.match(src, /finishes\.length === 1[\s\S]{0,40}=== 'foil'/,
+    'a printing available only in foil must be marked');
+  assert.match(src, /deck\.foilOnly/,
+    'and use a labelled string, not a bare word');
+});
+
+test('DV-TC18: the commander picker identifies printings too', () => {
+  // Commanders have multiple printings and the deck records the exact one, so
+  // the same blind-choice problem applies.
+  const rows = src.match(/\(c\.set_id \|\| ''\)\.toUpperCase\(\)/g) || [];
+  assert.ok(rows.length >= 2,
+    'both the add-card search and the commander picker must show the printing');
+});

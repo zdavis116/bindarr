@@ -483,8 +483,17 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                 <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {c.name}
                 </span>
-                <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  {c.set_name || (c.set_id || '').toUpperCase()}
+                <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)',
+                               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {/* SET CODE, COLLECTOR NUMBER, and a foil-only marker.
+                      Four rows of one name in one set are four different
+                      printings; without the number they cannot be told
+                      apart, and this app records the exact printing. */}
+                  {(c.set_id || '').toUpperCase()}
+                  {c.number ? ` #${c.number}` : ''}
+                  {Array.isArray(c.finishes) && c.finishes.length === 1
+                   && c.finishes[0] === 'foil' ? ` · ${t('deck.foilOnly')}` : ''}
+                  {c.set_name ? ` · ${c.set_name}` : ''}
                 </span>
               </span>
               {/* THREE DIFFERENT FACTS, and conflating any two of them is what
@@ -513,10 +522,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                       // involved -- and if more decks claim it than he owns,
                       // say that outright rather than implying it is fine.
                       : (elsewhere(c) > c.owned_qty
+                          // `count` is what selects the plural form; the other
+                          // names are only interpolated.
                           ? t('deck.overCommitted', {
-                              owned: c.owned_qty, decks: elsewhere(c) })
+                              count: elsewhere(c), owned: c.owned_qty, decks: elsewhere(c) })
                           : t('deck.usedInDecks', {
-                              owned: c.owned_qty, decks: elsewhere(c) }))}
+                              count: elsewhere(c), owned: c.owned_qty, decks: elsewhere(c) }))}
                   </span>
                 ) : (
                   <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
@@ -695,7 +706,11 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600 }}>{c.name}</span>
                     <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {c.set_name || (c.set_id || '').toUpperCase()}
+                      {/* Same reasoning as the add-card search: commanders
+                          have multiple printings too, and the deck records
+                          the exact one. */}
+                      {(c.set_id || '').toUpperCase()}{c.number ? ` #${c.number}` : ''}
+                      {c.set_name ? ` · ${c.set_name}` : ''}
                     </span>
                   </span>
                 </button>

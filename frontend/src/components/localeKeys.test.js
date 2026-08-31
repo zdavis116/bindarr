@@ -95,3 +95,50 @@ test('I18N-TC3: t() is never called with a fallback string', () => {
     + 'interpolation object and the default is never shown:\n  '
     + offenders.join('\n  '));
 });
+
+// --- I18N-TC4: PLURAL KEYS MUST BE CALLED WITH A COUNT --------------------
+//
+// This project's t() resolves a plural key ONLY when vars.count is a number
+// (translate.js:10). A key stored as `foo.one` / `foo.other` and called
+// without a count falls through to the bare `foo`, which does not exist -- so
+// the RAW KEY renders on screen.
+//
+// That has now happened three times on this branch, and each time the build
+// and all 343 tests passed: existence checks cannot see it. Zach saw
+// "deck.overCommitted" in place of a sentence.
+test('I18N-TC4: every plural key is called with a numeric count', () => {
+  const en = JSON.parse(readFileSync(join(src, 'locales/en.json'), 'utf8'));
+
+  // Keys that exist ONLY as plural siblings -- there is no bare form to fall
+  // back to, so calling them without a count is guaranteed to render the key.
+  const pluralOnly = new Set();
+  for (const k of Object.keys(en)) {
+    const m = k.match(/^(.*)\.(zero|one|two|few|many|other)$/);
+    if (m && !(m[1] in en)) pluralOnly.add(m[1]);
+  }
+
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    // t('key', { ...vars })
+    const re = /\bt\(\s*'([\w.]+)'\s*,\s*\{([^}]*)\}/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      const [, key, vars] = m;
+      // `count: n` OR the shorthand `{ count }` -- both bind vars.count.
+      if (pluralOnly.has(key) && !/\bcount\s*[:,}]/.test(vars.trim() + '}')) {
+        offenders.push(`${file.split('/').pop()}: t('${key}') has no count`);
+      }
+    }
+    // t('key') with no vars at all
+    const bare = /\bt\(\s*'([\w.]+)'\s*\)/g;
+    while ((m = bare.exec(src)) !== null) {
+      if (pluralOnly.has(m[1])) {
+        offenders.push(`${file.split('/').pop()}: t('${m[1]}') has no vars`);
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [],
+    'plural keys called without a count render as the raw key:\n  ' + offenders.join('\n  '));
+});
