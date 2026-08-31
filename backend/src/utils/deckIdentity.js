@@ -273,6 +273,10 @@ async function availabilityForDeck(database, deckId, userId) {
             cc.name, cc.set_id, cc.set_name, cc.number, cc.image_url, cc.color_identity,
             cc.legalities, cc.type_line, cc.mana_cost, cc.cmc, cc.supertype,
             cc.subtypes, cc.types, cc.rarity, cc.finishes,
+            -- Needed by the commander-legality and partner-pairing warnings:
+            -- "can be your commander" and "Partner" live in the rules text,
+            -- not the type line.
+            cc.oracle_text,
             -- Price for "cost to finish" and the per-card figure on the Missing
             -- tab. price_trend is Cardmarket's trend price, the same field the
             -- collection totals use, so the two screens cannot disagree.

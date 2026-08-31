@@ -34,14 +34,11 @@ const FORMATS = [
   { id: 'Casual',          label: 'Casual',    size: 0,   commander: false, rule: 'fmtCasual' },
 ];
 
-const BRACKETS = [1, 2, 3, 4, 5];
-
 function NewDeckModal({ open, onClose, onCreate, showToast }) {
   const { t } = useT();
 
   const [format, setFormat] = useState(FORMATS[0]);
   const [name, setName] = useState('');
-  const [bracket, setBracket] = useState(3);
   const [commander, setCommander] = useState(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -51,7 +48,7 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
   // Reset on open so a cancelled deck does not leak into the next one.
   useEffect(() => {
     if (!open) return;
-    setFormat(FORMATS[0]); setName(''); setBracket(3);
+    setFormat(FORMATS[0]); setName('');
     setCommander(null); setQuery(''); setResults([]);
   }, [open]);
 
@@ -105,8 +102,16 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
         name: (name.trim() || commander?.name || t('deck.untitled')),
         format: format.id,
         target_size: format.size || null,
-        bracket: format.commander ? bracket : null,
-        commander_card_id: commander?.id || null,
+        // NO BRACKET: the decks table has no column for it and POST /api/decks
+        // does not read the field. Sending it would look like it was saved.
+        // Storing brackets is a schema change; see the note in the roadmap.
+        // The server reads `commanders`, an ARRAY -- one entry, or two for a
+        // partner pair. Each needs an explicit printing AND finish; the
+        // commander is the card you are most likely to want a specific
+        // printing of, so nothing here is defaulted server-side.
+        commanders: format.commander && commander
+          ? [{ desired_card_id: commander.id, desired_finish: 'nonfoil' }]
+          : [],
       });
     } catch (err) {
       showToast(err?.message || t('deck.createFailed'), 'error');
@@ -229,27 +234,6 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
                         borderRadius: 'var(--radius-md)', color: 'var(--text-primary)',
                         font: 'inherit', fontSize: '0.95rem', outline: 'none' }} />
 
-        {/* BRACKET is a Commander concept only. */}
-        {format.commander && (
-          <>
-            <div style={label}>{t('deck.bracket')}</div>
-            <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1.2rem' }}>
-              {BRACKETS.map(b => {
-                const on = b === bracket;
-                return (
-                  <button key={b} onClick={() => setBracket(b)} aria-pressed={on}
-                    style={{ flex: 1, minHeight: 40, borderRadius: 'var(--radius-sm)',
-                             border: `1px solid ${on ? 'var(--accent-blue)' : 'var(--border-glass)'}`,
-                             background: on ? 'var(--accent-blue)' : 'var(--surface-1)',
-                             color: on ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-                             font: 'inherit', fontSize: '0.9rem', fontWeight: on ? 700 : 500, cursor: 'pointer' }}>
-                    {b}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
       </div>
 
       {/* The button says WHY it is disabled rather than just being grey. */}

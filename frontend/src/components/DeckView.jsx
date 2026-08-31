@@ -488,6 +488,30 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                   {c.set_name || (c.set_id || '').toUpperCase()}
                 </span>
               </span>
+              {/* OWNED vs AVAILABLE vs IN THIS DECK.
+                  Owning a card and being able to USE it here are different
+                  facts once another deck has reserved the copy -- which is
+                  exactly what confused Zach about Tony Stark. */}
+              <span style={{ flexShrink: 0, textAlign: 'right' }}>
+                {c.in_deck_qty > 0 && (
+                  <span style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700,
+                                 color: 'var(--accent-blue)' }}>
+                    {t('deck.inThisDeck', { count: c.in_deck_qty })}
+                  </span>
+                )}
+                {c.owned_qty > 0 ? (
+                  <span style={{ display: 'block', fontSize: '0.68rem',
+                                 color: c.available_qty > 0 ? 'var(--accent-green)' : 'var(--accent-yellow)' }}>
+                    {c.available_qty > 0
+                      ? t('deck.freeOfOwned', { free: c.available_qty, owned: c.owned_qty })
+                      : t('deck.allReserved', { owned: c.owned_qty })}
+                  </span>
+                ) : (
+                  <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                    {t('deck.notOwned')}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </div>

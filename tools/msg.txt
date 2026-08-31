@@ -1,56 +1,72 @@
-Build the deck view to the approved mockup
+Nothing blocks a deck write; every problem is reported instead
 
-DeckView.jsx replaces 1,056 lines inside DeckBuilder.jsx. Zach reviewed the
-mockup (sketches/009-deck-view) line by line and approved it, so the mock was
-the spec here rather than the inspiration -- the mistake that cost three rounds
-of rework on Collection and the deck list.
+Zach, after using the rebuilt deck view: "I want anything allowed but error
+message saying the issues."
 
-KEPT at his direction after I listed what the rebuild would drop: quantity
-editing, commander swap, and moving cards between the deck and Considering.
-DROPPED, agreed: checkout / in-play, the printing picker, card categories,
-playtest.
+His argument, made earlier in the same thread, is better than the rule it
+replaces: "in case there is a bug or rule change it doesn't break deck
+building." The old design assumed the app could not be wrong about card data.
+It can -- a stale catalogue, a new mechanic, a badly parsed double-faced card --
+and a hard refusal then leaves a deck that cannot be built with no way round
+it. A warning degrades; a refusal breaks.
 
-FOUR BUGS CAUGHT BEFORE SHIPPING, all by asking the real API instead of
-assuming:
+NOW PERMITTED, each with a warning in its place:
+  colour identity          -> OFF_COLOUR (new)
+  commander legality       -> COMMANDER_ILLEGAL (new)
+  partner pairing          -> COMMANDER_PAIRING (new)
+  singleton / copy limit   -> COPY_LIMIT (existing)
+  three+ commanders        -> COMMANDER_TOO_MANY (existing)
+  creating with none       -> COMMANDER_MISSING (existing)
+  bulk add-to-deck         -> applies instead of refusing the batch
 
-  1. COST TO FINISH WOULD HAVE BEEN ZERO ON EVERY DECK. The deck query joins
-     card_cache but never selected a price. Fixed server-side in
-     deckIdentity.js so the figure comes from the database, not a client guess
-     -- the same trap that had the multi-deck buylist reading $0.00 for two
-     rounds.
+Removing a refusal WITHOUT adding its warning would be worse than either rule,
+because the deck would be wrong and silent about it -- so the three new
+warnings landed in the same change as the permissions.
 
-  2. THE EXPORT CHIPS WERE FICTION. The mock drew five: Plain, Moxfield,
-     Archidekt, TCGplayer, Manapool. buildDeckExport supports three things --
-     buylist, mtga, and plain -- differing by bracket style. Four of those five
-     chips would have emitted identical text, which is worse than three honest
-     ones: an export that looks richer than it is hands over the wrong format
-     silently. Now Moxfield, Manapool and Names only, named for where they are
-     pasted.
+THE SCRYFALL VERIFICATION PATH IS GONE. Zach: "how is a card have null data if
+its coming from scryfall... this is just overengineering." Measured before
+removing, on both hosts:
 
-  3. WARNINGS WOULD HAVE RENDERED BLANK. They arrive as { code, message }; I
-     read .text. A column of empty, alarming rows. MISSING_COPIES is also
-     filtered out -- the Missing tab and the cost already say it, and Zach cut
-     the equivalent "short of 100" warning for exactly that reason.
+    DEV   105,462 card_cache rows -- 0 with a NULL color_identity
+    PROD   43,569 card_cache rows -- 0 with a NULL color_identity
 
-  4. THE COMMANDER-SWAP CONFIRMATION WOULD NEVER HAVE APPEARED. The error
-     handler SPREADS details at the top level of the body; I read
-     body.details.removing. The swap would have surfaced as a bare error toast,
-     losing the named list of cards it wanted to remove -- which is the whole
-     point of the refusal.
+It guarded against Bindarr's own past inconsistency, not against Scryfall: a
+card fetched from Scryfall always has a colour identity, and card_cache is
+written only by the nightly catalogue sync. It cost a network fetch inside a
+deck write and two 503 refusal paths.
 
-Also: POST /api/decks/:id/cards takes flat fields, not { cards: [...] }, so
-every add would have been a 400 with the search appearing to work.
+WHAT STILL REFUSES, and why: a 404 when the row being edited no longer exists,
+and CARD_UNKNOWN in bulk add. Neither is a ruling about a deck -- there is no
+row to write, so there is nothing to allow.
 
-deckView.test.js pins eight properties. Five were verified by REINTRODUCING the
-bug and watching the case fail: sections read from the colours column,
-considering counted in the deck, the invented price field, quantity sent as a
-delta, and the 409 treated as a plain error.
+THREE BUGS FIXED ALONGSIDE:
 
-The old detail-view handlers are now unreferenced but NOT deleted. An automated
-sweep of them cut into neighbouring code and produced four syntax errors; dead
-code is recoverable where deleted capability is not, and handleDeleteDeck was
-nearly lost that way earlier this week. They come out in a separate verified
-pass, with an eslint-disable banner and a note at the render site so the build
-stays honest in the meantime.
+  1. CREATING A COMMANDER DECK ALWAYS FAILED. Zach: "it says I'm missing a
+     commander when I'm not." The server reads `commanders` as an ARRAY; the
+     new modal sent `commander_card_id`, a field nothing reads. The commander
+     he picked was sitting in a key nobody looked at, so the refusal was
+     correct.
 
-378 tests pass; lint and build clean.
+  2. SEARCH NOW SHOWS OWNED / AVAILABLE / IN-THIS-DECK. Zach: "I went to add a
+     Tony stark card to a deck and I forgot he was in a different deck and I
+     was confused on why it said he was missing." The endpoint already returned
+     owned_qty, available_qty and in_deck_qty -- they were never rendered.
+     Owning a card and being able to use it HERE are different facts once
+     another deck has reserved the copy.
+
+  3. THE BRACKET PICKER THREW ITS ANSWER AWAY. The new-deck modal offered
+     brackets 1-5; the decks table has no bracket column and POST /api/decks
+     does not read the field. Removed rather than left looking deliberate.
+     Storing brackets is a schema change, deliberately not folded in here.
+
+TESTS: 35 cases across two files asserted refusals that no longer exist. They
+are SKIPPED, not deleted, each recording the rule it used to prove and why that
+rule went. Deleting them would erase the record of a decision once thought
+important; leaving them failing would make the suite meaningless.
+
+The NEW behaviour is guarded: F15-TC1 asserts an off-colour card is accepted
+AND produces an OFF_COLOUR warning naming it, and deckView.test.js covers the
+client. The 41 cases in commander_singleton that still pass are untouched --
+exempt basics, board semantics, edit-id handling, none of which changed.
+
+343 pass, 0 fail, 35 skip. Lint and build clean.

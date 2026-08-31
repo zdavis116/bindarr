@@ -1117,5 +1117,9 @@
   "deck.swapRemovesTitle": "Switch to {name}?",
   "deck.swapRemovesBody.one": "{count} card falls outside the new commander's colours and will be removed:",
   "deck.swapRemovesBody.other": "{count} cards fall outside the new commander's colours and will be removed:",
-  "deck.swapAnyway": "Switch and remove"
+  "deck.swapAnyway": "Switch and remove",
+  "deck.inThisDeck": "{count} in this deck",
+  "deck.freeOfOwned": "{free} of {owned} free",
+  "deck.allReserved": "{owned} owned, all reserved",
+  "deck.notOwned": "Not owned"
 }

@@ -49,6 +49,23 @@ function client(database) {
 // Every warning carries a machine-readable `code` alongside its human message.
 // The message is a display string and will be reworded and translated; anything
 // that branches on warning type must branch on the code.
+// colour_identity is a JSON string in the cache and an array once parsed,
+// depending on the caller. Never throws: a parse failure here would take out
+// the entire deck response, not just one warning.
+function safeColours(entry) {
+  const raw = entry && entry.color_identity;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 async function buildDeckWarnings(database, deck, entries) {
   const warnings = [];
 
@@ -117,6 +134,90 @@ async function buildDeckWarnings(database, deck, entries) {
         message: `This Commander deck has ${commanderCount} commanders; at most two (partners) are allowed.`
       });
     }
+    // COLOUR IDENTITY (Zach, 2026-08-31). Adding an off-colour card used to be
+    // REFUSED with a 409. He asked for that to stop -- "in case there is a bug
+    // or rule change it doesn't break deck building" -- so the write now
+    // succeeds and this reports it instead.
+    //
+    // Removing the refusal without adding this would let the card in silently,
+    // leaving a deck that is illegal and says nothing. That is worse than
+    // either the old behaviour or the new one.
+    if (commanderCount > 0) {
+      const identity = new Set();
+      for (const c of commanders) {
+        for (const colour of safeColours(c)) identity.add(colour);
+      }
+
+      const offending = entries.filter(e =>
+        e.board !== 'commander'
+        && e.board !== 'considering'
+        && safeColours(e).some(colour => !identity.has(colour)));
+
+      if (offending.length > 0) {
+        // ONE warning naming the cards, not one per card. A deck with a
+        // mis-set commander can put ninety cards out of identity, and ninety
+        // warnings read as noise -- which is exactly what makes the real ones
+        // easy to miss.
+        const names = offending.map(e => e.name);
+        const shown = names.slice(0, 6).join(', ');
+        const rest = names.length > 6 ? ` and ${names.length - 6} more` : '';
+        warnings.push({
+          code: 'OFF_COLOUR',
+          level: 'error',
+          message: `${names.length} ${names.length === 1 ? 'card is' : 'cards are'} outside your `
+            + `commander's colours: ${shown}${rest}.`
+        });
+      }
+    }
+
+    // COMMANDER LEGALITY (Zach, 2026-08-31). Being a legal commander is a
+    // property of the card -- "Legendary Creature", or text that says it can
+    // be one. This used to be refused at write time with an override; it is
+    // now reported here, so a deck whose commander is not actually a legal
+    // commander says so instead of looking fine.
+    for (const c of commanders) {
+      const line = String(c.type_line || '');
+      const isLegendaryCreature = /Legendary/i.test(line) && /Creature/i.test(line);
+      const saysCanBeCommander = /can be your commander/i.test(String(c.oracle_text || ''));
+      const isBackground = /Background/i.test(line);
+
+      // Only claim this when the app actually HAS the card's type line. An
+      // empty line means the app has not read the card, and "I do not know"
+      // must not be reported as "this is wrong" -- that is the same mistake as
+      // treating a Scryfall outage as a legality ruling.
+      if (!line) continue;
+
+      if (!isLegendaryCreature && !saysCanBeCommander && !isBackground) {
+        warnings.push({
+          code: 'COMMANDER_ILLEGAL',
+          level: 'error',
+          message: `${c.name} is not a legal commander: it is not a legendary creature `
+            + `and does not say it can be your commander.`
+        });
+      }
+    }
+
+    // PARTNER PAIRING. Two commanders are legal together only if the cards
+    // allow it -- Partner, Partner With, Friends Forever, Doctor's companion,
+    // or a Background. Reported rather than refused, same reasoning.
+    if (commanders.length === 2) {
+      const pairingText = commanders
+        .map(c => `${c.oracle_text || ''} ${c.type_line || ''}`)
+        .join(' ');
+      const allowsPair = /partner|friends forever|doctor's companion|choose a background|background/i
+        .test(pairingText);
+      const haveText = commanders.every(c => c.type_line || c.oracle_text);
+
+      if (haveText && !allowsPair) {
+        warnings.push({
+          code: 'COMMANDER_PAIRING',
+          level: 'error',
+          message: `${commanders[0].name} and ${commanders[1].name} cannot be commanders `
+            + `together: neither has Partner, Friends Forever, or a Background.`
+        });
+      }
+    }
+
     // PAIRING LEGALITY IS NO LONGER A WARNING (Zach, 2026-08-18).
     //
     // It is REFUSED at the point a commander is written, by

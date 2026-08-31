@@ -2208,17 +2208,22 @@ router.post('/collection/bulk', async (req, res) => {
         ...preflight.problems
       ];
 
-      if (problems.length > 0 && !confirm) {
-        // NOTHING HAS BEEN WRITTEN. This is a report, not a failure: the user
-        // is being shown what will happen before it happens, and may send the
-        // same request back with confirm:true to apply the rest.
+      // RULE PROBLEMS NO LONGER STOP THE BATCH (Zach, 2026-08-31): "I want
+      // anything allowed but error message saying the issues." The cards go
+      // in and the deck reports what is wrong with it.
+      //
+      // CARD_UNKNOWN is different and still stops that card: the app cannot
+      // identify it, so there is no row to write. A rule problem has a
+      // perfectly good row behind it; an unknown card has nothing.
+      const unknown = problems.filter(p => p.code === 'CARD_UNKNOWN');
+      if (unknown.length > 0 && unknown.length === problems.length && !confirm) {
         return res.status(409).json({
           error: problems[0].message,
           code: 'BULK_ADD_PREFLIGHT',
           problems,
           applicable: preflight.applicable,
           message: `${preflight.applicable} card(s) can be added; `
-            + `${problems.length} cannot. Nothing has been added yet.`
+            + `${unknown.length} could not be identified. Nothing has been added yet.`
         });
       }
 

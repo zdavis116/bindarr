@@ -220,18 +220,12 @@ router.post('/', async (req, res) => {
   const requested = isCommander && Array.isArray(commanders) ? commanders : [];
 
   if (isCommander) {
-    if (requested.length === 0) {
-      return res.status(400).json({
-        error: 'A Commander deck needs a commander. Choose one, or two for a partner pair.',
-        code: 'COMMANDER_REQUIRED'
-      });
-    }
-    if (requested.length > MAX_COMMANDERS) {
-      return res.status(400).json({
-        error: `A Commander deck may have at most ${MAX_COMMANDERS} commanders (a partner pair).`,
-        code: 'COMMANDER_TOO_MANY'
-      });
-    }
+    // ALLOWED, AND REPORTED. buildDeckWarnings already raises
+    // COMMANDER_MISSING for this state, so the deck is created and says what
+    // is wrong with it rather than refusing to exist. Zach builds decks
+    // incrementally; demanding the commander first is the app deciding the
+    // order he works in.
+    // ALLOWED, AND REPORTED as COMMANDER_TOO_MANY.
     // A commander is an exact-identity entry like every other card, so the
     // client must state printing AND finish. Defaulting either would be the
     // app choosing a physical object on the user's behalf -- the single thing
@@ -261,10 +255,7 @@ router.post('/', async (req, res) => {
     // every route rather than only to this one.
     const identities = requested.map(c => `${c.desired_card_id}|${c.desired_finish}`);
     if (new Set(identities).size !== identities.length) {
-      return res.status(400).json({
-        error: 'A partner pair must be two different cards.',
-        code: 'COMMANDER_DUPLICATE'
-      });
+      // ALLOWED, AND REPORTED as COMMANDER_DUPLICATE below.
     }
   }
 
