@@ -22,7 +22,7 @@ import { Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
 import { createBuylistSync } from './buylistSync';
-import { buildDeckExport, DEFAULT_BRACKET_STYLE } from '../utils/deckText';
+import ExportModal from './ExportModal';
 
 // A deck's completion ring. Reads at arm's length, which a percentage in text
 // does not -- this list is scanned while holding cards.
@@ -56,6 +56,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   const [query, setQuery] = useState('');
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
+  const [exportOpen, setExportOpen] = useState(false);
   const [buylist, setBuylist] = useState(null);
   const [buylistLoading, setBuylistLoading] = useState(false);
 
@@ -119,19 +120,13 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   // here.
   const totalCopies = items.reduce((sum, i) => sum + (i.quantity || 0), 0);
 
-  const exportBuylist = async () => {
-    const text = buildDeckExport(
-      items.map(i => ({ ...i, quantity_missing: i.quantity })),
-      'buylist',
-      { bracketStyle: DEFAULT_BRACKET_STYLE },
-    );
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(t('deck.buylistCopied'), 'success');
-    } catch {
-      showToast(t('deck.buylistCopyFailed'), 'error');
-    }
-  };
+  // The shared ExportModal does the building and copying, so this screen and
+  // the deck view behave identically. Zach: "can we have the functionality be
+  // the same as for the missing in the deck view."
+  //
+  // The endpoint returns `quantity`; the exporter reads `quantity_missing`,
+  // because everything on a buylist is by definition missing.
+  const exportCards = items.map(i => ({ ...i, quantity_missing: i.quantity }));
 
   return (
     <div style={{ paddingBottom: selecting && selected.size ? 190 : 0 }}>
@@ -302,7 +297,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                   : t('deck.buylistNothingNeeded')}
             </div>
             <button
-              onClick={exportBuylist}
+              onClick={() => setExportOpen(true)}
               disabled={buylistLoading || !items.length}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
@@ -319,6 +314,14 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           </div>
         </div>
       )}
+      <ExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        cards={exportCards}
+        title={t('deck.buylist')}
+        showToast={showToast}
+      />
+
     </div>
   );
 }

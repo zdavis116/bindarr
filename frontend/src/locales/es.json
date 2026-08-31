@@ -1121,5 +1121,9 @@
   "deck.inThisDeck": "{count} in this deck",
   "deck.freeOfOwned": "{free} of {owned} free",
   "deck.allReserved": "{owned} owned, all reserved",
-  "deck.notOwned": "Not owned"
+  "deck.notOwned": "Not owned",
+  "deck.alreadyHere": "{count} already in this deck",
+  "deck.inOtherDecks": "{owned} owned, in other decks",
+  "deck.buylist": "Buylist",
+  "deck.nothingToExport": "Nothing to export."
 }

@@ -10,11 +10,11 @@
 // eventually but for now it would be unused."
 
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, Search, X, Download, AlertTriangle, Plus, Minus,
+import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
          Trash2, Lightbulb, ArrowDownToLine, ChevronDown } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { formatPrice } from '../utils/formatPrice';
-import { buildDeckExport } from '../utils/deckText';
+import ExportModal from './ExportModal';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 
 // Moxfield's order: the commander first because it is the deck's premise, then
@@ -59,12 +59,6 @@ const QTY_BTN = {
   display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0,
 };
 
-const EXPORT_FORMATS = [
-  { id: 'brackets', label: 'Moxfield', format: 'buylist', bracketStyle: 'brackets' },
-  { id: 'parens', label: 'Manapool', format: 'buylist', bracketStyle: 'parentheses' },
-  { id: 'plain', label: 'Names only', format: 'plain', bracketStyle: 'brackets' },
-];
-
 function DeckView({ deck, onBack, onChanged, showToast }) {
   const { t } = useT();
 
@@ -82,7 +76,6 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // { card, removing, message } while the server is asking whether it may
   // remove off-colour cards. Null the rest of the time.
   const [swapConfirm, setSwapConfirm] = useState(null);
-  const [exportFormat, setExportFormat] = useState('brackets');
   const searchRef = useRef(null);
 
   const cards = useMemo(() => deck?.cards || [], [deck]);
@@ -96,7 +89,10 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
 
   const counts = useMemo(() => {
     const total = deckCards.reduce((n, c) => n + (c.quantity || 0), 0);
-    const owned = deckCards.reduce((n, c) => n + Math.min(c.quantity || 0, c.quantity_owned || 0), 0);
+    // AVAILABLE, not owned: a copy sleeved into another deck cannot fill this
+    // deck's slot, so counting it would report a deck as more finished than it
+    // is. quantity_available is owned minus what other decks have claimed.
+    const owned = deckCards.reduce((n, c) => n + Math.min(c.quantity || 0, c.quantity_available || 0), 0);
     const missing = deckCards.reduce((n, c) => n + (c.quantity_missing || 0), 0);
     return {
       total,
@@ -136,7 +132,10 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
 
   const shown = useMemo(() => {
     if (tab === 'consider') return considering;
-    if (tab === 'have') return deckCards.filter(c => (c.quantity_owned || 0) >= (c.quantity || 0));
+    // Owned and Missing must be COMPLEMENTARY: a card belongs to exactly one.
+    // Defining Owned as "nothing missing" guarantees that, where a separate
+    // quantity_owned test let a card qualify for both.
+    if (tab === 'have') return deckCards.filter(c => (c.quantity_missing || 0) === 0);
     if (tab === 'need') return deckCards.filter(c => (c.quantity_missing || 0) > 0);
     return deckCards;
   }, [tab, deckCards, considering]);
@@ -320,22 +319,16 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     }
   };
 
+  // Copies of a printing in THIS deck. The API's in_deck_qty counts every
+  // deck, which is the right number for availability and the wrong one for
+  // "is it already here".
+  const hereQty = (cardId) => deckCards
+    .filter(c => c.desired_card_id === cardId)
+    .reduce((n, c) => n + (c.quantity || 0), 0);
+
   const missingCards = deckCards.filter(c => (c.quantity_missing || 0) > 0);
 
-  const exportText = useMemo(() => {
-    const chosen = EXPORT_FORMATS.find(f => f.id === exportFormat) || EXPORT_FORMATS[0];
-    return buildDeckExport(missingCards, chosen.format, { bracketStyle: chosen.bracketStyle });
-  }, [missingCards, exportFormat]);
 
-  const copyExport = async () => {
-    try {
-      await navigator.clipboard.writeText(exportText);
-      setExportOpen(false);
-      showToast(t('deck.buylistCopied'), 'success');
-    } catch {
-      showToast(t('deck.buylistCopyFailed'), 'error');
-    }
-  };
 
   if (!deck) return null;
 
@@ -488,15 +481,20 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                   {c.set_name || (c.set_id || '').toUpperCase()}
                 </span>
               </span>
-              {/* OWNED vs AVAILABLE vs IN THIS DECK.
-                  Owning a card and being able to USE it here are different
-                  facts once another deck has reserved the copy -- which is
-                  exactly what confused Zach about Tony Stark. */}
+              {/* THREE DIFFERENT FACTS, and conflating any two of them is what
+                  confused Zach about Tony Stark:
+                    - in THIS deck        -- counted from the deck on screen
+                    - owned               -- copies he physically has
+                    - free / reserved     -- copies not already claimed by
+                                             ANOTHER deck
+                  in_deck_qty from the API is across ALL decks (see
+                  routes/collection.js:46), so it must never be labelled "this
+                  deck". */}
               <span style={{ flexShrink: 0, textAlign: 'right' }}>
-                {c.in_deck_qty > 0 && (
+                {hereQty(c.id) > 0 && (
                   <span style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700,
                                  color: 'var(--accent-blue)' }}>
-                    {t('deck.inThisDeck', { count: c.in_deck_qty })}
+                    {t('deck.alreadyHere', { count: hereQty(c.id) })}
                   </span>
                 )}
                 {c.owned_qty > 0 ? (
@@ -504,7 +502,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                                  color: c.available_qty > 0 ? 'var(--accent-green)' : 'var(--accent-yellow)' }}>
                     {c.available_qty > 0
                       ? t('deck.freeOfOwned', { free: c.available_qty, owned: c.owned_qty })
-                      : t('deck.allReserved', { owned: c.owned_qty })}
+                      : t('deck.inOtherDecks', { owned: c.owned_qty })}
                   </span>
                 ) : (
                   <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
@@ -741,68 +739,14 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </>
       )}
 
-      {/* EXPORT MODAL. Zach: "maybe that's a modal that pops up when you click
-          export". Above the nav bar -- see zLayers.js. */}
-      {exportOpen && (
-        <>
-          <div onClick={() => setExportOpen(false)}
-               style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_BACKDROP }} />
-          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: Z_MODAL,
-                        background: 'var(--surface-1)', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-                        maxHeight: '82vh', display: 'flex', flexDirection: 'column',
-                        paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-            <div style={{ width: 38, height: 4, borderRadius: 2, background: 'var(--surface-3)', margin: '10px auto 4px' }} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 1rem 0.6rem' }}>
-              <b style={{ fontSize: '1rem' }}>{t('deck.exportBuylist')}</b>
-              <button onClick={() => setExportOpen(false)}
-                      style={{ border: 0, background: 'transparent', color: 'var(--accent-blue)',
-                               font: 'inherit', fontWeight: 600, cursor: 'pointer', minHeight: 44, padding: '0 0.25rem' }}>
-                {t('common.close')}
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: '0.35rem', padding: '0 1rem 0.7rem', overflowX: 'auto' }}>
-              {EXPORT_FORMATS.map(f => {
-                const on = exportFormat === f.id;
-                return (
-                  <button key={f.id} onClick={() => setExportFormat(f.id)} aria-selected={on}
-                    style={{ flex: '0 0 auto', padding: '0.4rem 0.7rem', borderRadius: 'var(--radius-sm)',
-                             border: `1px solid ${on ? 'var(--accent-blue)' : 'var(--border-glass)'}`,
-                             background: on ? 'var(--accent-blue)' : 'var(--surface-2)',
-                             color: on ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-                             font: 'inherit', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
-                    {f.label}
-                  </button>
-                );
-              })}
-            </div>
-            {/* The text is VISIBLE before copying: a copy button that reports
-                success is not evidence the right thing was copied. */}
-            <pre style={{ margin: '0 1rem', padding: '0.75rem', background: '#000',
-                          border: '1px solid var(--border-glass)', borderRadius: 10,
-                          overflow: 'auto', flex: 1, fontSize: '0.72rem', lineHeight: 1.55,
-                          color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
-              {exportText || t('deck.nothingMissing')}
-            </pre>
-            <div style={{ padding: '0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px))', display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => setExportOpen(false)}
-                style={{ flex: 1, minHeight: 48, border: 0, borderRadius: 'var(--radius-md)',
-                         background: 'var(--surface-2)', color: 'var(--text-secondary)',
-                         font: 'inherit', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' }}>
-                {t('common.close')}
-              </button>
-              <button onClick={copyExport} disabled={!exportText}
-                style={{ flex: 1, minHeight: 48, border: 0, borderRadius: 'var(--radius-md)',
-                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                         background: 'var(--accent-blue)', color: 'var(--text-on-accent)',
-                         font: 'inherit', fontSize: '0.95rem', fontWeight: 600,
-                         cursor: exportText ? 'pointer' : 'not-allowed', opacity: exportText ? 1 : 0.5 }}>
-                <Download size={16} />
-                {t('deck.copyCards', { count: counts.missing })}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      <ExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        cards={missingCards}
+        title={t('deck.buylist')}
+        showToast={showToast}
+      />
+
     </div>
   );
 }

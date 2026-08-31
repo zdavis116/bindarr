@@ -1,72 +1,60 @@
-Nothing blocks a deck write; every problem is reported instead
+Owned means usable here; share the export dialog with the deck list
 
-Zach, after using the rebuilt deck view: "I want anything allowed but error
-message saying the issues."
+Both bugs are Zach's, from using the deployed build, and both are the same
+mistake in different clothes: treating "he owns a copy" as "a copy is free for
+this deck".
 
-His argument, made earlier in the same thread, is better than the rule it
-replaces: "in case there is a bug or rule change it doesn't break deck
-building." The old design assumed the app could not be wrong about card data.
-It can -- a stale catalogue, a new mechanic, a badly parsed double-faced card --
-and a hard refusal then leaves a deck that cannot be built with no way round
-it. A warning degrades; a refusal breaks.
+OWNED AND MISSING SHOWED THE SAME CARD.
 
-NOW PERMITTED, each with a warning in its place:
-  colour identity          -> OFF_COLOUR (new)
-  commander legality       -> COMMANDER_ILLEGAL (new)
-  partner pairing          -> COMMANDER_PAIRING (new)
-  singleton / copy limit   -> COPY_LIMIT (existing)
-  three+ commanders        -> COMMANDER_TOO_MANY (existing)
-  creating with none       -> COMMANDER_MISSING (existing)
-  bulk add-to-deck         -> applies instead of refusing the batch
+  "if I add Tony stark to that deck he shows in both owned and missing but for
+   that deck he would be missing because his other copy is used in another
+   deck."
 
-Removing a refusal WITHOUT adding its warning would be worse than either rule,
-because the deck would be wrong and silent about it -- so the three new
-warnings landed in the same change as the permissions.
+He owns one Tony Stark and another deck has it, so for the deck on screen:
 
-THE SCRYFALL VERIFICATION PATH IS GONE. Zach: "how is a card have null data if
-its coming from scryfall... this is just overengineering." Measured before
-removing, on both hosts:
+    quantity_owned     = 1   he has one, somewhere
+    quantity_available = 0   none free -- the other deck holds it
+    quantity_missing   = 1   he must buy one to finish this deck
 
-    DEV   105,462 card_cache rows -- 0 with a NULL color_identity
-    PROD   43,569 card_cache rows -- 0 with a NULL color_identity
+The Owned tab tested quantity_owned, so the card satisfied Owned AND had a
+shortfall, landing in both. The progress ring counted it too, so the deck read
+as more finished than it is -- it would say ready while the card sits in a box
+across the room. That is a wrong record, not a cosmetic slip: the failure Zach
+minds most, because he only discovers it standing at the binder.
 
-It guarded against Bindarr's own past inconsistency, not against Scryfall: a
-card fetched from Scryfall always has a colour identity, and card_cache is
-written only by the nightly catalogue sync. It cost a network fetch inside a
-deck write and two 503 refusal paths.
+Owned is now "nothing missing", which makes the two tabs complementary by
+construction rather than by two filters agreeing. Progress counts
+quantity_available for the same reason. The server already computed all three
+figures correctly (deckIdentity.js:198-230) -- the client was reading the wrong
+one.
 
-WHAT STILL REFUSES, and why: a 404 when the row being edited no longer exists,
-and CARD_UNKNOWN in bulk add. Neither is a ruling about a deck -- there is no
-row to write, so there is nothing to allow.
+"1 IN THIS DECK" WAS ABOUT A DIFFERENT DECK.
 
-THREE BUGS FIXED ALONGSIDE:
+  "when I do Tony stark it says 1 in this deck which it's not in the deck I'm
+   searching but it is in a different deck"
 
-  1. CREATING A COMMANDER DECK ALWAYS FAILED. Zach: "it says I'm missing a
-     commander when I'm not." The server reads `commanders` as an ARRAY; the
-     new modal sent `commander_card_id`, a field nothing reads. The commander
-     he picked was sitting in a key nobody looked at, so the refusal was
-     correct.
+in_deck_qty from /api/search counts copies committed ACROSS ALL DECKS, and
+deliberately so -- availability is a whole-collection fact (routes/collection.js
+:46). Labelling it "in this deck" inverted its meaning: it announced the card
+was already here, when being elsewhere is precisely why it shows as missing.
 
-  2. SEARCH NOW SHOWS OWNED / AVAILABLE / IN-THIS-DECK. Zach: "I went to add a
-     Tony stark card to a deck and I forgot he was in a different deck and I
-     was confused on why it said he was missing." The endpoint already returned
-     owned_qty, available_qty and in_deck_qty -- they were never rendered.
-     Owning a card and being able to use it HERE are different facts once
-     another deck has reserved the copy.
+The count for THIS deck comes from the deck the component already holds, so
+both facts are now shown and worded apart: "1 already in this deck" versus
+"1 owned, in other decks".
 
-  3. THE BRACKET PICKER THREW ITS ANSWER AWAY. The new-deck modal offered
-     brackets 1-5; the decks table has no bracket column and POST /api/decks
-     does not read the field. Removed rather than left looking deliberate.
-     Storing brackets is a schema change, deliberately not folded in here.
+ONE EXPORT DIALOG, SHARED.
 
-TESTS: 35 cases across two files asserted refusals that no longer exist. They
-are SKIPPED, not deleted, each recording the rule it used to prove and why that
-rule went. Deleting them would erase the record of a decision once thought
-important; leaving them failing would make the suite meaningless.
+  "for the deck list when selecting multiple decks for the buylist can we have
+   the functionality be the same as for the missing in the deck view."
 
-The NEW behaviour is guarded: F15-TC1 asserts an off-colour card is accepted
-AND produces an OFF_COLOUR warning naming it, and deckView.test.js covers the
-client. The 41 cases in commander_singleton that still pass are untouched --
-exempt basics, board semantics, edit-id handling, none of which changed.
+They had drifted: the deck view opened a modal with three formats and showed
+the text before copying; the deck list silently put one fixed format on the
+clipboard, so you could not see what you were about to paste. ExportModal.jsx
+is now used by both -- shared rather than copied, because two copies of an
+export dialog is how they diverged in the first place.
 
-343 pass, 0 fail, 35 skip. Lint and build clean.
+TESTS: DV-TC9 through DV-TC12. The first three were verified by REINTRODUCING
+each bug and watching the case fail -- Owned tested by ownership, progress
+counting owned-anywhere, and the all-decks figure relabelled as this deck.
+
+343 pass, 0 fail. Lint and build clean.

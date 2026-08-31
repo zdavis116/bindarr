@@ -114,3 +114,77 @@ test('DV-TC8: a commander swap that removes cards asks first, and names them', (
   assert.match(src, /confirm_remove_off_identity: true/,
     'confirming must re-send with the explicit confirmation flag');
 });
+
+// --- AVAILABILITY, NOT OWNERSHIP -----------------------------------------
+//
+// Zach: "if I add Tony stark to that deck he shows in both owned and missing
+// but for that deck he would be missing because his other copy is used in
+// another deck."
+//
+// He owns one Tony Stark. Another deck has it. So for THIS deck:
+//   quantity_owned     = 1   (he has one, somewhere)
+//   quantity_available = 0   (none free -- the other deck holds it)
+//   quantity_missing   = 1   (he must buy one to finish this deck)
+//
+// Testing Owned with quantity_owned put him in BOTH tabs and counted him as
+// done in the progress ring. The deck said it was ready while the card sat in
+// a box across the room -- the wrong-record failure, not a cosmetic one.
+
+test('DV-TC9: owned and missing are complementary, never both', () => {
+  const tony = { quantity: 1, quantity_owned: 1, quantity_available: 0, quantity_missing: 1 };
+  const sol  = { quantity: 1, quantity_owned: 1, quantity_available: 1, quantity_missing: 0 };
+  const cards = [tony, sol];
+
+  const have = cards.filter(c => (c.quantity_missing || 0) === 0);
+  const need = cards.filter(c => (c.quantity_missing || 0) > 0);
+
+  assert.equal(have.length, 1, 'only the genuinely usable card is Owned');
+  assert.equal(need.length, 1, 'the reserved-elsewhere card is Missing');
+  assert.equal(have.length + need.length, cards.length,
+    'every card must land in exactly one of the two tabs');
+  assert.ok(!have.includes(tony), 'a card held by another deck must NOT read as Owned here');
+
+  // And the component must use the missing test, not an ownership test.
+  assert.match(src, /tab === 'have'\) return deckCards\.filter\(c => \(c\.quantity_missing \|\| 0\) === 0\)/,
+    'the Owned tab must be defined as "nothing missing"');
+});
+
+test('DV-TC10: progress counts copies AVAILABLE here, not owned anywhere', () => {
+  // A deck of two cards where one copy is sleeved into another deck is 50%
+  // built, not 100%. Counting owned-anywhere would report it finished.
+  const cards = [
+    { quantity: 1, quantity_owned: 1, quantity_available: 0 },
+    { quantity: 1, quantity_owned: 1, quantity_available: 1 },
+  ];
+  const owned = cards.reduce((n, c) => n + Math.min(c.quantity, c.quantity_available), 0);
+  const total = cards.reduce((n, c) => n + c.quantity, 0);
+
+  assert.equal(owned, 1, 'only the free copy counts toward progress');
+  assert.equal(Math.round((owned / total) * 100), 50);
+
+  assert.match(src, /Math\.min\(c\.quantity \|\| 0, c\.quantity_available \|\| 0\)/,
+    'the progress reducer must use quantity_available');
+});
+
+test('DV-TC11: "already in this deck" is counted from THIS deck', () => {
+  // in_deck_qty from /api/search counts EVERY deck (routes/collection.js:46),
+  // so labelling it "in this deck" told Zach a card was here when it was
+  // somewhere else -- the exact opposite of the truth he needed.
+  assert.match(src, /const hereQty = \(cardId\) => deckCards/,
+    'the count must come from the deck on screen');
+  assert.doesNotMatch(src, /alreadyHere[^)]*c\.in_deck_qty/,
+    'the "already here" label must never be fed from the all-decks figure');
+});
+
+test('DV-TC12: the export dialog is shared with the deck list', () => {
+  // Zach: "can we have the functionality be the same as for the missing in the
+  // deck view." Two copies of an export dialog is how they drifted apart in
+  // the first place.
+  assert.match(src, /import ExportModal from '\.\/ExportModal'/,
+    'DeckView must use the shared ExportModal');
+  const listSrc = readFileSync(join(here, 'DeckList.jsx'), 'utf8');
+  assert.match(listSrc, /import ExportModal from '\.\/ExportModal'/,
+    'DeckList must use the same component, not its own copy');
+  assert.doesNotMatch(listSrc, /navigator\.clipboard\.writeText/,
+    'DeckList must not silently copy: the text is shown before it is taken');
+});
