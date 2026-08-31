@@ -26,7 +26,15 @@ router.get('/stats', async (req, res) => {
     const rows = await db.all(query, statsParams);
 
     let totalCards = 0;
-    let uniqueCards = rows.length;
+    // UNIQUE means distinct printings owned, NOT the number of collection
+    // rows. rows.length counted every row, so a card owned in two conditions,
+    // two finishes, or two locations was counted twice and "unique" could equal
+    // "total" -- which is what Zach spotted: "the unique count is wrong I know I
+    // have dupes in my collection so not every card can be unique".
+    //
+    // Measured on his dev data: 176 rows, 102 distinct card_ids, 34 cards held
+    // more than once. The old number said 176.
+    let uniqueCards = new Set(rows.map(r => r.card_id)).size;
     let totalValue = 0;
     let totalSpent = 0;
     let unsortedCount = 0;

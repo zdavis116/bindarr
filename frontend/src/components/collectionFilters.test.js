@@ -24,8 +24,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // The predicate as implemented in CollectionList.jsx. Kept in sync by TC5,
 // which fails if the component stops using `.some(...)`.
+// Mirrors CollectionList.jsx: every SELECTED colour must be present in the
+// card's identity. Containment, not intersection.
 const matchesColor = (item, filters) =>
-  filters.size === 0 ? true : (item.color_identity || []).some(c => filters.has(c));
+  filters.size === 0
+    ? true
+    : [...filters].every(c => (item.color_identity || []).includes(c));
 
 const matchesType = (item, filters) =>
   filters.size === 0 ? true : (item.types || []).some(ty => filters.has(ty));
@@ -47,25 +51,38 @@ test('COLF-TC1: no filter selected shows everything', () => {
     'an empty filter set must not hide anything');
 });
 
-test('COLF-TC2: a MULTICOLOUR card appears under EACH of its colours', () => {
-  // The case single-select could not express. Assassin's Trophy is B/G, so it
-  // must show under Black alone, under Green alone, and under both together.
-  const underBlack = names(CARDS.filter(c => matchesColor(c, new Set(['Black']))));
+test('COLF-TC2: one colour selected shows every card needing that colour', () => {
+  // "if I just select blue I should see any card that requires atleast blue
+  // mana" -- including multicolour cards that also need something else.
   const underGreen = names(CARDS.filter(c => matchesColor(c, new Set(['Green']))));
-
-  assert.ok(underBlack.includes("Assassin's Trophy"),
-    'a B/G card must appear when filtering by Black');
   assert.ok(underGreen.includes("Assassin's Trophy"),
-    'a B/G card must appear when filtering by Green');
+    'a B/G card needs green, so it must appear under Green');
+  assert.ok(underGreen.includes('Dryad of the Ilysian Grove'),
+    'a mono-green card must appear under Green');
+  assert.ok(!underGreen.includes('Lightning Bolt'),
+    'a red card does not need green');
 });
 
-test('COLF-TC3: selecting two colours is ANY-OF, not ALL-OF', () => {
-  // Tapping B and G means "show me black and green cards", not "show me cards
-  // that are exactly both". All-of would return one card here instead of four,
-  // and two taps returning almost nothing reads as a broken filter.
+test('COLF-TC3: several colours means AT LEAST all of them', () => {
+  // THE CASE THAT CHANGED. Selecting Black + Green must show cards whose
+  // identity CONTAINS both -- not every black card plus every green card.
+  //
+  // Under the previous ANY-OF logic this returned two cards; the mono-green
+  // Dryad has no black in its identity and does not belong in a B/G view.
   const out = names(CARDS.filter(c => matchesColor(c, new Set(['Black', 'Green']))));
-  assert.deepEqual(out, ["Assassin's Trophy", 'Dryad of the Ilysian Grove'],
-    'B+G must show every black card and every green card, not only B/G cards');
+  assert.deepEqual(out, ["Assassin's Trophy"],
+    'B+G must show only cards that need BOTH black and green');
+});
+
+test('COLF-TC3b: a superset card still matches a narrower selection', () => {
+  // A five-colour card contains Temur, so selecting U+G+R must include it.
+  // This is what makes the filter useful for deckbuilding: "what could I cast
+  // with these colours available".
+  const wedge = { name: 'Five Colour Thing', color_identity: ['White', 'Blue', 'Black', 'Red', 'Green'], types: ['Creature'] };
+  assert.ok(matchesColor(wedge, new Set(['Blue', 'Green', 'Red'])),
+    'a WUBRG card contains Temur and must match a U/G/R selection');
+  assert.ok(!matchesColor({ name: 'Mono U', color_identity: ['Blue'], types: [] }, new Set(['Blue', 'Green', 'Red'])),
+    'a mono-blue card does NOT contain green or red');
 });
 
 test('COLF-TC4: a card with SEVERAL types matches any of them', () => {
@@ -85,15 +102,17 @@ test('COLF-TC5: colourless cards are hidden by any colour filter', () => {
   assert.deepEqual(out, ['Lightning Bolt']);
 });
 
-test('COLF-TC6: the component still uses ANY-OF matching', () => {
+test('COLF-TC6: the component still uses AT-LEAST colour matching', () => {
   // Guards the mirror above. If someone changes the component to `.every(...)`
   // or back to an equality check, the cases here would keep passing against
   // logic the app no longer runs -- the exact way two earlier tests in this
   // repo were worthless.
   const src = readFileSync(join(here, 'CollectionList.jsx'), 'utf8');
 
-  assert.match(src, /colorFilters\.size === 0[\s\S]{0,120}\.some\(/,
-    'colour matching must be ANY-OF over color_identity');
+  assert.match(src, /colorFilters\.size === 0[\s\S]{0,200}\.every\(/,
+    'colour matching must be AT-LEAST (every selected colour present), not '
+    + 'ANY-OF -- Zach: "if I select blue green red I should only see cards that '
+    + 'require atleast blue green and red mana"');
   assert.match(src, /typeFilters\.size === 0[\s\S]{0,120}\.some\(/,
     'type matching must be ANY-OF over types');
   assert.ok(!/value=\{setFilter\}|value=\{typeFilter\}/.test(src),

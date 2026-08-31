@@ -1068,5 +1068,7 @@
   "deck.oneCopyPerDeck.one": "{count} card to buy - one copy per deck",
   "deck.oneCopyPerDeck.other": "{count} cards to buy - one copy per deck",
   "deck.exportBuylist": "Export combined buylist",
-  "deck.buylistCopyFailed": "Could not copy the buylist"
+  "deck.buylistCopyFailed": "Could not copy the buylist",
+  "collection.types": "Types",
+  "collection.sets": "Sets"
 }

@@ -21,9 +21,9 @@
 // range, trade-only, favourites-only. Removed, not hidden. If any is wanted
 // back it returns as a sheet in the filter row, matching the others.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Search, X, LayoutGrid, List, MapPin, Plus, Camera, Download, ChevronDown, Check,
+  Search, X, LayoutGrid, List, MapPin, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown,
 } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
@@ -129,6 +129,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   // Which bottom sheet is open: 'type' | 'set' | 'sort' | null. One piece of
   // state for all three, so two sheets can never be open at once.
   const [sheet, setSheet] = useState(null);
+  // Focused by the add menu's "Search for a card".
+  const searchRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,8 +170,13 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
       // ANY-OF for every multi-select. Tapping B and G shows black cards, green
       // cards AND Golgari cards -- what a player means by two taps. ALL-OF
       // would return almost nothing and read as a broken filter.
+      // AT LEAST these colours: every selected colour must be present in the
+      // card's identity. Selecting U+G+R shows Temur and anything containing
+      // Temur, but not mono-blue. Selecting U alone shows every card needing
+      // blue, whatever else it needs.
+      const identity = item.color_identity || [];
       const matchesColor = colorFilters.size === 0
-        || (item.color_identity || []).some(c => colorFilters.has(c));
+        || [...colorFilters].every(c => identity.includes(c));
       const matchesType = typeFilters.size === 0
         || (item.types || []).some(ty => typeFilters.has(ty));
       const matchesSet = setFilters.size === 0 || setFilters.has(item.set_name);
@@ -189,8 +196,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
 
   const openStorage = () => onNavigate && onNavigate('storage');
 
-  const sheetTitle = sheet === 'type' ? t('collection.fType')
-    : sheet === 'set' ? t('collection.fSet')
+  const sheetTitle = sheet === 'type' ? t('collection.types')
+    : sheet === 'set' ? t('collection.sets')
     : t('collection.sortBy');
 
   return (
@@ -201,9 +208,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
           {t('nav.collection')}
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            {t('collection.cardUnit', { count: shown.length })}
-          </span>
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => setAddMenuOpen(o => !o)}
@@ -244,8 +248,12 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
                     <Download size={18} />
                     <span>{t('collection.addImport')}<small style={MENU_SUB}>{t('collection.addImportSub')}</small></span>
                   </button>
+                  {/* Focuses the search box on THIS screen rather than
+                      navigating to the scanner. It previously reused the
+                      'add-cards' route, which opens the camera -- a dead end
+                      for someone who wants to type a name. */}
                   <button role="menuitem" style={{ ...MENU_ITEM, borderBottom: 0 }}
-                          onClick={() => { setAddMenuOpen(false); onNavigate && onNavigate('add-cards'); }}>
+                          onClick={() => { setAddMenuOpen(false); searchRef.current?.focus(); }}>
                     <Search size={18} />
                     <span>{t('collection.addSearch')}<small style={MENU_SUB}>{t('collection.addSearchSub')}</small></span>
                   </button>
@@ -257,14 +265,15 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
       </div>
 
       {/* SEARCH: full width, icon inside. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.7rem' }}>
       <label style={{
-        display: 'flex', alignItems: 'center', gap: '0.55rem',
+        display: 'flex', alignItems: 'center', gap: '0.55rem', flex: 1, minWidth: 0,
         background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
         borderRadius: 'var(--radius-md)', padding: '0 0.85rem', height: 44,
-        marginBottom: '0.7rem',
       }}>
         <Search size={17} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
         <input
+          ref={searchRef}
           value={searchFilter}
           onChange={e => setSearchFilter(e.target.value)}
           placeholder={t('collection.searchPlaceholder')}
@@ -277,6 +286,24 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
           </button>
         )}
       </label>
+
+        {/* Sort sits WITH the search, not in the filter row: it is always in
+            effect, whereas a filter may not be. Icon-only to keep the search
+            box wide on a phone; the sheet names the current order. */}
+        <button
+          onClick={() => setSheet('sort')}
+          title={t('collection.sortBy')}
+          aria-label={t('collection.sortBy')}
+          style={{
+            width: 44, height: 44, flexShrink: 0, borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-glass)', background: 'var(--surface-1)',
+            color: 'var(--text-secondary)', display: 'grid', placeItems: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <ArrowUpDown size={17} />
+        </button>
+      </div>
 
       {/* FILTER ROW: pips, then Types / Sets / Sort, then Clear. One scrolling
           line -- not a collapsible panel. */}
@@ -300,9 +327,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
             </button>
           );
         })}
-        <DropButton label={t('collection.fType')} count={typeFilters.size} onClick={() => setSheet('type')} />
-        <DropButton label={t('collection.fSet')} count={setFilters.size} onClick={() => setSheet('set')} />
-        <DropButton label={t('collection.sortBy')} count={0} onClick={() => setSheet('sort')} />
+        <DropButton label={t('collection.types')} count={typeFilters.size} onClick={() => setSheet('type')} />
+        <DropButton label={t('collection.sets')} count={setFilters.size} onClick={() => setSheet('set')} />
         {activeFilters > 0 && (
           <button
             onClick={() => { setColorFilters(new Set()); setTypeFilters(new Set()); setSetFilters(new Set()); }}
