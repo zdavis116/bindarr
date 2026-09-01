@@ -170,8 +170,8 @@
 
       <div class="tabs">
         <div class="tab on">Card</div>
-        <div class="tab">Yours <span class="n">1</span></div>
-        <div class="tab">Decks <span class="n">2</span></div>
+        <div class="tab">Yours</div>
+        <div class="tab">Decks</div>
       </div>
 
       <div class="rules">
@@ -223,8 +223,8 @@
 
       <div class="tabs">
         <div class="tab">Card</div>
-        <div class="tab on">Yours <span class="n">1</span></div>
-        <div class="tab">Decks <span class="n">2</span></div>
+        <div class="tab on">Yours</div>
+        <div class="tab">Decks</div>
       </div>
 
       <div class="sec">
@@ -294,14 +294,16 @@
 
       <div class="tabs">
         <div class="tab">Card</div>
-        <div class="tab">Yours <span class="n">1</span></div>
-        <div class="tab on">Decks <span class="n">2</span></div>
+        <div class="tab">Yours</div>
+        <div class="tab on">Decks</div>
       </div>
 
-      <div class="warn">
-        You own <b>1</b> copy and <b>2 decks</b> want this card. One of them
-        will be short.
-      </div>
+      <!-- NO BANNER. Zach: "that warning should only show if its in the main
+           deck". Only ONE deck makes a real claim on this card; the other is
+           considering it, which is a shopping note, not a shortfall. Warning
+           here would cry wolf about a decision he has not made -- and the
+           server already skips considering entries for missing-copies and deck
+           size, so a banner here would contradict the app. -->
 
       <div class="sec">
         <div class="sechdr">In your decks</div>
@@ -313,8 +315,12 @@
           </div>
           <div class="li">
             <span class="k">Hashaton, Scarab's Fist
-              <span class="sub">Considering · wants MSH #363 · $25.30</span></span>
-            <span class="v yellow">Not owned</span>
+              <span class="sub">wants MSH #363 · $25.30</span></span>
+            <!-- SAYS WHAT IT IS, not what is wrong with it. "Not owned" in
+                 yellow read as a problem; considering a card is not a problem.
+                 Zach: "if we are going to show a card in a deck even if its in
+                 considering then we should note that." -->
+            <span class="v muted">Considering</span>
           </div>
         </div>
       </div>
@@ -323,8 +329,10 @@
         <div class="sechdr">Availability</div>
         <div class="list">
           <div class="li"><span class="k">Owned</span><span class="v">1</span></div>
-          <div class="li"><span class="k">Reserved by decks</span><span class="v yellow">1</span></div>
-          <div class="li"><span class="k">Free to use</span><span class="v">0</span></div>
+          <!-- Only REAL requirements reserve a card. A considering entry does
+               not, which is why this reads 1 and not 2. -->
+          <div class="li"><span class="k">Reserved by decks</span><span class="v">1</span></div>
+          <div class="li"><span class="k">Free to use</span><span class="v muted">0</span></div>
         </div>
       </div>
 
@@ -337,7 +345,8 @@
       <b>DECKS — who wants it, and can they all have it.</b> The useful fact
       here is one I did not expect: your two decks want <b>different printings</b>
       of the same card. A tab that only said "in 2 decks" would have hidden
-      that. The banner states the shortfall in words, not a number to work out.
+      that. <b>No warning shows</b>, because only one deck makes a real claim —
+      considering a card is a shopping note, not a shortfall.
     </div>
   </div>
 
@@ -353,6 +362,10 @@
   <br><br>
   The art and flip control stay fixed across all three, so the tabs never cost
   you the thing you came to look at.
+  <br><br>
+  <b>The shortfall warning only fires on real requirements.</b> A card you are
+  merely considering cannot make a deck short, and the server already treats
+  it that way — the banner I first drew would have contradicted the app.
 </p>
 
 </body>
