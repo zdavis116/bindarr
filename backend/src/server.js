@@ -8,7 +8,6 @@ const db = require('./db');
 const scryfallApi = require('./scryfallApi');
 
 const authRoutes = require('./routes/auth');
-const sharedRoutes = require('./routes/shared');
 const adminRoutes = require('./routes/admin');
 const collectionRoutes = require('./routes/collection');
 const storageRoutes = require('./routes/storage');
@@ -247,7 +246,6 @@ app.get('/api/health', async (req, res) => {
 
 // --- API ROUTES ---
 app.use('/api/auth', authRoutes);
-app.use('/api/shared', sharedRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', collectionRoutes);
 app.use('/api', storageRoutes);

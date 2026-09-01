@@ -960,8 +960,6 @@
   "settings.showLocationsHint": "Revela en qué carpeta o caja está guardada cada carta.",
   "settings.regenerateLink": "Regenerar el enlace",
   "settings.confirmRegenerate": "¿Seguro que quieres regenerar tu token de compartir? Los enlaces que ya hayas compartido dejarán de funcionar.",
-  "settings.sharingOn": "Se ha activado compartir la colección.",
-  "settings.sharingOff": "Se ha desactivado compartir la colección.",
   "settings.errSharing": "No se han podido actualizar los ajustes de compartir.",
   "settings.errSharingGeneric": "Error al actualizar los ajustes de compartir.",
   "settings.locationsOn": "Ahora se ve dónde están las cartas en tu página compartida.",
@@ -1134,7 +1132,6 @@
   "settings.secDataSources": "Data sources",
   "settings.secCatalogue": "Card catalogue",
   "settings.secCollection": "Collection",
-  "settings.secSharing": "Sharing & security",
   "settings.secAbout": "About",
   "settings.cardCatalogue": "Card catalogue",
   "settings.catalogueDetail": "Scryfall · {count} cards · nightly",
@@ -1151,10 +1148,6 @@
   "settings.importDetail": "ManaBox, CSV or a pasted list",
   "settings.exportCollection": "Export collection",
   "settings.exportDetail": "CSV, ManaBox-compatible",
-  "settings.sharing": "Public sharing",
-  "settings.sharingEnabled": "Sharing enabled",
-  "settings.sharingDisabled": "Sharing disabled",
-  "settings.sharingFailed": "Could not change sharing",
   "settings.changePassword": "Change password",
   "settings.confirmPassword": "Confirm new password",
   "settings.errPasswordMatch": "The new passwords do not match",
@@ -1202,5 +1195,6 @@
   "deck.importFailed": "The deck was created, but the decklist could not be imported",
   "deck.importedAll": "Deck created with {count} cards",
   "deck.importedPartial": "Deck created with {count} cards. {unresolved} could not be matched.",
-  "deck.importNeedsCommander": "Choose a commander first — the list is checked against its colours."
+  "deck.importNeedsCommander": "Choose a commander first — the list is checked against its colours.",
+  "settings.secSecurity": "Seguridad"
 }

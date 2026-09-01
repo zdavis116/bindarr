@@ -35,7 +35,6 @@ const productFiles = [
   'components/SetBrowserModal.jsx',
   'components/DeckBuilder.jsx',
   'components/SortFilterBuilder.jsx',
-  'components/SharedCollection.jsx',
 ];
 // 'Holofoil' as a FINISH VALUE joins the list in PR 6E. It was the leftover
 // pre-fork finish that made every foil add fail with a 500, and the regex

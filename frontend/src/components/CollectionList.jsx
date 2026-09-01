@@ -43,7 +43,7 @@ const MTG_COLORS = [
   { code: 'G', label: 'Green', token: 'var(--mtg-green)' },
 ];
 
-// Sort orders, using the SAME criteria shape as SharedCollection.jsx. Keys are
+// Sort orders. Keys are
 // the ones sortCardsByOrder actually understands -- 'price-desc', not
 // 'value-desc'. An unknown key silently falls back to added-newest, so a typo
 // here would make Sort look functional while doing nothing.

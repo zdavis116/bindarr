@@ -1,54 +1,34 @@
-Make deck delete visible, and let a new deck start from a pasted list
+Delete public collection sharing
 
-Both from Zach using the deployed build.
+Zach: "shared collection can be deleted don't see it being used."
 
-DELETE EXISTED BUT COULD NOT BE FOUND. "Doesn't appear a way to delete decks."
+Measured before removing: share_enabled is 0 for every user on dev, so nothing
+was published and no link can break.
 
-It was onContextMenu on the deck-list row -- a long-press -- with nothing on
-screen saying so. That is the ELEVENTH control on this project that rendered,
-was wired correctly, passed every test and could not be found. The previous ten
-were hidden behind the nav bar or below the fold; this one was hidden behind a
-gesture, which is the same failure with a different cause. A long-press is a
-shortcut for people who already know; it cannot be the only way to reach a
-destructive action.
+REMOVED, the whole feature rather than just the screen:
 
-The button now lives in the DECK VIEW rather than the list row: this screen
-shows what is about to be destroyed, and a list row is a mis-tap waiting to
-happen. The confirmation names the deck and states its size, because an unnamed
-"are you sure" reads the same whether it holds two cards or a hundred.
+  frontend  SharedCollection.jsx (494 lines), its lazy import, and the
+            /share/:token route in App.jsx
+  backend   routes/shared.js and its mount in server.js
+  settings  the Sharing row and its toggle -- leaving a switch that flips,
+            persists and controls nothing would be the worst of both, and is
+            exactly the "looks deliberate, does nothing" pattern this project
+            keeps producing
+  locales   seven now-dead strings, in all three locales. An orphaned string
+            implies a shipped feature.
 
-IMPORT A DECKLIST WHEN CREATING A DECK.
+Also removed: App.jsx exempted /api/shared/ from the auth header so an
+unauthenticated visitor could load a share page. That is an auth exemption for
+a route that no longer exists -- a hole kept open for a door that has been
+bricked up.
 
-The machinery already existed and worked -- postImport, preview/apply, per-line
-printing choices, the whole modal at DeckBuilder.jsx:1183. Nothing had called
-setShowImportModal(true) since the deck-list rebuild, so an entire feature was
-orphaned. This is an entry point, not new machinery.
+WHAT STAYS, deliberately: the users.share_token / share_enabled /
+share_locations COLUMNS. Dropping them means a migration against a database
+holding Zach's real collection for no benefit -- unused columns cost nothing, a
+botched migration costs everything. They can go in a considered schema change
+if one is ever wanted.
 
-The new-deck modal gains an optional paste box. Empty creates an empty deck,
-which stays the default. The decklist is STRIPPED from the create body rather
-than passed through, because POST /api/decks does not read it and an unread
-field looks like it was saved -- the same lie as the bracket picker that had
-nowhere to store its answer.
-
-TESTED AGAINST THE RUNNING SERVER, and it failed the first time:
-
-  HTTP 409 COMMANDER_ZONE_EMPTY -- "This Commander deck has no commander, so
-  there is no colour identity to judge an imported list against."
-
-That refusal is correct and stays. But the modal lets a Commander deck be
-created without a commander, so the paste box now says the import will not run
-BEFORE the tap, rather than accepting the text and reporting a failure the user
-could not have predicted.
-
-Verified end to end afterwards: 13 requested, 12 written, 1 unresolved (a
-deliberately fake card name), reported rather than silently dropped.
-
-I ALSO INVENTED THE RESPONSE SHAPE AGAIN. The import returns
-{ applied, lines, cards, warnings, summary } with counts in summary
-(written_copies, unresolved_copies); I read `written` and `unresolved`. That
-would have shown "0 cards imported" on a completely successful import. Third
-invented shape on this branch after the buylist `price` and two Settings
-endpoints -- the pattern is writing the client first and reading the server
-after.
+The "Sharing & security" section is now just "Security", named for what it
+actually holds.
 
 343 tests pass, lint and build clean.

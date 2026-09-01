@@ -104,29 +104,10 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   // cannot show two expanded sources usefully.
   const [sourceOpen, setSourceOpen] = useState(null);
   const importRef = useRef(null);
-  const [shareEnabled, setShareEnabled] = useState(Boolean(user?.share_enabled));
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [saving, setSaving] = useState(false);
 
-  const toggleSharing = async () => {
-    const next = !shareEnabled;
-    // Optimistic, then corrected by the server's answer -- a toggle that waits
-    // a round trip before moving feels broken on a phone.
-    setShareEnabled(next);
-    try {
-      const res = await fetch('/api/auth/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ share_enabled: next }),
-      });
-      if (!res.ok) throw new Error();
-      showToast(next ? t('settings.sharingEnabled') : t('settings.sharingDisabled'));
-    } catch {
-      setShareEnabled(!next);
-      showToast(t('settings.sharingFailed'), 'error');
-    }
-  };
 
   const changePassword = async () => {
     if (!pw.current || !pw.next) {
@@ -270,14 +251,7 @@ function SettingsScreen({ user, onNavigate, showToast }) {
         />
       </Section>
 
-      <Section title={t('settings.secSharing')}>
-        <Row
-          icon={Shield}
-          label={t('settings.sharing')}
-          detail={shareEnabled ? t('settings.sharingOn') : t('settings.sharingOff')}
-          value={shareEnabled ? t('settings.on') : t('settings.off')}
-          onClick={toggleSharing}
-        />
+      <Section title={t('settings.secSecurity')}>
         <Row
           icon={Key}
           label={t('settings.changePassword')}

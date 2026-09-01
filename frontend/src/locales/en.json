@@ -1001,8 +1001,6 @@
   "settings.showLocationsHint": "Reveal which binder or box each card is stored in.",
   "settings.regenerateLink": "Regenerate Link",
   "settings.confirmRegenerate": "Are you sure you want to regenerate your share token? Any existing links you shared will stop working.",
-  "settings.sharingOn": "Collection sharing enabled.",
-  "settings.sharingOff": "Collection sharing disabled.",
   "settings.errSharing": "Failed to update sharing settings.",
   "settings.errSharingGeneric": "Error updating sharing settings.",
   "settings.locationsOn": "Card locations now visible on your share page.",
@@ -1219,7 +1217,6 @@
   "settings.secDataSources": "Data sources",
   "settings.secCatalogue": "Card catalogue",
   "settings.secCollection": "Collection",
-  "settings.secSharing": "Sharing & security",
   "settings.secAbout": "About",
   "settings.cardCatalogue": "Card catalogue",
   "settings.catalogueDetail": "Scryfall · {count} cards · nightly",
@@ -1236,10 +1233,6 @@
   "settings.importDetail": "ManaBox, CSV or a pasted list",
   "settings.exportCollection": "Export collection",
   "settings.exportDetail": "CSV, ManaBox-compatible",
-  "settings.sharing": "Public sharing",
-  "settings.sharingEnabled": "Sharing enabled",
-  "settings.sharingDisabled": "Sharing disabled",
-  "settings.sharingFailed": "Could not change sharing",
   "settings.changePassword": "Change password",
   "settings.confirmPassword": "Confirm new password",
   "settings.errPasswordMatch": "The new passwords do not match",
@@ -1287,5 +1280,6 @@
   "deck.importFailed": "The deck was created, but the decklist could not be imported",
   "deck.importedAll": "Deck created with {count} cards",
   "deck.importedPartial": "Deck created with {count} cards. {unresolved} could not be matched.",
-  "deck.importNeedsCommander": "Choose a commander first — the list is checked against its colours."
+  "deck.importNeedsCommander": "Choose a commander first — the list is checked against its colours.",
+  "settings.secSecurity": "Security"
 }

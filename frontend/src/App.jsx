@@ -13,7 +13,6 @@ const CollectionList = lazy(() => import('./components/CollectionList'));
 const LocationManager = lazy(() => import('./components/LocationManager'));
 const Settings = lazy(() => import('./components/SettingsScreen'));
 const AdminPanel = lazy(() => import('./components/AdminScreen'));
-const SharedCollection = lazy(() => import('./components/SharedCollection'));
 const DeckBuilder = lazy(() => import('./components/DeckBuilder'));
 
 
@@ -60,7 +59,10 @@ const originalFetch = window.fetch;
 window.fetch = function (input, options = {}) {
   // `input` may be a string, a URL, or a Request object — normalize before using string methods.
   const url = typeof input === 'string' ? input : (input && input.url) || '';
-  const isPublicOrAuthRoute = url.includes('/api/shared/') || url.includes('/api/auth/login') || url.includes('/api/auth/register');
+  // /api/shared/ was here for the public share page, which is gone. Removed
+  // rather than left: an auth exemption for a route that no longer exists is
+  // a hole kept open for a door that has been bricked up.
+  const isPublicOrAuthRoute = url.includes('/api/auth/login') || url.includes('/api/auth/register');
 
   const token = localStorage.getItem('bindarr_token');
   const finalOptions = { ...options };
@@ -123,11 +125,6 @@ function App() {
   };
 
   // Detect public share route on load
-  const [shareToken] = useState(() => {
-    const path = window.location.pathname;
-    const match = path.match(/^\/share\/([a-zA-Z0-9_-]+)$/);
-    return match ? match[1] : null;
-  });
 
   const showToast = (message) => {
     setToast(message);
@@ -204,14 +201,6 @@ function App() {
     setStatsTrigger(prev => prev + 1);
   };
 
-  // Render shared collection view if URL matches /share/:token
-  if (shareToken) {
-    return (
-      <Suspense fallback={<ChunkFallback />}>
-        <SharedCollection shareToken={shareToken} />
-      </Suspense>
-    );
-  }
 
   // Render login screen if unauthenticated
   if (!token || !user) {
