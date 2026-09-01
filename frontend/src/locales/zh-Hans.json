@@ -1175,5 +1175,17 @@
   "deck.deckValue": "Deck value",
   "deck.confirmDeleteMany": "Delete {count} decks? This cannot be undone.\n\n{names}",
   "deck.deckProgress": "{have} of {want} cards",
-  "card.foilOnly": "仅闪卡"
+  "card.foilOnly": "仅闪卡",
+  "inspector.tabCard": "卡牌",
+  "inspector.tabYours": "你的",
+  "inspector.tabDecks": "套牌",
+  "inspector.deckWants": "需要 {printing}",
+  "inspector.considering": "考虑中",
+  "inspector.noDecks": "还没有套牌使用这张卡。",
+  "inspector.ownedCount": "拥有",
+  "inspector.reservedCount": "套牌预留",
+  "inspector.freeCount": "可用",
+  "inspector.inYourDecks": "在你的套牌中",
+  "inspector.availability": "可用情况",
+  "inspector.shortfall": "你拥有 {owned} 张，但套牌需要 {reserved} 张。"
 }

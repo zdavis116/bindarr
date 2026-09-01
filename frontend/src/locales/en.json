@@ -1290,5 +1290,17 @@
   "deck.deckValue": "Deck value",
   "deck.confirmDeleteMany": "Delete {count} decks? This cannot be undone.\n\n{names}",
   "deck.deckProgress": "{have} of {want} cards",
-  "card.foilOnly": "Foil only"
+  "card.foilOnly": "Foil only",
+  "inspector.tabCard": "Card",
+  "inspector.tabYours": "Yours",
+  "inspector.tabDecks": "Decks",
+  "inspector.deckWants": "wants {printing}",
+  "inspector.considering": "Considering",
+  "inspector.noDecks": "No deck uses this card yet.",
+  "inspector.ownedCount": "Owned",
+  "inspector.reservedCount": "Reserved by decks",
+  "inspector.freeCount": "Free to use",
+  "inspector.inYourDecks": "In your decks",
+  "inspector.availability": "Availability",
+  "inspector.shortfall": "You own {owned} but {reserved} are needed by your decks."
 }

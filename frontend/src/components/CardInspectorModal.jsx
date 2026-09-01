@@ -57,6 +57,17 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   // Which face is showing. Only meaningful when the card HAS a back face.
   const [showBack, setShowBack] = useState(false);
 
+  // THREE TABS, each answering one question:
+  //   card  -- what is this thing, and what does it do?
+  //   yours -- what do I physically have, and where?
+  //   decks -- who wants it, and can they all have it?
+  //
+  // The current screen interleaved all three, which is why the flip control
+  // had nowhere to live and why "add to a deck" sat next to rules text.
+  const [tab, setTab] = useState('card');
+  const [deckUse, setDeckUse] = useState(null);
+  const [deckUseLoading, setDeckUseLoading] = useState(false);
+
   useEffect(() => {
     fetch('/api/locations')
       .then(r => r.ok ? r.json() : [])
@@ -72,6 +83,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     // Always open on the front: carrying the flipped state into the next
     // card would show a face the user did not ask for.
     setShowBack(false);
+    setTab('card');
+    setDeckUse(null);
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.finish || 'nonfoil');
@@ -83,6 +96,23 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setNotes(card.notes || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset form only when the entry changes, not on every card mutation
   }, [targetEntryId, startInEdit, readOnly]);
+
+  // Load the Decks tab on demand. Most opens never leave the Card tab, so
+  // fetching this up front would cost a request per card view for data that is
+  // usually not looked at.
+  useEffect(() => {
+    if (tab !== 'decks' || !card?.id || deckUse || deckUseLoading) return;
+    let cancelled = false;
+    setDeckUseLoading(true);
+    // Routers mount at bare /api -- see server.js:250. Verified against the
+    // running server rather than assumed.
+    fetch(`/api/card/${card.id}/decks`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setDeckUse(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setDeckUseLoading(false); });
+    return () => { cancelled = true; };
+  }, [tab, card?.id, deckUse, deckUseLoading]);
 
   const handleClose = () => {
     if (hasToggledRef.current && onUpdate) {
@@ -347,6 +377,37 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''} • {t('inspector.owned', { count: card.quantity ?? 1 })}
             </p>
 
+            {/* THREE TABS. Each answers a different question, which is the
+                only thing that justifies a tap: what the card IS, what you
+                OWN, and which decks WANT it.
+
+                No counts on the labels. Zach: "can remove the numbers from the
+                tabs seems pointless". */}
+            <div style={{
+              display: 'flex', gap: 4, marginTop: '0.85rem', marginBottom: '0.85rem',
+              background: 'var(--bg-secondary)', padding: 3, borderRadius: 10,
+              border: '1px solid var(--border-glass)',
+            }}>
+              {[['card', t('inspector.tabCard')],
+                ['yours', t('inspector.tabYours')],
+                ['decks', t('inspector.tabDecks')]].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  style={{
+                    flex: 1, minHeight: 36, border: 0, borderRadius: 8,
+                    background: tab === id ? 'var(--bg-tertiary)' : 'transparent',
+                    color: tab === id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    font: 'inherit', fontSize: '0.82rem', fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {/* MTG color pips and type line. */}
             {card.supertype === 'MTG' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
@@ -426,7 +487,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
             </form>
           ) : (
             <>
-              {/* Price Panel */}
+              {/* Price Panel -- YOURS: what your copies are worth. */}
+              {tab === 'yours' && (<>
               <div style={{ borderTop: '1px solid var(--border-glass)', borderBottom: '1px solid var(--border-glass)', padding: '0.75rem 0', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                 <div>
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t('inspector.marketPrice')}</div>
@@ -523,17 +585,128 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 </div>
               )}
 
-              {/* Main Actions Row: Edit Card + Icon buttons for Favorite & Delete */}
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" style={{ flex: 1, display: readOnly ? 'none' : undefined }} onClick={() => setMode('edit')}>
-                  {t('inspector.editCard')}
-                </button>
+              </>)}
 
+              {/* DECKS -- who wants this card, and can they all have it. */}
+              {tab === 'decks' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {deckUseLoading && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {t('common.loading')}
+                    </div>
+                  )}
+
+                  {/* SHORTFALL, and only for REAL requirements. Zach: "that
+                      warning should only show if its in the main deck". A
+                      considering entry is a shopping note -- the server does
+                      not count it for missing copies or deck size, and neither
+                      does this. */}
+                  {deckUse && deckUse.reserved > deckUse.owned && (
+                    <div style={{
+                      padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-md)',
+                      background: 'rgba(255,214,10,.1)',
+                      border: '1px solid rgba(255,214,10,.3)',
+                      color: 'var(--accent-yellow)', fontSize: '0.8rem', lineHeight: 1.45,
+                    }}>
+                      {t('inspector.shortfall', { owned: deckUse.owned, reserved: deckUse.reserved })}
+                    </div>
+                  )}
+
+                  {deckUse && deckUse.decks.length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {t('inspector.noDecks')}
+                    </div>
+                  )}
+
+                  {deckUse && deckUse.decks.length > 0 && (
+                    <div style={{
+                      background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-glass)', overflow: 'hidden',
+                    }}>
+                      {deckUse.decks.map((d, i) => (
+                        <div key={`${d.deck_id}-${d.board}-${i}`} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          gap: '0.6rem', padding: '0.65rem 0.75rem', minHeight: 46,
+                          borderTop: i ? '1px solid var(--border-glass)' : 0,
+                        }}>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600,
+                                           whiteSpace: 'nowrap', overflow: 'hidden',
+                                           textOverflow: 'ellipsis' }}>
+                              {d.deck_name}
+                            </span>
+                            {/* THE PRINTING EACH DECK WANTS. Two decks can want
+                                different printings at very different prices --
+                                Zach's Tony Stark deck wants MSH #80 at $6.50
+                                and his Hashaton deck wants MSH #363 at $25.30.
+                                A row saying only the deck name hides that. */}
+                            <span style={{ display: 'block', fontSize: '0.7rem',
+                                           color: 'var(--text-muted)' }}>
+                              {t('inspector.deckWants', {
+                                printing: `${(d.set_id || '').toUpperCase()} #${d.number}`,
+                              })}
+                              {d.price_trend ? ` · $${Number(d.price_trend).toFixed(2)}` : ''}
+                            </span>
+                          </span>
+                          {/* Considering is LABELLED, not flagged as a fault.
+                              Zach: "if we are going to show a card in a deck
+                              even if its in considering then we should note
+                              that." */}
+                          {d.board === 'considering' && (
+                            <span style={{ flexShrink: 0, fontSize: '0.7rem',
+                                           color: 'var(--text-muted)' }}>
+                              {t('inspector.considering')}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {deckUse && (
+                    <div style={{
+                      background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-glass)', overflow: 'hidden',
+                    }}>
+                      {[[t('inspector.ownedCount'), deckUse.owned],
+                        [t('inspector.reservedCount'), deckUse.reserved],
+                        [t('inspector.freeCount'), deckUse.free]].map(([k, v], i) => (
+                        <div key={k} style={{
+                          display: 'flex', justifyContent: 'space-between',
+                          padding: '0.6rem 0.75rem', minHeight: 42,
+                          borderTop: i ? '1px solid var(--border-glass)' : 0,
+                          fontSize: '0.82rem',
+                        }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                          <span style={{ fontWeight: 600 }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ADD TO A DECK -- only here. Zach: "on the card tab remove
+                      the add to deck button should only show on the deck tab."
+                      The action needs its context: on this tab you can see who
+                      already wants the card and how many are free before
+                      committing another copy. Hidden in read-only mode, where
+                      the card is a deck entry rather than a collection row. */}
+                  {!readOnly && (
+                    <div style={{ marginTop: '0.25rem' }}>
                 <AddToDeckSelect
                   onAdd={handleAddToDeck}
                   placeholder={t('inspector.addToDeck')}
                   style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
                 />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Main Actions Row: Edit Card + Icon buttons for Favorite & Delete */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" style={{ flex: 1, display: readOnly ? 'none' : undefined }} onClick={() => setMode('edit')}>
+                  {t('inspector.editCard')}
+                </button>
 
                 {card.list_type === 'wishlist' && (
                   <button 
