@@ -20,8 +20,24 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 
 // Moxfield's order: the commander first because it is the deck's premise, then
 // the types in the order a deck list is normally read.
+// DISPLAY order: how the sections read down the page (Moxfield's order).
 const TYPE_ORDER = ['Commander', 'Creature', 'Instant', 'Sorcery', 'Artifact',
                     'Enchantment', 'Planeswalker', 'Battle', 'Land'];
+
+// PRIORITY order: which type wins when a card has several. NOT the same list,
+// and conflating them is what filed Zach's artifact lands under Artifact.
+//
+//   - Land first. "Artifact Land" is a land: it is what he counts when he
+//     checks his mana base, and a land hiding in the artifact section makes
+//     the deck look four lands short. Zach: "Any card with type land should
+//     be a land."
+//   - Creature next. "Artifact Creature" is a creature you cast and attack
+//     with; filing it under Artifact hides it from the creature count.
+//
+// Matches deckSections.js, which had it right -- which is why the data was
+// correct and only this screen was wrong.
+const TYPE_PRIORITY = ['Land', 'Creature', 'Planeswalker', 'Battle',
+                       'Instant', 'Sorcery', 'Enchantment', 'Artifact'];
 
 // The card types we section by. Read from type_line, NOT from the `types`
 // column -- that column holds COLOURS in this database, which is what made the
@@ -34,10 +50,12 @@ function sectionFor(card) {
   // Everything before the em dash is the card type(s); after it is subtypes
   // (Goblin, Equipment), which would produce a section per creature type.
   const line = (card.type_line || '').split('—')[0];
-  // A "Legendary Artifact Creature" belongs under Creature: the most specific
-  // type is what a player looks for. TYPE_ORDER decides which wins.
-  for (const ty of TYPE_ORDER) {
-    if (ty !== 'Commander' && line.includes(ty)) return ty;
+  // A "Legendary Artifact Creature" belongs under Creature, and an "Artifact
+  // Land" belongs under Land: the most specific type is what a player looks
+  // for. TYPE_PRIORITY decides which wins -- deliberately NOT the display
+  // order, which puts Artifact before Land.
+  for (const ty of TYPE_PRIORITY) {
+    if (line.includes(ty)) return ty;
   }
   return CARD_TYPES.find(ty => line.includes(ty)) || 'Other';
 }

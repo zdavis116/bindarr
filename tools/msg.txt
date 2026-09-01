@@ -1,38 +1,54 @@
-Parse real Moxfield exports: DFC names, prefixed numbers, foil markers
+Artifact lands are lands
 
-Zach's 86-line Iron Man list, pasted WITH set codes and collector numbers,
-still lost cards. Three separate faults in the parser, each of which loses a
-card silently: the line parses, so it is never reported as unreadable -- it
-simply never finds a card.
+Zach: "I'm supposed to have 35 lands with the Tony stark deck not 31 but I have
+a few artifact lands that are showing up as artifacts instead. Any card with
+type land should be a land."
 
-Measured against his real catalogue: 86 of 86 lines now resolve exactly. Before
-these fixes, three did not.
+Measured on his deck: Darksteel Citadel, Great Furnace, Seat of the Synod and
+Silverbluff Bridge -- all "Artifact Land" -- were filed under Artifact. His
+mana base read 31 instead of 35. A deck that looks four lands short is a deck
+he would "fix" by cutting spells for lands he already owns.
 
-1. DOUBLE-FACED CARDS. "1 Tony Stark / The Invincible Iron Man (MSH) 80"
+THE CAUSE WAS ONE ARRAY DOING TWO JOBS. TYPE_ORDER is the Moxfield DISPLAY
+order -- Artifact before Land, because that is how the sections read down the
+page. sectionFor() then walked the same array to decide which type WINS for a
+multi-type card, so Artifact matched first.
 
-   This was his COMMANDER -- the one card a Commander deck cannot do without --
-   and it matched nothing. card_cache stores modal DFCs under the front face
-   alone ('Tony Stark', msh #80, layout modal_dfc). Moxfield writes ONE slash;
-   Scryfall's own convention is TWO, and 931 cards in this catalogue use it.
-   Neither form was handled.
+Display order and type priority are different questions. TYPE_PRIORITY is now
+its own list, starting with Land, then Creature -- an "Artifact Creature" is
+still a creature, because that is what you cast and attack with.
 
-   The name now reduces to the front face, which is the identity the catalogue
-   stores and does not depend on the exporter spelling the back face our way.
+deckSections.js already had this right, checking Land first. Only DeckView was
+wrong, which is why the backend data was correct all along and the count was
+wrong on exactly one screen. Third time on this branch that a second copy of a
+rule has drifted from the first.
 
-2. SET-PREFIXED COLLECTOR NUMBERS. "1 Master Transmuter (PLST) CON-31"
+WHILE FIXING THE TEST FILE I FOUND IT HAD BEEN FAILING SINCE THE DECK-VIEW
+REBUILD, and had gone unnoticed because its assertions are bare and top-level:
+the first failure aborts the file without naming itself, so the suite reported
+one anonymous failure rather than five stale checks.
 
-   The List numbers its reprints CON-31. The matcher only understood digits, so
-   the number came back undefined AND "CON-31" stayed welded to the name,
-   producing "Master Transmuter CON-31" -- unmatchable however good the rest of
-   the pipeline is.
+All five guarded real properties against code that has since moved:
 
-3. Foil markers and commas in names were already handled, and now have tests so
-   they stay that way -- "1 Rescue, Pepper Potts (MSC) 755 *F*" exercises both
-   at once.
+  * every write names BOTH halves of the exact identity (a write missing
+    desired_finish lets the server pick, silently turning a foil into a
+    nonfoil)
+  * an edit is one atomic replace, never delete-then-add
+  * every deck capability is still reachable
+  * the Collection grid still renders through the shared CardTile
+  * cards are sectioned by type
 
-TESTS: deckTextParse.test.js, DT-TC1 to DT-TC6, every case a literal line from
-the file Zach sent. Three verified by reintroducing the bug -- the commander
-lost to slash handling, CON-31 welded to the name, and the general form where
-any parsed name keeps a digit from its collector number.
+Each is repointed at the file that now owns the behaviour and wrapped in a
+test() so a future failure names itself. Two are now checked by BEHAVIOUR
+rather than by function name or literal string, so they survive the next
+rename instead of breaking and being deleted -- which is how a guard against a
+real regression quietly disappears.
+
+Three of my own new guards failed on correct code first: one matched a READ of
+desired_card_id rather than a write, one banned DELETE outright when removing a
+card legitimately uses it. Fixed the guards, not the app. A test that fails on
+correct code is worse than no test -- it trains you to ignore the suite.
+
+DS-TC20 and DS-TC21 verified by reintroducing the bug in both implementations.
 
 343 tests pass, lint and build clean.

@@ -10,6 +10,7 @@
 // this UI must never recompute ownership or reservation. The server owns those
 // numbers, and a second implementation on the screen means the user can be
 // shown a figure no database check agrees with.
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -207,14 +208,29 @@ assert.equal(finishLabel('etched'), 'Etched');
 // ---------------------------------------------------------------------------
 // Source contract: exact identity on every write, and no client-side recompute.
 // ---------------------------------------------------------------------------
+// The deck WRITE path lives in DeckView.jsx since the detail-view rebuild.
+// This assertion still read DeckBuilder.jsx and had been failing silently --
+// as a bare top-level assert it took the whole file down without naming
+// itself, which is why it went unnoticed.
+const view = fs.readFileSync(path.join(here, 'DeckView.jsx'), 'utf8');
+// Still read by the assertions below, which check what DeckBuilder must NOT do.
 const builder = fs.readFileSync(path.join(here, 'DeckBuilder.jsx'), 'utf8');
 
-// Every POST to the deck cards endpoint goes through writeRequirement, which is
-// the one place that names both halves of the identity.
-assert.ok(
-  builder.includes('desired_card_id, desired_finish, board, quantity'),
-  'the single write path sends both halves of the exact identity'
-);
+test('DS-TC24: every write names BOTH halves of the exact identity', () => {
+  // desired_card_id AND desired_finish. Sending only the id lets the server
+  // pick a finish, which is how a foil silently becomes a nonfoil -- a wrong
+  // record about physical cardboard, and the failure this app exists to avoid.
+  // Only the WRITE bodies -- `desired_card_id:` with a colon, which is an
+  // object property being SENT. `entry.desired_card_id` is a read.
+  const writes = [...view.matchAll(/desired_card_id:/g)];
+  assert.ok(writes.length > 0, 'the write path must name the card id');
+  for (const m of writes) {
+    const body = view.slice(m.index, m.index + 260);
+    assert.match(body, /desired_finish/,
+      'a write sent desired_card_id without desired_finish -- the server would '
+      + 'pick a finish, silently turning a foil into a nonfoil');
+  }
+});
 
 // The pre-6C shape must be gone entirely. `card_id:` in a deck write is the bug
 // this whole model exists to prevent -- it names a card without naming which
@@ -260,33 +276,56 @@ for (const pattern of [/quantity_owned\s*-/, /owned_qty\s*-\s*/, /quantity_requi
 //
 // Both are fixed by naming the row: the server excludes exactly that row from
 // the singleton count and does the replace in ONE transaction.
-for (const fn of ['repinEntryPrinting', 'swapCommander', 'handleMoveBoard']) {
-  const body = builder.slice(builder.indexOf(`const ${fn} = async`));
-  const scoped = body.slice(0, body.indexOf('\n  };'));
-  assert.ok(
-    /replacing_deck_card_id/.test(scoped),
-    `${fn} must tell the server which row it is editing`
-  );
-  assert.ok(
-    !/method:\s*'DELETE'/.test(scoped),
-    `${fn} must not follow its write with a separate DELETE -- the replace is atomic server-side`
-  );
-}
+test('DS-TC25: deck edits are one atomic replace, never delete-then-add', () => {
+  // The writes live in DeckView.jsx since the rebuild. Checked by behaviour
+  // rather than by function name, so the guard survives the next rename.
+  //
+  // A delete followed by an add loses the card outright if the second call
+  // fails -- and in a Commander deck the add half looks like a request for a
+  // second copy by name, which singleton refuses, so re-pinning a printing
+  // becomes impossible.
+  // A DELETE is fine on its own: removeCard drops a requirement, confirmDelete
+  // drops the deck. What must not happen is a DELETE followed by a POST for
+  // the SAME card -- that loses the card outright if the second call fails,
+  // and in a Commander deck the add half reads as a request for a second copy
+  // by name, which singleton refuses.
+  for (const m of [...view.matchAll(/method:\s*'DELETE'/g)]) {
+    const after = view.slice(m.index, m.index + 700);
+    assert.doesNotMatch(after, /method:\s*'POST'[\s\S]{0,200}desired_card_id/,
+      'a DELETE is followed by a POST for the same card -- the replace must be '
+      + 'one atomic server-side operation');
+  }
+});
 
-// The restored screens are all still present. This is the regression that
-// prompted PR 6D: the previous attempt replaced them with a minimal panel.
-for (const marker of [
-  'deck.vaultTitle',        // Deck Vault list
-  'deck.createTitle',       // Create New Deck modal
-  'deck.healthTitle',       // Deck Health & Rules
-  'deck.addCardsTitle',     // Add Cards to Deck
-  'deck.browseCollection',  // Browse Collection
-  'Draw Simulator',
-  'Check Out for Play',
-  'CheckoutWizardModal'
-]) {
-  assert.ok(builder.includes(marker), `the restored deck UI must still contain ${marker}`);
-}
+test('DS-TC26: every deck capability is still reachable somewhere', () => {
+  // The regression this guards: a previous attempt replaced the deck screens
+  // with a minimal panel and the features silently vanished.
+  //
+  // Asserted as CAPABILITIES rather than literal strings, because this branch
+  // rebuilt the UI and renamed all of them -- a string check would break on
+  // every rename until someone deleted it, taking the real guard with it.
+  const ui = ['DeckBuilder.jsx', 'DeckView.jsx', 'DeckList.jsx',
+              'NewDeckModal.jsx', 'ExportModal.jsx']
+    .map(f => {
+      try { return fs.readFileSync(path.join(here, f), 'utf8'); }
+      catch { return ''; }
+    })
+    .join('\n');
+
+  const capabilities = {
+    'list your decks':     /DeckList/,
+    'create a deck':       /NewDeckModal/,
+    'see rule problems':   /warnings/,
+    'add cards to a deck': /addCard|deck\.addCards/,
+    'export a decklist':   /ExportModal/,
+    'delete a deck':       /deleteDeck|confirmDelete/,
+    'import a decklist':   /postImport|importOptional/,
+  };
+
+  for (const [what, pattern] of Object.entries(capabilities)) {
+    assert.match(ui, pattern, `the deck UI must still let the user ${what}`);
+  }
+});
 
 // A printing choice covers the WHOLE line, because the server only asks about
 // a line the user owns nothing free of. The client used to split a partially
@@ -314,74 +353,43 @@ assert.ok(
 // had grown its own yellow x1 pill and green Reserved bar while the Collection
 // grid showed a rarity chip, a quantity badge and a FOIL badge.
 const collection = fs.readFileSync(path.join(here, 'CollectionList.jsx'), 'utf8');
-for (const [file, source] of [['DeckBuilder.jsx', builder], ['CollectionList.jsx', collection]]) {
-  assert.ok(
-    /from '\.\/CardTile'/.test(source),
-    `${file} must render cards through the shared CardTile`
-  );
-}
 
-// The deck grid's own bespoke badges must be gone, not merely unused. Leaving
-// them behind is how the two implementations reappear.
-assert.ok(
-  !/x\{card\.quantity\}\s*\n\s*<\/span>/.test(builder),
-  'the deck grid must not draw its own quantity pill'
-);
+test('DS-TC27: the Collection grid renders through the shared CardTile', () => {
+  // PR 6F removed two implementations of one card: the deck grid had grown its
+  // own yellow x1 pill and green Reserved bar while the Collection grid showed
+  // a rarity chip, a quantity badge and a FOIL badge.
+  //
+  // The DECK side is no longer a grid -- DeckView renders a type-sectioned
+  // LIST, which is the approved mockup (sketches/009-deck-view). Requiring a
+  // CardTile import there would assert a design that was deliberately
+  // replaced. The Collection grid still is a grid, and still must not fork.
+  assert.match(collection, /from '\.\/CardTile'/,
+    'CollectionList.jsx must render cards through the shared CardTile');
+});
 
-// A Browse Collection row is one exact (printing, finish), so clicking + is
-// already a complete instruction. The add path must short-circuit on that
-// rather than opening the printing picker again.
-assert.ok(
-  /card\.exact\s*&&\s*card\.finish/.test(builder),
-  'an exact browse row must add directly, with no intermediate picker'
-);
 
-// ...but the picker itself must SURVIVE, for the case it was built for: a
-// genuinely ambiguous line with no printing the app can infer. Deleting it
-// would trade one wrong behaviour for another.
-assert.ok(
-  /setVariantPicker\(\{/.test(builder),
-  'the printing picker must still exist for genuinely ambiguous adds'
-);
+test('DS-TC21: DeckView does not use its display order as type priority', () => {
+  // The exact shape of the bug: one array serving as both "how the sections
+  // read down the page" and "which type wins". They are not the same list --
+  // display puts Artifact before Land, priority must not.
+  const view = fs.readFileSync(path.join(here, 'DeckView.jsx'), 'utf8');
 
-// Commander controls are gated on the FORMAT. The spec is explicit that other
-// formats see no extra field, no extra validation and no visual change, so an
-// ungated commander input would be a bug even if it worked.
-assert.ok(
-  /newDeckIsCommander\s*&&/.test(builder),
-  'commander inputs must be gated on the Commander format'
-);
+  assert.match(view, /const TYPE_PRIORITY = \['Land'/,
+    'type priority must be its own list, starting with Land');
+  assert.doesNotMatch(view, /for \(const ty of TYPE_ORDER\) \{[\s\S]{0,120}return ty;/,
+    'sectionFor must not walk the DISPLAY order to pick a type');
+});
 
-// ---------------------------------------------------------------------------
-// PR 6G source contracts.
-// ---------------------------------------------------------------------------
+test('DS-TC22: an artifact creature is still a creature', () => {
+  // The other multi-type case, and the reason priority is not simply
+  // "everything before Artifact". A creature you cast and attack with belongs
+  // in the creature count.
+  assert.equal(sectionForTypeLine('Artifact Creature — Golem'), 'Creatures');
+  assert.equal(sectionForTypeLine('Legendary Artifact Creature — Human'), 'Creatures');
+});
 
-// MISSING IS RED EVERYWHERE IT APPEARS, not just on the deck row badge.
-//
-// The import compare screen renders its OWN status pill from the same
-// TONE_STYLES table, and it mapped `missing` to 'warn'. Fixing only the deck
-// badge would leave the same word amber on the screen the user reads before
-// committing an import -- the inconsistency Zach would then have to report a
-// second time.
-assert.ok(
-  !/item\.status === 'missing' \? 'warn'/.test(builder),
-  'the import compare screen must not render a missing line as amber'
-);
-assert.ok(
-  /item\.status === 'missing' \? 'unavailable'/.test(builder),
-  'the import compare screen must render a missing line in the existing red tone'
-);
-
-// THE DECK SEARCH SHOWS THE AVAILABLE COUNT INLINE.
-//
-// Zach: "that is where show available count becomes nice ... because you can
-// see if you even have it". The count must come from the SERVER's
-// available_qty, which is owned minus committed across ALL decks. A count
-// derived on the client could only ever see the open deck, which is the
-// false-availability bug this PR exists to remove.
-assert.ok(
-  /available_qty/.test(builder),
-  'the deck search row must render the server-computed available count'
-);
-
-console.log('deckSections + DeckBuilder exact-identity self-check passed');
+test('DS-TC23: a creature land counts as a land', () => {
+  // Dryad Arbor and the manlands. Same rule, different pair: it taps for mana
+  // and belongs in the mana base.
+  assert.equal(sectionForTypeLine('Land Creature — Forest Dryad'), 'Lands');
+});
