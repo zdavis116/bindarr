@@ -1460,7 +1460,8 @@ router.post('/:id/import', async (req, res) => {
         const statedSet = typeof rawLine.set === 'string' ? rawLine.set.trim() : '';
         const statedNumber = typeof rawLine.number === 'string' ? rawLine.number.trim() : '';
         if (statedSet) {
-          const params = [name, statedSet];
+          // name is bound twice: once for `name`, once for `flavor_name`.
+          const params = [name, name, statedSet];
           // supertype/subtypes/type_line are selected because the singleton
           // exemption is a property of the CARD -- is it a basic land? -- and
           // must be read from the cache rather than inferred from the name.
@@ -1469,7 +1470,11 @@ router.post('/:id/import', async (req, res) => {
           let sql = `SELECT id, oracle_id, name, set_id, set_name, number, finishes,
                             supertype, subtypes, type_line, color_identity
                      FROM card_cache
-                     WHERE LOWER(name) = LOWER(?) AND LOWER(set_id) = LOWER(?)
+                     -- flavor_name matches Universes Beyond printings: Moxfield
+                     -- exports "Vibranium Dynamo", the catalogue stores it as
+                     -- "Thran Dynamo" with that Marvel name as flavour.
+                     WHERE (LOWER(name) = LOWER(?) OR LOWER(flavor_name) = LOWER(?))
+                       AND LOWER(set_id) = LOWER(?)
                        AND oracle_id IS NOT NULL`;
           if (statedNumber) {
             sql += ` AND LOWER(number) = LOWER(?)`;
@@ -1594,9 +1599,22 @@ router.post('/:id/import', async (req, res) => {
           `SELECT id, oracle_id, name, set_name, number, supertype, subtypes, type_line,
                   color_identity
            FROM card_cache
-           WHERE LOWER(name) = LOWER(?) AND oracle_id IS NOT NULL
-           ORDER BY id ASC LIMIT 1`,
-          [name]
+           -- ORACLE NAME OR FLAVOUR NAME. Universes Beyond printings carry the
+           -- in-universe name as flavor_name -- "Vibranium Dynamo" is Thran
+           -- Dynamo, "Skybreaker, Sword of Bashenga" is Sword of the Animist.
+           -- Moxfield exports the flavour name because that is what is printed
+           -- on the card, so a paste that never matched was losing every one of
+           -- the 640 renamed cards in this catalogue.
+           --
+           -- Oracle name is tried FIRST: it is the identity the rest of the app
+           -- uses, and a flavour name is an alias for it, not a rival. The
+           -- ordering matters if a flavour name ever collides with a real card
+           -- name -- the real card wins.
+           WHERE (LOWER(name) = LOWER(?) OR LOWER(flavor_name) = LOWER(?))
+             AND oracle_id IS NOT NULL
+           ORDER BY CASE WHEN LOWER(name) = LOWER(?) THEN 0 ELSE 1 END, id ASC
+           LIMIT 1`,
+          [name, name, name]
         );
         if (!card) {
           // Unknown card name. Reported, never silently dropped, and never
