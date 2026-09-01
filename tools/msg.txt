@@ -1,34 +1,48 @@
-Delete public collection sharing
+Import: ask for the printing instead of dropping the line; visible delete
 
-Zach: "shared collection can be deleted don't see it being used."
+Both from Zach on the deployed build.
 
-Measured before removing: share_enabled is 0 for every user on dev, so nothing
-was published and no link can break.
+IMPORT LOST MOST OF A MOXFIELD DECK.
 
-REMOVED, the whole feature rather than just the screen:
+"I imported a full deck from moxfield and only a few cards filled the deck."
+Reproduced exactly: 25 copies requested, 13 written, 12 silently gone.
 
-  frontend  SharedCollection.jsx (494 lines), its lazy import, and the
-            /share/:token route in App.jsx
-  backend   routes/shared.js and its mount in server.js
-  settings  the Sharing row and its toggle -- leaving a switch that flips,
-            persists and controls nothing would be the worst of both, and is
-            exactly the "looks deliberate, does nothing" pattern this project
-            keeps producing
-  locales   seven now-dead strings, in all three locales. An orphaned string
-            implies a shipped feature.
+Not a parser bug. "1 Lightning Bolt" with no set code names a card with 65
+printings, and this app records the EXACT printing you own. When none is owned
+there is nothing to infer from, so the server deliberately writes nothing and
+returns needs_choice with the printings to offer (routes/decks.js:1645). That
+design is right -- guessing would put a printing he does not own into his deck.
 
-Also removed: App.jsx exempted /api/shared/ from the auth header so an
-unauthenticated visitor could load a share page. That is an auth exemption for
-a route that no longer exists -- a hole kept open for a door that has been
-bricked up.
+The bug was mine: I called apply:true straight from the new-deck modal, so
+every line awaiting a choice was discarded. The cards that DID land were the
+ones already in his collection, which is exactly why "only a few filled the
+deck" and why it looked arbitrary.
 
-WHAT STAYS, deliberately: the users.share_token / share_enabled /
-share_locations COLUMNS. Dropping them means a migration against a database
-holding Zach's real collection for no benefit -- unused columns cost nothing, a
-botched migration costs everything. They can go in a considered schema change
-if one is ever wanted.
+Now the modal previews first. Nothing ambiguous -> apply immediately, the
+common case for an owned or set-qualified list. Anything ambiguous -> the deck
+is created with the unambiguous cards and the existing printing picker opens
+with the rest, which are one screen away rather than lost.
 
-The "Sharing & security" section is now just "Security", named for what it
-actually holds.
+Verified end to end: preview offered 92 printings for Lightning Bolt, 171 for
+Sol Ring, 1102 for Island; answering them gave requested=12 written=12
+unresolved=0.
+
+I also passed the whole response where the modal reads the LINES array, which
+would have rendered an empty picker -- caught by lint, not by the build.
+
+LONG-PRESS TO DELETE DOES NOT EXIST ON A PHONE.
+
+"I still can't delete decks. Long pressing a row doesn't do anything."
+
+onContextMenu fires on a desktop right-click; on mobile Safari a long-press
+raises the system selection menu instead. So the only route to delete was a
+gesture unavailable on the only device this app is used on. Replaced with a
+Delete action in the selection mode that already exists for the buylist --
+deliberately not a per-row button, which is a mis-tap that destroys a deck.
+
+AND THE FIX FOR IT WAS ITSELF UNREACHABLE. The delete button added to the deck
+view is the last element on a scrolling screen, and DeckView had no
+paddingBottom -- so on any real deck the pinned nav bar covered it. Twelfth
+control on this project hidden by that nav; now cleared like DeckList does.
 
 343 tests pass, lint and build clean.

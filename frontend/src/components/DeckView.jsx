@@ -368,7 +368,9 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   ];
 
   return (
-    <div>
+    // Clears the pinned mobile nav (72px + the home indicator). Without it
+    // the last thing on the page -- the delete button -- sits under the nav.
+    <div style={{ paddingBottom: `calc(72px + env(safe-area-inset-bottom, 0px) + 1rem)` }}>
       {/* HEADER */}
       <button onClick={onBack}
         style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', border: 0,

@@ -1058,7 +1058,31 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
           let imported = null;
           if (decklist && body?.id) {
             try {
-              imported = await postImport(body.id, decklist, { apply: true });
+              // PREVIEW FIRST. A bare card name with no set code is ambiguous
+              // -- "Lightning Bolt" has 65 printings -- and this app records
+              // the exact printing you own. The server refuses to guess and
+              // returns needs_choice instead; applying straight away threw
+              // those lines away.
+              const preview = await postImport(body.id, decklist, { apply: false });
+              const needsChoice = (preview?.lines || []).filter(l => l.needs_choice);
+
+              if (needsChoice.length === 0) {
+                imported = await postImport(body.id, decklist, { apply: true });
+              } else {
+                // Hand over to the picker that already exists rather than
+                // dropping the lines. The deck is created and holds whatever
+                // was unambiguous; the rest is one screen away, not lost.
+                setImportText(decklist);
+                // The modal reads the LINES array, not the whole response
+                // (line 1263). Passing the envelope would render nothing.
+                setImportComparison(preview?.lines || []);
+                setImportChoices({});
+                setShowImportModal(true);
+                showToast(
+                  t('deck.importNeedsChoices', { count: needsChoice.length }),
+                  'error',
+                );
+              }
             } catch (err) {
               showToast(err?.message || t('deck.importFailed'), 'error');
             }

@@ -18,7 +18,7 @@
 // out.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
+import { Trash2, Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
 import { createBuylistSync } from './buylistSync';
@@ -296,6 +296,40 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                   ? t('deck.oneCopyPerDeck', { count: totalCopies })
                   : t('deck.buylistNothingNeeded')}
             </div>
+            {/* DELETE THE SELECTED DECKS. Selection mode only, so it cannot be
+                hit while browsing, and it names them in the confirmation.
+
+                Deliberately NOT a per-row button: a delete icon on every row
+                of a scrolling list is a mis-tap that destroys a deck. This
+                reuses the selection flow that already exists for the buylist,
+                so one mental model covers both. */}
+            <button
+              onClick={async () => {
+                const chosen = decks.filter(d => selected.has(d.id));
+                if (!chosen.length) return;
+                const names = chosen.map(d => d.name).join(', ');
+                if (!window.confirm(t('deck.confirmDeleteMany',
+                                      { count: chosen.length, names }))) return;
+                for (const d of chosen) {
+                  // Sequential, not parallel: each delete is its own write and
+                  // a half-applied batch is worse than a slow one.
+                  await onDeleteDeck(d.id, d.name);
+                }
+                setSelected(new Set());
+                setSelecting(false);
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                minHeight: 44, padding: '0 0.85rem', borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--accent-red)', background: 'transparent',
+                color: 'var(--accent-red)', font: 'inherit', fontSize: '0.88rem',
+                fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+              }}
+              aria-label={t('deck.deleteSelected')}
+            >
+              <Trash2 size={15} />
+            </button>
+
             <button
               onClick={() => setExportOpen(true)}
               disabled={buylistLoading || !items.length}
