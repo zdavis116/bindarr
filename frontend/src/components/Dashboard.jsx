@@ -97,7 +97,10 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
     .filter(d => (d.target_size || 0) > 0)
     .map(d => ({
       ...d,
-      pct: Math.min(100, Math.round(((d.total_cards || 0) / d.target_size) * 100)),
+      // OWNED, not listed. total_cards counts what the list says; a freshly
+      // imported deck is fully listed and entirely unowned, and this read 97%
+      // for a deck holding three of its ninety-seven cards.
+      pct: Math.min(100, Math.round(((d.owned_cards || 0) / d.target_size) * 100)),
     }))
     .sort((a, b) => b.pct - a.pct);
 
@@ -194,7 +197,7 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     {deck.pct >= 100
                       ? t('dash.deckReady')
-                      : t('dash.deckCards', { have: deck.total_cards || 0, want: deck.target_size })}
+                      : t('dash.deckCards', { have: deck.owned_cards || 0, want: deck.target_size })}
                   </span>
                 </span>
                 <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />

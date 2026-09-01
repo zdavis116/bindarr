@@ -1,50 +1,35 @@
-The completion ring counts cards owned, not cards listed
+Fix the same completion bug on the dashboard; show total deck value
 
-Zach: "it shows 97% complete with only 3 missing cards but actually I am
-missing 97 cards."
+Zach: "The dashboard still shows the deck list percentage in correctly."
 
-Measured on his Tony Stark deck: 97 cards listed against a target of 100, so
-the ring read 97%. He owns THREE of them. He had just imported the list, and
-DeckList was computing completion from total_cards -- what the list SAYS --
-rather than from what is in the binder.
+I fixed DeckList and never grepped for the other reader. Dashboard.jsx had the
+identical (total_cards / target_size), so his Tony Stark deck showed 97% there
+too -- same cause, same lie, one screen over.
 
-This is the wrong-record failure in its purest form. The screen reported a deck
-ready to play while 94 of its cards did not exist in his collection. A missing
-entry costs a tap; this costs a recount against cardboard.
+The ownership rule was put in SQL precisely so every screen reads ONE number.
+Fixing one component and not the other is the drift that design was meant to
+prevent, and a per-file fix cannot enforce it. So DC-TC7 now checks EVERY
+component for a completion figure derived from cards LISTED rather than cards
+OWNED. Verified by restoring the exact dashboard bug and watching it fail.
 
-GET /api/decks now returns owned_cards, using the same rule as the deck view
-(utils/deckIdentity.js): exact printing AND finish, collection rows only, minus
-copies already claimed by a higher-priority requirement, capped at what the
-deck needs. Verified against the real dev database -- the new figure agrees
-with the deck detail view on every deck, which is the number Zach trusts.
+The dashboard's "X of Y cards" line had the same fault and now reads owned too.
 
-Two wrong answers before that one, both caught by measuring rather than
-reasoning: the table is `collection`, not `user_collection`; and
-deck_card_allocations is legacy -- routes/decks.js only ever DELETEs from it
-and dev holds zero rows, so reading it would have reported 0% for every deck.
+TOTAL DECK VALUE.
 
-ALSO IN THIS COMMIT
+Zach: "I wanted the price on the deck list to show the total cost of the deck
+not just the missing total cost."
 
-Deck cost. The row now says "94 missing · $181.78", and a card with no cached
-price contributes nothing rather than zeroing the total -- an unknown price is
-not a free card, and the row says so.
+I built the missing-cost figure because I was thinking about the buylist; he
+was asking what the deck is worth. Both numbers already came from the endpoint,
+so this is a display change. The row now leads with the value and qualifies it
+with the shortfall -- "$181.78 · 94 missing · $174.06" -- because a deck's
+worth and its cost to finish are two different questions and collapsing them
+would lose whichever one he needed.
 
-Two labelled buttons in selection mode, per Zach: "maybe when selecting decks
-it should be 2 buttons that show one for delete and then another for export".
-A bare trash icon beside an export button is ambiguous, and one of them
-destroys work. Delete is outlined, not filled: filled reads as the primary
-action and it is not.
-
-Card detail in the deck view. READ-ONLY, and that matters: CardInspectorModal
-edits a COLLECTION entry by id, and a deck card's id is a deck_cards row.
-Passing one straight through would PUT to /api/collection/<deck_cards.id> and
-silently rewrite whichever collection row shares that number -- on a card the
-user is not even looking at. The modal now refuses to save in read-only mode
-rather than trusting every future caller to remember.
-
-TESTS: deckCompletion.test.js, DC-TC1 to DC-TC6. Four verified by
-reintroducing the bug: the ring reading total_cards (Zach's exact report), a
-copy claimed by two decks counted twice, a spare copy pushing a deck over its
-requirement, and finish ignored so a foil counts as its nonfoil.
+DC-TC8 initially PASSED while the displayed value was hardcoded to zero,
+because it only asserted that the identifier `deck.deckValue` appeared
+somewhere in the file. A test that a name exists is not a test that a number
+reaches the screen. It now checks the rendered expression, and was verified by
+hardcoding the value and watching it fail.
 
 343 tests pass, lint and build clean.

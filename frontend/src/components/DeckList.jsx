@@ -246,6 +246,16 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                     {deck.name}
                   </span>
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                    {/* Deck value first -- that is what he asked for -- then
+                        what is still missing, which is the number he buys
+                        against. A card with no cached price contributes
+                        nothing rather than reading as free. */}
+                    {deck.deckValue > 0 && (
+                      <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        ${deck.deckValue.toFixed(2)}
+                      </span>
+                    )}
+                    {deck.deckValue > 0 && ' · '}
                     {missing
                       ? t('deck.missingWithCost', {
                           count: missing,

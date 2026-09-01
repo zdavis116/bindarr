@@ -15,7 +15,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -70,4 +70,57 @@ test('DC-TC6: an unknown price is not reported as free', () => {
   // which is the number Zach buys against.
   assert.match(list, /deck\.priceUnknown/,
     'the row must be able to say the price is unknown');
+});
+
+// --- DC-TC7: NO SCREEN MAY COMPUTE COMPLETION FROM total_cards -------------
+//
+// Zach, after the DeckList fix shipped: "The dashboard still shows the deck
+// list percentage in correctly."
+//
+// I fixed one reader and never looked for the other. Dashboard.jsx had the
+// identical (total_cards / target_size), so the same deck showed 97% there for
+// the same reason.
+//
+// The ownership rule lives in SQL precisely so every screen reads ONE number.
+// A per-file fix cannot enforce that; this checks every component instead, so
+// the next screen to render a completion figure cannot quietly reintroduce it.
+
+test('DC-TC7: no component divides total_cards by target_size', () => {
+  const dir = here;
+  const files = readdirSync(dir).filter(f => f.endsWith('.jsx'));
+  const offenders = [];
+
+  for (const f of files) {
+    const src = readFileSync(join(dir, f), 'utf8');
+    // Strip comments -- discussing the old bug is fine, computing it is not.
+    const code = src
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter(l => !l.trim().startsWith('//'))
+      .join('\n');
+
+    // total_cards appearing anywhere near a division by the target size.
+    if (/total_cards[^\n]{0,80}\/[^\n]{0,40}target_size/.test(code)
+        || /target_size[^\n]{0,80}total_cards/.test(code)) {
+      offenders.push(f);
+    }
+  }
+
+  assert.deepEqual(offenders, [],
+    `these compute completion from cards LISTED rather than cards OWNED: ${offenders.join(', ')}`);
+});
+
+test('DC-TC8: the deck list states what the whole deck is worth', () => {
+  // Zach: "I wanted the price on the deck list to show the total cost of the
+  // deck not just the missing total cost." Both figures come from the
+  // endpoint; the value is the headline and the shortfall qualifies it.
+  assert.match(route, /AS deck_value/, 'the endpoint must return a deck value');
+  // The rendered figure must be formatted FROM the field. Asserting only that
+  // the identifier appears somewhere passes even when the displayed number is
+  // hardcoded -- verified: this test used to pass with ${(0).toFixed(2)}.
+  assert.match(list, /\$\{deck\.deckValue\.toFixed\(2\)\}/,
+    'the deck value shown must come from deck_value, not a literal');
+  assert.match(list, /deck\.deckValue > 0/,
+    'and a deck with no priced cards must not claim to be worth $0.00');
 });
