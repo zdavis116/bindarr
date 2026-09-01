@@ -1281,5 +1281,11 @@
   "admin.seedFailed": "Could not generate test cards",
   "admin.loading": "Loading…",
   "settings.scryfall": "Scryfall",
-  "settings.scryfallSyncs": "Cards · {count} · nightly"
+  "settings.scryfallSyncs": "Cards · {count} · nightly",
+  "deck.deleteFailed": "Could not delete that deck",
+  "deck.importOptional": "Paste a decklist (optional)",
+  "deck.importFailed": "The deck was created, but the decklist could not be imported",
+  "deck.importedAll": "Deck created with {count} cards",
+  "deck.importedPartial": "Deck created with {count} cards. {unresolved} could not be matched.",
+  "deck.importNeedsCommander": "Choose a commander first — the list is checked against its colours."
 }

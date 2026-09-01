@@ -42,6 +42,9 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
   const [commander, setCommander] = useState(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
+  // Optional decklist pasted at creation. Empty = an empty deck, which stays
+  // the default path.
+  const [decklist, setDecklist] = useState('');
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -92,6 +95,10 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
     if (!f.commander) { setCommander(null); setQuery(''); setResults([]); }
   };
 
+  // A pasted list cannot be imported into a Commander deck that has no
+  // commander: the server refuses with COMMANDER_ZONE_EMPTY.
+  const importBlocked = Boolean(decklist.trim()) && format.commander && !commander;
+
   const canCreate = format.commander ? !!commander : true;
 
   const submit = async () => {
@@ -112,6 +119,11 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
         commanders: format.commander && commander
           ? [{ desired_card_id: commander.id, desired_finish: 'nonfoil' }]
           : [],
+        // Optional pasted decklist. The PARENT imports it after the deck
+        // exists, because the endpoint is POST /api/decks/:id/import -- there
+        // is no create-and-import call, and inventing one would mean a second
+        // write path to keep in step with the first.
+        decklist: decklist.trim(),
       });
     } catch (err) {
       showToast(err?.message || t('deck.createFailed'), 'error');
@@ -237,6 +249,42 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
       </div>
 
       {/* The button says WHY it is disabled rather than just being grey. */}
+      {/* PASTE A DECKLIST. Zach: "would be nice to have import functionality
+          that allows you to import a deck list to create a deck from it."
+
+          The import machinery already existed and worked -- preview, per-line
+          printing choices, apply -- but nothing called it after the deck-list
+          rebuild. This is an entry point, not new machinery. */}
+      <div style={{ padding: '0 1rem 1rem' }}>
+        <div style={{ maxWidth: 680, margin: '0 auto' }}>
+          <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600,
+                         color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+            {t('deck.importOptional')}
+          </span>
+          <textarea
+            value={decklist}
+            onChange={(e) => setDecklist(e.target.value)}
+            placeholder={'1 Sol Ring\n1 Arcane Signet\n10 Mountain'}
+            rows={4}
+            aria-label={t('deck.importOptional')}
+            style={{ width: '100%', padding: '0.6rem 0.75rem',
+                     borderRadius: 'var(--radius-md)',
+                     border: '1px solid var(--border-glass)',
+                     background: 'var(--surface-2)', color: 'var(--text-primary)',
+                     font: 'inherit', fontSize: '0.85rem', lineHeight: 1.5,
+                     resize: 'vertical', boxSizing: 'border-box' }}
+          />
+          <span style={{ display: 'block', fontSize: '0.72rem', marginTop: '0.3rem',
+                         color: importBlocked ? 'var(--accent-yellow)' : 'var(--text-muted)' }}>
+            {/* SAYS SO BEFORE THE TAP, not after. The server refuses an import
+                into a commander deck with an empty command zone -- it has no
+                colour identity to judge the list against -- and that is not
+                something you could guess from a paste box. */}
+            {importBlocked ? t('deck.importNeedsCommander') : t('deck.importHint')}
+          </span>
+        </div>
+      </div>
+
       <div style={{ padding: '0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px))',
                     borderTop: '1px solid var(--border-glass)' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>

@@ -1037,15 +1037,50 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
         onClose={() => setShowCreateModal(false)}
         showToast={showToast}
         onCreate={async (payload) => {
+          // The decklist is NOT part of the create call -- POST /api/decks
+          // does not read it, and sending an unread field makes it look saved.
+          const { decklist, ...deckFields } = payload;
+
           const res = await fetch('/api/decks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(deckFields),
           });
           const body = await res.json().catch(() => null);
           if (!res.ok) throw new Error(body?.error || t('deck.createFailed'));
+
           setShowCreateModal(false);
-          showToast(t('deck.created'), 'success');
+
+          // THE DECK EXISTS NOW, so a failed import is not a failed create.
+          // Reported separately for that reason: losing the decklist is
+          // annoying, losing the deck would be worse, and conflating them
+          // would suggest the whole thing failed.
+          let imported = null;
+          if (decklist && body?.id) {
+            try {
+              imported = await postImport(body.id, decklist, { apply: true });
+            } catch (err) {
+              showToast(err?.message || t('deck.importFailed'), 'error');
+            }
+          }
+
+          if (imported) {
+            // Real field names, verified at routes/decks.js:1752.
+            const written = imported.summary?.written_copies ?? 0;
+            const unresolved = imported.summary?.unresolved_copies ?? 0;
+            // STATES WHAT DID NOT LAND. A silent partial import leaves a deck
+            // that looks complete and is not -- the wrong-record failure, and
+            // the one Zach minds most.
+            showToast(
+              unresolved > 0
+                ? t('deck.importedPartial', { count: written, unresolved })
+                : t('deck.importedAll', { count: written }),
+              unresolved > 0 ? 'error' : 'success',
+            );
+          } else {
+            showToast(t('deck.created'), 'success');
+          }
+
           await fetchDecks();
           if (body?.id) loadDeckDetails(body.id);
         }}

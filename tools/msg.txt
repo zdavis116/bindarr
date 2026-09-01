@@ -1,37 +1,54 @@
-Fold the card catalogue under the Scryfall source
+Make deck delete visible, and let a new deck start from a pasted list
 
-Zach, after using the deployed Settings screen:
+Both from Zach using the deployed build.
 
-  "Data sources and card catalogue they weren't separated I feel like each data
-   source should have a drop down showing like details of what it's syncing.
-   Scryfall being cards and moxfield being decks as the example."
+DELETE EXISTED BUT COULD NOT BE FOUND. "Doesn't appear a way to delete decks."
 
-I had built two flat sections -- "Data sources" listing the catalogue, and
-"Card catalogue" holding its rows -- so the same subject appeared twice with no
-stated relationship between them. The mock draws both, and I followed the
-layout without asking what the two sections were FOR.
+It was onContextMenu on the deck-list row -- a long-press -- with nothing on
+screen saying so. That is the ELEVENTH control on this project that rendered,
+was wired correctly, passed every test and could not be found. The previous ten
+were hidden behind the nav bar or below the fold; this one was hidden behind a
+gesture, which is the same failure with a different cause. A long-press is a
+shortcut for people who already know; it cannot be the only way to reach a
+destructive action.
 
-His reading is better than mine and better than the mock's literal shape: the
-catalogue rows ARE the Scryfall source's detail, so they belong under it,
-revealed by tapping. Scryfall syncs CARDS; Moxfield will sync DECKS.
+The button now lives in the DECK VIEW rather than the list row: this screen
+shows what is about to be destroyed, and a list row is a mis-tap waiting to
+happen. The confirmation names the deck and states its size, because an unnamed
+"are you sure" reads the same whether it holds two cards or a hundred.
 
-It is also the shape that extends. Moxfield becomes a second source with its
-own detail rows rather than needing another top-level section -- which is
-exactly what the flat layout could not have absorbed, and the reason the
-duplication would have got worse rather than stayed cosmetic.
+IMPORT A DECKLIST WHEN CREATING A DECK.
 
-The row now states what the source syncs ("Cards · 105,473 · nightly") instead
-of only naming it, and the chevron ROTATES when open. That last part is not
-decoration: a row that expands with no visual change is the failure this
-project keeps hitting -- it renders, it works, and nothing tells you it did
-anything.
+The machinery already existed and worked -- postImport, preview/apply, per-line
+printing choices, the whole modal at DeckBuilder.jsx:1183. Nothing had called
+setShowImportModal(true) since the deck-list rebuild, so an entire feature was
+orphaned. This is an entry point, not new machinery.
 
-Moxfield stays absent until the integration exists.
+The new-deck modal gains an optional paste box. Empty creates an empty deck,
+which stays the default. The decklist is STRIPPED from the create body rather
+than passed through, because POST /api/decks does not read it and an unread
+field looks like it was saved -- the same lie as the bracket picker that had
+nowhere to store its answer.
 
-TESTS: settingsSources.test.js, SET-TC1 to SET-TC6. Three were verified by
-reintroducing the bug -- detail rendered outside the expanded source, a chevron
-that does not rotate, and a source that names itself without saying what it
-syncs. TC6 also asserts no Moxfield locale keys, since a shipped string implies
-a shipped feature.
+TESTED AGAINST THE RUNNING SERVER, and it failed the first time:
+
+  HTTP 409 COMMANDER_ZONE_EMPTY -- "This Commander deck has no commander, so
+  there is no colour identity to judge an imported list against."
+
+That refusal is correct and stays. But the modal lets a Commander deck be
+created without a commander, so the paste box now says the import will not run
+BEFORE the tap, rather than accepting the text and reporting a failure the user
+could not have predicted.
+
+Verified end to end afterwards: 13 requested, 12 written, 1 unresolved (a
+deliberately fake card name), reported rather than silently dropped.
+
+I ALSO INVENTED THE RESPONSE SHAPE AGAIN. The import returns
+{ applied, lines, cards, warnings, summary } with counts in summary
+(written_copies, unresolved_copies); I read `written` and `unresolved`. That
+would have shown "0 cards imported" on a completely successful import. Third
+invented shape on this branch after the buylist `price` and two Settings
+endpoints -- the pattern is writing the client first and reading the server
+after.
 
 343 tests pass, lint and build clean.

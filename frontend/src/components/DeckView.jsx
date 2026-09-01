@@ -332,6 +332,28 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     .filter(c => c.desired_card_id === cardId)
     .reduce((n, c) => n + (c.quantity || 0), 0);
 
+  const confirmDelete = async () => {
+    // NAMES the deck and states its size. A deck is minutes of work to
+    // rebuild, and an unnamed "are you sure" reads the same whether it holds
+    // two cards or a hundred.
+    const total = deckCards.reduce((n, c) => n + (c.quantity || 0), 0);
+    if (!window.confirm(t('deck.confirmDelete', { name: deck.name, count: total }))) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/decks/${deck.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || t('deck.deleteFailed'));
+      }
+      showToast(t('deck.deleted'), 'success');
+      onBack();
+    } catch (err) {
+      showToast(err.message || t('deck.deleteFailed'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const missingCards = deckCards.filter(c => (c.quantity_missing || 0) > 0);
 
 
@@ -767,6 +789,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         </>
       )}
+
+      {/* DELETE. Zach: "Doesn't appear a way to delete decks."
+          It existed only as a long-press on the deck-list row, with nothing on
+          screen saying so -- the tenth control on this project that rendered,
+          worked, and could not be found.
+          It lives HERE rather than on the list because this screen shows what
+          is about to be destroyed, and a list row is a mis-tap waiting to
+          happen. */}
+      <button
+        onClick={confirmDelete}
+        disabled={busy}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
+          width: '100%', minHeight: 46, marginTop: '1.5rem',
+          borderRadius: 'var(--radius-md)', border: '1px solid var(--accent-red)',
+          background: 'transparent', color: 'var(--accent-red)',
+          font: 'inherit', fontSize: '0.9rem', fontWeight: 600,
+          cursor: busy ? 'wait' : 'pointer',
+        }}
+      >
+        <Trash2 size={15} />
+        {t('deck.deleteDeck')}
+      </button>
 
       <ExportModal
         open={exportOpen}
