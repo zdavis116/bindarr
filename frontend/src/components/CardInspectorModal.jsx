@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Z_MODAL } from '../utils/zLayers';
-import { X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
+import { RefreshCw, X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { displayName, secondaryName } from '../utils/cardName';
 import { tcgplayerUrl, cardmarketUrl, priceSource, noLinkReason } from '../utils/marketplaceLinks';
@@ -54,6 +54,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   useBackGuard(isFullScreen, () => setIsFullScreen(false));
 
   const targetEntryId = card?.entry_id || card?.id;
+  // Which face is showing. Only meaningful when the card HAS a back face.
+  const [showBack, setShowBack] = useState(false);
 
   useEffect(() => {
     fetch('/api/locations')
@@ -67,6 +69,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     hasToggledRef.current = false;
     // readOnly wins: a deck card has no collection entry to edit.
     setMode(startInEdit && !readOnly ? 'edit' : 'view');
+    // Always open on the front: carrying the flipped state into the next
+    // card would show a face the user did not ask for.
+    setShowBack(false);
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.finish || 'nonfoil');
@@ -253,8 +258,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
             style={{ position: 'relative', width: '100%', maxWidth: '300px', cursor: 'pointer' }}
           >
             <img
-              src={card.image_url}
-              alt={card.name}
+              src={showBack && card.back_image_url ? card.back_image_url : card.image_url}
+              alt={showBack && card.back_name ? card.back_name : card.name}
               style={{
                 width: '100%',
                 aspectRatio: 0.718,
@@ -264,6 +269,26 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 transition: 'transform 0.2s ease'
               }}
             />
+            {/* FLIP. Rendered only when there IS a second face -- a
+                single-faced card must not grow a button that does nothing. */}
+            {card.back_image_url && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowBack(v => !v); }}
+                style={{
+                  position: 'absolute', right: 10, bottom: 10,
+                  display: 'flex', alignItems: 'center', gap: '0.35rem',
+                  minHeight: 34, padding: '0 0.7rem',
+                  borderRadius: 'var(--radius-md)', border: 0,
+                  background: 'rgba(0,0,0,0.72)', color: '#fff',
+                  font: 'inherit', fontSize: '0.78rem', fontWeight: 600,
+                  cursor: 'pointer', zIndex: 2,
+                }}
+              >
+                <RefreshCw size={13} />
+                {showBack ? card.name : card.back_name}
+              </button>
+            )}
             <div style={{
               position: 'absolute',
               bottom: '0.6rem',

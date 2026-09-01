@@ -883,7 +883,11 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
       }));
     }
 
+    // Both, in this order: the deck the user is looking at, then the list they
+    // will return to. Reloading only the deck leaves the list showing the row
+    // as it was BEFORE the import wrote anything.
     await loadDeckDetails(activeDeck.id);
+    await fetchDecks();
     setImportText('');
     setImportComparison(null);
     setImportSummary(null);
@@ -1056,6 +1060,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
           // annoying, losing the deck would be worse, and conflating them
           // would suggest the whole thing failed.
           let imported = null;
+          let needsChoices = false;
           if (decklist && body?.id) {
             try {
               // PREVIEW FIRST. A bare card name with no set code is ambiguous
@@ -1078,6 +1083,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
                 setImportComparison(preview?.lines || []);
                 setImportChoices({});
                 setShowImportModal(true);
+                needsChoices = true;
                 showToast(
                   t('deck.importNeedsChoices', { count: needsChoice.length }),
                   'error',
@@ -1105,8 +1111,17 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
             showToast(t('deck.created'), 'success');
           }
 
+          // REFRESH AFTER THE IMPORT SETTLES, not before it.
+          //
+          // fetchDecks() was already awaited here, but it ran before the
+          // import had written anything, so the new row showed an empty deck
+          // at 0% until a manual reload. The list must reflect what is
+          // actually in the database now.
           await fetchDecks();
-          if (body?.id) loadDeckDetails(body.id);
+
+          // Do NOT navigate away while the printing picker is open: he has
+          // lines to resolve, and the deck view would hide them.
+          if (body?.id && !needsChoices) loadDeckDetails(body.id);
         }}
       />
 

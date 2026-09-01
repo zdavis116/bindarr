@@ -526,7 +526,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                        color: 'var(--text-primary)', font: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {c.name}
+                  {c.display_name || c.name}
                 </span>
                 <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)',
                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -664,7 +664,10 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600,
                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {card.name}
+                        {/* Both faces, as every Magic site shows them. Falls
+                            back to the front-face name for single-faced cards,
+                            where display_name is deliberately null. */}
+                        {card.display_name || card.name}
                       </span>
                       <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                         {card.set_name}

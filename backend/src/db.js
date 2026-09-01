@@ -406,6 +406,10 @@ async function initDb() {
       -- from the real card name: 'Splinter, Vengeful Sensei' over 'Ink-Eyes,
       -- Servant of Oni'. NULL for the ~99% of cards without one.
       flavor_name TEXT,
+      display_name TEXT,
+      back_image_url TEXT,
+      back_name TEXT,
+      back_type_line TEXT,
       supertype TEXT,
       subtypes TEXT,
       types TEXT,
@@ -957,6 +961,17 @@ async function initDb() {
     await run(`ALTER TABLE locations ADD COLUMN foil_sorting TEXT DEFAULT 'normals_first'`);
   }
   const usersCols = await all(`PRAGMA table_info(users)`);
+  // Double-faced display fields. Added rather than backfilled: the next
+  // catalogue refresh populates them for every card, and until then a NULL
+  // back_image_url simply means "no flip side to show" -- which is true for
+  // every single-faced card anyway.
+  const cardCols = await all(`PRAGMA table_info(card_cache)`);
+  for (const col of ['display_name', 'back_image_url', 'back_name', 'back_type_line']) {
+    if (!cardCols.some(c => c.name === col)) {
+      await run(`ALTER TABLE card_cache ADD COLUMN ${col} TEXT`);
+    }
+  }
+
   if (!usersCols.some(c => c.name === 'share_locations')) {
     await run(`ALTER TABLE users ADD COLUMN share_locations INTEGER DEFAULT 0`);
   }

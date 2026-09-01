@@ -66,8 +66,17 @@ function maxPersistentZIndex(text) {
 
 // The overlay's own z-index, as written in the component.
 function overlayZIndex(text) {
-  const m = text.match(/position:\s*'fixed',\s*inset:\s*0[\s\S]{0,900}?zIndex:\s*(\d+)/);
-  return m ? Number(m[1]) : null;
+  const literal = text.match(/position:\s*'fixed',\s*inset:\s*0[\s\S]{0,900}?zIndex:\s*(\d+)/);
+  if (literal) return Number(literal[1]);
+
+  // A NAMED CONSTANT is preferred over a literal: zLayers.js is the one place
+  // these values live, with the reason attached, and fixedSurfaceStacking
+  // enforces them there. Resolve it rather than demanding a magic number.
+  const named = text.match(/position:\s*'fixed',\s*inset:\s*0[\s\S]{0,900}?zIndex:\s*(Z_[A-Z_]+)/);
+  if (!named) return null;
+  const layers = readFileSync(join(src, 'utils/zLayers.js'), 'utf8');
+  const def = layers.match(new RegExp(named[1] + '\\s*=\\s*(\\d+)'));
+  return def ? Number(def[1]) : null;
 }
 
 // TC1: the overlay declares a z-index at all. A fixed, full-screen element with
