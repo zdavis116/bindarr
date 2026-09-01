@@ -408,7 +408,13 @@ router.post('/refresh-catalogue', async (req, res) => {
   // FIRE AND FORGET. A full refresh takes minutes; holding the request open
   // would time the browser out and report a failure while the work continued.
   // The client polls GET /api/settings/catalogue to see the result.
-  cardCatalogue.refreshCatalogue({ lockLabel: 'manual' }).catch((err) => {
+  // FORCE. A manual refresh is a deliberate act -- the caller knows the
+  // catalogue needs rebuilding even when Scryfall's build stamp is unchanged,
+  // which is exactly the case after a schema change adds columns that every
+  // cached row must be re-normalised to fill. Without this the button reports
+  // success and does nothing.
+  const force = req.query.force !== '0';
+  cardCatalogue.refreshCatalogue({ lockLabel: 'manual', force }).catch((err) => {
     console.error('Manual catalogue refresh failed:', err.message);
   });
 
