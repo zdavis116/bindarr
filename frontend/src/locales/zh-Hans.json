@@ -1197,5 +1197,8 @@
   "inspector.manaCost": "法术力费用",
   "inspector.colorIdentity": "色彩标识",
   "inspector.manaValue": "法术力值",
-  "inspector.rarity": "稀有度"
+  "inspector.rarity": "稀有度",
+  "inspector.thisPrinting": "此印刷",
+  "inspector.ownNoneOfThese": "你都没有",
+  "inspector.covered": "已满足"
 }

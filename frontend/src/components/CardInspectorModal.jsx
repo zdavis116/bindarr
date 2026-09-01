@@ -88,6 +88,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setShowBack(false);
     setTab('card');
     setDeckUse(null);
+    deckFetchFor.current = null;
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.finish || 'nonfoil');
@@ -103,21 +104,36 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   // Load the Decks tab on demand. Most opens never leave the Card tab, so
   // fetching this up front would cost a request per card view for data that is
   // usually not looked at.
+  // IN-FLIGHT GUARD AS A REF, NOT STATE.
+  //
+  // This effect used to list deckUseLoading as a dependency AND set it, so it
+  // cancelled its own request: setting the flag re-ran the effect, the
+  // previous run's cleanup set cancelled = true, and the response that
+  // arrived afterwards was thrown away by a closure that no longer trusted
+  // itself. setDeckUse was never called and the spinner ran forever.
+  //
+  // "A request is in flight" is not something the UI renders, so it must not
+  // drive a re-render or re-run.
+  const deckFetchFor = useRef(null);
+
   useEffect(() => {
     // Fetched for BOTH tabs that need it. Still lazy: the Card tab is the
     // default and never triggers a request.
-    if ((tab !== 'decks' && tab !== 'yours') || !card?.id || deckUse || deckUseLoading) return;
+    if (tab !== 'decks' && tab !== 'yours') return;
+    if (!card?.id || deckUse) return;
+    if (deckFetchFor.current === card.id) return;
+
+    deckFetchFor.current = card.id;
     let cancelled = false;
     setDeckUseLoading(true);
-    // Routers mount at bare /api -- see server.js:250. Verified against the
-    // running server rather than assumed.
+    // Routers mount at bare /api -- see server.js:250.
     fetch(`/api/card/${card.id}/decks`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (!cancelled && d) setDeckUse(d); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setDeckUseLoading(false); });
     return () => { cancelled = true; };
-  }, [tab, card?.id, deckUse, deckUseLoading]);
+  }, [tab, card?.id, deckUse]);
 
   const handleClose = () => {
     if (hasToggledRef.current && onUpdate) {
@@ -577,6 +593,17 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 {/* THIS PRINTING. Scoped deliberately: Bindarr records the
                     exact physical card, so "how many do I own" is a question
                     about MSH #80, not about Tony Stark in general. */}
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                    textTransform: 'uppercase', color: 'var(--text-muted)',
+                    marginBottom: '0.4rem',
+                  }}>
+                  <span>{t('inspector.thisPrinting')}</span>
+                  <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
+                    {(card.set_id || '').toUpperCase()} #{card.number}
+                  </span>
+                </div>
                 <div style={{
                   background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                   borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem',
@@ -613,7 +640,15 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                       fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
                       textTransform: 'uppercase', color: 'var(--text-muted)',
                       marginBottom: '0.4rem',
-                    }}>{t('inspector.otherPrintings')}</div>
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    }}>
+                      <span>{t('inspector.otherPrintings')}</span>
+                      {/* States the fact plainly rather than leaving him to
+                          infer it from an absence. */}
+                      <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
+                        {t('inspector.ownNoneOfThese')}
+                      </span>
+                    </div>
                     <div style={{
                       background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                       borderRadius: 'var(--radius-md)', overflow: 'hidden',
@@ -778,7 +813,15 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                     </div>
                   )}
 
-                  {deckUse && deckUse.decks.length > 0 && (
+                  {deckUse && deckUse.decks.length > 0 && (<>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                    textTransform: 'uppercase', color: 'var(--text-muted)',
+                    marginBottom: '0.4rem',
+                  }}>
+                    <span>{t('inspector.inYourDecks')}</span>
+                  </div>
                     <div style={{
                       background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-glass)', overflow: 'hidden',
@@ -812,18 +855,33 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                               Zach: "if we are going to show a card in a deck
                               even if its in considering then we should note
                               that." */}
-                          {d.board === 'considering' && (
-                            <span style={{ flexShrink: 0, fontSize: '0.7rem',
-                                           color: 'var(--text-muted)' }}>
-                              {t('inspector.considering')}
-                            </span>
-                          )}
+                          {/* Considering is LABELLED, not flagged as a fault.
+                              A real requirement says whether it is COVERED --
+                              the question the tab exists to answer. */}
+                          <span style={{
+                            flexShrink: 0, fontSize: '0.7rem', fontWeight: 600,
+                            color: d.board === 'considering'
+                              ? 'var(--text-muted)'
+                              : 'var(--accent-green)',
+                          }}>
+                            {d.board === 'considering'
+                              ? t('inspector.considering')
+                              : t('inspector.covered')}
+                          </span>
                         </div>
                       ))}
                     </div>
-                  )}
+                  </>)}
 
-                  {deckUse && (
+                  {deckUse && (<>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                    textTransform: 'uppercase', color: 'var(--text-muted)',
+                    marginBottom: '0.4rem',
+                  }}>
+                      <span>{t('inspector.availability')}</span>
+                    </div>
                     <div style={{
                       background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-glass)', overflow: 'hidden',
@@ -842,7 +900,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                         </div>
                       ))}
                     </div>
-                  )}
+                  </>)}
 
                   {/* ADD TO A DECK -- only here. Zach: "on the card tab remove
                       the add to deck button should only show on the deck tab."

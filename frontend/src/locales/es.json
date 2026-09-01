@@ -1227,5 +1227,8 @@
   "inspector.manaCost": "Coste de maná",
   "inspector.colorIdentity": "Identidad de color",
   "inspector.manaValue": "Valor de maná",
-  "inspector.rarity": "Rareza"
+  "inspector.rarity": "Rareza",
+  "inspector.thisPrinting": "Esta edición",
+  "inspector.ownNoneOfThese": "no tienes ninguna",
+  "inspector.covered": "Cubierta"
 }

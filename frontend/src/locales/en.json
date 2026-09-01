@@ -1312,5 +1312,8 @@
   "inspector.manaCost": "Mana cost",
   "inspector.colorIdentity": "Colour identity",
   "inspector.manaValue": "Mana value",
-  "inspector.rarity": "Rarity"
+  "inspector.rarity": "Rarity",
+  "inspector.thisPrinting": "This printing",
+  "inspector.ownNoneOfThese": "you own none of these",
+  "inspector.covered": "Covered"
 }
