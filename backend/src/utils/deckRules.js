@@ -236,6 +236,28 @@ async function buildDeckWarnings(database, deck, entries) {
     // that -- it is a foundation that can never become legal -- so it refuses.
   }
 
+  // DECK SIZE. Counted from the entries that are actually IN the deck --
+  // reserving requirements plus the command zone. A 'considering' entry is a
+  // shopping note and must not push a legal deck over its limit.
+  //
+  // The commander counts toward the 100: that is how Commander works, and a
+  // count that excluded it would tell him 100 while he holds 101 cards.
+  if (deck && deck.target_size) {
+    const inDeck = entries.reduce((sum, entry) => {
+      if (entry.board === 'considering') return sum;
+      return sum + (entry.quantity_required || entry.quantity || 0);
+    }, 0);
+
+    if (inDeck > deck.target_size) {
+      warnings.push({
+        code: 'DECK_OVER_SIZE',
+        message: `This deck holds ${inDeck} cards but its limit is `
+          + `${deck.target_size}. Remove ${inDeck - deck.target_size} `
+          + `${inDeck - deck.target_size === 1 ? 'card' : 'cards'} before playing it.`,
+      });
+    }
+  }
+
   return warnings;
 }
 

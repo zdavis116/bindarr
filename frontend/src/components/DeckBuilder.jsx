@@ -1053,7 +1053,10 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
           const body = await res.json().catch(() => null);
           if (!res.ok) throw new Error(body?.error || t('deck.createFailed'));
 
-          setShowCreateModal(false);
+          // DO NOT CLOSE YET. The deck row exists, but an import may still have
+          // 100 lines to write, and dismissing here shows a finished-looking
+          // screen over a list that has not been refreshed. The modal holds
+          // its saving state until the work is actually done.
 
           // THE DECK EXISTS NOW, so a failed import is not a failed create.
           // Reported separately for that reason: losing the decklist is
@@ -1118,6 +1121,10 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
           // at 0% until a manual reload. The list must reflect what is
           // actually in the database now.
           await fetchDecks();
+
+          // NOW the modal can go: the deck exists, the import has finished,
+          // and the list behind it holds the real numbers.
+          setShowCreateModal(false);
 
           // Do NOT navigate away while the printing picker is open: he has
           // lines to resolve, and the deck view would hide them.
