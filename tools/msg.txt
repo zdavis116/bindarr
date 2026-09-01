@@ -1,42 +1,37 @@
-Restyle the scanned list to match the rebuilt screens
+Fold the card catalogue under the Scryfall source
 
-Zach: "scanned list should get a restyle to follow suit."
+Zach, after using the deployed Settings screen:
 
-PRESENTATION ONLY. This is the screen where a wrong record costs a recount
-against cardboard, so the diff was checked for logic rather than eyeballed for
-colour: every non-style change is a button className swap or a `type="button"`
-reflow. Verified still in place afterwards -- flagged rows first, the 33-49
-weak-match band, solid-yellow borders for unresolved and dashed for weak.
+  "Data sources and card catalogue they weren't separated I feel like each data
+   source should have a drop down showing like details of what it's syncing.
+   Scryfall being cards and moxfield being decks as the example."
 
-WHAT CHANGED:
+I had built two flat sections -- "Data sources" listing the catalogue, and
+"Card catalogue" holding its rows -- so the same subject appeared twice with no
+stated relationship between them. The mock draws both, and I followed the
+layout without asking what the two sections were FOR.
 
-  * --type-grass -> --accent-green. The old name is from the Pokemon-era
-    palette; index.css already aliases it, but a Magic card has no grass type
-    and the rebuilt screens do not use it.
-  * --text-strong -> --text-primary, hardcoded rgba panels -> --surface-N,
-    literal radii -> --radius-*.
-  * Rows drop .glass-panel for an explicit --surface-1 + --radius-md, which is
-    how Collection and the deck screens draw panels.
-  * .btn / .btn-primary / .btn-secondary become local flat shapes.
-    .btn-primary is a red gradient with a hover lift and a coloured shadow
-    (index.css:491) -- the most visible "different generation" tell on the
-    screen.
+His reading is better than mine and better than the mock's literal shape: the
+catalogue rows ARE the Scryfall source's detail, so they belong under it,
+revealed by tapping. Scryfall syncs CARDS; Moxfield will sync DECKS.
 
-The button shapes are LOCAL, not a redefinition of .btn in index.css. Those
-classes are used by screens that have not been rebuilt or reviewed, and Zach
-reviews the deployed build screen by screen; a change that silently reaches
-screens neither of us is looking at is exactly the kind not to make.
+It is also the shape that extends. Moxfield becomes a second source with its
+own detail rows rather than needing another top-level section -- which is
+exactly what the flat layout could not have absorbed, and the reason the
+duplication would have got worse rather than stayed cosmetic.
 
-Z-INDEX NOW USES THE SHARED CONSTANT. The overlay was a literal 1100 -- correct,
-and hard-won: Zach reported "Scanned page is still not functional no add all or
-you can see some of the other buttons are covered" when the nav drew over it.
-zLayers.js exists so that value lives in one place with the reason attached,
-and fixedSurfaceStacking.test.js enforces it -- so the one screen already
-bitten by this was the one screen the guard could not see. Now Z_FULLSCREEN.
+The row now states what the source syncs ("Cards · 105,473 · nightly") instead
+of only naming it, and the chevron ROTATES when open. That last part is not
+decoration: a row that expands with no visual change is the failure this
+project keeps hitting -- it renders, it works, and nothing tells you it did
+anything.
 
-CAUGHT BEFORE SHIPPING: the className swap left three buttons with TWO style
-props. React keeps the last silently, so those three would have rendered
-unstyled while looking correct in the source. Only eslint's
-jsx-no-duplicate-props saw it -- the build was happy.
+Moxfield stays absent until the integration exists.
+
+TESTS: settingsSources.test.js, SET-TC1 to SET-TC6. Three were verified by
+reintroducing the bug -- detail rendered outside the expanded source, a chevron
+that does not rotate, and a source that names itself without saying what it
+syncs. TC6 also asserts no Moxfield locale keys, since a shipped string implies
+a shipped feature.
 
 343 tests pass, lint and build clean.

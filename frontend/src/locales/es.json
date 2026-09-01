@@ -1194,5 +1194,7 @@
   "admin.seedDetail": "Adds sample data — development only",
   "admin.seedDone": "Test cards generated",
   "admin.seedFailed": "Could not generate test cards",
-  "admin.loading": "Loading…"
+  "admin.loading": "Loading…",
+  "settings.scryfall": "Scryfall",
+  "settings.scryfallSyncs": "Cards · {count} · nightly"
 }

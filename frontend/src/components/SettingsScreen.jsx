@@ -21,7 +21,7 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 
 // One row. Everything on this screen is a row: label, optional detail line,
 // and either a chevron (opens something) or a value (states a fact).
-function Row({ icon: Icon, label, detail, value, onClick, disabled, danger }) {
+function Row({ icon: Icon, label, detail, value, onClick, disabled, danger, expanded, indent }) {
   const interactive = Boolean(onClick) && !disabled;
   const Tag = interactive ? 'button' : 'div';
   return (
@@ -29,7 +29,8 @@ function Row({ icon: Icon, label, detail, value, onClick, disabled, danger }) {
       {...(interactive ? { onClick, type: 'button' } : {})}
       style={{
         display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%',
-        minHeight: 56, padding: '0.7rem 1rem', border: 0, textAlign: 'left',
+        minHeight: 56, padding: indent ? '0.7rem 1rem 0.7rem 2.6rem' : '0.7rem 1rem',
+        border: 0, textAlign: 'left',
         background: 'transparent', font: 'inherit',
         color: danger ? 'var(--accent-red)' : 'var(--text-primary)',
         cursor: interactive ? 'pointer' : 'default',
@@ -52,7 +53,18 @@ function Row({ icon: Icon, label, detail, value, onClick, disabled, danger }) {
           {value}
         </span>
       )}
-      {interactive && <ChevronRight size={16} style={{ opacity: 0.35, flexShrink: 0 }} />}
+      {interactive && (
+        <ChevronRight
+          size={16}
+          style={{
+            opacity: 0.35, flexShrink: 0,
+            // Rotated when open: the same glyph means "goes somewhere" when it
+            // points right and "expands here" when it points down.
+            transform: expanded ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms ease',
+          }}
+        />
+      )}
     </Tag>
   );
 }
@@ -88,6 +100,9 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   const [catalogue, setCatalogue] = useState(null);
   const [version, setVersion] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Which source has its detail open. One at a time -- a phone screen
+  // cannot show two expanded sources usefully.
+  const [sourceOpen, setSourceOpen] = useState(null);
   const importRef = useRef(null);
   const [shareEnabled, setShareEnabled] = useState(Boolean(user?.share_enabled));
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -184,50 +199,60 @@ function SettingsScreen({ user, onNavigate, showToast }) {
         {t('nav.settings')}
       </h2>
 
-      {/* DATA SOURCES. Moxfield is deliberately absent until it exists --
-          showing a source that cannot be connected invites the question "why
-          doesn't this work". */}
+      {/* DATA SOURCES. Each source expands to show what it actually syncs --
+          Scryfall syncs CARDS, and one day Moxfield will sync DECKS. The
+          catalogue rows are that detail, not a separate subject.
+
+          Moxfield is deliberately absent until the integration exists: showing
+          a source that cannot be connected invites "why doesn't this work". */}
       <Section title={t('settings.secDataSources')}>
         <Row
           icon={Link2}
-          label={t('settings.cardCatalogue')}
+          label={t('settings.scryfall')}
           detail={catalogue
-            ? t('settings.catalogueDetail', { count: fmt(catalogue.cards) })
+            ? t('settings.scryfallSyncs', { count: fmt(catalogue.cards) })
             : t('settings.loading')}
+          expanded={sourceOpen === 'scryfall'}
+          onClick={() => setSourceOpen(sourceOpen === 'scryfall' ? null : 'scryfall')}
         />
-      </Section>
 
-      <Section title={t('settings.secCatalogue')}>
-        <Row
-          label={t('settings.lastRefreshed')}
-          detail={catalogue?.scryfall_build
-            ? t('settings.scryfallBuild', { build: when(catalogue.scryfall_build, t) })
-            : undefined}
-          value={catalogue ? when(catalogue.refreshed_at, t) : '—'}
-        />
-        <Row
-          label={t('settings.automatic')}
-          detail={t('settings.automaticDetail')}
-          value={t('settings.on')}
-        />
-        <Row
-          icon={RefreshCw}
-          label={refreshing ? t('settings.refreshing') : t('settings.refreshNow')}
-          detail={t('settings.refreshDetail')}
-          disabled={refreshing || Boolean(catalogue?.running_since)}
-          onClick={async () => {
-            setRefreshing(true);
-            try {
-              const res = await fetch('/api/admin/refresh-catalogue', { method: 'POST' });
-              showToast(res.ok ? t('settings.refreshStarted') : t('settings.refreshFailed'));
-            } catch {
-              showToast(t('settings.refreshFailed'));
-            } finally {
-              setRefreshing(false);
-              loadCatalogue();
-            }
-          }}
-        />
+        {sourceOpen === 'scryfall' && (
+          <div style={{ background: 'var(--surface-2)' }}>
+            <Row
+              indent
+              label={t('settings.lastRefreshed')}
+              detail={catalogue?.scryfall_build
+                ? t('settings.scryfallBuild', { build: when(catalogue.scryfall_build, t) })
+                : undefined}
+              value={catalogue ? when(catalogue.refreshed_at, t) : '—'}
+            />
+            <Row
+              indent
+              label={t('settings.automatic')}
+              detail={t('settings.automaticDetail')}
+              value={t('settings.on')}
+            />
+            <Row
+              indent
+              icon={RefreshCw}
+              label={refreshing ? t('settings.refreshing') : t('settings.refreshNow')}
+              detail={t('settings.refreshDetail')}
+              disabled={refreshing || Boolean(catalogue?.running_since)}
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  const res = await fetch('/api/admin/refresh-catalogue', { method: 'POST' });
+                  showToast(res.ok ? t('settings.refreshStarted') : t('settings.refreshFailed'));
+                } catch {
+                  showToast(t('settings.refreshFailed'));
+                } finally {
+                  setRefreshing(false);
+                  loadCatalogue();
+                }
+              }}
+            />
+          </div>
+        )}
       </Section>
 
       <Section title={t('settings.secCollection')}>
