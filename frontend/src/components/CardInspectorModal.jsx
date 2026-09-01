@@ -1,12 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Z_MODAL } from '../utils/zLayers';
-import { RefreshCw, X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
-import { formatPrice } from '../utils/formatPrice';
+import { RefreshCw, X, Trash2, Star, Maximize2 } from 'lucide-react';
 import { displayName, secondaryName } from '../utils/cardName';
-import { tcgplayerUrl, cardmarketUrl, priceSource, noLinkReason } from '../utils/marketplaceLinks';
 import CardImageZoom from './CardImageZoom';
 import CardEntryFields from './CardEntryFields';
-import PriceHistoryChart from './PriceHistoryChart';
 import AddToDeckSelect from './AddToDeckSelect';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
@@ -19,23 +16,12 @@ const MTG_COLOR_FG = {
   White: '#3a3520', Blue: '#fff', Black: '#fff', Red: '#fff', Green: '#fff'
 };
 
-function getSlotNumber(c) {
-  if (!c) return null;
-  if (c.slot != null) return c.slot;
-  if (c.slot_number != null) return c.slot_number;
-  if (c.__slotNumber != null) return c.__slotNumber;
-  if (typeof c.position === 'number') {
-    if (c.position >= 1000) return Math.floor(c.position / 1000);
-    return Math.floor(c.position) + 1;
-  }
-  return null;
-}
 
 // Shared card detail popup used by Dashboard, CollectionList and LocationManager.
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
 // gets the same rich view + edit without duplicating the form. onUpdate() lets
 // the parent refetch after a change. onViewStorage is optional (hidden if absent).
-function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onViewStorage, startInEdit = false, readOnly = false }) {
+function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, startInEdit = false, readOnly = false }) {
   const { t } = useT();
   const [mode, setMode] = useState('view');
   const [locations, setLocations] = useState([]);
@@ -125,7 +111,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     // (206) -- card_id holds the catalogue id the endpoint needs. Sending the
     // entry id returned 404, so deckUse stayed null and BOTH the Decks tab and
     // the Yours tab's other-printings list rendered nothing.
-    const catalogueId = card?.card_id || card?.id;
+    // The catalogue id, from EITHER shape. A collection row carries card_id;
+    // a deck entry carries desired_card_id and puts its own row id in `id`.
+    // Falling back to `id` from a deck sends a deck_cards row number to a
+    // card_cache lookup -- 404, and an empty tab.
+    const catalogueId = card?.card_id || card?.desired_card_id || card?.id;
     if (!catalogueId || deckUse) return;
     if (deckFetchFor.current === catalogueId) return;
 
@@ -617,13 +607,23 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   {[
                     [t('inspector.copies'), `x${card.quantity ?? 1}`],
                     [t('inspector.finish'), card.finish || card.desired_finish || 'nonfoil'],
+                    // A DECK ENTRY HAS NO CONDITION. It is a requirement --
+                    // "this deck wants one nonfoil MSH #80" -- not a physical
+                    // card, so there is nothing to grade. Showing "Near Mint"
+                    // here would be a claim about cardboard that does not
+                    // exist, which is the wrong-record failure this app is
+                    // built to avoid.
                     [t('inspector.condition'), card.condition || null],
                     // ALWAYS SHOWN. The mockup draws this row reading "Not
                     // filed yet" when a card has no location -- dropping the
                     // row instead says nothing, and "no row" and "not filed"
                     // are different statements. Zach's copy is unfiled, which
                     // is exactly the case the mockup illustrates.
-                    [t('inspector.location'), card.location_name || t('inspector.notFiled')],
+                    // Same reasoning: only a card you OWN can be filed
+                    // somewhere. A deck requirement has no shelf.
+                    [t('inspector.location'), card.entry_id
+                      ? (card.location_name || t('inspector.notFiled'))
+                      : null],
                     [t('inspector.value'), card.price_trend
                       ? `$${(Number(card.price_trend) * (card.quantity ?? 1)).toFixed(2)}`
                       : null],
@@ -695,102 +695,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                   </div>
                 )}
 
-              <div style={{ borderTop: '1px solid var(--border-glass)', borderBottom: '1px solid var(--border-glass)', padding: '0.75rem 0', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-                <div>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t('inspector.marketPrice')}</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--accent-yellow)', marginTop: '0.15rem' }}>
-                    ${formatPrice(card.price_trend)}
-                  </div>
-                  {/* Say where a non-English price came from and in what currency —
-                      it is Cardmarket's EUR figure rendered with the app's $. */}
-                  {priceSource(card) && (
-                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                      {t('inspector.priceVia', { source: priceSource(card).name, currency: priceSource(card).currency })}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t('inspector.purchaseValue')}</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-strong)', marginTop: '0.15rem' }}>
-                    ${formatPrice(card.purchase_price)}
-                  </div>
-                </div>
-              </div>
+              {/* The legacy price/chart/specs panel lived here. Removed at
+                  Zach's request -- "Why is that view still in the yours section
+                  it should go just should be edit button section." It is not in
+                  the mockup and it repeated what the blocks above already say:
+                  Condition twice, Location twice under two different names.
 
-              {/* Marketplace links are rendered only when they can resolve. */}
-              {(tcgplayerUrl(card) || cardmarketUrl(card)) ? (
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {tcgplayerUrl(card) && (
-                    <a
-                      href={tcgplayerUrl(card)} target="_blank" rel="noopener noreferrer"
-                      className="btn btn-secondary"
-                      style={{ flex: 1, minWidth: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontSize: '0.75rem' }}
-                    >
-                      <ExternalLink size={13} /> {t('inspector.viewOnTcgplayer')}
-                    </a>
-                  )}
-                  {cardmarketUrl(card) && (
-                    <a
-                      href={cardmarketUrl(card)} target="_blank" rel="noopener noreferrer"
-                      className="btn btn-secondary"
-                      style={{ flex: 1, minWidth: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontSize: '0.75rem' }}
-                    >
-                      <ExternalLink size={13} /> Cardmarket
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  {noLinkReason(card)}
-                </div>
-              )}
-
-              {/* Price History Area Chart */}
-              <PriceHistoryChart cardId={card.card_id} height={100} defaultRange="30d" />
-
-              {/* Specifications Details Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specCondition')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.condition}</span></div>
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specPrinting')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.printing}</span></div>
-
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specSupertype')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.supertype}</span></div>
-              </div>
-
-              {/* Storage Container details (clickable to view in storage) */}
-              {card.list_type !== 'wishlist' && (
-                <div 
-                  onClick={() => onViewStorage && card.list_type !== 'wishlist' && onViewStorage(card)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '0.5rem',
-                    background: 'rgba(255, 71, 71, 0.03)', padding: '0.65rem 0.75rem',
-                    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
-                    fontSize: '0.75rem', cursor: onViewStorage ? 'pointer' : 'default',
-                    transition: 'background 0.2s'
-                  }}
-                  title={onViewStorage ? t('inspector.viewInStorage') : undefined}
-                >
-                  <MapPin size={14} style={{ color: 'var(--accent-red)', flexShrink: 0 }} />
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    <span style={{ color: 'var(--text-muted)' }}>{t('inspector.locationLabel')} </span>
-                    <strong style={{ color: 'var(--text-strong)' }}>
-                      {card.location_name ? `${card.location_name}${card.location_type ? ` (${card.location_type})` : ''}` : t('bulk.unassignedPile')}
-                    </strong>
-                    {card.location_name && card.compartment_display_label && (
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {` • ${card.compartment_display_label}`}
-                        {getSlotNumber(card) !== null ? ` • ${t('wizard.slot', { slot: getSlotNumber(card) })}` : ''}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {card.notes && (
-                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '0.6rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {card.notes}
-                </div>
-              )}
-
+                  Market price and the marketplace links are reachable from the
+                  Edit view, which is where changing a card belongs. */}
               </>)}
 
               {/* DECKS -- who wants this card, and can they all have it. */}

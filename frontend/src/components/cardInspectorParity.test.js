@@ -103,7 +103,9 @@ test('CIP-TC5: the in-flight guard resets when the card changes', () => {
 // `card?.entry_id || card?.id` for exactly this reason. I ignored it.
 
 test('CIP-TC6: the decks request uses card_id, not the collection entry id', () => {
-  assert.match(impl, /card\?\.card_id \|\| card\?\.id/,
+  // Widened in CIP-TC8 to include desired_card_id for deck entries; this
+  // still pins the essential part -- card_id is preferred over the entry id.
+  assert.match(impl, /card\?\.card_id \|\|/,
     'the catalogue id must be preferred over the entry id');
   assert.match(impl, /\/api\/card\/\$\{catalogueId\}\/decks/,
     'the request must send the catalogue id');
@@ -119,4 +121,39 @@ test('CIP-TC7: an unfiled card still shows a Location row', () => {
   assert.equal(en['inspector.notFiled'], 'Not filed yet');
   assert.match(impl, /card\.location_name \|\| t\('inspector\.notFiled'\)/,
     'location must fall back to "Not filed yet" rather than disappearing');
+});
+
+// --- CIP-TC8: THE INSPECTOR READS BOTH SHAPES ------------------------------
+//
+// Zach: "I was looking at the card detail through the deck view and its all
+// messed up but in the collection it does look better."
+//
+// Same component, two callers, two different row shapes. Measured against the
+// running server:
+//
+//   field            deck entry             collection row
+//   id               618 (deck_cards row)   undefined
+//   card_id          undefined              4cea42fd-...
+//   desired_card_id  4cea42fd-...           undefined
+//   finish           undefined              nonfoil
+//   desired_finish   nonfoil                undefined
+//   condition        undefined              Near Mint
+//
+// From a deck the catalogue lookup fell back to id=618 -- a deck_cards row
+// number sent to a card_cache endpoint, 404 again, empty Decks tab.
+
+test('CIP-TC8: the catalogue id resolves from either shape', () => {
+  assert.match(impl, /card\?\.card_id \|\| card\?\.desired_card_id \|\| card\?\.id/,
+    'a deck entry carries desired_card_id; falling straight through to id '
+    + 'sends a deck_cards row number to a card_cache lookup');
+});
+
+test('CIP-TC9: a deck requirement is not given a condition or a shelf', () => {
+  // A deck entry is a REQUIREMENT -- "this deck wants one nonfoil MSH #80" --
+  // not a physical card. It has no condition to grade and no location to sit
+  // in. Showing "Near Mint" or "Not filed yet" there would be a claim about
+  // cardboard that does not exist, which is exactly the wrong-record failure
+  // this app exists to prevent.
+  assert.match(impl, /card\.entry_id\s*\n?\s*\?\s*\(card\.location_name/,
+    'location must only render for a real collection entry');
 });
