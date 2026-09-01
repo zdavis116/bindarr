@@ -418,7 +418,10 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
 
         {/* Right side: Information / Edit */}
         <div className="ci-info-col" style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '1.25rem', justifyContent: 'space-between' }}>
-          <div>
+          {/* HEADER -- stays put while the body scrolls. The close button,
+              the art and the tabs must stay reachable no matter how long
+              the rules text is. */}
+          <div className="ci-head">
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
               {card.list_type === 'wishlist' && (
                 <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
@@ -488,6 +491,12 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* THE ONLY SCROLLING REGION. Zach: "I think it would make sense
+              for the section below the 3 tabs to be the scrollable area." */}
+          <div className="ci-scroll">
+
 
             {/* ============================ CARD TAB ============================
                 What this thing is and what it does. Built from the mockup
@@ -568,7 +577,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 </div>
               </div>
             )}
-          </div>
+          
+
 
           {mode === 'edit' ? (
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -937,7 +947,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
             </>
           )}
         </div>
-      </div>
+                </div>
+</div>
 
       {isFullScreen && (
         <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />

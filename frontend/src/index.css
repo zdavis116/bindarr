@@ -1011,8 +1011,14 @@ button, input, select, textarea {
   max-width: 720px;
   width: 100%;
   max-height: 90vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* THE PANEL ITSELF NO LONGER SCROLLS.
+     It used to be overflow-y:auto, which anchored the absolutely-positioned
+     close button to the CONTENT: scroll down and the X left the screen. Zach
+     reported it as "missing an x button", and his screenshot showed it half
+     gone behind the card art.
+     Only .ci-scroll scrolls now, so the header -- art, name, tabs and the
+     close button -- stays put. */
+  overflow: hidden;
   box-sizing: border-box;
   padding: 2.5rem;
   display: flex;
@@ -1022,6 +1028,25 @@ button, input, select, textarea {
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+
+/* THE ONLY SCROLLING REGION: everything below the tabs.
+   Zach: "I think it would make sense for the section below the 3 tabs to be
+   the scrollable area." min-height:0 is load-bearing -- a flex child defaults
+   to min-height:auto, which refuses to shrink below its content and makes the
+   overflow escape the panel instead of scrolling inside it. */
+.card-inspector .ci-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The header holds the art, the identity block and the tabs. It must not
+   shrink, or a long rules text would squeeze the card image away. */
+.card-inspector .ci-head {
+  flex: 0 0 auto;
 }
 
 @media (max-width: 768px) {
@@ -1050,7 +1075,14 @@ button, input, select, textarea {
     max-width: 200px !important;
     width: 62% !important;
   }
+  /* On mobile the panel is a single column, so the info column IS the body.
+     It must be allowed to shrink below its content or .ci-scroll cannot
+     scroll -- the overflow would push the panel taller instead. */
   .card-inspector .ci-info-col {
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
     flex: 1 1 auto !important;
     min-width: 0 !important; /* let the column shrink instead of overflowing */
     width: 100% !important;
