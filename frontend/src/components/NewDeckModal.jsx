@@ -16,6 +16,7 @@
 // section is HIDDEN, not greyed.
 
 import { useState, useEffect } from 'react';
+import CardSearchResult from './CardSearchResult.jsx';
 import { X, Search, Check } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_MODAL } from '../utils/zLayers';
@@ -216,21 +217,12 @@ function NewDeckModal({ open, onClose, onCreate, showToast }) {
                   </div>
                 )}
                 {results.map(c => (
-                  <button key={c.id} onClick={() => { setCommander(c); setResults([]); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%',
-                             minHeight: 48, padding: '0.5rem 0.6rem', marginTop: '0.35rem',
-                             border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)',
-                             background: 'var(--surface-1)', color: 'var(--text-primary)',
-                             font: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {c.name}
-                      </span>
-                      <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                        {(c.set_id || '').toUpperCase()}{c.number ? ` #${c.number}` : ''}
-                      </span>
-                    </span>
-                  </button>
+                  <CardSearchResult
+                    key={c.id}
+                    card={c}
+                    t={t}
+                    onSelect={(card) => { setCommander(card); setResults([]); }}
+                  />
                 ))}
               </>
             )}

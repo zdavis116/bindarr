@@ -18,6 +18,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'DeckView.jsx'), 'utf8');
+// The search-result rows moved into the shared CardSearchResult when Zach
+// asked for every single-card search to behave the same. Assertions about
+// what a RESULT ROW shows must read that file; assertions about the deck
+// screen itself still read DeckView.
+const searchRow = readFileSync(join(here, 'CardSearchResult.jsx'), 'utf8');
 
 // Mirrors sectionFor() in DeckView.jsx.
 const TYPE_ORDER = ['Commander', 'Creature', 'Instant', 'Sorcery', 'Artifact',
@@ -266,25 +271,31 @@ test('DV-TC15: the availability line never says just "in other decks"', () => {
 // foil-only means one of those rows silently commits to a foil.
 
 test('DV-TC16: search rows show the collector number, not just the set', () => {
-  assert.match(src, /\{c\.number \? ` #\$\{c\.number\}` : ''\}/,
+  // The rows are the shared CardSearchResult now.
+  assert.match(searchRow, /card\.number/,
     'the collector number is the only thing distinguishing same-set printings');
-  assert.match(src, /\(c\.set_id \|\| ''\)\.toUpperCase\(\)/,
+  assert.match(searchRow, /card\.set_id/,
     'the set code should be shown alongside it');
 });
 
 test('DV-TC17: a foil-only printing says so', () => {
   // Choosing it commits to a foil, which is a real price difference. The
   // finishes array is already on every search result.
-  assert.match(src, /finishes\.length === 1[\s\S]{0,40}=== 'foil'/,
+  assert.match(searchRow, /finishes\.length === 1[\s\S]{0,40}=== 'foil'/,
     'a printing available only in foil must be marked');
-  assert.match(src, /deck\.foilOnly/,
+  assert.match(searchRow, /card\.foilOnly/,
     'and use a labelled string, not a bare word');
 });
 
 test('DV-TC18: the commander picker identifies printings too', () => {
   // Commanders have multiple printings and the deck records the exact one, so
   // the same blind-choice problem applies.
-  const rows = src.match(/\(c\.set_id \|\| ''\)\.toUpperCase\(\)/g) || [];
-  assert.ok(rows.length >= 2,
-    'both the add-card search and the commander picker must show the printing');
+  // Structural now, not a count. Both searches render the SAME row, so a
+  // commander result cannot show a name without its printing -- which is what
+  // Zach asked for: "all single card searches should function the same".
+  const uses = src.match(/<CardSearchResult/g) || [];
+  assert.ok(uses.length >= 2,
+    'both the add-card search and the commander picker must use the shared row');
+  assert.match(searchRow, /card\.set_id/,
+    'and that row must name the printing');
 });

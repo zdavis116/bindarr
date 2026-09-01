@@ -10,6 +10,7 @@
 // eventually but for now it would be unused."
 
 import { useState, useMemo, useEffect, useRef } from 'react';
+import CardSearchResult from './CardSearchResult.jsx';
 import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
          Trash2, Lightbulb, ArrowDownToLine, ChevronDown } from 'lucide-react';
 import { useT } from '../utils/i18n';
@@ -519,38 +520,13 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               {t('common.loading')}
             </div>
           ) : results.map(c => (
-            <button key={c.id} onClick={() => addCard(c)}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%',
-                       minHeight: 52, padding: '0.6rem 0.85rem', border: 0,
-                       borderBottom: '1px solid var(--border-glass)', background: 'transparent',
-                       color: 'var(--text-primary)', font: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {c.display_name || c.name}
-                </span>
-                <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)',
-                               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {/* SET CODE, COLLECTOR NUMBER, and a foil-only marker.
-                      Four rows of one name in one set are four different
-                      printings; without the number they cannot be told
-                      apart, and this app records the exact printing. */}
-                  {(c.set_id || '').toUpperCase()}
-                  {c.number ? ` #${c.number}` : ''}
-                  {Array.isArray(c.finishes) && c.finishes.length === 1
-                   && c.finishes[0] === 'foil' ? ` · ${t('deck.foilOnly')}` : ''}
-                  {c.set_name ? ` · ${c.set_name}` : ''}
-                </span>
-              </span>
-              {/* THREE DIFFERENT FACTS, and conflating any two of them is what
-                  confused Zach about Tony Stark:
-                    - in THIS deck        -- counted from the deck on screen
-                    - owned               -- copies he physically has
-                    - free / reserved     -- copies not already claimed by
-                                             ANOTHER deck
-                  in_deck_qty from the API is across ALL decks (see
-                  routes/collection.js:46), so it must never be labelled "this
-                  deck". */}
-              <span style={{ flexShrink: 0, textAlign: 'right' }}>
+            <CardSearchResult
+              key={c.id}
+              card={c}
+              t={t}
+              onSelect={addCard}
+              trailing={
+                <span style={{ flexShrink: 0, textAlign: 'right' }}>
                 {hereQty(c.id) > 0 && (
                   <span style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700,
                                  color: 'var(--accent-blue)' }}>
@@ -580,7 +556,8 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                   </span>
                 )}
               </span>
-            </button>
+              }
+            />
           ))}
         </div>
       )}
@@ -760,22 +737,13 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             </div>
             <div style={{ overflowY: 'auto', padding: '0 0.6rem 1rem' }}>
               {commanderResults.map(c => (
-                <button key={c.id} onClick={() => swapCommander(c)} disabled={busy}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%',
-                           minHeight: 52, padding: '0.5rem 0.7rem', border: 0, background: 'transparent',
-                           color: 'var(--text-primary)', font: 'inherit', textAlign: 'left',
-                           cursor: busy ? 'wait' : 'pointer' }}>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600 }}>{c.name}</span>
-                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {/* Same reasoning as the add-card search: commanders
-                          have multiple printings too, and the deck records
-                          the exact one. */}
-                      {(c.set_id || '').toUpperCase()}{c.number ? ` #${c.number}` : ''}
-                      {c.set_name ? ` · ${c.set_name}` : ''}
-                    </span>
-                  </span>
-                </button>
+                <CardSearchResult
+                  key={c.id}
+                  card={c}
+                  t={t}
+                  disabled={busy}
+                  onSelect={swapCommander}
+                />
               ))}
             </div>
           </div>
