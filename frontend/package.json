@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/copy-sketches.mjs",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "check:locales": "node scripts/check-locales.mjs",
     "test": "node src/utils/translate.test.js && node src/utils/deckText.test.js && node src/utils/finishPicker.test.js && node src/utils/games.test.js && node src/utils/mtgOnly.test.js && node src/utils/frameSharpness.test.js && node src/utils/liveCardDetect.test.js && node src/components/deckSections.test.js && node src/components/deckPolish.test.js && node src/components/cardDisplay.test.js && node src/components/missingCards.test.js && node src/components/buylistUx.test.js && node src/components/buylistSync.test.js && node src/components/scanReviewQueue.test.js && node src/components/scanStaging.test.js && node src/components/scanWiring.test.js && node src/components/cameraScannerGate.test.js && node src/components/cardChangeDetect.test.js && node src/components/cameraScannerTorch.test.js && node src/demo/fixtures/fixtures.test.js",
