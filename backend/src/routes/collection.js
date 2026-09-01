@@ -172,8 +172,18 @@ function sortOwnedFirst(cards) {
 // deck size -- but the user asked to see them, labelled as what they are.
 router.get('/card/:cardId/decks', async (req, res) => {
   try {
+    // THE WHOLE CATALOGUE ROW, not just the identity.
+    //
+    // The card detail must look the same from every screen, and it cannot if
+    // it reads card facts off whatever object the caller passed: a collection
+    // row carries no oracle_text and no mana_cost, so the Card tab lost its
+    // rules text and mana cost when opened from the collection, while the deck
+    // view showed both. Same card, two screens, two answers.
+    //
+    // Serving the card itself is the structural fix -- the callers cannot
+    // diverge because they no longer supply the data.
     const card = await db.get(
-      `SELECT id, oracle_id, name FROM card_cache WHERE id = ?`,
+      `SELECT * FROM card_cache WHERE id = ?`,
       [req.params.cardId]
     );
     if (!card || !card.oracle_id) {
@@ -259,6 +269,8 @@ router.get('/card/:cardId/decks', async (req, res) => {
       decks: rows,
       printings,
       owned_entries: ownedRows,
+      // The catalogue row, so every tab reads the same card.
+      card,
     });
   } catch (error) {
     console.error('Failed to load decks for card:', error);

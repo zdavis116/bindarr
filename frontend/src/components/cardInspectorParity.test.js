@@ -21,6 +21,10 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const impl = readFileSync(join(here, 'CardInspectorModal.jsx'), 'utf8');
 const en = JSON.parse(readFileSync(join(here, '../locales/en.json'), 'utf8'));
+// The endpoint that feeds this sheet. TC12 asserts the server half of the
+// same rule the component half enforces.
+const route = readFileSync(
+  join(here, '../../../backend/src/routes/collection.js'), 'utf8');
 
 // Resolve a t() key to the English string, so the test compares what the USER
 // reads rather than an identifier.
@@ -113,34 +117,19 @@ test('CIP-TC6: the decks request uses card_id, not the collection entry id', () 
     'sending card.id returns 404 for any card opened from the collection');
 });
 
-test('CIP-TC7: an unfiled card still shows a Location row', () => {
-  // The mockup draws Location reading "Not filed yet". Dropping the row when
-  // location_name is null says nothing at all, and "no row" and "not filed"
-  // are different statements -- Zach's copy is unfiled, which is precisely the
-  // case the mockup illustrates.
+test('CIP-TC7: ownership rows come from the server, not the caller', () => {
+  // Zach: "The card detail view should be no different between collection and
+  // deck view though deck view should be read only."
+  //
+  // An earlier version asserted the OPPOSITE -- that a deck entry shows no
+  // condition and no location. That was my reasoning, not his rule. The Yours
+  // tab answers "what do I own", which does not change with the screen.
   assert.equal(en['inspector.notFiled'], 'Not filed yet');
-  assert.match(impl, /card\.location_name \|\| t\('inspector\.notFiled'\)/,
-    'location must fall back to "Not filed yet" rather than disappearing');
+  assert.match(impl, /ownedEntry\?\.condition/,
+    'condition comes from the owned entry the server resolved');
+  assert.doesNotMatch(impl, /\[t\('inspector\.condition'\), card\.condition/,
+    'reading condition off the caller is what made the two screens differ');
 });
-
-// --- CIP-TC8: THE INSPECTOR READS BOTH SHAPES ------------------------------
-//
-// Zach: "I was looking at the card detail through the deck view and its all
-// messed up but in the collection it does look better."
-//
-// Same component, two callers, two different row shapes. Measured against the
-// running server:
-//
-//   field            deck entry             collection row
-//   id               618 (deck_cards row)   undefined
-//   card_id          undefined              4cea42fd-...
-//   desired_card_id  4cea42fd-...           undefined
-//   finish           undefined              nonfoil
-//   desired_finish   nonfoil                undefined
-//   condition        undefined              Near Mint
-//
-// From a deck the catalogue lookup fell back to id=618 -- a deck_cards row
-// number sent to a card_cache endpoint, 404 again, empty Decks tab.
 
 test('CIP-TC8: the catalogue id resolves from either shape', () => {
   assert.match(impl, /card\?\.card_id \|\| card\?\.desired_card_id \|\| card\?\.id/,
@@ -148,12 +137,55 @@ test('CIP-TC8: the catalogue id resolves from either shape', () => {
     + 'sends a deck_cards row number to a card_cache lookup');
 });
 
-test('CIP-TC9: a deck requirement is not given a condition or a shelf', () => {
-  // A deck entry is a REQUIREMENT -- "this deck wants one nonfoil MSH #80" --
-  // not a physical card. It has no condition to grade and no location to sit
-  // in. Showing "Near Mint" or "Not filed yet" there would be a claim about
-  // cardboard that does not exist, which is exactly the wrong-record failure
-  // this app exists to prevent.
-  assert.match(impl, /card\.entry_id\s*\n?\s*\?\s*\(card\.location_name/,
-    'location must only render for a real collection entry');
+test('CIP-TC9: the two callers cannot supply different card data', () => {
+  // The structural guarantee: both screens call the same endpoint and render
+  // its response. The caller's object survives only for what the server cannot
+  // know -- which collection entry, which deck board.
+  assert.match(impl, /const view = deckUse\?\.card \? \{ \.\.\.card, \.\.\.deckUse\.card \} : card;/,
+    'one merged object, server values winning');
+  assert.match(impl, /const ownedEntry = deckUse\?\.owned_entries/,
+    'ownership resolved by the server, once');
+});
+
+test('CIP-TC10: the card tab renders catalogue facts from the server', () => {
+  const start = impl.indexOf("{tab === 'card' && (");
+  assert.ok(start > 0, 'the card tab must exist');
+  const end = impl.indexOf("{mode === 'edit' ? (", start);
+  assert.ok(end > start, 'could not bound the card tab');
+  const cardTab = impl.slice(start, end);
+
+  // Every catalogue fact must come from the merged view, never the caller.
+  for (const field of ['type_line', 'oracle_text', 'mana_cost', 'cmc',
+                       'rarity', 'color_identity']) {
+    assert.doesNotMatch(cardTab, new RegExp(`\\bcard\\.${field}\\b`),
+      `card.${field} is a fact about the CARD, not about the row that `
+      + 'referenced it -- reading it from the caller makes the same card look '
+      + 'different depending on which screen opened the sheet');
+    assert.match(cardTab, new RegExp(`\\bview\\.${field}\\b`),
+      `the card tab must read ${field} from the merged view`);
+  }
+});
+
+test('CIP-TC11: server card values win over the caller object', () => {
+  // The caller keeps only what the server cannot know -- which collection
+  // entry this is, which deck board it sits on. Everything about the CARD
+  // comes from the catalogue.
+  assert.match(impl, /\{ \.\.\.card, \.\.\.deckUse\.card \}/,
+    'the spread order decides which source wins; server last means server wins');
+});
+
+test('CIP-TC12: the endpoint serves the whole catalogue row', () => {
+  // SCOPED to this endpoint. `SELECT *` appears three times in the file, so an
+  // unscoped match stayed green when I broke the one that matters -- verified
+  // by breaking it. A test that passes while the bug is present is worthless.
+  const start = route.indexOf("router.get('/card/:cardId/decks'");
+  assert.ok(start > 0, 'the decks endpoint must exist');
+  const scope = route.slice(start, route.indexOf('res.json({', start));
+  assert.match(scope, /SELECT \* FROM card_cache WHERE id = \?/,
+    'selecting named columns here is how fields go missing one at a time');
+  // The response body that carries owned_entries must also carry the card.
+  const i = route.indexOf('owned_entries: ownedRows');
+  assert.ok(i > 0, 'owned_entries must be returned');
+  assert.match(route.slice(i, i + 220), /^[\s\S]*\n\s*card,/,
+    'the card row must be returned to the client');
 });

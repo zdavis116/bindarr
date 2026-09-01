@@ -56,6 +56,19 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
   // Every printing of this card, for the Yours tab. Same request as the
   // decks data -- both need the oracle id resolved, so one call serves both.
   const printings = deckUse?.printings || null;
+
+  // THE CARD, from the server, with the caller's object underneath.
+  //
+  // The caller passes a collection row from one screen and a deck requirement
+  // from the other, and they carry different fields -- a collection row has no
+  // oracle_text and no mana_cost, so the Card tab silently lost its rules text
+  // and mana cost from that screen while the deck view showed both.
+  //
+  // Server values WIN. A card's rules text is a fact about the card, not about
+  // the row that referenced it, so it must not depend on which screen you
+  // opened. The caller keeps only what the server cannot know: which
+  // collection entry this is, and which deck board it sits on.
+  const view = deckUse?.card ? { ...card, ...deckUse.card } : card;
   // YOUR copies of THIS printing, from the server -- the one source both
   // callers share. Falls back to the caller's own numbers while the
   // request is in flight, so the rows do not flash empty.
@@ -311,8 +324,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
             style={{ position: 'relative', width: '100%', maxWidth: '300px', cursor: 'pointer' }}
           >
             <img
-              src={showBack && card.back_image_url ? card.back_image_url : card.image_url}
-              alt={showBack && card.back_name ? card.back_name : card.name}
+              src={showBack && view.back_image_url ? view.back_image_url : view.image_url}
+              alt={showBack && view.back_name ? view.back_name : view.name}
               style={{
                 width: '100%',
                 aspectRatio: 0.718,
@@ -324,7 +337,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
             />
             {/* FLIP. Rendered only when there IS a second face -- a
                 single-faced card must not grow a button that does nothing. */}
-            {card.back_image_url && (
+            {view.back_image_url && (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setShowBack(v => !v); }}
@@ -339,7 +352,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 }}
               >
                 <RefreshCw size={13} />
-                {showBack ? card.name : card.back_name}
+                {showBack ? view.name : view.back_name}
               </button>
             )}
             <div style={{
@@ -385,14 +398,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 utils/cardName.js -- one rule, so the inspector and the grid can
                 never disagree about what a card is called. */}
             <h3 style={{ fontSize: '1.65rem', color: 'var(--text-strong)', fontWeight: 800, lineHeight: 1.15, marginBottom: '0.25rem' }}>
-              {displayName(card)}
+              {displayName(view)}
             </h3>
-            {secondaryName(card) && (
+            {secondaryName(view) && (
               <p style={{
                 color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500,
                 marginBottom: '0.25rem',
               }}>
-                {secondaryName(card)}
+                {secondaryName(view)}
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
@@ -443,7 +456,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     both faces together and drops every separator, which is
                     exactly what Zach's screenshot showed. */}
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                  {(card.type_line || '').split(' // ').map((line, i, all) => (
+                  {(view.type_line || '').split(' // ').map((line, i, all) => (
                     <div key={i}>
                       {line}
                       {i < all.length - 1 && (
@@ -453,9 +466,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                   ))}
                 </div>
 
-                {card.supertype === 'MTG' && (
+                {view.supertype === 'MTG' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    {(Array.isArray(card.types) ? card.types : []).map(color => (
+                    {(Array.isArray(view.types) ? view.types : []).map(color => (
                       <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
                         fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em',
                         padding: '0.15rem 0.45rem', borderRadius: '999px',
@@ -463,7 +476,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                         color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
                       }}>{color}</span>
                     ))}
-                    {(!card.types || card.types.length === 0) && (
+                    {(!view.types || view.types.length === 0) && (
                       <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>{t('inspector.colorless')}</span>
                     )}
                   </div>
@@ -473,14 +486,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     you never flip merely to read the back. normalizeCard stores
                     them as "=== Face ===\n<text>" blocks joined by a blank
                     line, so the face headers are already there to split on. */}
-                {card.oracle_text && (
+                {view.oracle_text && (
                   <div style={{
                     background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                     borderRadius: 'var(--radius-md)', padding: '0.75rem',
                     fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-primary)',
                     whiteSpace: 'pre-wrap',
                   }}>
-                    {String(card.oracle_text).split(/\n\n(?==== )/).map((blk, i) => {
+                    {String(view.oracle_text).split(/\n\n(?==== )/).map((blk, i) => {
                       const m = blk.match(/^=== (.+?) ===\n([\s\S]*)$/);
                       return (
                         <div key={i} style={{ marginTop: i ? '0.75rem' : 0 }}>
@@ -506,16 +519,16 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                   borderRadius: 'var(--radius-md)', overflow: 'hidden',
                 }}>
                   {[
-                    [t('inspector.manaCost'), card.mana_cost],
+                    [t('inspector.manaCost'), view.mana_cost],
                     [t('inspector.colorIdentity'), (() => {
                       try {
-                        const ci = Array.isArray(card.color_identity)
-                          ? card.color_identity : JSON.parse(card.color_identity || '[]');
+                        const ci = Array.isArray(view.color_identity)
+                          ? view.color_identity : JSON.parse(view.color_identity || '[]');
                         return ci.length ? ci.join(' · ') : t('inspector.colorless');
                       } catch { return null; }
                     })()],
-                    [t('inspector.manaValue'), card.cmc != null ? String(card.cmc) : null],
-                    [t('inspector.rarity'), card.rarity],
+                    [t('inspector.manaValue'), view.cmc != null ? String(view.cmc) : null],
+                    [t('inspector.rarity'), view.rarity],
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{
                       display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
@@ -895,7 +908,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
       </div>
 
       {isFullScreen && (
-        <CardImageZoom src={card.image_url} alt={card.name} onClose={() => setIsFullScreen(false)} />
+        <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />
       )}
     </div>
   );
