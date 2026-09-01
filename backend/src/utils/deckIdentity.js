@@ -271,6 +271,9 @@ async function availabilityForDeck(database, deckId, userId) {
     `SELECT dc.id, dc.deck_id, dc.oracle_id, dc.desired_card_id, dc.desired_finish,
             dc.board, dc.quantity, dc.checked_out,
             cc.name, cc.set_id, cc.set_name, cc.number, cc.image_url, cc.color_identity,
+            -- DOUBLE-FACED CARDS. Without these the inspector cannot know a
+            -- card has a back face, so the flip button never renders.
+            cc.display_name, cc.back_image_url, cc.back_name, cc.back_type_line,
             cc.legalities, cc.type_line, cc.mana_cost, cc.cmc, cc.supertype,
             cc.subtypes, cc.types, cc.rarity, cc.finishes,
             -- Needed by the commander-legality and partner-pairing warnings:
@@ -392,7 +395,8 @@ async function selectPhysicalCopies(database, userId, requirement, { claimedCopi
 async function ownedVariantsForOracle(database, userId, oracleId) {
   const rows = await client(database).all(
     `SELECT cc.id AS desired_card_id, cc.name, cc.set_id, cc.set_name, cc.number,
-            cc.image_url, cc.rarity, cc.oracle_id, c.finish,
+            cc.image_url, cc.display_name, cc.back_image_url, cc.back_name,
+            cc.rarity, cc.oracle_id, c.finish,
             COALESCE(SUM(c.quantity), 0) AS owned_qty
      FROM collection c
      JOIN card_cache cc ON c.card_id = cc.id
@@ -431,6 +435,7 @@ async function printingChoicesForOracle(database, userId, oracleId) {
 
   const printings = await client(database).all(
     `SELECT id AS desired_card_id, name, set_id, set_name, number, image_url,
+            display_name, back_image_url, back_name, back_type_line,
             rarity, oracle_id, finishes
      FROM card_cache
      WHERE oracle_id = ?

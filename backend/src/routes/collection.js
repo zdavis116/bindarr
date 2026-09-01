@@ -1591,7 +1591,7 @@ router.get('/collection', async (req, res) => {
         cc.set_id,
         cc.set_name,
         cc.number,
-        cc.image_url,
+        cc.image_url, cc.display_name, cc.back_image_url, cc.back_name, cc.back_type_line,
         cc.price_trend,
         cc.price_normal,
         cc.price_holofoil,

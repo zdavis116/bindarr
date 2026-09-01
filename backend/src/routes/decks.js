@@ -1473,8 +1473,12 @@ router.post('/:id/import', async (req, res) => {
                      -- flavor_name matches Universes Beyond printings: Moxfield
                      -- exports "Vibranium Dynamo", the catalogue stores it as
                      -- "Thran Dynamo" with that Marvel name as flavour.
-                     WHERE (LOWER(name) = LOWER(?) OR LOWER(flavor_name) = LOWER(?))
-                       AND LOWER(set_id) = LOWER(?)
+                     -- COLLATE NOCASE, not LOWER(): a BINARY index cannot serve
+                     -- LOWER(col) = ?, so this was a full scan of 105k rows per
+                     -- line -- 50ms each, 5.2s for an 86-card list. The NOCASE
+                     -- indexes in db.js serve this form. Measured 0.01ms.
+                     WHERE (name = ? COLLATE NOCASE OR flavor_name = ? COLLATE NOCASE)
+                       AND set_id = ? COLLATE NOCASE
                        AND oracle_id IS NOT NULL`;
           if (statedNumber) {
             sql += ` AND LOWER(number) = LOWER(?)`;
@@ -1610,9 +1614,11 @@ router.post('/:id/import', async (req, res) => {
            -- uses, and a flavour name is an alias for it, not a rival. The
            -- ordering matters if a flavour name ever collides with a real card
            -- name -- the real card wins.
-           WHERE (LOWER(name) = LOWER(?) OR LOWER(flavor_name) = LOWER(?))
+           -- COLLATE NOCASE so the NOCASE indexes apply; LOWER() forced a
+           -- full scan of the whole catalogue for every line.
+           WHERE (name = ? COLLATE NOCASE OR flavor_name = ? COLLATE NOCASE)
              AND oracle_id IS NOT NULL
-           ORDER BY CASE WHEN LOWER(name) = LOWER(?) THEN 0 ELSE 1 END, id ASC
+           ORDER BY CASE WHEN name = ? COLLATE NOCASE THEN 0 ELSE 1 END, id ASC
            LIMIT 1`,
           [name, name, name]
         );
