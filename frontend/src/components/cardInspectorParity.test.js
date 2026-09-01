@@ -78,3 +78,45 @@ test('CIP-TC5: the in-flight guard resets when the card changes', () => {
   assert.match(impl, /deckFetchFor\.current = null/,
     'the guard must clear when a different card is shown');
 });
+
+// --- CIP-TC6: THE CATALOGUE LOOKUP USES THE CATALOGUE ID -------------------
+//
+// Zach, with three screenshots: "THESE ARE STILL NOT RIGHT NOTHING CHANGED".
+//
+// The Decks tab rendered EMPTY -- not loading, empty -- and the Yours tab lost
+// its other-printings block. One cause for both.
+//
+// Opened from the collection, the modal receives a row where:
+//     id       is undefined
+//     entry_id is the COLLECTION row id      (206)
+//     card_id  is the card_cache id          (4cea42fd-...)
+//
+// I fetched /api/card/${card.id}/decks. Measured against the running server:
+//     /api/card/206/decks       -> HTTP 404
+//     /api/card/4cea42fd.../decks -> HTTP 200, 2 decks, 4 printings
+//
+// A 404 makes the fetch resolve to null, so deckUse stayed null forever. Null
+// is not "loading" and not an error -- it is absent, which is why the tab
+// showed nothing at all rather than a spinner or a message.
+//
+// The component already knew these were different: line 56 reads
+// `card?.entry_id || card?.id` for exactly this reason. I ignored it.
+
+test('CIP-TC6: the decks request uses card_id, not the collection entry id', () => {
+  assert.match(impl, /card\?\.card_id \|\| card\?\.id/,
+    'the catalogue id must be preferred over the entry id');
+  assert.match(impl, /\/api\/card\/\$\{catalogueId\}\/decks/,
+    'the request must send the catalogue id');
+  assert.doesNotMatch(impl, /\/api\/card\/\$\{card\.id\}\/decks/,
+    'sending card.id returns 404 for any card opened from the collection');
+});
+
+test('CIP-TC7: an unfiled card still shows a Location row', () => {
+  // The mockup draws Location reading "Not filed yet". Dropping the row when
+  // location_name is null says nothing at all, and "no row" and "not filed"
+  // are different statements -- Zach's copy is unfiled, which is precisely the
+  // case the mockup illustrates.
+  assert.equal(en['inspector.notFiled'], 'Not filed yet');
+  assert.match(impl, /card\.location_name \|\| t\('inspector\.notFiled'\)/,
+    'location must fall back to "Not filed yet" rather than disappearing');
+});

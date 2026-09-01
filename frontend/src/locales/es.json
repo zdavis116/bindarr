@@ -1230,5 +1230,6 @@
   "inspector.rarity": "Rareza",
   "inspector.thisPrinting": "Esta edición",
   "inspector.ownNoneOfThese": "no tienes ninguna",
-  "inspector.covered": "Cubierta"
+  "inspector.covered": "Cubierta",
+  "inspector.notFiled": "Sin archivar"
 }

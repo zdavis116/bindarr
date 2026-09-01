@@ -120,20 +120,26 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     // Fetched for BOTH tabs that need it. Still lazy: the Card tab is the
     // default and never triggers a request.
     if (tab !== 'decks' && tab !== 'yours') return;
-    if (!card?.id || deckUse) return;
-    if (deckFetchFor.current === card.id) return;
+    // THE CARD_CACHE ID, not the collection entry id. Opened from the
+    // collection, card.id is undefined and card.entry_id is the collection row
+    // (206) -- card_id holds the catalogue id the endpoint needs. Sending the
+    // entry id returned 404, so deckUse stayed null and BOTH the Decks tab and
+    // the Yours tab's other-printings list rendered nothing.
+    const catalogueId = card?.card_id || card?.id;
+    if (!catalogueId || deckUse) return;
+    if (deckFetchFor.current === catalogueId) return;
 
-    deckFetchFor.current = card.id;
+    deckFetchFor.current = catalogueId;
     let cancelled = false;
     setDeckUseLoading(true);
     // Routers mount at bare /api -- see server.js:250.
-    fetch(`/api/card/${card.id}/decks`)
+    fetch(`/api/card/${catalogueId}/decks`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (!cancelled && d) setDeckUse(d); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setDeckUseLoading(false); });
     return () => { cancelled = true; };
-  }, [tab, card?.id, deckUse]);
+  }, [tab, card?.card_id, card?.id, deckUse]);
 
   const handleClose = () => {
     if (hasToggledRef.current && onUpdate) {
@@ -612,7 +618,12 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                     [t('inspector.copies'), `x${card.quantity ?? 1}`],
                     [t('inspector.finish'), card.finish || card.desired_finish || 'nonfoil'],
                     [t('inspector.condition'), card.condition || null],
-                    [t('inspector.location'), card.location_name || null],
+                    // ALWAYS SHOWN. The mockup draws this row reading "Not
+                    // filed yet" when a card has no location -- dropping the
+                    // row instead says nothing, and "no row" and "not filed"
+                    // are different statements. Zach's copy is unfiled, which
+                    // is exactly the case the mockup illustrates.
+                    [t('inspector.location'), card.location_name || t('inspector.notFiled')],
                     [t('inspector.value'), card.price_trend
                       ? `$${(Number(card.price_trend) * (card.quantity ?? 1)).toFixed(2)}`
                       : null],
@@ -653,7 +664,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                       background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                       borderRadius: 'var(--radius-md)', overflow: 'hidden',
                     }}>
-                      {printings.filter(pr => pr.id !== card.card_id && pr.id !== card.id)
+                      {printings.filter(pr => pr.id !== (card.card_id || card.id))
                         .map((pr, i) => {
                           let fin = [];
                           try { fin = Array.isArray(pr.finishes) ? pr.finishes : JSON.parse(pr.finishes || '[]'); }

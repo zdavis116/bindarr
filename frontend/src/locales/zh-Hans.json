@@ -1200,5 +1200,6 @@
   "inspector.rarity": "稀有度",
   "inspector.thisPrinting": "此印刷",
   "inspector.ownNoneOfThese": "你都没有",
-  "inspector.covered": "已满足"
+  "inspector.covered": "已满足",
+  "inspector.notFiled": "未归档"
 }
