@@ -35,3 +35,9 @@ export const Z_TOAST = 2000;
 // Height to clear when pinning something to the bottom on a phone, so a control
 // is not merely visible but tappable.
 export const NAV_BAR_CLEARANCE = '72px';
+
+// A full-screen takeover: the scan review and the camera scanner. Above the
+// pinned nav (1000) AND above modals, because these REPLACE the app rather
+// than sitting over it -- a nav bar drawn across a scan review covered exactly
+// the strip holding Add All, which is the bug this value exists to prevent.
+export const Z_FULLSCREEN = 1100;
