@@ -122,9 +122,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
   const deckFetchFor = useRef(null);
 
   useEffect(() => {
-    // Fetched for BOTH tabs that need it. Still lazy: the Card tab is the
-    // default and never triggers a request.
-    if (tab !== 'decks' && tab !== 'yours') return;
+    // FETCHED FOR EVERY TAB, INCLUDING THE ONE YOU LAND ON.
+    //
+    // This used to skip the Card tab, on the theory that most opens never
+    // leave it. But the Card tab is the DEFAULT, so the merge never ran on
+    // first open and the sheet fell back to the caller's object -- which from
+    // the collection has no oracle_text and no mana_cost. Same card, two
+    // screens, two answers, for the sake of avoiding one request.
+    if (!card) return;
     // THE CARD_CACHE ID, not the collection entry id. Opened from the
     // collection, card.id is undefined and card.entry_id is the collection row
     // (206) -- card_id holds the catalogue id the endpoint needs. Sending the
@@ -527,7 +532,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                         return ci.length ? ci.join(' · ') : t('inspector.colorless');
                       } catch { return null; }
                     })()],
-                    [t('inspector.manaValue'), view.cmc != null ? String(view.cmc) : null],
                     [t('inspector.rarity'), view.rarity],
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{

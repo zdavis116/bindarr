@@ -155,7 +155,9 @@ test('CIP-TC10: the card tab renders catalogue facts from the server', () => {
   const cardTab = impl.slice(start, end);
 
   // Every catalogue fact must come from the merged view, never the caller.
-  for (const field of ['type_line', 'oracle_text', 'mana_cost', 'cmc',
+  // cmc dropped from this list: the Mana value row was removed at Zach's
+  // request, so the field is no longer rendered anywhere in the card tab.
+  for (const field of ['type_line', 'oracle_text', 'mana_cost',
                        'rarity', 'color_identity']) {
     assert.doesNotMatch(cardTab, new RegExp(`\\bcard\\.${field}\\b`),
       `card.${field} is a fact about the CARD, not about the row that `
@@ -188,4 +190,41 @@ test('CIP-TC12: the endpoint serves the whole catalogue row', () => {
   assert.ok(i > 0, 'owned_entries must be returned');
   assert.match(route.slice(i, i + 220), /^[\s\S]*\n\s*card,/,
     'the card row must be returned to the client');
+});
+
+// --- CIP-TC13: THE CARD IS FETCHED ON OPEN, NOT ON TAB CHANGE --------------
+//
+// Zach: "This is deck view card detail I want collection card detail view to
+// look the same. It still doesn't."
+//
+// I made the endpoint serve the card and merged it into `view` -- then gated
+// the fetch to the Yours and Decks tabs, reasoning that most opens never leave
+// the Card tab.
+//
+// THE CARD TAB IS THE DEFAULT. So on first open deckUse was null, `view` fell
+// back to the caller's object, and from the collection that object has no
+// oracle_text and no mana_cost. Rules text and mana cost were simply blank on
+// the screen you land on. From the deck view the caller HAS both, so it looked
+// right -- which is precisely the difference he kept reporting.
+//
+// MY PARITY TEST MISSED IT because it compared MERGED objects: a state that
+// assumes a fetch which never happened. It measured a screen the user never
+// sees. That is the second test on this branch to pass while the bug was live.
+
+test('CIP-TC13: the card request is not gated on the tab', () => {
+  const i = impl.indexOf('const deckFetchFor');
+  assert.ok(i > 0, 'the fetch effect must exist');
+  const eff = impl.slice(i, i + 1400);
+
+  assert.doesNotMatch(eff, /tab !== 'decks'/,
+    'gating the fetch on the tab leaves the DEFAULT tab unmerged, so the '
+    + 'sheet renders the caller object and the two screens differ');
+  assert.match(eff, /if \(!card\) return;/,
+    'the card must be fetched as soon as a card is shown');
+});
+
+test('CIP-TC14: mana value is not shown', () => {
+  // Zach: "please remove mana value from the view."
+  assert.doesNotMatch(impl, /inspector\.manaValue/,
+    'the mana value row must be gone from the card tab');
 });

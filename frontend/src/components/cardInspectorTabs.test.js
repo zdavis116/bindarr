@@ -99,9 +99,24 @@ test('CIT-TC6: the decks endpoint matches on oracle id, not card id', () => {
     'decks are found by oracle identity and scoped to the owner');
 });
 
-test('CIT-TC7: the Decks tab is fetched lazily', () => {
-  // Most opens never leave the Card tab. Fetching up front would cost a
-  // request per card view for data usually never looked at.
-  assert.match(src, /if \(tab !== 'decks'[\s\S]{0,80}return;/,
-    'the decks request must not fire until the tab is opened');
+test('CIT-TC7: the card is fetched as soon as a card is shown', () => {
+  // THIS TEST USED TO REQUIRE THE OPPOSITE, and the bug it enforced cost Zach
+  // four rounds of screenshots.
+  //
+  // It asserted the request must not fire until the Decks tab is opened -- a
+  // performance guard I wrote without noticing that the Card tab is the
+  // DEFAULT. With the fetch gated on the tab, `deckUse` was null on first
+  // open, so the sheet fell back to the caller's object: fine from the deck
+  // view, which carries oracle_text and mana_cost, blank from the collection,
+  // which carries neither.
+  //
+  // The sheet must not look different depending on which screen opened it, and
+  // it cannot guarantee that while its data arrives conditionally.
+  const i = src.indexOf('const deckFetchFor');
+  assert.ok(i > 0, 'the fetch effect must exist');
+  const eff = src.slice(i, i + 1400);
+  assert.doesNotMatch(eff, /tab !== 'decks'/,
+    'gating the fetch on the tab leaves the default tab unmerged');
+  assert.match(eff, /if \(!card\) return;/,
+    'the card must be fetched whenever a card is shown');
 });
