@@ -1,48 +1,50 @@
-Import: ask for the printing instead of dropping the line; visible delete
+The completion ring counts cards owned, not cards listed
 
-Both from Zach on the deployed build.
+Zach: "it shows 97% complete with only 3 missing cards but actually I am
+missing 97 cards."
 
-IMPORT LOST MOST OF A MOXFIELD DECK.
+Measured on his Tony Stark deck: 97 cards listed against a target of 100, so
+the ring read 97%. He owns THREE of them. He had just imported the list, and
+DeckList was computing completion from total_cards -- what the list SAYS --
+rather than from what is in the binder.
 
-"I imported a full deck from moxfield and only a few cards filled the deck."
-Reproduced exactly: 25 copies requested, 13 written, 12 silently gone.
+This is the wrong-record failure in its purest form. The screen reported a deck
+ready to play while 94 of its cards did not exist in his collection. A missing
+entry costs a tap; this costs a recount against cardboard.
 
-Not a parser bug. "1 Lightning Bolt" with no set code names a card with 65
-printings, and this app records the EXACT printing you own. When none is owned
-there is nothing to infer from, so the server deliberately writes nothing and
-returns needs_choice with the printings to offer (routes/decks.js:1645). That
-design is right -- guessing would put a printing he does not own into his deck.
+GET /api/decks now returns owned_cards, using the same rule as the deck view
+(utils/deckIdentity.js): exact printing AND finish, collection rows only, minus
+copies already claimed by a higher-priority requirement, capped at what the
+deck needs. Verified against the real dev database -- the new figure agrees
+with the deck detail view on every deck, which is the number Zach trusts.
 
-The bug was mine: I called apply:true straight from the new-deck modal, so
-every line awaiting a choice was discarded. The cards that DID land were the
-ones already in his collection, which is exactly why "only a few filled the
-deck" and why it looked arbitrary.
+Two wrong answers before that one, both caught by measuring rather than
+reasoning: the table is `collection`, not `user_collection`; and
+deck_card_allocations is legacy -- routes/decks.js only ever DELETEs from it
+and dev holds zero rows, so reading it would have reported 0% for every deck.
 
-Now the modal previews first. Nothing ambiguous -> apply immediately, the
-common case for an owned or set-qualified list. Anything ambiguous -> the deck
-is created with the unambiguous cards and the existing printing picker opens
-with the rest, which are one screen away rather than lost.
+ALSO IN THIS COMMIT
 
-Verified end to end: preview offered 92 printings for Lightning Bolt, 171 for
-Sol Ring, 1102 for Island; answering them gave requested=12 written=12
-unresolved=0.
+Deck cost. The row now says "94 missing · $181.78", and a card with no cached
+price contributes nothing rather than zeroing the total -- an unknown price is
+not a free card, and the row says so.
 
-I also passed the whole response where the modal reads the LINES array, which
-would have rendered an empty picker -- caught by lint, not by the build.
+Two labelled buttons in selection mode, per Zach: "maybe when selecting decks
+it should be 2 buttons that show one for delete and then another for export".
+A bare trash icon beside an export button is ambiguous, and one of them
+destroys work. Delete is outlined, not filled: filled reads as the primary
+action and it is not.
 
-LONG-PRESS TO DELETE DOES NOT EXIST ON A PHONE.
+Card detail in the deck view. READ-ONLY, and that matters: CardInspectorModal
+edits a COLLECTION entry by id, and a deck card's id is a deck_cards row.
+Passing one straight through would PUT to /api/collection/<deck_cards.id> and
+silently rewrite whichever collection row shares that number -- on a card the
+user is not even looking at. The modal now refuses to save in read-only mode
+rather than trusting every future caller to remember.
 
-"I still can't delete decks. Long pressing a row doesn't do anything."
-
-onContextMenu fires on a desktop right-click; on mobile Safari a long-press
-raises the system selection menu instead. So the only route to delete was a
-gesture unavailable on the only device this app is used on. Replaced with a
-Delete action in the selection mode that already exists for the buylist --
-deliberately not a per-row button, which is a mis-tap that destroys a deck.
-
-AND THE FIX FOR IT WAS ITSELF UNREACHABLE. The delete button added to the deck
-view is the last element on a scrolling screen, and DeckView had no
-paddingBottom -- so on any real deck the pinned nav bar covered it. Twelfth
-control on this project hidden by that nav; now cleared like DeckList does.
+TESTS: deckCompletion.test.js, DC-TC1 to DC-TC6. Four verified by
+reintroducing the bug: the ring reading total_cards (Zach's exact report), a
+copy claimed by two decks counted twice, a spare copy pushing a deck over its
+requirement, and finish ignored so a foil counts as its nonfoil.
 
 343 tests pass, lint and build clean.

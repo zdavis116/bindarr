@@ -154,7 +154,67 @@ router.get('/', async (req, res) => {
         d.target_size, d.created_at, d.checked_out, d.checked_out_at,
         COUNT(CASE WHEN dc.board != 'considering' THEN dc.id END) AS total_card_types,
         COALESCE(SUM(CASE WHEN dc.board != 'considering' THEN dc.quantity ELSE 0 END), 0) AS total_cards,
-        COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards
+        COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards,
+
+        -- OWNED copies, not listed ones. The completion ring reads this.
+        --
+        -- Zach: "it shows 97% complete with only 3 missing cards but actually I
+        -- am missing 97 cards." The ring read total_cards, which counts what is
+        -- LISTED. A freshly imported deck is fully listed and entirely unowned,
+        -- so it showed 97% while 94 of its cards were not in the binder --
+        -- a deck reported ready to play that cannot be.
+        --
+        -- Same rule as the deck view (utils/deckIdentity.js): exact printing
+        -- AND finish, from the collection list only, minus copies already
+        -- claimed by an earlier requirement, capped at what this deck needs.
+        COALESCE(SUM(
+          CASE WHEN dc.board != 'considering' THEN
+            MIN(dc.quantity, MAX(0,
+              (SELECT COALESCE(SUM(uc.quantity), 0)
+                 FROM collection uc
+                WHERE uc.user_id = d.user_id
+                  AND uc.card_id = dc.desired_card_id
+                  AND uc.finish = dc.desired_finish
+                  AND uc.list_type = 'collection')
+              -
+              -- Claimed by a HIGHER-priority requirement. Priority is
+              -- deck_cards.id ascending: assigned at insert, never changes.
+              (SELECT COALESCE(SUM(o.quantity), 0)
+                 FROM deck_cards o
+                 JOIN decks od ON od.id = o.deck_id
+                WHERE od.user_id = d.user_id
+                  AND o.desired_card_id = dc.desired_card_id
+                  AND o.desired_finish = dc.desired_finish
+                  AND o.board != 'considering'
+                  AND o.id < dc.id)
+            ))
+          ELSE 0 END
+        ), 0) AS owned_cards,
+
+        -- What the missing copies would cost at the cached Scryfall price.
+        -- A card with no cached price contributes nothing rather than zeroing
+        -- the total: an unknown price is not a free card, and the UI says so.
+        COALESCE(SUM(
+          CASE WHEN dc.board != 'considering' THEN
+            MAX(0, dc.quantity - MAX(0,
+              (SELECT COALESCE(SUM(uc.quantity), 0)
+                 FROM collection uc
+                WHERE uc.user_id = d.user_id
+                  AND uc.card_id = dc.desired_card_id
+                  AND uc.finish = dc.desired_finish
+                  AND uc.list_type = 'collection')))
+            * COALESCE((SELECT cc.price_trend FROM card_cache cc
+                         WHERE cc.id = dc.desired_card_id), 0)
+          ELSE 0 END
+        ), 0) AS missing_cost,
+
+        -- What the whole list is worth at cached prices, owned or not.
+        COALESCE(SUM(
+          CASE WHEN dc.board != 'considering' THEN
+            dc.quantity * COALESCE((SELECT cc.price_trend FROM card_cache cc
+                                     WHERE cc.id = dc.desired_card_id), 0)
+          ELSE 0 END
+        ), 0) AS deck_value
       FROM decks d
       LEFT JOIN deck_cards dc ON d.id = dc.deck_id
       WHERE d.user_id = ?

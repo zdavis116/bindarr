@@ -35,7 +35,7 @@ function getSlotNumber(c) {
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
 // gets the same rich view + edit without duplicating the form. onUpdate() lets
 // the parent refetch after a change. onViewStorage is optional (hidden if absent).
-function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onViewStorage, startInEdit = false }) {
+function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onViewStorage, startInEdit = false, readOnly = false }) {
   const { t } = useT();
   const [mode, setMode] = useState('view');
   const [locations, setLocations] = useState([]);
@@ -65,7 +65,8 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   useEffect(() => {
     if (!card) return;
     hasToggledRef.current = false;
-    setMode(startInEdit ? 'edit' : 'view');
+    // readOnly wins: a deck card has no collection entry to edit.
+    setMode(startInEdit && !readOnly ? 'edit' : 'view');
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.finish || 'nonfoil');
@@ -76,7 +77,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setListType(card.list_type || 'collection');
     setNotes(card.notes || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset form only when the entry changes, not on every card mutation
-  }, [targetEntryId, startInEdit]);
+  }, [targetEntryId, startInEdit, readOnly]);
 
   const handleClose = () => {
     if (hasToggledRef.current && onUpdate) {
@@ -92,6 +93,13 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const handleSave = async (e) => {
     e.preventDefault();
     if (!targetEntryId) return;
+    // A deck card is NOT a collection entry. Saving one would PUT to
+    // /api/collection/<deck_cards.id> and rewrite whichever collection row
+    // shares that number -- silently, and on a card the user is not looking at.
+    if (readOnly) {
+      showToast && showToast(t('card.viewOnly'), 'error');
+      return;
+    }
     try {
       const res = await fetch(`/api/collection/${targetEntryId}`, {
         method: 'PUT',
@@ -492,7 +500,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
 
               {/* Main Actions Row: Edit Card + Icon buttons for Favorite & Delete */}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setMode('edit')}>
+                <button className="btn btn-primary" style={{ flex: 1, display: readOnly ? 'none' : undefined }} onClick={() => setMode('edit')}>
                   {t('inspector.editCard')}
                 </button>
 

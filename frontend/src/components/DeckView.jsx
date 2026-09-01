@@ -15,6 +15,7 @@ import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
 import { useT } from '../utils/i18n';
 import { formatPrice } from '../utils/formatPrice';
 import ExportModal from './ExportModal';
+import CardInspectorModal from './CardInspectorModal';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 
 // Moxfield's order: the commander first because it is the deck's premise, then
@@ -70,6 +71,8 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // One in-flight write at a time: two overlapping absolute-quantity
   // writes can land out of order and persist the older number.
   const [busy, setBusy] = useState(false);
+  // The card being inspected. Read-only: see the note above the modal.
+  const [inspecting, setInspecting] = useState(null);
   const [commanderOpen, setCommanderOpen] = useState(false);
   const [commanderSearch, setCommanderSearch] = useState('');
   const [commanderResults, setCommanderResults] = useState([]);
@@ -623,19 +626,33 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                   style={{ display: 'flex', alignItems: 'center', gap: '0.65rem',
                            padding: '0.5rem 0.65rem', borderRadius: 11,
                            background: missing ? 'rgba(255,159,10,.06)' : 'var(--surface-1)' }}>
-                  {card.image_url && (
-                    <img src={card.image_url} alt="" loading="lazy"
-                         style={{ width: 34, height: 47, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
-                  )}
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600,
-                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {card.name}
+                  {/* TAP TO INSPECT. Art + name only: the quantity controls
+                      are outside this button, because on a phone they sit
+                      millimetres apart and one of them changes a record. */}
+                  <button
+                    type="button"
+                    onClick={() => setInspecting(card)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.6rem',
+                      flex: 1, minWidth: 0, padding: 0, border: 0,
+                      background: 'transparent', font: 'inherit',
+                      textAlign: 'left', color: 'inherit', cursor: 'pointer',
+                    }}
+                  >
+                    {card.image_url && (
+                      <img src={card.image_url} alt="" loading="lazy"
+                           style={{ width: 34, height: 47, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+                    )}
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600,
+                                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {card.name}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        {card.set_name}
+                      </span>
                     </span>
-                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {card.set_name}
-                    </span>
-                  </span>
+                  </button>
                   {missing > 0 && (
                     <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.5rem',
                                    borderRadius: 20, flexShrink: 0,
@@ -814,6 +831,17 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         <Trash2 size={15} />
         {t('deck.deleteDeck')}
       </button>
+
+      {/* CARD DETAIL, read-only. A deck card is not a collection entry, so the
+          inspector must not be allowed to write through this id. */}
+      {inspecting && (
+        <CardInspectorModal
+          card={inspecting}
+          readOnly
+          onClose={() => setInspecting(null)}
+          showToast={showToast}
+        />
+      )}
 
       <ExportModal
         open={exportOpen}

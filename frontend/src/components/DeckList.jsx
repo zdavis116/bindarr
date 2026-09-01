@@ -95,8 +95,19 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
       .filter(d => !q || (d.name || '').toLowerCase().includes(q) || (d.format || '').toLowerCase().includes(q))
       .map(d => {
         const target = d.target_size || 100;
-        const have = d.total_cards || 0;
-        return { ...d, pct: Math.min(100, Math.round((have / target) * 100)), have, target };
+        // OWNED, not listed. total_cards counts what the list says; owned_cards
+        // counts what is actually in the binder and not claimed by another
+        // deck. A freshly imported deck is fully listed and entirely unowned,
+        // and the ring used to call that 97% complete.
+        const have = d.owned_cards ?? 0;
+        const listed = d.total_cards || 0;
+        return {
+          ...d,
+          pct: Math.min(100, Math.round((have / target) * 100)),
+          have, listed, target,
+          missingCost: d.missing_cost || 0,
+          deckValue: d.deck_value || 0,
+        };
       });
   }, [decks, query]);
 
@@ -187,7 +198,9 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
           {shown.map(deck => {
             const sel = selected.has(deck.id);
-            const missing = Math.max(0, deck.target - deck.have);
+            // Against the LISTED size, not the target: a 97-card list with 3
+            // owned is missing 94 cards, not 97 -- the three you have are real.
+            const missing = Math.max(0, (deck.listed || deck.target) - deck.have);
             return (
               <button
                 key={deck.id}
@@ -233,7 +246,14 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                     {deck.name}
                   </span>
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                    {missing ? t('deck.cardsMissing', { count: missing }) : t('deck.readyToPlay')}
+                    {missing
+                      ? t('deck.missingWithCost', {
+                          count: missing,
+                          cost: deck.missingCost > 0
+                            ? `$${deck.missingCost.toFixed(2)}`
+                            : t('deck.priceUnknown'),
+                        })
+                      : t('deck.readyToPlay')}
                   </span>
                 </span>
 
@@ -303,6 +323,11 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 of a scrolling list is a mis-tap that destroys a deck. This
                 reuses the selection flow that already exists for the buylist,
                 so one mental model covers both. */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {/* TWO LABELLED ACTIONS, equal weight. A bare trash icon beside an
+                export button is ambiguous, and one of the two destroys work.
+                Delete is OUTLINED, not filled: a filled button reads as the
+                primary action and it is not. */}
             <button
               onClick={async () => {
                 const chosen = decks.filter(d => selected.has(d.id));
@@ -318,16 +343,19 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 setSelected(new Set());
                 setSelecting(false);
               }}
+              disabled={selected.size === 0}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                minHeight: 44, padding: '0 0.85rem', borderRadius: 'var(--radius-md)',
+                gap: '0.4rem', flex: 1, minHeight: 46,
+                borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--accent-red)', background: 'transparent',
-                color: 'var(--accent-red)', font: 'inherit', fontSize: '0.88rem',
-                fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+                color: 'var(--accent-red)', font: 'inherit', fontSize: '0.9rem',
+                fontWeight: 600, cursor: selected.size ? 'pointer' : 'not-allowed',
+                opacity: selected.size ? 1 : 0.4,
               }}
-              aria-label={t('deck.deleteSelected')}
             >
               <Trash2 size={15} />
+              {t('deck.delete')}
             </button>
 
             <button
@@ -335,7 +363,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
               disabled={buylistLoading || !items.length}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
-                width: '100%', minHeight: 46, border: 0, borderRadius: 'var(--radius-md)',
+                flex: 1, minHeight: 46, border: 0, borderRadius: 'var(--radius-md)',
                 background: 'var(--accent-blue)', color: 'var(--text-on-accent)',
                 font: 'inherit', fontSize: '0.95rem', fontWeight: 600,
                 cursor: buylistLoading || !items.length ? 'not-allowed' : 'pointer',
@@ -345,6 +373,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
               <Download size={16} />
               {t('deck.exportBuylist')}
             </button>
+            </div>
           </div>
         </div>
       )}
