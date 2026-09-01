@@ -187,3 +187,81 @@ test('CIL-TC8: both columns can shrink so the art never sets the height', () => 
       + 'height and pushes the close button off the top');
   }
 });
+
+// --- CIL-TC9: THE CARD ART IS BOUNDED BY HEIGHT ---------------------------
+//
+// Zach's screenshot showed the art PAINTED OVER the card name -- the image
+// escaping its box, not merely being tall.
+//
+//     <img style={{ width: '100%', aspectRatio: 0.718 }} />
+//
+// width:100% + aspectRatio DERIVES the height from the width, so the image
+// cannot shrink to fit a short screen. A max-height on the wrapper then clamps
+// the BOX while the image keeps its computed height, and it overflows.
+//
+// Driving from height instead lets the card shrink; the width follows.
+
+test('CIL-TC9: the art shrinks to fit rather than overflowing', () => {
+  const img = src.indexOf('src={showBack && view.back_image_url');
+  assert.ok(img > 0, 'the card image must exist');
+  const style = src.slice(img, img + 700);
+
+  assert.doesNotMatch(style, /width:\s*'100%'/,
+    "width:100% with an aspect ratio derives HEIGHT from width, so the image "
+    + 'cannot shrink on a short screen and paints over the content below it');
+  assert.match(style, /maxHeight:\s*'min\(42vh, 420px\)'/,
+    'the image needs a height budget');
+  assert.match(style, /objectFit:\s*'contain'/,
+    "cover crops to fill the box; contain fits inside it");
+});
+
+test('CIL-TC10: only ONE place caps the art height', () => {
+  // The budget lives on the element. A second max-height in CSS would clamp
+  // the wrapper smaller than the image inside it and bring the overlap
+  // straight back -- the same two-copies drift that has caused five bugs on
+  // this branch.
+  const i = css.indexOf('.card-inspector .ci-image-wrap {');
+  assert.ok(i > 0, 'the wrapper rule must exist');
+  const rule = css.slice(i, css.indexOf('}', i)).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.doesNotMatch(rule, /max-height/,
+    'the height budget belongs on the element, in one place');
+});
+
+// --- CIL-TC11: THE PAGE BEHIND MUST NOT SCROLL ----------------------------
+//
+// "the whole window wants to scroll". Opening a modal does not stop the body
+// scrolling, so a flick anywhere -- including on the dimmed backdrop -- drags
+// the page underneath. That reads as the modal being too big even when it
+// fits, because the thing that moves is the window.
+
+test('CIL-TC11: body scroll is locked while the sheet is open', () => {
+  assert.match(src, /body\.style\.overflow = 'hidden'/,
+    'the page behind the modal must not scroll');
+  assert.match(src, /body\.style\.overflow = previous/,
+    'and the previous value must be restored on close, not hardcoded to '
+    + "'auto' -- that would clobber a lock set by another modal");
+});
+
+test('CIL-TC12: the overlay leaves room and never scrolls itself', () => {
+  const i = src.indexOf('className="modal-overlay"');
+  const style = src.slice(i, i + 1100);
+  assert.match(style, /env\(safe-area-inset-bottom/,
+    'a full-bleed overlay puts the panel flush against the viewport edge; the '
+    + 'safe-area insets matter on a phone with a notch or home bar');
+  assert.match(style, /overflow:\s*'hidden'/,
+    '.ci-scroll is the only scrolling region in this modal');
+});
+
+test('CIL-TC13: the panel is sized by the DYNAMIC viewport height', () => {
+  // On iOS Safari `vh` is the LARGEST viewport, measured with the toolbars
+  // retracted. With them showing, a 90vh panel is taller than the screen
+  // actually offers and the page scrolls to reveal the rest -- which is what
+  // Zach reported three times. `dvh` tracks the real usable height.
+  const i = css.indexOf('.card-inspector {');
+  const rule = css.slice(i, css.indexOf('}', i));
+  assert.match(rule, /max-height:\s*100dvh/,
+    'the panel must be bounded by the dynamic viewport height');
+  assert.match(rule, /max-height:\s*90vh[\s\S]*max-height:\s*100dvh/,
+    'the vh line must come FIRST as the fallback; browsers without dvh drop '
+    + 'the second declaration and keep the first');
+});

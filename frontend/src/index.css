@@ -1010,7 +1010,14 @@ button, input, select, textarea {
 .card-inspector {
   max-width: 720px;
   width: 100%;
+  /* DYNAMIC viewport height. On iOS Safari `vh` is the LARGEST viewport --
+     measured with the toolbars retracted -- so a 90vh panel is taller than the
+     screen actually offers while they are showing, and the page scrolls to
+     reveal the rest. Zach reported that three times. `dvh` tracks the real
+     usable height; the vh line above it is the fallback for browsers that
+     drop the dvh declaration. */
   max-height: 90vh;
+  max-height: 100dvh;
   /* THE PANEL ITSELF NO LONGER SCROLLS.
      It used to be overflow-y:auto, which anchored the absolutely-positioned
      close button to the CONTENT: scroll down and the X left the screen. Zach
@@ -1075,7 +1082,10 @@ button, input, select, textarea {
   .card-inspector {
     padding: 1.25rem 1.1rem !important;
     gap: 1.1rem !important;
+    /* Same reasoning as the desktop rule, and it matters more here: the phone
+       is where the toolbars move and shrink the usable height. */
     max-height: 90vh !important;
+    max-height: 100dvh !important;
     flex-direction: column !important;
     flex-wrap: nowrap !important;
     align-items: stretch !important;
@@ -1101,19 +1111,13 @@ button, input, select, textarea {
     align-items: center !important;
     gap: 0.6rem !important;
   }
+  /* The height budget lives ON THE ELEMENT (min(42vh, 420px)), so the card
+     shrinks to fit rather than overflowing. This rule deliberately sets only
+     WIDTH: a second max-height here would clamp the wrapper smaller than the
+     image inside it and bring the overlap straight back. One rule, one place. */
   .card-inspector .ci-image-wrap {
     max-width: 200px !important;
-    width: 62% !important;
-    /* Cap the art by VIEWPORT height, not just width. A tall phone in
-       landscape, or a small screen, otherwise gets an image taller than the
-       space the panel has to give it. */
-    max-height: 30vh !important;
     min-height: 0 !important;
-  }
-  .card-inspector .ci-image-wrap img {
-    max-height: 30vh !important;
-    width: auto !important;
-    object-fit: contain !important;
   }
   /* On mobile the panel is a single column, so the info column IS the body.
      It must be allowed to shrink below its content or .ci-scroll cannot

@@ -154,6 +154,22 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
   // drive a re-render or re-run.
   const deckFetchFor = useRef(null);
 
+  // LOCK THE PAGE BEHIND THE MODAL.
+  //
+  // Zach: "the whole window wants to scroll". Opening a modal does not stop
+  // the body scrolling, so a flick anywhere -- including on the dimmed
+  // backdrop -- drags the page underneath. That reads as the modal being too
+  // big even when it fits, because the thing that moves is the window.
+  //
+  // The previous scroll position is restored on close: locking with
+  // overflow:hidden alone makes the page jump to the top when it is released.
+  useEffect(() => {
+    const { body } = document;
+    const previous = body.style.overflow;
+    body.style.overflow = 'hidden';
+    return () => { body.style.overflow = previous; };
+  }, []);
+
   useEffect(() => {
     // FETCHED FOR EVERY TAB, INCLUDING THE ONE YOU LAND ON.
     //
@@ -340,6 +356,16 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      // ROOM TO BREATHE. A full-bleed overlay puts a 90vh panel flush against
+      // the viewport edges, so any browser chrome or dynamic toolbar tips it
+      // over. The safe-area insets matter on a phone with a notch or a home
+      // bar, where the usable height is smaller than the reported height.
+      padding: 'max(0.75rem, env(safe-area-inset-top, 0px)) 0.75rem '
+             + 'max(0.75rem, env(safe-area-inset-bottom, 0px))',
+      boxSizing: 'border-box',
+      // The overlay itself must never scroll -- .ci-scroll is the only
+      // scrolling region in this modal.
+      overflow: 'hidden',
       zIndex: Z_MODAL
     }} onClick={handleClose}>
       <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
@@ -377,15 +403,30 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
             className="ci-image-wrap"
             onClick={() => setIsFullScreen(true)}
             title={t('inspector.zoomHint')}
-            style={{ position: 'relative', width: '100%', maxWidth: '300px', cursor: 'pointer' }}
+            style={{
+              position: 'relative',
+              // HEIGHT-DRIVEN, not width-driven. width:100% + aspectRatio
+              // derives the height from the width, so on a short screen the
+              // image kept its computed height, overflowed the wrapper and
+              // painted over the card name -- and the wrapper reserved a
+              // height the panel did not have, pushing the window into
+              // scrolling. Bounding the height lets the card shrink instead.
+              maxWidth: '300px',
+              maxHeight: 'min(42vh, 420px)',
+              minHeight: 0,
+              cursor: 'pointer',
+              display: 'flex',
+            }}
           >
             <img
               src={showBack && view.back_image_url ? view.back_image_url : view.image_url}
               alt={showBack && view.back_name ? view.back_name : view.name}
               style={{
-                width: '100%',
+                maxWidth: '100%',
+                maxHeight: 'min(42vh, 420px)',
+                width: 'auto',
                 aspectRatio: 0.718,
-                objectFit: 'cover',
+                objectFit: 'contain',
                 borderRadius: 'var(--radius-md)',
                 boxShadow: '0 12px 36px rgba(0,0,0,0.6), 0 0 20px rgba(255,255,255,0.05)',
                 transition: 'transform 0.2s ease'
