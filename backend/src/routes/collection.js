@@ -216,6 +216,24 @@ router.get('/card/:cardId/decks', async (req, res) => {
       .filter(r => r.board !== 'considering')
       .reduce((n, r) => n + (r.quantity || 0), 0);
 
+    // YOUR COPIES OF THIS PRINTING.
+    //
+    // Returned from the server so the Yours tab reads the same source no
+    // matter which screen opened the sheet. The collection passes a collection
+    // row and the deck view passes a deck requirement -- different shapes,
+    // different fields -- and reading the caller's object made the same card
+    // look different from two places. Zach: "The card detail view should be no
+    // different between collection and deck view".
+    const ownedRows = await db.all(
+      `SELECT c.id, c.quantity, c.finish, c.condition, c.notes,
+              l.name AS location_name
+         FROM collection c
+         LEFT JOIN locations l ON l.id = c.location_id
+        WHERE c.card_id = ? AND c.user_id = ? AND c.list_type = 'collection'
+        ORDER BY c.id`,
+      [card.id, req.user.id]
+    );
+
     // EVERY PRINTING of this card, for the Yours tab's "other printings"
     // list. Zach found four "identical" Tony Starks that were different
     // printings between $6.50 and $76.94 -- telling them apart is the
@@ -240,6 +258,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
       free: Math.max(0, owned.n - reserved),
       decks: rows,
       printings,
+      owned_entries: ownedRows,
     });
   } catch (error) {
     console.error('Failed to load decks for card:', error);

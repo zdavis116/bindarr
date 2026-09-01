@@ -56,6 +56,12 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
   // Every printing of this card, for the Yours tab. Same request as the
   // decks data -- both need the oracle id resolved, so one call serves both.
   const printings = deckUse?.printings || null;
+  // YOUR copies of THIS printing, from the server -- the one source both
+  // callers share. Falls back to the caller's own numbers while the
+  // request is in flight, so the rows do not flash empty.
+  const ownedEntry = deckUse?.owned_entries?.[0] || null;
+  const ownedCopies = (deckUse?.owned_entries || [])
+    .reduce((n, e) => n + (e.quantity || 0), 0) || (card?.quantity ?? 0);
 
   useEffect(() => {
     fetch('/api/locations')
@@ -605,27 +611,30 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                   borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem',
                 }}>
                   {[
-                    [t('inspector.copies'), `x${card.quantity ?? 1}`],
-                    [t('inspector.finish'), card.finish || card.desired_finish || 'nonfoil'],
-                    // A DECK ENTRY HAS NO CONDITION. It is a requirement --
-                    // "this deck wants one nonfoil MSH #80" -- not a physical
-                    // card, so there is nothing to grade. Showing "Near Mint"
-                    // here would be a claim about cardboard that does not
-                    // exist, which is the wrong-record failure this app is
-                    // built to avoid.
-                    [t('inspector.condition'), card.condition || null],
-                    // ALWAYS SHOWN. The mockup draws this row reading "Not
-                    // filed yet" when a card has no location -- dropping the
-                    // row instead says nothing, and "no row" and "not filed"
-                    // are different statements. Zach's copy is unfiled, which
-                    // is exactly the case the mockup illustrates.
-                    // Same reasoning: only a card you OWN can be filed
-                    // somewhere. A deck requirement has no shelf.
-                    [t('inspector.location'), card.entry_id
-                      ? (card.location_name || t('inspector.notFiled'))
+                    // FROM THE SERVER, not from the caller's object. The
+                    // collection passes a collection row and the deck view
+                    // passes a deck requirement -- different shapes, different
+                    // fields -- so reading them directly made the SAME CARD
+                    // look different depending on which screen opened it.
+                    // Zach: "The card detail view should be no different
+                    // between collection and deck view."
+                    //
+                    // owned_entries comes from the endpoint both tabs already
+                    // call, so the two callers cannot diverge. Same technique
+                    // as the shared search row: identical by construction
+                    // rather than by my remembering to update two places.
+                    [t('inspector.copies'), `x${ownedCopies}`],
+                    [t('inspector.finish'), ownedEntry?.finish
+                      || card.finish || card.desired_finish || 'nonfoil'],
+                    [t('inspector.condition'), ownedEntry?.condition || null],
+                    // "Not filed yet" only when a copy EXISTS to be filed. For
+                    // a card you do not own, a location row would describe a
+                    // shelf that holds nothing.
+                    [t('inspector.location'), ownedEntry
+                      ? (ownedEntry.location_name || t('inspector.notFiled'))
                       : null],
-                    [t('inspector.value'), card.price_trend
-                      ? `$${(Number(card.price_trend) * (card.quantity ?? 1)).toFixed(2)}`
+                    [t('inspector.value'), card.price_trend && ownedCopies
+                      ? `$${(Number(card.price_trend) * ownedCopies).toFixed(2)}`
                       : null],
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{
