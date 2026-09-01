@@ -343,15 +343,33 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
       zIndex: Z_MODAL
     }} onClick={handleClose}>
       <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
-        <button className="btn btn-secondary btn-icon-only" onClick={handleClose} style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-          borderRadius: '50%',
-          zIndex: 10
+        {/* CLOSE, IN THE FLOW.
+            This was position:absolute at top:1rem of the panel, and Zach
+            reported it missing twice for two different reasons: first the
+            panel scrolled and carried it off, then the header outgrew the
+            viewport and took it off the top. An absolute button has no
+            relationship to the layout -- it goes wherever the panel's top
+            goes, including off-screen.
+            As a flex row it cannot be anywhere the panel is not. */}
+        <div style={{
+          order: -1,
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          flex: '0 0 auto',
+          marginBottom: '-1rem',
         }}>
-          <X size={16} />
-        </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-icon-only"
+            onClick={handleClose}
+            aria-label={t('common.close')}
+            style={{ borderRadius: '50%' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
 
         {/* Left side: Main Card Image Focus */}
         <div className="ci-image-col" style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>

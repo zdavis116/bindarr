@@ -114,3 +114,76 @@ test('CIL-TC5: the scroller can actually shrink', () => {
     'without min-height:0 a flex child will not scroll');
   assert.match(rule, /overflow-y:\s*auto/);
 });
+
+// --- CIL-TC6: THE CLOSE BUTTON IS IN THE FLOW ------------------------------
+//
+// Zach reported the X missing TWICE, for two different reasons:
+//
+//   1. the panel scrolled, and an absolutely-positioned button anchored to the
+//      content went with it
+//   2. the header outgrew the viewport, so the panel's top -- and the button
+//      pinned at top:1rem of it -- sat above the screen
+//
+// The shared cause is that position:absolute gives a control no relationship
+// to the layout. It goes wherever its containing block's top goes, including
+// off-screen, and no amount of fixing the SCROLLING addresses that.
+//
+// In the flex flow it cannot be anywhere the panel is not.
+
+test('CIL-TC6: the close button is laid out, not absolutely positioned', () => {
+  // ANCHOR ON THE ICON. Searching for onClick={handleClose} found the
+  // OVERLAY's backdrop handler, not the button -- so two earlier versions of
+  // this test asserted about the wrong element and stayed green while the
+  // button was absolutely positioned. There is exactly one <X /> and it is
+  // inside the close button by construction.
+  const icon = src.indexOf('<X size={16} />');
+  assert.ok(icon > 0, 'the close button must exist');
+
+  const open = src.lastIndexOf('<button', icon);
+  assert.ok(open > 0 && icon - open < 600,
+    'the icon must sit inside a nearby button element');
+  const tag = src.slice(open, icon);
+
+  assert.doesNotMatch(tag, /position:\s*'absolute'/,
+    'an absolute close button follows the panel off-screen when the panel '
+    + 'does not fit -- Zach reported this twice as a missing X');
+  assert.match(src.slice(Math.max(0, open - 500), open), /justifyContent: 'flex-end'/,
+    'the button must sit in a laid-out flex row');
+});
+
+// --- CIL-TC7: THE PANEL MUST FIT, NOT JUST CLIP ----------------------------
+//
+// Zach: "the modal needs to fit better on the screen because the entire modal
+// shouldn't be scrollable but since it doesn't fully fit in the screen it
+// becomes scrollable"
+//
+// Two flex defaults were letting the panel outgrow its own max-height:
+//
+//   flex-wrap: wrap    -- a wrapped container sizes to its CONTENT, so when
+//                         the columns could not sit side by side they stacked
+//                         and the panel grew past 90vh
+//   min-height: auto   -- flex children refuse to shrink below their content,
+//                         so the card art dictated the panel's height and the
+//                         scroller never got a bounded box
+
+test('CIL-TC7: the panel cannot outgrow its max-height', () => {
+  const i = css.indexOf('.card-inspector {');
+  const rule = css.slice(i, css.indexOf('}', i)).replace(/\/\*[\s\S]*?\*\//g, '');
+
+  assert.doesNotMatch(rule, /flex-wrap:\s*wrap/,
+    'a wrapped flex container sizes to its content and escapes max-height');
+  assert.match(rule, /flex-wrap:\s*nowrap/);
+  assert.match(rule, /max-height:\s*90vh/);
+});
+
+test('CIL-TC8: both columns can shrink so the art never sets the height', () => {
+  for (const sel of ['.card-inspector .ci-image-col',
+                     '.card-inspector .ci-info-col']) {
+    const i = css.indexOf(sel);
+    assert.ok(i > 0, `${sel} must have a rule`);
+    const rule = css.slice(i, css.indexOf('}', i));
+    assert.match(rule, /min-height:\s*0/,
+      `${sel} must be allowed to shrink, or its content dictates the panel `
+      + 'height and pushes the close button off the top');
+  }
+});

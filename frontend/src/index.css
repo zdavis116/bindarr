@@ -1023,7 +1023,14 @@ button, input, select, textarea {
   padding: 2.5rem;
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  /* NO WRAPPING. A wrapped flex container sizes to its content, so when the
+     two columns could not sit side by side they stacked and the panel grew
+     past max-height -- and the PAGE scrolled instead of .ci-scroll. Zach:
+     "the entire modal shouldn't be scrollable but since it doesn't fully fit
+     in the screen it becomes scrollable."
+     The mobile breakpoint stacks deliberately, with its own height rules. */
+  flex-wrap: nowrap;
+  align-items: stretch;
   gap: 2.5rem;
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1049,6 +1056,19 @@ button, input, select, textarea {
   flex: 0 0 auto;
 }
 
+/* The info column is a flex COLUMN containing the fixed header and the
+   scroller. min-height:0 is the same load-bearing default as on .ci-scroll: a
+   flex child will not shrink below its content unless told to, so without this
+   the scroller never gets a bounded box and the panel grows instead. */
+.card-inspector .ci-info-col {
+  min-height: 0;
+}
+
+/* The card art must not dictate the panel's height on desktop either. */
+.card-inspector .ci-image-col {
+  min-height: 0;
+}
+
 @media (max-width: 768px) {
   /* Stacked on mobile: card image on top (the focus), details below full-width.
      Roomier than the old side-by-side squeeze; the dialog scrolls if tall. */
@@ -1062,11 +1082,21 @@ button, input, select, textarea {
     max-width: 440px !important;
     width: 94vw !important;
     box-sizing: border-box !important;
-    overflow-x: hidden !important;
+    /* BOTH AXES, explicitly. The old rule set only overflow-x, leaving the
+       shorthand above it half-overridden and the intent unclear at a glance --
+       and this is the rule that wins on Zach's phone. */
+    overflow: hidden !important;
     border-radius: var(--radius-md) !important;
   }
+  /* THE IMAGE COLUMN MUST BE ABLE TO SHRINK.
+     It was flex: 0 0 auto, so on a short screen the card art kept its full
+     height, pushed the header past the viewport and took the close button --
+     pinned at top:1rem of the panel -- off the top of the screen with it.
+     Zach reported this twice as "the x button still doesn't show at the top".
+     min-height:0 lets it give way; the art scales instead of overflowing. */
   .card-inspector .ci-image-col {
-    flex: 0 0 auto !important;
+    flex: 0 1 auto !important;
+    min-height: 0 !important;
     width: 100% !important;
     align-items: center !important;
     gap: 0.6rem !important;
@@ -1074,6 +1104,16 @@ button, input, select, textarea {
   .card-inspector .ci-image-wrap {
     max-width: 200px !important;
     width: 62% !important;
+    /* Cap the art by VIEWPORT height, not just width. A tall phone in
+       landscape, or a small screen, otherwise gets an image taller than the
+       space the panel has to give it. */
+    max-height: 30vh !important;
+    min-height: 0 !important;
+  }
+  .card-inspector .ci-image-wrap img {
+    max-height: 30vh !important;
+    width: auto !important;
+    object-fit: contain !important;
   }
   /* On mobile the panel is a single column, so the info column IS the body.
      It must be allowed to shrink below its content or .ci-scroll cannot
