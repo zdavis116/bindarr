@@ -124,3 +124,43 @@ test('DC-TC8: the deck list states what the whole deck is worth', () => {
   assert.match(list, /deck\.deckValue > 0/,
     'and a deck with no priced cards must not claim to be worth $0.00');
 });
+
+// --- DC-TC9: READY TO PLAY MEANS FINISHED ---------------------------------
+//
+// Zach: "both avatar aang and Hashaton say ready to play when they are 1%
+// complete that doesn't make sense."
+//
+// Both decks hold ONE card and own it. The row computed missing as
+// listed - owned = 0 and concluded the deck was ready -- so a deck the ring
+// correctly showed at 1% simultaneously claimed to be playable.
+//
+// "Nothing missing from the list" and "the deck is finished" are different
+// claims. Only the second one is Ready to play.
+
+test('DC-TC9: ready-to-play is judged against the target, not the shortfall', () => {
+  assert.match(list, /deck\.have >= deck\.target[\s\S]{0,120}readyToPlay/,
+    'a deck is ready when its owned cards reach the target size');
+  // The old test: missing === 0, which a one-card deck satisfies.
+  assert.doesNotMatch(list, /\{missing\s*\?[\s\S]{0,200}readyToPlay/,
+    'a deck with nothing missing from a one-card list is not ready to play');
+});
+
+test('DC-TC10: the deck row shows ONE dollar figure', () => {
+  // Zach: "I didn't want 2 dollar amounts just the total cost that's it."
+  const row = list.slice(list.indexOf('{deck.name}'), list.indexOf('{deck.name}') + 1800);
+  const dollars = (row.match(/\$\{/g) || []).length;
+  assert.ok(dollars <= 1,
+    `the deck row renders ${dollars} dollar figures; it should render one`);
+});
+
+test('DC-TC11: the selection bar is just the two actions', () => {
+  // Zach: "get rid of all the text that says how many cards just delete and
+  // export." A count and a rule explanation stacked above two buttons is not
+  // what he asked for; the rule belongs in the export sheet.
+  assert.doesNotMatch(list, /deck\.decksSelected/,
+    'no selected-deck count in the bar');
+  assert.doesNotMatch(list, /deck\.oneCopyPerDeck/,
+    'no buylist rule text in the bar');
+  assert.match(list, /deck\.delete/, 'delete stays');
+  assert.match(list, /deck\.export/, 'export stays');
+});

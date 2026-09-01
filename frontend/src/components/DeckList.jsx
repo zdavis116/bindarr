@@ -129,7 +129,6 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   // to a shop with a number that is not true. Pricing the buylist is a real
   // feature; it needs the card_cache price joined server-side, not a guess
   // here.
-  const totalCopies = items.reduce((sum, i) => sum + (i.quantity || 0), 0);
 
   // The shared ExportModal does the building and copying, so this screen and
   // the deck view behave identically. Zach: "can we have the functionality be
@@ -140,7 +139,9 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   const exportCards = items.map(i => ({ ...i, quantity_missing: i.quantity }));
 
   return (
-    <div style={{ paddingBottom: selecting && selected.size ? 190 : 0 }}>
+    // Clears the selection bar when it is showing. Smaller now that the bar
+    // is two buttons rather than two buttons under three lines of text.
+    <div style={{ paddingBottom: selecting && selected.size ? 150 : 0 }}>
       {/* HEADER: title and the one mode switch, as in the mock. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.9rem' }}>
         <h2 style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
@@ -198,9 +199,6 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
           {shown.map(deck => {
             const sel = selected.has(deck.id);
-            // Against the LISTED size, not the target: a 97-card list with 3
-            // owned is missing 94 cards, not 97 -- the three you have are real.
-            const missing = Math.max(0, (deck.listed || deck.target) - deck.have);
             return (
               <button
                 key={deck.id}
@@ -246,24 +244,21 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                     {deck.name}
                   </span>
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                    {/* Deck value first -- that is what he asked for -- then
-                        what is still missing, which is the number he buys
-                        against. A card with no cached price contributes
-                        nothing rather than reading as free. */}
-                    {deck.deckValue > 0 && (
-                      <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
-                        ${deck.deckValue.toFixed(2)}
-                      </span>
-                    )}
-                    {deck.deckValue > 0 && ' · '}
-                    {missing
-                      ? t('deck.missingWithCost', {
-                          count: missing,
-                          cost: deck.missingCost > 0
-                            ? `$${deck.missingCost.toFixed(2)}`
-                            : t('deck.priceUnknown'),
-                        })
-                      : t('deck.readyToPlay')}
+                    {/* ONE dollar figure: what the deck is worth. Zach: "I
+                        didn't want 2 dollar amounts just the total cost".
+
+                        READY TO PLAY MEANS FINISHED, not "nothing missing from
+                        a one-card list". Avatar Aang holds a single owned card
+                        and reported Ready to play, because missing was
+                        listed - owned = 0. A deck is ready when the cards it
+                        owns reach its target size, and not before. */}
+                    {deck.deckValue > 0
+                      ? `$${deck.deckValue.toFixed(2)}`
+                      : t('deck.priceUnknown')}
+                    {' · '}
+                    {deck.have >= deck.target
+                      ? t('deck.readyToPlay')
+                      : t('deck.deckProgress', { have: deck.have, want: deck.target })}
                   </span>
                 </span>
 
@@ -309,30 +304,6 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           boxShadow: '0 -8px 24px rgba(0,0,0,.5)',
         }}>
           <div style={{ maxWidth: 680, margin: '0 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 2 }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                {t('deck.decksSelected', { count: selected.size })}
-              </span>
-              <b style={{ fontSize: '1.15rem', letterSpacing: '-0.02em' }}>
-                {buylistLoading ? '…' : totalCopies}
-              </b>
-            </div>
-            {/* States the RULE, because the number is only trustworthy if the
-                rule behind it is visible. */}
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>
-              {buylistLoading
-                ? t('common.loading')
-                : items.length
-                  ? t('deck.oneCopyPerDeck', { count: totalCopies })
-                  : t('deck.buylistNothingNeeded')}
-            </div>
-            {/* DELETE THE SELECTED DECKS. Selection mode only, so it cannot be
-                hit while browsing, and it names them in the confirmation.
-
-                Deliberately NOT a per-row button: a delete icon on every row
-                of a scrolling list is a mis-tap that destroys a deck. This
-                reuses the selection flow that already exists for the buylist,
-                so one mental model covers both. */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
             {/* TWO LABELLED ACTIONS, equal weight. A bare trash icon beside an
                 export button is ambiguous, and one of the two destroys work.
@@ -381,7 +352,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
               }}
             >
               <Download size={16} />
-              {t('deck.exportBuylist')}
+              {t('deck.export')}
             </button>
             </div>
           </div>

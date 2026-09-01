@@ -1173,5 +1173,6 @@
   "deck.priceUnknown": "price unknown",
   "card.viewOnly": "This is a deck entry — edit the card from your collection.",
   "deck.deckValue": "Deck value",
-  "deck.confirmDeleteMany": "Delete {count} decks? This cannot be undone.\n\n{names}"
+  "deck.confirmDeleteMany": "Delete {count} decks? This cannot be undone.\n\n{names}",
+  "deck.deckProgress": "{have} of {want} cards"
 }
