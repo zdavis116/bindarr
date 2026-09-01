@@ -1316,5 +1316,6 @@
   "inspector.thisPrinting": "This printing",
   "inspector.ownNoneOfThese": "you own none of these",
   "inspector.covered": "Covered",
-  "inspector.notFiled": "Not filed yet"
+  "inspector.notFiled": "Not filed yet",
+  "inspector.short": "Not owned"
 }

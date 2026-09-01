@@ -204,7 +204,13 @@ router.get('/card/:cardId/decks', async (req, res) => {
          JOIN card_cache cc ON cc.id = dc.desired_card_id
         WHERE cc.oracle_id = ? AND d.user_id = ?
         ORDER BY CASE dc.board WHEN 'considering' THEN 1 ELSE 0 END,
-                 d.name`,
+                 -- CLAIM ORDER, not alphabetical. deckIdentity.js awards a
+                 -- copy by deck_cards.id ASC because the id is assigned at
+                 -- insert and never changes: renaming a deck must not move a
+                 -- physical card to another deck. Sorting by name here would
+                 -- have given Zach's copy to "Avatar Aang" over "Tony Stark",
+                 -- which is the opposite of what he did.
+                 dc.id ASC`,
       [card.oracle_id, req.user.id]
     );
 
@@ -225,6 +231,29 @@ router.get('/card/:cardId/decks', async (req, res) => {
     const reserved = rows
       .filter(r => r.board !== 'considering')
       .reduce((n, r) => n + (r.quantity || 0), 0);
+
+    // WHICH requirements the owned copies actually cover.
+    //
+    // Not every non-considering row: claims are consumed in deck_cards.id
+    // order, so with one copy owned and two decks wanting it, the FIRST claim
+    // is covered and the second is short. Zach: "only one should specifically
+    // Tony stark since I added it 1st there."
+    //
+    // This is deckIdentity.js's rule (see requirementsForVariant, ordered by
+    // dc.id ASC because the id never changes and so cannot silently move a
+    // physical card between decks). Rendering "Covered" on every row was a
+    // label rather than a calculation, and it contradicted the shortfall
+    // banner directly above it.
+    let remaining = owned.n;
+    for (const r of rows) {
+      if (r.board === 'considering') {
+        r.covered = null;   // a shopping note claims nothing
+        continue;
+      }
+      const want = r.quantity || 0;
+      r.covered = remaining >= want;
+      if (r.covered) remaining -= want;
+    }
 
     // YOUR COPIES OF THIS PRINTING.
     //

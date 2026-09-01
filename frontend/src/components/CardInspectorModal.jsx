@@ -69,6 +69,39 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
   // opened. The caller keeps only what the server cannot know: which
   // collection entry this is, and which deck board it sits on.
   const view = deckUse?.card ? { ...card, ...deckUse.card } : card;
+
+  // THE FACE CURRENTLY SHOWN, for a double-faced card.
+  //
+  // Zach: "if Tony stark is showing that's the card info that should show. If
+  // I flip Tony stark to invincible iron man then that info should show."
+  //
+  // Scryfall stores the two faces joined: type_line and mana_cost as
+  // "front // back", oracle_text as "=== Face ===" blocks. Splitting here
+  // rather than at import keeps one row per printing and one source of truth --
+  // the same reason the ownership rule lives in SQL and not in three
+  // components.
+  //
+  // A single-faced card has no separator, so every split yields one part and
+  // this collapses to exactly what it renders today.
+  const faceIndex = showBack && view?.back_image_url ? 1 : 0;
+  const facePart = (val) => {
+    if (typeof val !== 'string') return val;
+    const parts = val.split(' // ');
+    return parts.length > 1 ? (parts[faceIndex] ?? parts[0]) : val;
+  };
+  const faceRules = (() => {
+    const txt = view?.oracle_text;
+    if (typeof txt !== 'string') return txt;
+    const blocks = txt.split(/\n\n(?==== )/);
+    if (blocks.length < 2) return txt;
+    const blk = blocks[faceIndex] ?? blocks[0];
+    // The face header is redundant once only one face is shown -- the card
+    // name above already says which face you are looking at.
+    return blk.replace(/^=== .+? ===\n/, '');
+  })();
+  const faceTypeLine = faceIndex === 1
+    ? (view?.back_type_line || facePart(view?.type_line))
+    : facePart(view?.type_line);
   // YOUR copies of THIS printing, from the server -- the one source both
   // callers share. Falls back to the caller's own numbers while the
   // request is in flight, so the rows do not flash empty.
@@ -403,14 +436,21 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 utils/cardName.js -- one rule, so the inspector and the grid can
                 never disagree about what a card is called. */}
             <h3 style={{ fontSize: '1.65rem', color: 'var(--text-strong)', fontWeight: 800, lineHeight: 1.15, marginBottom: '0.25rem' }}>
-              {displayName(view)}
+              {/* The face's own name. Everything else on this tab follows
+                  the flip; a fixed heading would be the only thing left
+                  disagreeing with the picture. */}
+              {faceIndex === 1 && view.back_name
+                ? view.back_name
+                : displayName(view)}
             </h3>
             {secondaryName(view) && (
               <p style={{
                 color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500,
                 marginBottom: '0.25rem',
               }}>
-                {secondaryName(view)}
+                {faceIndex === 1 && view.back_name
+                  ? (view.name || secondaryName(view))
+                  : secondaryName(view)}
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
@@ -460,15 +500,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     (scryfallApi.js:220). For a double-faced card that welds
                     both faces together and drops every separator, which is
                     exactly what Zach's screenshot showed. */}
+                {/* THE FACE YOU ARE LOOKING AT. Showing both type lines while
+                    the art shows one face made the reader work out which half
+                    belonged to the picture. */}
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                  {(view.type_line || '').split(' // ').map((line, i, all) => (
-                    <div key={i}>
-                      {line}
-                      {i < all.length - 1 && (
-                        <span style={{ color: 'var(--text-muted)' }}> {' // '} </span>
-                      )}
-                    </div>
-                  ))}
+                  {faceTypeLine}
                 </div>
 
                 {view.supertype === 'MTG' && (
@@ -491,28 +527,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     you never flip merely to read the back. normalizeCard stores
                     them as "=== Face ===\n<text>" blocks joined by a blank
                     line, so the face headers are already there to split on. */}
-                {view.oracle_text && (
+                {faceRules && (
                   <div style={{
                     background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                     borderRadius: 'var(--radius-md)', padding: '0.75rem',
                     fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-primary)',
                     whiteSpace: 'pre-wrap',
                   }}>
-                    {String(view.oracle_text).split(/\n\n(?==== )/).map((blk, i) => {
-                      const m = blk.match(/^=== (.+?) ===\n([\s\S]*)$/);
-                      return (
-                        <div key={i} style={{ marginTop: i ? '0.75rem' : 0 }}>
-                          {m && (
-                            <div style={{
-                              fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
-                              textTransform: 'uppercase', color: 'var(--text-muted)',
-                              marginBottom: '0.3rem',
-                            }}>{m[1]}</div>
-                          )}
-                          {m ? m[2] : blk}
-                        </div>
-                      );
-                    })}
+                    {faceRules}
                   </div>
                 )}
 
@@ -524,7 +546,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                   borderRadius: 'var(--radius-md)', overflow: 'hidden',
                 }}>
                   {[
-                    [t('inspector.manaCost'), view.mana_cost],
+                    [t('inspector.manaCost'), facePart(view.mana_cost)],
                     [t('inspector.colorIdentity'), (() => {
                       try {
                         const ci = Array.isArray(view.color_identity)
@@ -807,15 +829,21 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                           {/* Considering is LABELLED, not flagged as a fault.
                               A real requirement says whether it is COVERED --
                               the question the tab exists to answer. */}
+                          {/* THE SERVER DECIDES, per requirement, in claim
+                              order. Rendering "Covered" for every real
+                              requirement was a label rather than a
+                              calculation: with one copy owned and two decks
+                              wanting it, both rows claimed Covered while the
+                              banner directly above said one was short. */}
                           <span style={{
                             flexShrink: 0, fontSize: '0.7rem', fontWeight: 600,
                             color: d.board === 'considering'
                               ? 'var(--text-muted)'
-                              : 'var(--accent-green)',
+                              : (d.covered ? 'var(--accent-green)' : 'var(--accent-yellow)'),
                           }}>
                             {d.board === 'considering'
                               ? t('inspector.considering')
-                              : t('inspector.covered')}
+                              : (d.covered ? t('inspector.covered') : t('inspector.short'))}
                           </span>
                         </div>
                       ))}

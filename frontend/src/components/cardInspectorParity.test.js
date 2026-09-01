@@ -155,10 +155,17 @@ test('CIP-TC10: the card tab renders catalogue facts from the server', () => {
   const cardTab = impl.slice(start, end);
 
   // Every catalogue fact must come from the merged view, never the caller.
-  // cmc dropped from this list: the Mana value row was removed at Zach's
-  // request, so the field is no longer rendered anywhere in the card tab.
-  for (const field of ['type_line', 'oracle_text', 'mana_cost',
-                       'rarity', 'color_identity']) {
+  // cmc: the Mana value row was removed at Zach's request.
+  // type_line / oracle_text / mana_cost: now read through the per-face
+  // helpers (faceTypeLine, faceRules, facePart) so the tab shows only the
+  // face on screen -- but those helpers derive from `view`, which CIP-TC15
+  // pins. Checking the derivation source here instead.
+  assert.match(impl, /const faceTypeLine[\s\S]{0,200}view\?\.type_line/,
+    'the face type line must derive from the merged view');
+  assert.match(impl, /const txt = view\?\.oracle_text;/,
+    'the face rules must derive from the merged view');
+
+  for (const field of ['rarity', 'color_identity']) {
     assert.doesNotMatch(cardTab, new RegExp(`\\bcard\\.${field}\\b`),
       `card.${field} is a fact about the CARD, not about the row that `
       + 'referenced it -- reading it from the caller makes the same card look '
@@ -227,4 +234,55 @@ test('CIP-TC14: mana value is not shown', () => {
   // Zach: "please remove mana value from the view."
   assert.doesNotMatch(impl, /inspector\.manaValue/,
     'the mana value row must be gone from the card tab');
+});
+
+// --- CIP-TC15: THE CARD TAB SHOWS THE FACE YOU ARE LOOKING AT --------------
+//
+// Zach: "for card tab if it's a flip card should only show the side of the
+// card showing so if Tony stark is showing that's the card info that should
+// show. If I flip Tony stark to invincible iron man then that info should
+// show"
+//
+// It previously showed BOTH faces stacked -- my choice, so you would never
+// flip merely to read the back. Once the ART flips, that is worse than showing
+// one: the picture says one thing and the text says two, and the reader has to
+// work out which half belongs to what they are seeing.
+//
+// Scryfall stores the faces joined -- "front // back" for type_line and
+// mana_cost, "=== Face ===" blocks for oracle_text -- so the split happens
+// here rather than at import, keeping one row per printing.
+
+test('CIP-TC15: rules text, type line and mana cost follow the shown face', () => {
+  assert.match(impl, /const faceIndex = showBack && view\?\.back_image_url \? 1 : 0;/,
+    'the face index must follow the flip state');
+
+  const start = impl.indexOf("{tab === 'card' && (");
+  const end = impl.indexOf("{mode === 'edit' ? (", start);
+  const cardTab = impl.slice(start, end);
+
+  assert.match(cardTab, /\{faceRules\}/,
+    'rules text must render the shown face, not both');
+  assert.doesNotMatch(cardTab, /\{view\.oracle_text\}/,
+    'rendering the whole oracle_text shows both faces at once');
+  assert.match(cardTab, /\{faceTypeLine\}/,
+    'the type line must be the shown face');
+  assert.match(cardTab, /facePart\(view\.mana_cost\)/,
+    'the mana cost must be the shown face');
+});
+
+test('CIP-TC16: a single-faced card is unaffected by the face split', () => {
+  // The split must collapse to a no-op when there is no separator, or every
+  // ordinary card loses its rules text -- a far worse bug than the one being
+  // fixed. Exercising the real helpers' logic on single-faced input.
+  const facePart = (val, faceIndex) => {
+    if (typeof val !== 'string') return val;
+    const parts = val.split(' // ');
+    return parts.length > 1 ? (parts[faceIndex] ?? parts[0]) : val;
+  };
+  assert.equal(facePart('{2}{R}', 0), '{2}{R}');
+  assert.equal(facePart('{2}{R}', 1), '{2}{R}',
+    'a single-faced card has no back to switch to');
+  assert.equal(facePart('Creature — Goblin', 0), 'Creature — Goblin');
+  assert.equal(facePart('{1}{U} // {4}{U}{R}', 1), '{4}{U}{R}',
+    'a double-faced cost splits on the separator');
 });

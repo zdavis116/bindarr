@@ -1201,5 +1201,6 @@
   "inspector.thisPrinting": "此印刷",
   "inspector.ownNoneOfThese": "你都没有",
   "inspector.covered": "已满足",
-  "inspector.notFiled": "未归档"
+  "inspector.notFiled": "未归档",
+  "inspector.short": "未拥有"
 }

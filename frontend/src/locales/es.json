@@ -1231,5 +1231,6 @@
   "inspector.thisPrinting": "Esta edición",
   "inspector.ownNoneOfThese": "no tienes ninguna",
   "inspector.covered": "Cubierta",
-  "inspector.notFiled": "Sin archivar"
+  "inspector.notFiled": "Sin archivar",
+  "inspector.short": "No la tienes"
 }
