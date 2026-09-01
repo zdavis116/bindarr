@@ -67,6 +67,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const [tab, setTab] = useState('card');
   const [deckUse, setDeckUse] = useState(null);
   const [deckUseLoading, setDeckUseLoading] = useState(false);
+  // Every printing of this card, for the Yours tab. Same request as the
+  // decks data -- both need the oracle id resolved, so one call serves both.
+  const printings = deckUse?.printings || null;
 
   useEffect(() => {
     fetch('/api/locations')
@@ -101,7 +104,9 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   // fetching this up front would cost a request per card view for data that is
   // usually not looked at.
   useEffect(() => {
-    if (tab !== 'decks' || !card?.id || deckUse || deckUseLoading) return;
+    // Fetched for BOTH tabs that need it. Still lazy: the Card tab is the
+    // default and never triggers a request.
+    if ((tab !== 'decks' && tab !== 'yours') || !card?.id || deckUse || deckUseLoading) return;
     let cancelled = false;
     setDeckUseLoading(true);
     // Routers mount at bare /api -- see server.js:250. Verified against the
@@ -408,23 +413,102 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
               ))}
             </div>
 
-            {/* MTG color pips and type line. */}
-            {card.supertype === 'MTG' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                {(Array.isArray(card.types) ? card.types : []).map(color => (
-                  <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
-                    fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em',
-                    padding: '0.15rem 0.45rem', borderRadius: '999px',
-                    background: MTG_COLOR_BG[color] || 'rgba(255,255,255,0.1)',
-                    color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
-                  }}>{color}</span>
-                ))}
-                {(!card.types || card.types.length === 0) && (
-                  <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>{t('inspector.colorless')}</span>
+            {/* ============================ CARD TAB ============================
+                What this thing is and what it does. Built from the mockup
+                rather than from whatever the old layout left behind. */}
+            {tab === 'card' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+
+                {/* TYPE LINE, from type_line -- NOT from `subtypes`, which is
+                    type_line split on non-letters and rejoined with spaces
+                    (scryfallApi.js:220). For a double-faced card that welds
+                    both faces together and drops every separator, which is
+                    exactly what Zach's screenshot showed. */}
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                  {(card.type_line || '').split(' // ').map((line, i, all) => (
+                    <div key={i}>
+                      {line}
+                      {i < all.length - 1 && (
+                        <span style={{ color: 'var(--text-muted)' }}> {' // '} </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {card.supertype === 'MTG' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {(Array.isArray(card.types) ? card.types : []).map(color => (
+                      <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
+                        fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em',
+                        padding: '0.15rem 0.45rem', borderRadius: '999px',
+                        background: MTG_COLOR_BG[color] || 'rgba(255,255,255,0.1)',
+                        color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
+                      }}>{color}</span>
+                    ))}
+                    {(!card.types || card.types.length === 0) && (
+                      <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>{t('inspector.colorless')}</span>
+                    )}
+                  </div>
                 )}
-                {Array.isArray(card.subtypes) && card.subtypes.length > 0 && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{card.subtypes.join(' ')}</span>
+
+                {/* RULES TEXT, BOTH FACES. The mockup shows them together so
+                    you never flip merely to read the back. normalizeCard stores
+                    them as "=== Face ===\n<text>" blocks joined by a blank
+                    line, so the face headers are already there to split on. */}
+                {card.oracle_text && (
+                  <div style={{
+                    background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                    borderRadius: 'var(--radius-md)', padding: '0.75rem',
+                    fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-primary)',
+                    whiteSpace: 'pre-wrap',
+                  }}>
+                    {String(card.oracle_text).split(/\n\n(?==== )/).map((blk, i) => {
+                      const m = blk.match(/^=== (.+?) ===\n([\s\S]*)$/);
+                      return (
+                        <div key={i} style={{ marginTop: i ? '0.75rem' : 0 }}>
+                          {m && (
+                            <div style={{
+                              fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                              textTransform: 'uppercase', color: 'var(--text-muted)',
+                              marginBottom: '0.3rem',
+                            }}>{m[1]}</div>
+                          )}
+                          {m ? m[2] : blk}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
+
+                {/* The facts the mockup lists. Each is a single stored value --
+                    nothing here is derived, so nothing here can disagree with
+                    another screen. */}
+                <div style={{
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                  borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                }}>
+                  {[
+                    [t('inspector.manaCost'), card.mana_cost],
+                    [t('inspector.colorIdentity'), (() => {
+                      try {
+                        const ci = Array.isArray(card.color_identity)
+                          ? card.color_identity : JSON.parse(card.color_identity || '[]');
+                        return ci.length ? ci.join(' · ') : t('inspector.colorless');
+                      } catch { return null; }
+                    })()],
+                    [t('inspector.manaValue'), card.cmc != null ? String(card.cmc) : null],
+                    [t('inspector.rarity'), card.rarity],
+                  ].filter(([, v]) => v).map(([k, v], i) => (
+                    <div key={k} style={{
+                      display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
+                      padding: '0.6rem 0.75rem', minHeight: 42, fontSize: '0.82rem',
+                      borderTop: i ? '1px solid var(--border-glass)' : 0,
+                    }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                      <span style={{ fontWeight: 600, textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -489,6 +573,82 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
             <>
               {/* Price Panel -- YOURS: what your copies are worth. */}
               {tab === 'yours' && (<>
+
+                {/* THIS PRINTING. Scoped deliberately: Bindarr records the
+                    exact physical card, so "how many do I own" is a question
+                    about MSH #80, not about Tony Stark in general. */}
+                <div style={{
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                  borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem',
+                }}>
+                  {[
+                    [t('inspector.copies'), `x${card.quantity ?? 1}`],
+                    [t('inspector.finish'), card.finish || card.desired_finish || 'nonfoil'],
+                    [t('inspector.condition'), card.condition || null],
+                    [t('inspector.location'), card.location_name || null],
+                    [t('inspector.value'), card.price_trend
+                      ? `$${(Number(card.price_trend) * (card.quantity ?? 1)).toFixed(2)}`
+                      : null],
+                  ].filter(([, v]) => v).map(([k, v], i) => (
+                    <div key={k} style={{
+                      display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
+                      padding: '0.6rem 0.75rem', minHeight: 42, fontSize: '0.82rem',
+                      borderTop: i ? '1px solid var(--border-glass)' : 0,
+                    }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                      <span style={{ fontWeight: 600, textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
+                    found four "identical" Tony Starks that were different
+                    printings between $6.50 and $76.94. Telling them apart is
+                    the difference between buying the right card and the wrong
+                    one. Loaded with the Decks tab data, which already knows
+                    every printing of this oracle id. */}
+                {printings && printings.length > 1 && (
+                  <div style={{ marginBottom: '0.85rem' }}>
+                    <div style={{
+                      fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                      textTransform: 'uppercase', color: 'var(--text-muted)',
+                      marginBottom: '0.4rem',
+                    }}>{t('inspector.otherPrintings')}</div>
+                    <div style={{
+                      background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                      borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                    }}>
+                      {printings.filter(pr => pr.id !== card.card_id && pr.id !== card.id)
+                        .map((pr, i) => {
+                          let fin = [];
+                          try { fin = Array.isArray(pr.finishes) ? pr.finishes : JSON.parse(pr.finishes || '[]'); }
+                          catch { fin = []; }
+                          const foilOnly = fin.length === 1 && fin[0] === 'foil';
+                          return (
+                            <div key={pr.id} style={{
+                              display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
+                              padding: '0.6rem 0.75rem', minHeight: 44, fontSize: '0.82rem',
+                              borderTop: i ? '1px solid var(--border-glass)' : 0,
+                            }}>
+                              <span style={{ minWidth: 0 }}>
+                                <span style={{ display: 'block', fontWeight: 600 }}>
+                                  {(pr.set_id || '').toUpperCase()} #{pr.number}
+                                </span>
+                                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                  {pr.set_name}
+                                  {foilOnly && ` · ${t('card.foilOnly')}`}
+                                </span>
+                              </span>
+                              <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                                {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
               <div style={{ borderTop: '1px solid var(--border-glass)', borderBottom: '1px solid var(--border-glass)', padding: '0.75rem 0', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                 <div>
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t('inspector.marketPrice')}</div>

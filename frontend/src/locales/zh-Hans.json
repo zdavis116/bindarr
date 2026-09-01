@@ -1187,5 +1187,15 @@
   "inspector.freeCount": "可用",
   "inspector.inYourDecks": "在你的套牌中",
   "inspector.availability": "可用情况",
-  "inspector.shortfall": "你拥有 {owned} 张，但套牌需要 {reserved} 张。"
+  "inspector.shortfall": "你拥有 {owned} 张，但套牌需要 {reserved} 张。",
+  "inspector.copies": "数量",
+  "inspector.finish": "版本",
+  "inspector.condition": "品相",
+  "inspector.location": "位置",
+  "inspector.value": "价值",
+  "inspector.otherPrintings": "其他印刷",
+  "inspector.manaCost": "法术力费用",
+  "inspector.colorIdentity": "色彩标识",
+  "inspector.manaValue": "法术力值",
+  "inspector.rarity": "稀有度"
 }

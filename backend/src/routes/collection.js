@@ -216,6 +216,21 @@ router.get('/card/:cardId/decks', async (req, res) => {
       .filter(r => r.board !== 'considering')
       .reduce((n, r) => n + (r.quantity || 0), 0);
 
+    // EVERY PRINTING of this card, for the Yours tab's "other printings"
+    // list. Zach found four "identical" Tony Starks that were different
+    // printings between $6.50 and $76.94 -- telling them apart is the
+    // difference between buying the right card and the wrong one.
+    //
+    // Served from this endpoint rather than a new one: it has already resolved
+    // the oracle id, so this is one more query on data in hand.
+    const printings = await db.all(
+      `SELECT id, set_id, number, set_name, price_trend, finishes
+         FROM card_cache
+        WHERE oracle_id = ?
+        ORDER BY price_trend DESC`,
+      [card.oracle_id]
+    );
+
     res.json({
       card_id: card.id,
       oracle_id: card.oracle_id,
@@ -224,6 +239,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
       reserved,
       free: Math.max(0, owned.n - reserved),
       decks: rows,
+      printings,
     });
   } catch (error) {
     console.error('Failed to load decks for card:', error);

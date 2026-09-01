@@ -1302,5 +1302,15 @@
   "inspector.freeCount": "Free to use",
   "inspector.inYourDecks": "In your decks",
   "inspector.availability": "Availability",
-  "inspector.shortfall": "You own {owned} but {reserved} are needed by your decks."
+  "inspector.shortfall": "You own {owned} but {reserved} are needed by your decks.",
+  "inspector.copies": "Copies",
+  "inspector.finish": "Finish",
+  "inspector.condition": "Condition",
+  "inspector.location": "Location",
+  "inspector.value": "Value",
+  "inspector.otherPrintings": "Other printings",
+  "inspector.manaCost": "Mana cost",
+  "inspector.colorIdentity": "Colour identity",
+  "inspector.manaValue": "Mana value",
+  "inspector.rarity": "Rarity"
 }

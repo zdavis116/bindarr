@@ -1217,5 +1217,15 @@
   "inspector.freeCount": "Disponibles",
   "inspector.inYourDecks": "En tus mazos",
   "inspector.availability": "Disponibilidad",
-  "inspector.shortfall": "Tienes {owned} pero tus mazos necesitan {reserved}."
+  "inspector.shortfall": "Tienes {owned} pero tus mazos necesitan {reserved}.",
+  "inspector.copies": "Copias",
+  "inspector.finish": "Acabado",
+  "inspector.condition": "Estado",
+  "inspector.location": "Ubicación",
+  "inspector.value": "Valor",
+  "inspector.otherPrintings": "Otras ediciones",
+  "inspector.manaCost": "Coste de maná",
+  "inspector.colorIdentity": "Identidad de color",
+  "inspector.manaValue": "Valor de maná",
+  "inspector.rarity": "Rareza"
 }
