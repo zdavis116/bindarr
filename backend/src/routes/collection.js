@@ -160,6 +160,77 @@ function sortOwnedFirst(cards) {
 //
 // OPT-IN, never applied by default: the deck Add Cards search and the manual
 // collection add both use this route and must keep seeing every card.
+// WHICH DECKS WANT THIS CARD -- the card detail's Decks tab.
+//
+// Keyed on ORACLE id, not card id. Two decks can want different PRINTINGS of
+// the same card, and the whole point of this tab is to show that: one deck
+// wanting a $6.50 printing and another wanting the $25.30 one is a fact the
+// user acts on. Matching by card id would show one and hide the other.
+//
+// Considering entries are INCLUDED and flagged. They are not a claim on
+// cardboard -- deckRules already refuses to count them for missing-copies or
+// deck size -- but the user asked to see them, labelled as what they are.
+router.get('/card/:cardId/decks', async (req, res) => {
+  try {
+    const card = await db.get(
+      `SELECT id, oracle_id, name FROM card_cache WHERE id = ?`,
+      [req.params.cardId]
+    );
+    if (!card || !card.oracle_id) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    const rows = await db.all(
+      `SELECT d.id          AS deck_id,
+              d.name        AS deck_name,
+              d.format,
+              dc.board,
+              dc.quantity,
+              dc.desired_finish,
+              cc.set_id, cc.number, cc.set_name,
+              cc.price_trend
+         FROM deck_cards dc
+         JOIN decks d       ON d.id = dc.deck_id
+         JOIN card_cache cc ON cc.id = dc.desired_card_id
+        WHERE cc.oracle_id = ? AND d.user_id = ?
+        ORDER BY CASE dc.board WHEN 'considering' THEN 1 ELSE 0 END,
+                 d.name`,
+      [card.oracle_id, req.user.id]
+    );
+
+    // Copies owned across EVERY printing of this card: the user physically
+    // holds the card, and which printing satisfies which deck is a separate
+    // question the deck view already answers.
+    const owned = await db.get(
+      `SELECT COALESCE(SUM(c.quantity), 0) AS n
+         FROM collection c
+         JOIN card_cache cc ON cc.id = c.card_id
+        WHERE cc.oracle_id = ? AND c.user_id = ? AND c.list_type = 'collection'`,
+      [card.oracle_id, req.user.id]
+    );
+
+    // Only REAL requirements reserve. A considering entry cannot make a deck
+    // short, so it must not count here either -- otherwise the tab would
+    // report a shortfall the rest of the app does not recognise.
+    const reserved = rows
+      .filter(r => r.board !== 'considering')
+      .reduce((n, r) => n + (r.quantity || 0), 0);
+
+    res.json({
+      card_id: card.id,
+      oracle_id: card.oracle_id,
+      name: card.name,
+      owned: owned.n,
+      reserved,
+      free: Math.max(0, owned.n - reserved),
+      decks: rows,
+    });
+  } catch (error) {
+    console.error('Failed to load decks for card:', error);
+    res.status(500).json({ error: 'Failed to load decks for this card' });
+  }
+});
+
 router.get('/search', searchLimiter, async (req, res) => {
   const { name, number, set, scope = 'database', prints } = req.query;
   const commandersOnly = req.query.commanders === '1';
