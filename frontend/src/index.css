@@ -1104,8 +1104,14 @@ button, input, select, textarea {
      pinned at top:1rem of the panel -- off the top of the screen with it.
      Zach reported this twice as "the x button still doesn't show at the top".
      min-height:0 lets it give way; the art scales instead of overflowing. */
+  /* flex: 0 0 auto -- NOT `0 1 auto`.
+     Allowing the column to shrink meant its flex-basis was the content's
+     CURRENT height, so every re-render measured the already-shrunken image and
+     shrank it again. Zach: "shrinks sometimes shrinks multiple times".
+     The image now carries a fixed viewport-relative height, so the column has
+     a stable size and .ci-scroll absorbs any overflow. */
   .card-inspector .ci-image-col {
-    flex: 0 1 auto !important;
+    flex: 0 0 auto !important;
     min-height: 0 !important;
     width: 100% !important;
     align-items: center !important;
@@ -1115,8 +1121,10 @@ button, input, select, textarea {
      shrinks to fit rather than overflowing. This rule deliberately sets only
      WIDTH: a second max-height here would clamp the wrapper smaller than the
      image inside it and bring the overlap straight back. One rule, one place. */
+  /* NO WIDTH CAP. The image is height-driven now and its width follows the
+     aspect ratio; capping the width would derive the height from the width
+     again, which is the bug this replaced. */
   .card-inspector .ci-image-wrap {
-    max-width: 200px !important;
     min-height: 0 !important;
   }
   /* On mobile the panel is a single column, so the info column IS the body.

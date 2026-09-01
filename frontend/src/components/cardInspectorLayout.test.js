@@ -201,32 +201,6 @@ test('CIL-TC8: both columns can shrink so the art never sets the height', () => 
 //
 // Driving from height instead lets the card shrink; the width follows.
 
-test('CIL-TC9: the art shrinks to fit rather than overflowing', () => {
-  const img = src.indexOf('src={showBack && view.back_image_url');
-  assert.ok(img > 0, 'the card image must exist');
-  const style = src.slice(img, img + 700);
-
-  assert.doesNotMatch(style, /width:\s*'100%'/,
-    "width:100% with an aspect ratio derives HEIGHT from width, so the image "
-    + 'cannot shrink on a short screen and paints over the content below it');
-  assert.match(style, /maxHeight:\s*'min\(42vh, 420px\)'/,
-    'the image needs a height budget');
-  assert.match(style, /objectFit:\s*'contain'/,
-    "cover crops to fill the box; contain fits inside it");
-});
-
-test('CIL-TC10: only ONE place caps the art height', () => {
-  // The budget lives on the element. A second max-height in CSS would clamp
-  // the wrapper smaller than the image inside it and bring the overlap
-  // straight back -- the same two-copies drift that has caused five bugs on
-  // this branch.
-  const i = css.indexOf('.card-inspector .ci-image-wrap {');
-  assert.ok(i > 0, 'the wrapper rule must exist');
-  const rule = css.slice(i, css.indexOf('}', i)).replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.doesNotMatch(rule, /max-height/,
-    'the height budget belongs on the element, in one place');
-});
-
 // --- CIL-TC11: THE PAGE BEHIND MUST NOT SCROLL ----------------------------
 //
 // "the whole window wants to scroll". Opening a modal does not stop the body
@@ -264,4 +238,66 @@ test('CIL-TC13: the panel is sized by the DYNAMIC viewport height', () => {
   assert.match(rule, /max-height:\s*90vh[\s\S]*max-height:\s*100dvh/,
     'the vh line must come FIRST as the fallback; browsers without dvh drop '
     + 'the second declaration and keep the first');
+});
+
+// --- CIL-TC9: THE CARD ART HAS A SIZE, NOT A CEILING ----------------------
+//
+// Zach: "when you switch the yours tab or flip the card the card image shrinks
+// sometimes shrinks multiple times"
+//
+// A REPEATED shrink is a feedback loop, not a miscalculation:
+//
+//   .ci-image-col   flex: 0 1 auto   basis `auto` = measure the content
+//   img             maxHeight only   a ceiling, never a size
+//
+// The image had no intrinsic height -- it was width:auto with an aspect ratio
+// and a cap, so its height came from whatever space the layout offered. The
+// column's basis then MEASURED that height. Every tab switch re-measured the
+// already-shrunken image, took it as the new preferred size, and shrank again.
+// Nothing ever pushed back up, so it ratcheted down with each interaction.
+//
+// The earlier version of this test asserted the cap-based sizing, which is why
+// it could not catch this: it was pinning the cause.
+
+test('CIL-TC9: the art is sized, not merely capped', () => {
+  const wrap = src.indexOf('className="ci-image-wrap"');
+  assert.ok(wrap > 0, 'the image wrapper must exist');
+  // Anchor on the style block itself: a fixed character window from the
+  // className misses it once explanatory comments sit in between.
+  const styleStart = src.indexOf('style={{', wrap);
+  const style = src.slice(styleStart, src.indexOf('}}', styleStart));
+
+  assert.match(style, /height: 'min\(38vh, 380px\)'/,
+    'the wrapper needs a real height; a max-height is a ceiling and leaves the '
+    + 'actual size to the layout, which then measures it back');
+  assert.doesNotMatch(style, /maxHeight: 'min\(42vh, 420px\)'/,
+    'a cap alone is what allowed the ratchet');
+});
+
+test('CIL-TC10: the image cannot feed its size back into the layout', () => {
+  const img = src.indexOf('src={showBack && view.back_image_url');
+  const style = src.slice(img, img + 500);
+  assert.match(style, /height: '100%'/,
+    'the image fills a wrapper that already has a size');
+  assert.doesNotMatch(style, /aspectRatio/,
+    'the aspect ratio belongs on the sized wrapper, not on the image -- on '
+    + 'both it derives a second height that disagrees with the first');
+});
+
+test('CIL-TC11: neither image column may shrink to its content', () => {
+  // flex-basis:auto means "measure the content", and the content is the image
+  // whose height came from the previous layout. That is the loop.
+  const col = src.indexOf('className="ci-image-col"');
+  const style = src.slice(col, col + 220);
+  assert.match(style, /flex: '0 0 auto'/,
+    'the column must not shrink to fit its content');
+
+  // And the mobile override, which carries !important and would win.
+  const i = css.lastIndexOf('.card-inspector .ci-image-col');
+  const rule = css.slice(i, css.indexOf('}', i));
+  assert.match(rule, /flex:\s*0 0 auto\s*!important/,
+    'the mobile rule beats the inline style, so it must agree with it -- this '
+    + 'is the phone, where Zach actually sees the modal');
+  assert.doesNotMatch(rule, /flex:\s*0 1 auto/,
+    'allowing the column to shrink reinstates the ratchet');
 });

@@ -398,21 +398,34 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
 
 
         {/* Left side: Main Card Image Focus */}
-        <div className="ci-image-col" style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {/* flex: 0 0 auto -- the column must NOT shrink to fit its content.
+            With `0 1 auto` its basis was the content's CURRENT height, so a
+            re-render measured the shrunken image and shrank it further. The
+            image now has a fixed height, so the column has a stable size and
+            the scroller absorbs any overflow instead. */}
+        <div className="ci-image-col" style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div
             className="ci-image-wrap"
             onClick={() => setIsFullScreen(true)}
             title={t('inspector.zoomHint')}
             style={{
               position: 'relative',
-              // HEIGHT-DRIVEN, not width-driven. width:100% + aspectRatio
-              // derives the height from the width, so on a short screen the
-              // image kept its computed height, overflowed the wrapper and
-              // painted over the card name -- and the wrapper reserved a
-              // height the panel did not have, pushing the window into
-              // scrolling. Bounding the height lets the card shrink instead.
-              maxWidth: '300px',
-              maxHeight: 'min(42vh, 420px)',
+              // A FIXED HEIGHT, NOT A CAP.
+              //
+              // This was maxHeight, which is a ceiling rather than a size: the
+              // actual height came from whatever space the flex layout offered,
+              // and the column's flex-basis:auto then MEASURED that height on
+              // the next render. Each tab switch or flip re-measured the
+              // already-shrunken image, took it as the new preferred size and
+              // shrank again -- Zach: "shrinks sometimes shrinks multiple
+              // times". It never recovered, because nothing pushed back up.
+              //
+              // A height in viewport units is the same number before and after
+              // a re-render, so there is nothing left to ratchet.
+              height: 'min(38vh, 380px)',
+              width: 'auto',
+              aspectRatio: 0.718,
+              flex: '0 0 auto',
               minHeight: 0,
               cursor: 'pointer',
               display: 'flex',
@@ -422,10 +435,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
               src={showBack && view.back_image_url ? view.back_image_url : view.image_url}
               alt={showBack && view.back_name ? view.back_name : view.name}
               style={{
-                maxWidth: '100%',
-                maxHeight: 'min(42vh, 420px)',
-                width: 'auto',
-                aspectRatio: 0.718,
+                // Fill the wrapper, which now HAS a size. The image no longer
+                // decides anything: it cannot feed a measurement back into the
+                // layout that produced it.
+                height: '100%',
+                width: '100%',
                 objectFit: 'contain',
                 borderRadius: 'var(--radius-md)',
                 boxShadow: '0 12px 36px rgba(0,0,0,0.6), 0 0 20px rgba(255,255,255,0.05)',
