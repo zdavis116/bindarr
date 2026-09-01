@@ -1,0 +1,38 @@
+Parse real Moxfield exports: DFC names, prefixed numbers, foil markers
+
+Zach's 86-line Iron Man list, pasted WITH set codes and collector numbers,
+still lost cards. Three separate faults in the parser, each of which loses a
+card silently: the line parses, so it is never reported as unreadable -- it
+simply never finds a card.
+
+Measured against his real catalogue: 86 of 86 lines now resolve exactly. Before
+these fixes, three did not.
+
+1. DOUBLE-FACED CARDS. "1 Tony Stark / The Invincible Iron Man (MSH) 80"
+
+   This was his COMMANDER -- the one card a Commander deck cannot do without --
+   and it matched nothing. card_cache stores modal DFCs under the front face
+   alone ('Tony Stark', msh #80, layout modal_dfc). Moxfield writes ONE slash;
+   Scryfall's own convention is TWO, and 931 cards in this catalogue use it.
+   Neither form was handled.
+
+   The name now reduces to the front face, which is the identity the catalogue
+   stores and does not depend on the exporter spelling the back face our way.
+
+2. SET-PREFIXED COLLECTOR NUMBERS. "1 Master Transmuter (PLST) CON-31"
+
+   The List numbers its reprints CON-31. The matcher only understood digits, so
+   the number came back undefined AND "CON-31" stayed welded to the name,
+   producing "Master Transmuter CON-31" -- unmatchable however good the rest of
+   the pipeline is.
+
+3. Foil markers and commas in names were already handled, and now have tests so
+   they stay that way -- "1 Rescue, Pepper Potts (MSC) 755 *F*" exercises both
+   at once.
+
+TESTS: deckTextParse.test.js, DT-TC1 to DT-TC6, every case a literal line from
+the file Zach sent. Three verified by reintroducing the bug -- the commander
+lost to slash handling, CON-31 welded to the name, and the general form where
+any parsed name keeps a digit from its collector number.
+
+343 tests pass, lint and build clean.
