@@ -138,3 +138,82 @@ test('CIA-TC9: the type line sits under the name, not in the Card tab', () => {
   assert.ok(typeAt > nameAt && typeAt - nameAt < 1200,
     'the type line must follow the card name closely');
 });
+
+// --- CIA-TC10: ACTIONS CLOSE THE YOURS TAB --------------------------------
+//
+// Zach: "why is the button now inbetween the 2 grids instead of at the bottom
+// of the yours tab"
+//
+// I inserted them before the other-printings block because it was a convenient
+// anchor, not because it was the right place. Actions belong after the
+// information they act on.
+
+test('CIA-TC10: the collection actions come last on Yours', () => {
+  const copies = yoursTab.indexOf("inspector.copies");
+  const printings = yoursTab.indexOf('inspector.otherPrintings');
+  const edit = yoursTab.indexOf('inspector.editCard');
+
+  assert.ok(copies > 0 && printings > 0 && edit > 0,
+    'all three blocks must be on the Yours tab');
+  assert.ok(edit > printings,
+    'the action buttons must come AFTER other printings, not between the two '
+    + 'grids');
+});
+
+// --- CIA-TC11: ADD TO DECK MATCHES THE EDIT BUTTON ------------------------
+//
+// Zach, twice: "why does the add to deck not look like the edit button please
+// make it the same as the edit button"
+//
+// The first attempt added a .ci-add-deck stylesheet rule and left the inline
+// style prop in place -- maxWidth 140px, small font. Inline beats stylesheet,
+// so the rule never applied and the control stayed a small dropdown beside a
+// full-width button. The values live on the element now, in one place.
+
+test('CIA-TC11: add-to-deck is styled as the primary action', () => {
+  const i = src.indexOf('<AddToDeckSelect');
+  assert.ok(i > 0, 'the control must exist');
+  const el = src.slice(i, i + 800);
+
+  assert.match(el, /className="btn btn-primary"/,
+    'it must carry the same class as the Edit button');
+  assert.match(el, /width: '100%'/, 'full width, like Edit');
+  assert.match(el, /minHeight: 42/, 'same height as Edit');
+  assert.doesNotMatch(el, /maxWidth: '140px'/,
+    'a 140px cap is what made it look like a dropdown rather than a button');
+});
+
+test('CIA-TC12: nothing else styles add-to-deck', () => {
+  // A stylesheet rule AND an inline style is two places to disagree, and the
+  // inline one silently wins -- which is exactly how the first fix failed.
+  const css = readFileSync(join(here, '../index.css'), 'utf8');
+  assert.doesNotMatch(css, /\.ci-add-deck select/,
+    'the styling belongs in one place, on the element');
+});
+
+// --- CIA-TC13: THE PANEL DOES NOT RESIZE BETWEEN TABS ---------------------
+//
+// Zach: "the modal should stay the same size when changing between tabs it's
+// growing when moving to yours"
+//
+// With max-height alone the panel sized to whatever the current tab held --
+// short on Card, taller on Yours. A height makes it the same box on every tab
+// and lets .ci-scroll absorb the difference, which is its whole purpose. Same
+// distinction as the card art: a cap leaves the size to the content.
+
+test('CIA-TC13: the panel has a height, not only a ceiling', () => {
+  const css = readFileSync(join(here, '../index.css'), 'utf8');
+  const i = css.indexOf('.card-inspector {');
+  const rule = css.slice(i, css.indexOf('}', i)).replace(/\/\*[\s\S]*?\*\//g, '');
+
+  assert.match(rule, /(^|;|\{)\s*height:\s*\d+vh/m,
+    'without a height the panel resizes to each tab');
+  assert.match(rule, /(^|;|\{)\s*height:\s*\d+dvh/m,
+    'and the dynamic-viewport variant, or iOS toolbars change the size');
+
+  // The mobile override too -- it carries !important and would win.
+  const j = css.indexOf('.card-inspector {', i + 10);
+  const mob = css.slice(j, css.indexOf('}', j));
+  assert.match(mob, /(^|;|\{)\s*height:\s*\d+vh\s*!important/m,
+    'the mobile rule wins on the phone, so it must set a height as well');
+});

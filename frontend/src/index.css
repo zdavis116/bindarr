@@ -1016,6 +1016,15 @@ button, input, select, textarea {
      reveal the rest. Zach reported that three times. `dvh` tracks the real
      usable height; the vh line above it is the fallback for browsers that
      drop the dvh declaration. */
+  /* A HEIGHT, NOT ONLY A CEILING.
+     With max-height alone the panel sized to whatever the current tab held --
+     short on Card, taller on Yours -- so it jumped when Zach switched tabs:
+     "the modal should stay the same size when changing between tabs it's
+     growing when moving to yours". A height makes it the same box on every
+     tab and lets .ci-scroll absorb the difference, which is its whole job.
+     Viewport-relative rather than fixed px, so it still fits a short screen. */
+  height: 82vh;
+  height: 82dvh;
   max-height: 90vh;
   max-height: 100dvh;
   /* THE PANEL ITSELF NO LONGER SCROLLS.
@@ -1044,24 +1053,6 @@ button, input, select, textarea {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
 }
 
-/* ADD TO DECK, styled like the Edit button on the Yours tab.
-   Zach asked for them to match: they are each their tab's primary action, and
-   a select that looks like a form field next to a button that looks like a
-   button reads as two different kinds of thing. */
-.ci-add-deck select,
-.ci-add-deck button {
-  width: 100%;
-  min-height: 42px;
-  background: var(--accent-primary, #0a84ff);
-  color: #fff;
-  border: 0;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  font-size: 0.95rem;
-  padding: 0 0.9rem;
-  cursor: pointer;
-}
-
 /* THE ONLY SCROLLING REGION: everything below the tabs.
    Zach: "I think it would make sense for the section below the 3 tabs to be
    the scrollable area." min-height:0 is load-bearing -- a flex child defaults
@@ -1070,6 +1061,11 @@ button, input, select, textarea {
 .card-inspector .ci-scroll {
   flex: 1 1 auto;
   min-height: 0;
+  /* Pull the body up against the tabs. Zach: "the white space between the card
+     tab and the card info can be shrunk" -- the info column's own gap was
+     adding a third helping on top of the tab bar's margin and the tab's
+     internal spacing. */
+  margin-top: -0.35rem;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -1106,6 +1102,10 @@ button, input, select, textarea {
     gap: 0.75rem !important;
     /* Same reasoning as the desktop rule, and it matters more here: the phone
        is where the toolbars move and shrink the usable height. */
+    /* Same reasoning as the desktop rule: a stable box so switching tabs does
+       not resize the modal. */
+    height: 88vh !important;
+    height: 88dvh !important;
     max-height: 90vh !important;
     max-height: 100dvh !important;
     flex-direction: column !important;

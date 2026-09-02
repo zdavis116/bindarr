@@ -586,7 +586,7 @@ function CardInspectorModal({
                 No counts on the labels. Zach: "can remove the numbers from the
                 tabs seems pointless". */}
             <div style={{
-              display: 'flex', gap: 4, marginTop: '0.6rem', marginBottom: '0.55rem',
+              display: 'flex', gap: 4, marginTop: '0.5rem', marginBottom: '0.35rem',
               background: 'var(--bg-secondary)', padding: 3, borderRadius: 10,
               border: '1px solid var(--border-glass)',
             }}>
@@ -620,7 +620,7 @@ function CardInspectorModal({
                 What this thing is and what it does. Built from the mockup
                 rather than from whatever the old layout left behind. */}
             {tab === 'card' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
 
                 {/* TYPE LINE, from type_line -- NOT from `subtypes`, which is
                     type_line split on non-letters and rejoined with spaces
@@ -797,59 +797,6 @@ function CardInspectorModal({
                   ))}
                 </div>
 
-                {/* ACTIONS FOR A CARD YOU OWN.
-                    Zach: "This is where edit card should be and only be here
-                    when coming from the collection and this is where favorite
-                    and delete should live as well." Editing, favouriting and
-                    deleting all act on a COLLECTION ROW, so they belong on the
-                    tab that describes it -- and only when one exists. */}
-                {ownedEntry && !readOnly && (
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
-                    <button
-                      className="btn btn-primary"
-                      style={{ flex: 1 }}
-                      onClick={() => setMode('edit')}
-                    >
-                      {t('inspector.editCard')}
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
-                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
-                      onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
-                      title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
-                    >
-                      <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-icon-only"
-                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
-                      onClick={handleDelete}
-                      title={t('inspector.deleteCard')}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                )}
-
-                {/* FROM A DECK, delete means REMOVE FROM THIS DECK. Zach: "The
-                    delete when coming from deck view should delete the card
-                    from the deck not the collection otherwise seems weird."
-                    The wording says where the copy goes, because a delete that
-                    might destroy a record is not one to guess at. */}
-                {onRemoveFromDeck && (
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    style={{ width: '100%', marginBottom: '0.85rem' }}
-                    onClick={handleRemoveFromDeck}
-                  >
-                    <Trash2 size={16} />
-                    {t('inspector.removeFromDeck')}
-                  </button>
-                )}
-
                 {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
                     found four "identical" Tony Starks that were different
                     printings between $6.50 and $76.94. Telling them apart is
@@ -914,6 +861,59 @@ function CardInspectorModal({
 
                   Market price and the marketplace links are reachable from the
                   Edit view, which is where changing a card belongs. */}
+                {/* ACTIONS FOR A CARD YOU OWN.
+                    Zach: "This is where edit card should be and only be here
+                    when coming from the collection and this is where favorite
+                    and delete should live as well." Editing, favouriting and
+                    deleting all act on a COLLECTION ROW, so they belong on the
+                    tab that describes it -- and only when one exists. */}
+                {ownedEntry && !readOnly && (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
+                    <button
+                      className="btn btn-primary"
+                      style={{ flex: 1 }}
+                      onClick={() => setMode('edit')}
+                    >
+                      {t('inspector.editCard')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
+                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                      onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
+                      title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
+                    >
+                      <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-icon-only"
+                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                      onClick={handleDelete}
+                      title={t('inspector.deleteCard')}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {/* FROM A DECK, delete means REMOVE FROM THIS DECK. Zach: "The
+                    delete when coming from deck view should delete the card
+                    from the deck not the collection otherwise seems weird."
+                    The wording says where the copy goes, because a delete that
+                    might destroy a record is not one to guess at. */}
+                {onRemoveFromDeck && (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    style={{ width: '100%', marginBottom: '0.85rem' }}
+                    onClick={handleRemoveFromDeck}
+                  >
+                    <Trash2 size={16} />
+                    {t('inspector.removeFromDeck')}
+                  </button>
+                )}
+
               </>)}
 
               {/* DECKS -- who wants this card, and can they all have it. */}
@@ -1074,11 +1074,30 @@ function CardInspectorModal({
                       like Edit on the Yours tab. Zach: "Just an add to deck
                       button styled just like the edit." */}
                   {!readOnly && (
-                    <div style={{ marginTop: '0.25rem' }} className="ci-add-deck">
+                    <div style={{ marginTop: '0.25rem' }}>
+                {/* STYLED AS THE PRIMARY ACTION, matching Edit on the Yours
+                    tab. Zach: "please make it the same as the edit button".
+                    The values live here rather than in a stylesheet because
+                    this component takes a `style` prop -- and an inline style
+                    silently beat my .ci-add-deck rule last time, leaving it a
+                    140px dropdown beside a full-width button. */}
                 <AddToDeckSelect
                   onAdd={handleAddToDeck}
                   placeholder={t('inspector.addToDeck')}
-                  style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    maxWidth: 'none',
+                    minHeight: 42,
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    padding: '0 0.9rem',
+                    textAlign: 'center',
+                    textAlignLast: 'center',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    cursor: 'pointer',
+                  }}
                 />
                     </div>
                   )}
