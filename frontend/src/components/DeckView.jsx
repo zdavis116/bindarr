@@ -829,6 +829,16 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           readOnly
           onClose={() => setInspecting(null)}
           showToast={showToast}
+          /* Delete from a deck means REMOVE THE REQUIREMENT, not destroy the
+             card. Zach: "The delete when coming from deck view should delete
+             the card from the deck not the collection otherwise seems weird."
+             Passing the action in rather than letting the modal guess: it has
+             no deck context, and its own delete targets a collection row. */
+          /* removeCard already calls onChanged(), which reloads the deck --
+             I invented a loadDeck() that does not exist. Checked rather than
+             assumed this time. */
+          onRemoveFromDeck={removeCard}
+          deckName={deck?.name || null}
         />
       )}
 

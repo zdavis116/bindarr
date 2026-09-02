@@ -1044,6 +1044,24 @@ button, input, select, textarea {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
 }
 
+/* ADD TO DECK, styled like the Edit button on the Yours tab.
+   Zach asked for them to match: they are each their tab's primary action, and
+   a select that looks like a form field next to a button that looks like a
+   button reads as two different kinds of thing. */
+.ci-add-deck select,
+.ci-add-deck button {
+  width: 100%;
+  min-height: 42px;
+  background: var(--accent-primary, #0a84ff);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0 0.9rem;
+  cursor: pointer;
+}
+
 /* THE ONLY SCROLLING REGION: everything below the tabs.
    Zach: "I think it would make sense for the section below the 3 tabs to be
    the scrollable area." min-height:0 is load-bearing -- a flex child defaults

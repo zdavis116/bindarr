@@ -1317,5 +1317,8 @@
   "inspector.ownNoneOfThese": "you own none of these",
   "inspector.covered": "Covered",
   "inspector.notFiled": "Not filed yet",
-  "inspector.short": "Not owned"
+  "inspector.short": "Not owned",
+  "inspector.confirmRemoveFromDeck": "Remove {name} from {deck}? Your copy stays in your collection.",
+  "inspector.confirmRemoveFromDeckShort": "Remove {name} from this deck? Your copy stays in your collection.",
+  "inspector.removeFromDeck": "Remove from deck"
 }

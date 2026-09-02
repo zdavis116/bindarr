@@ -21,7 +21,20 @@ const MTG_COLOR_FG = {
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
 // gets the same rich view + edit without duplicating the form. onUpdate() lets
 // the parent refetch after a change. onViewStorage is optional (hidden if absent).
-function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, startInEdit = false, readOnly = false }) {
+function CardInspectorModal({
+  card, onClose, onUpdate, onDeleted, showToast,
+  startInEdit = false,
+  readOnly = false,
+  // REMOVE FROM THIS DECK, supplied only by the deck view.
+  //
+  // Delete cannot be one function: from the collection it destroys a physical
+  // record, from a deck it drops a requirement. handleDelete targets
+  // `entry_id || id`, and from a deck that id is a deck_cards row -- so
+  // reusing it would delete a COLLECTION row whose id happened to match.
+  // The caller owns its own context and passes the right action in.
+  onRemoveFromDeck = null,
+  deckName = null,
+}) {
   const { t } = useT();
   const [mode, setMode] = useState('view');
   const [locations, setLocations] = useState([]);
@@ -326,6 +339,18 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
     }
   };
 
+  // Remove this card from the DECK it was opened from. Distinct from
+  // handleDelete, which destroys a collection record.
+  const handleRemoveFromDeck = async () => {
+    if (!onRemoveFromDeck) return;
+    const label = deckName
+      ? t('inspector.confirmRemoveFromDeck', { name: view.name, deck: deckName })
+      : t('inspector.confirmRemoveFromDeckShort', { name: view.name });
+    if (!window.confirm(label)) return;
+    await onRemoveFromDeck(card);
+    onClose();
+  };
+
   const handleDelete = async () => {
     if (!targetEntryId) return;
     if (!window.confirm(t('collection.confirmDeleteCard', { name: card.name }))) return;
@@ -429,7 +454,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
               // 30% it's taking up to much of the screen". BOTH caps scale
               // together -- shrinking only one would make the card 30% smaller
               // on a tall phone and unchanged on a short one.
-              height: 'min(27vh, 266px)',
+              height: 'min(24vh, 239px)',
               width: 'auto',
               aspectRatio: 0.718,
               flex: '0 0 auto',
@@ -526,6 +551,19 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 ? view.back_name
                 : displayName(view)}
             </h3>
+            {/* TYPE LINE, DIRECTLY UNDER THE NAME. Zach: "we need to move
+                the type line to below name of card." It used to open the Card
+                tab, which put the tab bar between a card's name and its type
+                -- two halves of one identity, separated by navigation. */}
+            <div style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.35,
+              marginTop: '0.15rem',
+            }}>
+              {faceTypeLine}
+            </div>
+
             {secondaryName(view) && (
               <p style={{
                 color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500,
@@ -589,13 +627,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     (scryfallApi.js:220). For a double-faced card that welds
                     both faces together and drops every separator, which is
                     exactly what Zach's screenshot showed. */}
-                {/* THE FACE YOU ARE LOOKING AT. Showing both type lines while
-                    the art shows one face made the reader work out which half
-                    belonged to the picture. */}
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                  {faceTypeLine}
-                </div>
-
                 {view.supertype === 'MTG' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                     {(Array.isArray(view.types) ? view.types : []).map(color => (
@@ -725,17 +756,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     exact physical card, so "how many do I own" is a question
                     about MSH #80, not about Tony Stark in general. */}
                   <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                    fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
-                    textTransform: 'uppercase', color: 'var(--text-muted)',
-                    marginBottom: '0.4rem',
-                  }}>
-                  <span>{t('inspector.thisPrinting')}</span>
-                  <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
-                    {(card.set_id || '').toUpperCase()} #{card.number}
-                  </span>
-                </div>
-                <div style={{
                   background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                   borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem',
                 }}>
@@ -776,6 +796,59 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                     </div>
                   ))}
                 </div>
+
+                {/* ACTIONS FOR A CARD YOU OWN.
+                    Zach: "This is where edit card should be and only be here
+                    when coming from the collection and this is where favorite
+                    and delete should live as well." Editing, favouriting and
+                    deleting all act on a COLLECTION ROW, so they belong on the
+                    tab that describes it -- and only when one exists. */}
+                {ownedEntry && !readOnly && (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
+                    <button
+                      className="btn btn-primary"
+                      style={{ flex: 1 }}
+                      onClick={() => setMode('edit')}
+                    >
+                      {t('inspector.editCard')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
+                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                      onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
+                      title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
+                    >
+                      <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-icon-only"
+                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                      onClick={handleDelete}
+                      title={t('inspector.deleteCard')}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {/* FROM A DECK, delete means REMOVE FROM THIS DECK. Zach: "The
+                    delete when coming from deck view should delete the card
+                    from the deck not the collection otherwise seems weird."
+                    The wording says where the copy goes, because a delete that
+                    might destroy a record is not one to guess at. */}
+                {onRemoveFromDeck && (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    style={{ width: '100%', marginBottom: '0.85rem' }}
+                    onClick={handleRemoveFromDeck}
+                  >
+                    <Trash2 size={16} />
+                    {t('inspector.removeFromDeck')}
+                  </button>
+                )}
 
                 {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
                     found four "identical" Tony Starks that were different
@@ -925,15 +998,37 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                               calculation: with one copy owned and two decks
                               wanting it, both rows claimed Covered while the
                               banner directly above said one was short. */}
-                          <span style={{
-                            flexShrink: 0, fontSize: '0.7rem', fontWeight: 600,
-                            color: d.board === 'considering'
-                              ? 'var(--text-muted)'
-                              : (d.covered ? 'var(--accent-green)' : 'var(--accent-yellow)'),
-                          }}>
-                            {d.board === 'considering'
-                              ? t('inspector.considering')
-                              : (d.covered ? t('inspector.covered') : t('inspector.short'))}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                            <span style={{
+                              fontSize: '0.7rem', fontWeight: 600,
+                              color: d.board === 'considering'
+                                ? 'var(--text-muted)'
+                                : (d.covered ? 'var(--accent-green)' : 'var(--accent-yellow)'),
+                            }}>
+                              {d.board === 'considering'
+                                ? t('inspector.considering')
+                                : (d.covered ? t('inspector.covered') : t('inspector.short'))}
+                            </span>
+                            {/* REMOVE FROM THIS DECK, on the deck's own row.
+                                Zach: "Maybe a delete in each row for the decks
+                                it shows in." Better than one modal-wide
+                                delete: the tab lists several decks, so a
+                                single button would need a picker to say WHICH.
+                                Shown only for the deck the sheet was opened
+                                from -- the collection has no deck context to
+                                act with. */}
+                            {onRemoveFromDeck && deckName === d.deck_name && (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-icon-only"
+                                style={{ borderRadius: 'var(--radius-sm)', padding: '0.35rem' }}
+                                onClick={handleRemoveFromDeck}
+                                title={t('inspector.removeFromDeck')}
+                                aria-label={t('inspector.removeFromDeck')}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </span>
                         </div>
                       ))}
@@ -975,8 +1070,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                       already wants the card and how many are free before
                       committing another copy. Hidden in read-only mode, where
                       the card is a deck entry rather than a collection row. */}
+                  {/* ADD TO A DECK -- the Decks tab's primary action, styled
+                      like Edit on the Yours tab. Zach: "Just an add to deck
+                      button styled just like the edit." */}
                   {!readOnly && (
-                    <div style={{ marginTop: '0.25rem' }}>
+                    <div style={{ marginTop: '0.25rem' }} className="ci-add-deck">
                 <AddToDeckSelect
                   onAdd={handleAddToDeck}
                   placeholder={t('inspector.addToDeck')}
@@ -987,43 +1085,6 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 </div>
               )}
 
-              {/* Main Actions Row: Edit Card + Icon buttons for Favorite & Delete */}
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" style={{ flex: 1, display: readOnly ? 'none' : undefined }} onClick={() => setMode('edit')}>
-                  {t('inspector.editCard')}
-                </button>
-
-                {card.list_type === 'wishlist' && (
-                  <button 
-                    className="btn btn-secondary" 
-                    style={{ backgroundColor: 'rgba(74,222,128,0.2)', color: 'var(--type-grass)', border: '1px solid rgba(74,222,128,0.3)', padding: '0 0.75rem', fontSize: '0.8rem' }} 
-                    onClick={() => handleQuickToggle('list_type', 'collection')}
-                    title={t('bulk.moveToCollection')}
-                  >
-                    {t('inspector.obtained')}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
-                  style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem', ...(favorite === 1 ? { backgroundColor: 'rgba(250,204,21,0.2)', color: '#facc15', border: '1px solid rgba(250,204,21,0.3)' } : {}) }}
-                  onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
-                  title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
-                >
-                  <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-danger btn-icon-only"
-                  style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
-                  onClick={handleDelete}
-                  title={t('inspector.deleteCard')}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
             </>
           )}
         </div>

@@ -1232,5 +1232,8 @@
   "inspector.ownNoneOfThese": "no tienes ninguna",
   "inspector.covered": "Cubierta",
   "inspector.notFiled": "Sin archivar",
-  "inspector.short": "No la tienes"
+  "inspector.short": "No la tienes",
+  "inspector.confirmRemoveFromDeck": "¿Quitar {name} de {deck}? Tu copia sigue en tu colección.",
+  "inspector.confirmRemoveFromDeckShort": "¿Quitar {name} de este mazo? Tu copia sigue en tu colección.",
+  "inspector.removeFromDeck": "Quitar del mazo"
 }

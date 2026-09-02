@@ -1202,5 +1202,8 @@
   "inspector.ownNoneOfThese": "你都没有",
   "inspector.covered": "已满足",
   "inspector.notFiled": "未归档",
-  "inspector.short": "未拥有"
+  "inspector.short": "未拥有",
+  "inspector.confirmRemoveFromDeck": "从{deck}中移除{name}？你的收藏不受影响。",
+  "inspector.confirmRemoveFromDeckShort": "从此套牌中移除{name}？你的收藏不受影响。",
+  "inspector.removeFromDeck": "从套牌移除"
 }

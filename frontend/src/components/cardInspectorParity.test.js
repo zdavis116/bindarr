@@ -34,8 +34,10 @@ test('CIP-TC1: every section header the mockup draws exists', () => {
   // Measured against sketches/010b-card-detail-tabs: THIS PRINTING, OTHER
   // PRINTINGS, IN YOUR DECKS, AVAILABILITY. Three of these were missing when
   // Zach sent his second screenshot.
+  // 'This printing' was REMOVED at Zach's request -- the header above already
+  // shows the set and number, so the section hint was duplicate data. Keeping
+  // it in this list would fail the behaviour he asked for.
   const required = {
-    'inspector.thisPrinting': 'This printing',
     'inspector.otherPrintings': 'Other printings',
     'inspector.inYourDecks': 'In your decks',
     'inspector.availability': 'Availability',
@@ -264,8 +266,13 @@ test('CIP-TC15: rules text, type line and mana cost follow the shown face', () =
     'rules text must render the shown face, not both');
   assert.doesNotMatch(cardTab, /\{view\.oracle_text\}/,
     'rendering the whole oracle_text shows both faces at once');
-  assert.match(cardTab, /\{faceTypeLine\}/,
-    'the type line must be the shown face');
+  // The type line MOVED OUT of the card tab, under the card name, so the tab
+  // bar no longer sits between a card's name and its type. It must still
+  // follow the shown face, which is what this checks now.
+  assert.match(impl, /\{faceTypeLine\}/,
+    'the type line must still render, and follow the shown face');
+  assert.doesNotMatch(cardTab, /\{faceTypeLine\}/,
+    'it belongs under the name now, not at the top of the Card tab');
   assert.match(cardTab, /facePart\(view\.mana_cost\)/,
     'the mana cost must be the shown face');
 });
