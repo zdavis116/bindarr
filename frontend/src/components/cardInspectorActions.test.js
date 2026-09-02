@@ -149,12 +149,15 @@ test('CIA-TC9: the type line sits under the name, not in the Card tab', () => {
 // information they act on.
 
 test('CIA-TC10: the collection actions come last on Yours', () => {
-  const copies = yoursTab.indexOf("inspector.copies");
+  // Anchored on `finish`, not `copies`: the Copies row was removed at Zach's
+  // request once the header carried the count. The point of this test is the
+  // ORDER -- actions last -- not which rows the grid happens to have.
+  const grid = yoursTab.indexOf('inspector.finish');
   const printings = yoursTab.indexOf('inspector.otherPrintings');
   const edit = yoursTab.indexOf('inspector.editCard');
 
-  assert.ok(copies > 0 && printings > 0 && edit > 0,
-    'all three blocks must be on the Yours tab');
+  assert.ok(grid > 0 && printings > 0 && edit > 0,
+    'the grid, the printings list and the actions must all be on Yours');
   assert.ok(edit > printings,
     'the action buttons must come AFTER other printings, not between the two '
     + 'grids');

@@ -614,7 +614,16 @@ function CardInspectorModal({
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
               {card.set_name}
-              {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''} • {t('inspector.owned', { count: card.quantity ?? 1 })}
+              {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''}
+              {/* OWNED COUNT, FROM THE SERVER.
+                  This read `card.quantity ?? 1` -- the CALLER's object. From a
+                  deck that is how many the DECK WANTS, so a deck requirement
+                  rendered as "x1 owned" for a card Zach does not own. His two
+                  screenshots disagreed with each other and the header was the
+                  wrong one. The `?? 1` default also turned missing data into a
+                  claim of ownership.
+                  deckUse.owned is what the Decks tab already trusts. */}
+              {deckUse ? ` • ${t('inspector.owned', { count: deckUse.owned ?? 0 })}` : ''}
             </p>
 
             {/* THREE TABS. Each answers a different question, which is the
@@ -817,7 +826,6 @@ function CardInspectorModal({
                     // call, so the two callers cannot diverge. Same technique
                     // as the shared search row: identical by construction
                     // rather than by my remembering to update two places.
-                    [t('inspector.copies'), `x${ownedCopies}`],
                     [t('inspector.finish'), ownedEntry?.finish
                       || card.finish || card.desired_finish || 'nonfoil'],
                     [t('inspector.condition'), ownedEntry?.condition || null],
@@ -1093,8 +1101,7 @@ function CardInspectorModal({
                       background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-glass)', overflow: 'hidden',
                     }}>
-                      {[[t('inspector.ownedCount'), deckUse.owned],
-                        [t('inspector.reservedCount'), deckUse.reserved],
+                      {[[t('inspector.reservedCount'), deckUse.reserved],
                         [t('inspector.freeCount'), deckUse.free]].map(([k, v], i) => (
                         <div key={k} style={{
                           display: 'flex', justifyContent: 'space-between',

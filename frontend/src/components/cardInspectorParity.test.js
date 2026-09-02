@@ -355,3 +355,61 @@ test('CIP-TC20: the pip row renders when there is anything to show', () => {
     /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| facePart\(view\.mana_cost\)\) && \(/,
     'the row must render for colours OR a mana cost, not colours alone');
 });
+
+// --- CIP-TC21: THE OWNED COUNT COMES FROM THE SERVER ----------------------
+//
+// Zach asked me to delete two duplicated rows: "Yours tab shows copies but we
+// can see that at the top", "decks tab shows owned but we can also see that at
+// the top as well".
+//
+// His two screenshots disagreed with each other:
+//
+//     header     "Aetherdrift Commander #102 · Mythic · x1 owned"
+//     Decks tab  "Owned 0"  and  "You own 0 but 1 are needed by your decks."
+//
+// The database says ZERO. He owns no Combustible Gearhulk. The header read:
+//
+//     {t('inspector.owned', { count: card.quantity ?? 1 })}
+//
+// `card` is the CALLER's object, and opened from a deck its `quantity` is HOW
+// MANY THE DECK WANTS. So a deck wanting one copy rendered as "x1 owned" -- the
+// app telling him he has a card he does not have. The `?? 1` default turned
+// missing data into a claim of ownership on top of that.
+//
+// Deleting the duplicate rows without this would have left ONLY the wrong
+// number on screen.
+
+test('CIP-TC21: the header owned count never reads the caller', () => {
+  const code = impl.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.doesNotMatch(code, /count: card\.quantity/,
+    "card.quantity is the DECK'S requirement when opened from a deck -- "
+    + 'rendering it as "owned" claims a card the user does not have');
+  // NOTE: setQ(card.quantity ?? 1) in the edit form is correct and stays --
+  // it seeds an input from the row being edited, not a claim about ownership.
+  assert.match(impl, /deckUse\.owned \?\? 0/,
+    'the count must come from the server, which the Decks tab already trusts');
+});
+
+test('CIP-TC22: the duplicated count rows are gone', () => {
+  // Zach: both tabs repeated what the header already says.
+  assert.doesNotMatch(impl, /\[t\('inspector\.copies'\)/,
+    'the Yours tab must not repeat the owned count');
+  assert.doesNotMatch(impl, /\[t\('inspector\.ownedCount'\)/,
+    'the Decks tab must not repeat it either');
+
+  // But the facts only those grids know must survive.
+  for (const key of ['inspector.finish', 'inspector.condition',
+                     'inspector.reservedCount', 'inspector.freeCount']) {
+    assert.ok(impl.includes(key),
+      `${key} is not shown anywhere else and must stay`);
+  }
+});
+
+test('CIP-TC23: one number, one source', () => {
+  // The header and the Yours tab must not be able to disagree again: both now
+  // derive from deckUse, not from the object the caller happened to pass.
+  const header = impl.slice(impl.indexOf('{cardNumber ?'), impl.indexOf("{/* THREE TABS"))
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+  assert.doesNotMatch(header, /card\.quantity/,
+    'the header must not fall back to the caller for a count');
+});
