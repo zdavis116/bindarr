@@ -338,8 +338,11 @@ test('CIL-TC14: the colour pips are parsed, not read raw', () => {
 test('CIL-TC15: the pips wrapper only renders when it has pips', () => {
   // A wrapper whose guard is looser than its content's guard leaves a
   // zero-height element behind, and a flex gap applies on both sides of it.
-  assert.match(src, /view\.supertype === 'MTG' && cardColors\.length > 0 && \(/,
-    'the wrapper must require actual colours, not just a Magic card');
+  // The row now also carries the mana cost, so it renders for colours OR a
+  // cost -- but still never for neither, which is the empty-element bug.
+  assert.match(src,
+    /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| facePart\(view\.mana_cost\)\) && \(/,
+    'the wrapper must require actual content, not just a Magic card');
   assert.match(src, /view\.supertype === 'MTG' && cardColors\.length === 0 && \(/,
     'a genuinely colourless card still says so -- but from the PARSED value, '
     + 'so "no colours" and "failed to parse" stay distinguishable');

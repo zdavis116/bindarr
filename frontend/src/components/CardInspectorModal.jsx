@@ -674,7 +674,7 @@ function CardInspectorModal({
                     Zach circled that gap twice.
                     Parsed here, and the wrapper only renders when it has
                     something to show. */}
-                {view.supertype === 'MTG' && cardColors.length > 0 && (
+                {view.supertype === 'MTG' && (cardColors.length > 0 || facePart(view.mana_cost)) && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                     {cardColors.map(color => (
                       <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
@@ -684,6 +684,23 @@ function CardInspectorModal({
                         color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
                       }}>{color}</span>
                     ))}
+                    {/* MANA COST, beside the colours.
+                        Zach: "get rid of the bottom grid and add mana value
+                        next to the red blue chips in that margin". It was the
+                        only row in that grid not already on screen -- rarity
+                        is in the header and colour identity IS these pips. */}
+                    {facePart(view.mana_cost) && (
+                      <span style={{
+                        fontSize: '0.72rem', fontWeight: 700,
+                        padding: '0.15rem 0.5rem', borderRadius: '999px',
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-glass)',
+                        color: 'var(--text-primary)',
+                        marginLeft: cardColors.length ? '0.15rem' : 0,
+                      }}>
+                        {facePart(view.mana_cost)}
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -714,34 +731,6 @@ function CardInspectorModal({
                   </div>
                 )}
 
-                {/* The facts the mockup lists. Each is a single stored value --
-                    nothing here is derived, so nothing here can disagree with
-                    another screen. */}
-                <div style={{
-                  background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
-                  borderRadius: 'var(--radius-md)', overflow: 'hidden',
-                }}>
-                  {[
-                    [t('inspector.manaCost'), facePart(view.mana_cost)],
-                    [t('inspector.colorIdentity'), (() => {
-                      try {
-                        const ci = Array.isArray(view.color_identity)
-                          ? view.color_identity : JSON.parse(view.color_identity || '[]');
-                        return ci.length ? ci.join(' · ') : t('inspector.colorless');
-                      } catch { return null; }
-                    })()],
-                    [t('inspector.rarity'), view.rarity],
-                  ].filter(([, v]) => v).map(([k, v], i) => (
-                    <div key={k} style={{
-                      display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
-                      padding: '0.6rem 0.75rem', minHeight: 42, fontSize: '0.82rem',
-                      borderTop: i ? '1px solid var(--border-glass)' : 0,
-                    }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
-                      <span style={{ fontWeight: 600, textAlign: 'right' }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           

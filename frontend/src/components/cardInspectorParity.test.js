@@ -167,13 +167,15 @@ test('CIP-TC10: the card tab renders catalogue facts from the server', () => {
   assert.match(impl, /const txt = view\?\.oracle_text;/,
     'the face rules must derive from the merged view');
 
+  // rarity and color_identity NO LONGER RENDER IN THIS TAB -- Zach had them
+  // duplicated (rarity in the header, colour identity as the pips), so the
+  // facts grid was removed. What still matters is that IF the tab reads them,
+  // it reads them from the merged view and never from the caller.
   for (const field of ['rarity', 'color_identity']) {
     assert.doesNotMatch(cardTab, new RegExp(`\\bcard\\.${field}\\b`),
       `card.${field} is a fact about the CARD, not about the row that `
       + 'referenced it -- reading it from the caller makes the same card look '
       + 'different depending on which screen opened the sheet');
-    assert.match(cardTab, new RegExp(`\\bview\\.${field}\\b`),
-      `the card tab must read ${field} from the merged view`);
   }
 });
 
@@ -295,4 +297,61 @@ test('CIP-TC16: a single-faced card is unaffected by the face split', () => {
   assert.equal(facePart('Creature — Goblin', 0), 'Creature — Goblin');
   assert.equal(facePart('{1}{U} // {4}{U}{R}', 1), '{4}{U}{R}',
     'a double-faced cost splits on the separator');
+});
+
+// --- CIP-TC17: THE CARD TAB DOES NOT REPEAT THE HEADER --------------------
+//
+// Zach: "there is a lot of redundant things showing. 1 rarity at the bottom is
+// also at the top. Color identity is now in 2 spots as well. I think we get
+// rid of the bottom grid and add mana value next to the red blue chips"
+//
+// He was right twice, and the colour-identity duplication was one I created an
+// hour earlier: the pips rendered EMPTY until I parsed `types`, so the grid row
+// was the only place colours appeared. Fixing that bug made this one visible --
+// a reminder that removing a duplicate is only safe once you know which copy
+// the user was actually reading.
+
+test('CIP-TC17: rarity appears once, in the header', () => {
+  const cardTab = (() => {
+    const start = impl.indexOf("{tab === 'card' &&");
+    let depth = 0;
+    for (let k = start; k < impl.length; k++) {
+      if (impl[k] === '{') depth++;
+      else if (impl[k] === '}' && --depth === 0) return impl.slice(start, k);
+    }
+    throw new Error('card tab not bounded');
+  })();
+
+  assert.doesNotMatch(cardTab, /view\.rarity|inspector\.rarity/,
+    'rarity is already in the header line under the card name');
+  assert.match(impl, /card\.rarity \?/,
+    'and it must still be there');
+});
+
+test('CIP-TC18: colour identity appears once, as the pips', () => {
+  assert.doesNotMatch(impl, /inspector\.colorIdentity/,
+    'the coloured pips ARE the colour identity -- a text row repeating them '
+    + 'in grey says the same thing worse');
+  assert.match(impl, /cardColors\.map/, 'the pips must still render');
+});
+
+test('CIP-TC19: mana cost survived the grid removal', () => {
+  // The one fact in that grid that was NOT shown anywhere else. Deleting a
+  // block of duplicates is only safe if you check every row first.
+  assert.match(impl, /\{facePart\(view\.mana_cost\) && \(/,
+    'mana cost must render somewhere');
+
+  // Beside the pips, in the same row -- same kind of fact.
+  const pips = impl.indexOf('cardColors.map');
+  const cost = impl.indexOf('facePart(view.mana_cost) && (');
+  assert.ok(cost > pips && cost - pips < 1400,
+    'mana cost belongs next to the colour pips, per Zach');
+});
+
+test('CIP-TC20: the pip row renders when there is anything to show', () => {
+  // A colourless card with a mana cost must still get the row, or the cost
+  // silently vanishes -- the wrapper-guard-too-tight mistake in reverse.
+  assert.match(impl,
+    /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| facePart\(view\.mana_cost\)\) && \(/,
+    'the row must render for colours OR a mana cost, not colours alone');
 });
