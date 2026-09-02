@@ -1080,8 +1080,12 @@ button, input, select, textarea {
   /* Stacked on mobile: card image on top (the focus), details below full-width.
      Roomier than the old side-by-side squeeze; the dialog scrolls if tall. */
   .card-inspector {
-    padding: 1.25rem 1.1rem !important;
-    gap: 1.1rem !important;
+    /* Vertical padding trimmed harder than horizontal. Zach: "feels like
+       maybe there is to much white space". Text still needs side margins to
+       stay readable, but the top edge was pure distance between the panel
+       border and an already-inset close button. */
+    padding: 0.75rem 1rem 1rem !important;
+    gap: 0.75rem !important;
     /* Same reasoning as the desktop rule, and it matters more here: the phone
        is where the toolbars move and shrink the usable height. */
     max-height: 90vh !important;
@@ -1115,7 +1119,7 @@ button, input, select, textarea {
     min-height: 0 !important;
     width: 100% !important;
     align-items: center !important;
-    gap: 0.6rem !important;
+    gap: 0.35rem !important;
   }
   /* The height budget lives ON THE ELEMENT (min(42vh, 420px)), so the card
      shrinks to fit rather than overflowing. This rule deliberately sets only

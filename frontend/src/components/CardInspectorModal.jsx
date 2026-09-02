@@ -383,7 +383,10 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
           display: 'flex',
           justifyContent: 'flex-end',
           flex: '0 0 auto',
-          marginBottom: '-1rem',
+          // Pulled tight: this row exists only to place the button, so
+          // its height is pure slack above the card. Zach: "feels like maybe
+          // there is to much white space".
+          marginBottom: '-1.75rem',
         }}>
           <button
             type="button"
@@ -422,7 +425,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
               //
               // A height in viewport units is the same number before and after
               // a re-render, so there is nothing left to ratchet.
-              height: 'min(38vh, 380px)',
+              // 30% smaller, at Zach's request: "can the image maybe shrink
+              // 30% it's taking up to much of the screen". BOTH caps scale
+              // together -- shrinking only one would make the card 30% smaller
+              // on a tall phone and unchanged on a short one.
+              height: 'min(27vh, 266px)',
               width: 'auto',
               aspectRatio: 0.718,
               flex: '0 0 auto',
@@ -490,7 +497,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
         </div>
 
         {/* Right side: Information / Edit */}
-        <div className="ci-info-col" style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '1.25rem', justifyContent: 'space-between' }}>
+        <div className="ci-info-col" style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '0.75rem', justifyContent: 'flex-start' }}>
           {/* HEADER -- stays put while the body scrolls. The close button,
               the art and the tabs must stay reachable no matter how long
               the rules text is. */}
@@ -541,7 +548,7 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, sta
                 No counts on the labels. Zach: "can remove the numbers from the
                 tabs seems pointless". */}
             <div style={{
-              display: 'flex', gap: 4, marginTop: '0.85rem', marginBottom: '0.85rem',
+              display: 'flex', gap: 4, marginTop: '0.6rem', marginBottom: '0.55rem',
               background: 'var(--bg-secondary)', padding: 3, borderRadius: 10,
               border: '1px solid var(--border-glass)',
             }}>

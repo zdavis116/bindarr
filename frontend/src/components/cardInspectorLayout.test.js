@@ -267,7 +267,10 @@ test('CIL-TC9: the art is sized, not merely capped', () => {
   const styleStart = src.indexOf('style={{', wrap);
   const style = src.slice(styleStart, src.indexOf('}}', styleStart));
 
-  assert.match(style, /height: 'min\(38vh, 380px\)'/,
+  // The exact number is Zach's call (he asked for 30% smaller); what this
+  // test guards is that it IS a height and not a max-height. Matching the
+  // shape, so a future resize does not have to touch the test.
+  assert.match(style, /\bheight: 'min\(\d+vh, \d+px\)'/,
     'the wrapper needs a real height; a max-height is a ceiling and leaves the '
     + 'actual size to the layout, which then measures it back');
   assert.doesNotMatch(style, /maxHeight: 'min\(42vh, 420px\)'/,
