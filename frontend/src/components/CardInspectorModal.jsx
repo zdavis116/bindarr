@@ -96,6 +96,20 @@ function CardInspectorModal({
   //
   // A single-faced card has no separator, so every split yields one part and
   // this collapses to exactly what it renders today.
+  // COLOURS, PARSED. The API stores these as a JSON string; every consumer
+  // that forgot to parse rendered nothing and left an empty element behind.
+  const cardColors = (() => {
+    const raw = view?.types;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    }
+    return [];
+  })();
+
   const faceIndex = showBack && view?.back_image_url ? 1 : 0;
   const facePart = (val) => {
     if (typeof val !== 'string') return val;
@@ -651,9 +665,18 @@ function CardInspectorModal({
                     (scryfallApi.js:220). For a double-faced card that welds
                     both faces together and drops every separator, which is
                     exactly what Zach's screenshot showed. */}
-                {view.supertype === 'MTG' && (
+                {/* COLOUR PIPS.
+                    `types` arrives as a JSON STRING ('["Black"]'), not an
+                    array, so Array.isArray was false and this mapped over
+                    nothing -- no pips on ANY card. Worse, the wrapper still
+                    rendered: a zero-height flex child with the tab's 0.6rem
+                    gap on both sides, doubling the space above the rules text.
+                    Zach circled that gap twice.
+                    Parsed here, and the wrapper only renders when it has
+                    something to show. */}
+                {view.supertype === 'MTG' && cardColors.length > 0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    {(Array.isArray(view.types) ? view.types : []).map(color => (
+                    {cardColors.map(color => (
                       <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
                         fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em',
                         padding: '0.15rem 0.45rem', borderRadius: '999px',
@@ -661,9 +684,18 @@ function CardInspectorModal({
                         color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
                       }}>{color}</span>
                     ))}
-                    {(!view.types || view.types.length === 0) && (
-                      <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>{t('inspector.colorless')}</span>
-                    )}
+                  </div>
+                )}
+
+                {/* A genuinely colourless card still says so -- but only when
+                    the card really has no colours, not when the field failed
+                    to parse. Those are different facts and the old code could
+                    not tell them apart. */}
+                {view.supertype === 'MTG' && cardColors.length === 0 && (
+                  <div>
+                    <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>
+                      {t('inspector.colorless')}
+                    </span>
                   </div>
                 )}
 

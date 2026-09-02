@@ -304,3 +304,43 @@ test('CIL-TC11: neither image column may shrink to its content', () => {
   assert.doesNotMatch(rule, /flex:\s*0 1 auto/,
     'allowing the column to shrink reinstates the ratchet');
 });
+
+// --- CIL-TC14: NO ELEMENT MAY RENDER EMPTY BETWEEN THE TABS AND THE BODY ---
+//
+// Zach, after two failed attempts: "tell me how the gaps still don't match
+// circled them in red the need to match I don't understand why this is so
+// difficult for you"
+//
+// Because I kept adding up MARGINS and never asked what ELEMENTS sat between
+// the two edges. One did -- the colour-pips wrapper -- and it rendered EMPTY:
+//
+//     {view.supertype === 'MTG' && (        <- true for every Magic card
+//       <div>
+//         {(Array.isArray(view.types) ? view.types : []).map(...)}
+//
+// The API sends `types` as a JSON STRING, '["Black"]'. Array.isArray is false,
+// so it mapped over nothing and no pips rendered on ANY card -- but the DIV
+// still did. A zero-height flex child, with the Card tab's 0.6rem gap applying
+// on BOTH sides: 1.2rem above the rules text against 0.6rem below.
+//
+// My arithmetic was right about the margins and blind to the element. The
+// screenshot was correct both times I contradicted it.
+
+test('CIL-TC14: the colour pips are parsed, not read raw', () => {
+  assert.match(src, /const cardColors = \(\) =>|const cardColors = \(\(\) =>/,
+    'colours must be derived once, parsing the JSON string the API sends');
+  assert.match(src, /JSON\.parse\(raw\)/,
+    "`types` arrives as '[\"Black\"]' -- reading it raw renders no pips at all");
+  assert.doesNotMatch(src, /\(Array\.isArray\(view\.types\) \? view\.types : \[\]\)\.map/,
+    'that guard silently produces an empty list for every card');
+});
+
+test('CIL-TC15: the pips wrapper only renders when it has pips', () => {
+  // A wrapper whose guard is looser than its content's guard leaves a
+  // zero-height element behind, and a flex gap applies on both sides of it.
+  assert.match(src, /view\.supertype === 'MTG' && cardColors\.length > 0 && \(/,
+    'the wrapper must require actual colours, not just a Magic card');
+  assert.match(src, /view\.supertype === 'MTG' && cardColors\.length === 0 && \(/,
+    'a genuinely colourless card still says so -- but from the PARSED value, '
+    + 'so "no colours" and "failed to parse" stay distinguishable');
+});
