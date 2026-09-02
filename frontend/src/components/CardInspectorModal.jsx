@@ -165,7 +165,27 @@ function CardInspectorModal({
   //
   // "A request is in flight" is not something the UI renders, so it must not
   // drive a re-render or re-run.
+  // PER-MOUNT, NOT PER-CARD-ID.
+  //
+  // This used to be cleared only by the reset effect, which keys on
+  // targetEntryId -- so closing and REOPENING THE SAME CARD left the ref set,
+  // the guard returned early forever, and the sheet never loaded again.
+  // Zach: "when I went out and back in now it won't load".
+  //
+  // A ref created at mount is fresh every time the modal opens, and the id
+  // comparison still prevents a refetch loop while it is open.
   const deckFetchFor = useRef(null);
+
+  // REFETCH WHEN THE CARD'S DECK MEMBERSHIP CHANGES.
+  //
+  // Zach: "when I do add to deck the in your deck section doesn't update".
+  // Adding to a deck changes what this endpoint would return, so the cached
+  // response has to be dropped -- otherwise the tab shows the state from
+  // before the add.
+  const invalidateDeckUse = () => {
+    deckFetchFor.current = null;
+    setDeckUse(null);
+  };
 
   // LOCK THE PAGE BEHIND THE MODAL.
   //
@@ -333,6 +353,10 @@ function CardInspectorModal({
       });
       const data = await res.json().catch(() => ({}));
       showToast && showToast(res.ok ? (data.message || t('inspector.addedToDeck')) : (data.error || t('inspector.errAddDeck')));
+      // The Decks tab now shows stale data: this card is in one more deck than
+      // the cached response says. Zach: "when I do add to deck the in your
+      // deck section doesn't update".
+      if (res.ok) invalidateDeckUse();
     } catch (err) {
       console.error(err);
       showToast && showToast(t('inspector.errAddDeckGeneric'));

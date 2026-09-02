@@ -217,3 +217,82 @@ test('CIA-TC13: the panel has a height, not only a ceiling', () => {
   assert.match(mob, /(^|;|\{)\s*height:\s*\d+vh\s*!important/m,
     'the mobile rule wins on the phone, so it must set a height as well');
 });
+
+// --- CIA-TC14: THE SHEET RELOADS EVERY TIME IT OPENS -----------------------
+//
+// Zach: "when I went out and back in now it won't load and same for card info
+// in the card tab it won't load either"
+//
+// The fetch is guarded by a ref so it fires once per card:
+//
+//     if (deckFetchFor.current === catalogueId) return;
+//
+// and that ref was cleared only by the RESET effect, keyed on
+// [targetEntryId, ...]. Reopening the SAME card does not change
+// targetEntryId, so the reset never ran, the ref still held that card's id,
+// and the guard returned early forever.
+//
+// ONE STALE REF, THREE EMPTY TABS: the Card tab reads catalogue facts from the
+// merged `view`, and Yours and Decks read the same response, so all three went
+// blank together.
+
+test('CIA-TC14: the fetch guard cannot outlive a close', () => {
+  // The modal unmounts on close, so a ref created at mount is naturally fresh
+  // on reopen -- but only if nothing else is relied on to clear it.
+  assert.match(src, /const deckFetchFor = useRef\(null\);/,
+    'the guard must be a per-mount ref');
+
+  // And the invalidator must exist for in-place changes.
+  assert.match(src, /const invalidateDeckUse = \(\) => \{[\s\S]{0,160}deckFetchFor\.current = null;[\s\S]{0,80}setDeckUse\(null\);/,
+    'changing deck membership must drop BOTH the cached response and the '
+    + 'guard -- clearing one without the other either refetches nothing or '
+    + 'refetches forever');
+});
+
+test('CIA-TC15: adding to a deck refreshes the Decks tab', () => {
+  // Zach: "when I do add to deck the in your deck section doesn't update".
+  // The cached response now says this card is in one fewer deck than it is.
+  const fn = src.slice(src.indexOf('const handleAddToDeck'),
+                       src.indexOf('const handleAddToDeck') + 900);
+  assert.match(fn, /if \(res\.ok\) invalidateDeckUse\(\);/,
+    'a successful add must invalidate the cached deck data');
+  assert.ok(fn.indexOf('invalidateDeckUse') > fn.indexOf('res.ok'),
+    'and only on success -- invalidating after a failed add would refetch '
+    + 'identical data and look like a bug');
+});
+
+// --- CIA-TC16: THE TWO GAPS MATCH -----------------------------------------
+//
+// Zach: "the white space between the tab bar and card description should be
+// the same as the white space between the card description and other grid
+// below"
+//
+// Gap A is a sum of three contributions; gap B is a single flex gap. My first
+// attempt at the arithmetic said gap A was zero -- which disagreed with his
+// screenshot, and that disagreement was the tell that I had missed a term (the
+// info column's own 0.75rem gap).
+
+test('CIA-TC16: the gap above the tab body equals the gap inside it', () => {
+  const css = readFileSync(join(here, '../index.css'), 'utf8');
+
+  // Read the BOTTOM margin specifically: marginTop appears first on the same
+  // line and my first regex grabbed it by mistake.
+  const tab = /marginTop: '[\d.]+rem', marginBottom: '([\d.]+)rem'/.exec(src);
+  assert.ok(tab, 'the tab bar margins must be readable');
+
+  const info = /className="ci-info-col"[^>]*gap: '([\d.]+)rem'/.exec(src);
+  assert.ok(info, 'the info column gap must be readable');
+
+  const off = /\.ci-scroll \{[\s\S]*?margin-top:\s*(-?[\d.]+)rem/.exec(css);
+  assert.ok(off, 'the scroller offset must be readable');
+
+  const cardTabStart = src.indexOf("{tab === 'card' && (");
+  const body = /gap: '([\d.]+)rem'/.exec(src.slice(cardTabStart, cardTabStart + 300));
+  assert.ok(body, 'the card tab gap must be readable');
+
+  const above = Number(tab[1]) + Number(info[1]) + Number(off[1]);
+  const inside = Number(body[1]);
+  assert.ok(Math.abs(above - inside) < 0.001,
+    `the gap above the body (${above}rem) must equal the gap inside it `
+    + `(${inside}rem)`);
+});

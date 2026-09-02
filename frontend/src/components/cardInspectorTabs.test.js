@@ -112,9 +112,14 @@ test('CIT-TC7: the card is fetched as soon as a card is shown', () => {
   //
   // The sheet must not look different depending on which screen opened it, and
   // it cannot guarantee that while its data arrives conditionally.
-  const i = src.indexOf('const deckFetchFor');
-  assert.ok(i > 0, 'the fetch effect must exist');
-  const eff = src.slice(i, i + 1400);
+  // Anchor on the EFFECT, not on the ref declaration. The invalidator now
+  // sits between them, so a fixed window from the ref no longer reaches the
+  // effect body -- the assertion was reading the wrong code.
+  const i = src.indexOf("if (tab !== 'decks'");
+  const j = src.indexOf('if (!card) return;');
+  const at = i > 0 ? i : j;
+  assert.ok(at > 0, 'the fetch effect must exist');
+  const eff = src.slice(at, at + 1200);
   assert.doesNotMatch(eff, /tab !== 'decks'/,
     'gating the fetch on the tab leaves the default tab unmerged');
   assert.match(eff, /if \(!card\) return;/,

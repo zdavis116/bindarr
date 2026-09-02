@@ -1061,11 +1061,16 @@ button, input, select, textarea {
 .card-inspector .ci-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  /* Pull the body up against the tabs. Zach: "the white space between the card
-     tab and the card info can be shrunk" -- the info column's own gap was
-     adding a third helping on top of the tab bar's margin and the tab's
-     internal spacing. */
-  margin-top: -0.35rem;
+  /* THE GAP ABOVE THE BODY MUST EQUAL THE GAP INSIDE IT.
+     Zach: "the white space between the tab bar and card description should be
+     the same as the white space between the card description and other grid
+     below."
+
+     Three things stack up here -- the tab bar's 0.35rem bottom margin, the
+     info column's 0.75rem flex gap, and this offset -- against the Card tab's
+     own 0.6rem gap between its blocks. Cancelling the extra so the total is
+     exactly 0.6rem:  0.35 + 0.75 - 0.5 = 0.6 */
+  margin-top: -0.5rem;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;

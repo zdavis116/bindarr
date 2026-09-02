@@ -221,9 +221,12 @@ test('CIP-TC12: the endpoint serves the whole catalogue row', () => {
 // sees. That is the second test on this branch to pass while the bug was live.
 
 test('CIP-TC13: the card request is not gated on the tab', () => {
-  const i = impl.indexOf('const deckFetchFor');
-  assert.ok(i > 0, 'the fetch effect must exist');
-  const eff = impl.slice(i, i + 1400);
+  // Anchor on the EFFECT BODY. The invalidator now sits between the ref
+  // declaration and the effect, so a fixed window from the ref reads the
+  // wrong code -- the same slicing mistake as CIT-TC7.
+  const at = impl.indexOf('if (!card) return;', impl.indexOf('const deckFetchFor'));
+  assert.ok(at > 0, 'the fetch effect must exist');
+  const eff = impl.slice(at, at + 1200);
 
   assert.doesNotMatch(eff, /tab !== 'decks'/,
     'gating the fetch on the tab leaves the DEFAULT tab unmerged, so the '
