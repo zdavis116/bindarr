@@ -145,6 +145,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [bulkLocation, setBulkLocation] = useState('');
+  const groupAnchor = useRef(null);
   const [locations, setLocations] = useState([]);
   const [lastDelete, setLastDelete] = useState(null);   // { batchId, count }
 
@@ -152,7 +153,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   // identical wherever cards are selected rather than a second one invented
   // for this screen.
   const {
-    selectMode, setSelectMode, selectedIds, setSelectedIds, selectAt,
+    selectMode, setSelectMode, selectedIds, setSelectedIds,
     clearSelection, exitSelectMode, pressHandlers, longPressFired, runBulk,
   } = useMultiSelect({
     showToast,
@@ -191,6 +192,39 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsTrigger]);
+
+  // Select or deselect every row behind a tile.
+  //
+  // Shift extends a range over TILES -- the visible unit -- then expands each
+  // to its members. Ranging over raw entry ids would pick up rows that are not
+  // adjacent on screen.
+  const toggleGroup = (card, withShift) => {
+    const tiles = shown;
+    const idx = tiles.indexOf(card);
+    const members = (c) => c.member_ids || [c.entry_id || c.id];
+
+    if (withShift && groupAnchor.current != null) {
+      const from = tiles.findIndex(c => (c.entry_id || c.id) === groupAnchor.current);
+      if (from !== -1 && idx !== -1) {
+        const [lo, hi] = from <= idx ? [from, idx] : [idx, from];
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          for (let i = lo; i <= hi; i++) members(tiles[i]).forEach(id => next.add(id));
+          return next;
+        });
+        return;
+      }
+    }
+
+    groupAnchor.current = card.entry_id || card.id;
+    const ids = members(card);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const allSelected = ids.every(id => next.has(id));
+      ids.forEach(id => (allSelected ? next.delete(id) : next.add(id)));
+      return next;
+    });
+  };
 
   // Storage locations for the bulk move. Fetched once: the list is short and
   // changes rarely, and re-fetching per selection would put a request behind
@@ -272,8 +306,18 @@ const cardTypesOf = (card) => {
       const seen = groups.get(key);
       if (seen) {
         seen.quantity = (seen.quantity || 1) + (card.quantity || 1);
+        // EVERY row this tile stands for, not just the first.
+        //
+        // A tile reading "Forest x4" is four collection rows. Selecting it
+        // must mean all four, or a bulk delete removes the key row, the tile
+        // vanishes, and three rows quietly survive.
+        seen.member_ids.push(card.entry_id || card.id);
       } else {
-        groups.set(key, { ...card, quantity: card.quantity || 1 });
+        groups.set(key, {
+          ...card,
+          quantity: card.quantity || 1,
+          member_ids: [card.entry_id || card.id]
+        });
       }
     }
     const grouped = [...groups.values()];
@@ -302,19 +346,19 @@ const cardTypesOf = (card) => {
           {t('nav.collection')}
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <div style={{ position: 'relative' }}>
-            {/* SELECT. Long-press also arms select mode, but a hidden gesture is
-                not a discoverable feature, and on a phone it competes with the
-                browser's own text selection. The other three screens that use this
-                hook all pair the gesture with an explicit button. */}
-            <button
-              className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-              style={{ fontSize: '0.8rem', padding: '0.4rem 0.7rem' }}
-            >
-              {t(selectMode ? 'bulk.done' : 'collection.select')}
-            </button>
+          {/* SELECT, beside the + rather than above it. Zach: "select should
+              be next to the '+' not on top of". Both are toolbar actions on
+              the same row; stacking them wasted a line and read as a
+              heading. */}
+          <button
+            className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.7rem', whiteSpace: 'nowrap' }}
+          >
+            {t(selectMode ? 'bulk.done' : 'collection.select')}
+          </button>
 
+          <div style={{ position: 'relative' }}>
             <button
               onClick={() => setAddMenuOpen(o => !o)}
               aria-expanded={addMenuOpen} aria-haspopup="menu"
@@ -537,7 +581,7 @@ const cardTypesOf = (card) => {
               2,433, and the destructive action is the one where being wrong
               costs a recount against cardboard. */}
           <button className="btn btn-secondary" style={BULK_BTN}
-                  onClick={() => setSelectedIds(new Set(shown.map(c => c.entry_id || c.id)))}>
+                  onClick={() => setSelectedIds(new Set(shown.flatMap(c => c.member_ids || [c.entry_id || c.id])))}>
             {t('bulk.selectAllShown', { count: shown.length })}
           </button>
           <button className="btn btn-secondary" style={BULK_BTN} onClick={clearSelection}>
@@ -600,8 +644,7 @@ const cardTypesOf = (card) => {
               onClick={(e) => {
                 if (longPressFired.current) return;
                 if (selectMode) {
-                  selectAt(card.entry_id || card.id,
-                           shown.map(c => c.entry_id || c.id), e?.shiftKey);
+                  toggleGroup(card, e?.shiftKey);
                   return;
                 }
                 setInspectorCard(card);
@@ -620,8 +663,9 @@ const cardTypesOf = (card) => {
                 // inspector when the finger lifts.
                 if (longPressFired.current) return;
                 if (selectMode) {
-                  selectAt(card.entry_id || card.id,
-                           shown.map(c => c.entry_id || c.id), e.shiftKey);
+                  // A tile stands for every row it grouped. Half a tile is not
+                  // a state the UI can show, so selection is all or none.
+                  toggleGroup(card, e.shiftKey);
                   return;
                 }
                 setInspectorCard(card);

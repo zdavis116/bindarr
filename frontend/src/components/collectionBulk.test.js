@@ -39,8 +39,8 @@ test('BULK-TC2: select all means what is FILTERED', () => {
   // on screen." `shown` is the filtered, sorted list; `collection` is
   // everything. Using the wrong one on a destructive action is a recount
   // against cardboard.
-  assert.match(list, /setSelectedIds\(new Set\(shown\.map\(c => c\.entry_id \|\| c\.id\)\)\)/,
-    'select-all must read `shown`, not `collection`');
+  assert.match(list, /setSelectedIds\(new Set\(shown\.flatMap\(c => c\.member_ids/,
+    'select-all must read `shown` AND expand each grouped tile to its rows');
   assert.doesNotMatch(list, /setSelectedIds\(new Set\(collection\.map/,
     'selecting the whole collection from a filtered view is the dangerous case');
 });
@@ -56,7 +56,7 @@ test('BULK-TC3: the button names the count', () => {
 test('BULK-TC4: rows respond to selection in BOTH views', () => {
   // Working in list view and silently doing nothing in gallery is the same
   // class of bug as an unreachable button.
-  const selectCalls = list.match(/selectAt\(card\.entry_id \|\| card\.id,/g) || [];
+  const selectCalls = list.match(/toggleGroup\(card, e\??\.shiftKey\)/g) || [];
   assert.equal(selectCalls.length, 2,
     'both the list rows and the gallery tiles must be selectable');
   assert.match(list, /selected=\{selectedIds\.has\(card\.entry_id \|\| card\.id\)\}/,
@@ -117,4 +117,62 @@ test('BULK-TC10: every bulk key the screen renders exists', () => {
   assert.ok(used.length >= 6, 'the screen should use several bulk keys');
   const missing = used.filter(k => !(k in en));
   assert.deepEqual(missing, [], 'these would render as raw text');
+});
+
+test('BULK-TC11: a grouped tile selects EVERY row it stands for', () => {
+  // THE BUG ZACH FOUND. "it's not deleting every card in my collection when
+  // doing select all", with no filters on.
+  //
+  // `shown` groups duplicates: four Forests with the same card_id, condition
+  // and printing collapse into ONE tile reading x4, keeping the first row's
+  // entry_id. So select-all collected one id per TILE and left the siblings
+  // untouched -- exactly what survived on his dev box: #137/#140/#144/#145
+  // Forest and #122/#129 Hashaton, every one a duplicate.
+  //
+  // It looked like it worked, which is worse: the tile disappears because its
+  // key row really was deleted, and the rest quietly remain.
+  assert.match(list, /seen\.member_ids\.push\(card\.entry_id \|\| card\.id\)/,
+    'a group must remember every row it swallowed');
+  assert.match(list, /member_ids: \[card\.entry_id \|\| card\.id\]/,
+    'including the first one');
+  assert.match(list, /shown\.flatMap\(c => c\.member_ids \|\| \[c\.entry_id \|\| c\.id\]\)/,
+    'and select-all must expand them');
+});
+
+test('BULK-TC12: tapping a tile is all-or-none', () => {
+  // Half a selected tile is not a state the UI can render, so it must not be
+  // a state the selection can hold.
+  assert.match(list, /const allSelected = ids\.every\(id => next\.has\(id\)\)/,
+    'a tile toggles on whether ALL its rows are selected');
+  assert.match(list, /ids\.forEach\(id => \(allSelected \? next\.delete\(id\) : next\.add\(id\)\)\)/,
+    'and applies the same action to every one');
+});
+
+test('BULK-TC13: shift-range covers every row in the ranged tiles', () => {
+  // Ranging over raw entry ids would pick up rows that are not adjacent on
+  // screen -- the range must be over tiles, then expanded.
+  assert.match(list, /for \(let i = lo; i <= hi; i\+\+\) members\(tiles\[i\]\)\.forEach/,
+    'the range expands each tile to its members');
+});
+
+test('BULK-TC14: Select sits beside the +, not above it', () => {
+  // Zach: "select should be next to the '+' not on top of". My first placement
+  // put it before the + button's wrapper but outside the flex row, so it
+  // stacked onto its own line and read as a heading.
+  const sel = list.indexOf("bulk.done' : 'collection.select'");
+  const plus = list.indexOf('aria-expanded={addMenuOpen}');
+  assert.ok(sel > 0 && plus > sel, 'Select comes first in the source');
+
+  // Both must live inside the same flex row.
+  const row = list.lastIndexOf("display: 'flex', alignItems: 'center', gap: '0.6rem'", sel);
+  assert.ok(row > 0 && row < sel && row < plus,
+    'Select and + must share the toolbar row, not stack');
+
+  // And nothing on the button may force it onto its own line. This is the
+  // honest limit of a source-reading test: it can catch `display: block`, but
+  // it cannot prove the two render side by side at 393px. Zach's screenshot
+  // is the only real check for that.
+  const btn = list.slice(list.lastIndexOf('<button', sel), sel);
+  assert.doesNotMatch(btn, /display: 'block'|width: '100%'|flexBasis: '100%'/,
+    'a full-width or block button wraps to its own line regardless of the row');
 });
