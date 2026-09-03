@@ -199,7 +199,14 @@ function CardInspectorModal({
   // A collection row carries card_id; a deck entry carries desired_card_id and
   // puts its own row id in `id`. Falling through to `id` from a deck sends a
   // deck_cards row number to a card_cache lookup: 404, and an empty tab.
-  const catalogueId = card?.card_id || card?.desired_card_id || card?.id;
+  // Which printing the sheet is showing. Normally the card it was opened with;
+  // after tapping a row in Other printings, that printing instead.
+  //
+  // A single value in front of the fetch, rather than a second path -- the
+  // sheet has already been bitten twice by two sources of truth for one field.
+  const [switchedCardId, setSwitchedCardId] = useState(null);
+  const openedWith = card?.card_id || card?.desired_card_id || card?.id;
+  const catalogueId = switchedCardId || openedWith;
 
   // Bumped by invalidateDeckUse so the fetch effect can depend on a real
   // input instead of on the state it writes.
@@ -213,6 +220,29 @@ function CardInspectorModal({
   // Adding to a deck changes what this endpoint would return, so the cached
   // response has to be dropped -- otherwise the tab shows the state from
   // before the add.
+  // Switch the sheet to another printing of the same card.
+  //
+  // Zach: "I would like a way to switch to that card in that view."
+  //
+  // Sets the target and lets the existing open-fetch reload everything.
+  // Patching the visible fields instead would leave Yours and Decks describing
+  // the printing he navigated away from -- two sources of truth for one sheet,
+  // which this component has already been bitten by twice.
+  // A newly opened card clears any printing override -- otherwise the sheet
+  // opens on whatever was last switched to.
+  useEffect(() => { setSwitchedCardId(null); }, [openedWith]);
+
+  const switchPrinting = (pr) => {
+    if (!pr || pr.id === (deckUse?.card_id || catalogueId)) return;
+    setTab('card');
+    // `view` is DERIVED (deckUse?.card merged over card), so clearing deckUse
+    // clears it. I wrote setView(null) -- a setter that does not exist. The
+    // build compiled it fine because it sits inside a handler; lint caught it.
+    setDeckUse(null);
+    deckFetchFor.current = null;
+    setSwitchedCardId(pr.id);
+  };
+
   const invalidateDeckUse = () => {
     deckFetchFor.current = null;
     setDeckUse(null);
@@ -651,7 +681,12 @@ function CardInspectorModal({
                   wrong one. The `?? 1` default also turned missing data into a
                   claim of ownership.
                   deckUse.owned is what the Decks tab already trusts. */}
-              {deckUse ? ` • ${t('inspector.owned', { count: deckUse.owned ?? 0 })}` : ''}
+              {/* THIS printing, not the oracle-wide total. The header sits
+                  beside a set code, so an oracle count reads as a claim about
+                  that specific printing -- it said "The List #CON-31 ... x1
+                  owned" for a printing Zach does not own. Same shape as the
+                  deck-quantity bug: a true number under the wrong label. */}
+              {deckUse ? ` • ${t('inspector.owned', { count: deckUse.ownedThisPrinting ?? 0 })}` : ''}
             </p>
 
             {/* THREE TABS. Each answers a different question, which is the
@@ -896,7 +931,12 @@ function CardInspectorModal({
                       {/* States the fact plainly rather than leaving him to
                           infer it from an absence. */}
                       <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
-                        {t('inspector.ownNoneOfThese')}
+                        {/* Only when it is TRUE. It was unconditional,
+                            printed over a list containing the printing he
+                            owns. */}
+                        {(deckUse?.printings || []).some(pr => (pr.owned_qty || 0) > 0)
+                          ? t('inspector.ownSomeOfThese')
+                          : t('inspector.ownNoneOfThese')}
                       </span>
                     </div>
                     <div style={{
@@ -910,10 +950,23 @@ function CardInspectorModal({
                           catch { fin = []; }
                           const foilOnly = fin.length === 1 && fin[0] === 'foil';
                           return (
-                            <div key={pr.id} style={{
+                            <button
+                              key={pr.id}
+                              type="button"
+                              onClick={() => switchPrinting(pr)}
+                              style={{
                               display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
                               padding: '0.6rem 0.75rem', minHeight: 44, fontSize: '0.82rem',
                               borderTop: i ? '1px solid var(--border-glass)' : 0,
+                              borderLeft: 0, borderRight: 0, borderBottom: 0,
+                              width: '100%', textAlign: 'left', font: 'inherit',
+                              cursor: 'pointer',
+                              // An owned printing is the one he is looking for,
+                              // so it has to be findable at a glance.
+                              background: (pr.owned_qty || 0) > 0
+                                ? 'var(--accent-blue-soft, rgba(10,132,255,0.12))'
+                                : 'transparent',
+                              color: 'inherit',
                             }}>
                               <span style={{ minWidth: 0 }}>
                                 <span style={{ display: 'block', fontWeight: 600 }}>
@@ -924,10 +977,21 @@ function CardInspectorModal({
                                   {foilOnly && ` · ${t('card.foilOnly')}`}
                                 </span>
                               </span>
-                              <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                              <span style={{ display: 'flex', alignItems: 'center',
+                                             gap: '0.5rem', flexShrink: 0 }}>
+                                {(pr.owned_qty || 0) > 0 && (
+                                  <span style={{
+                                    fontSize: '0.68rem', fontWeight: 700,
+                                    color: 'var(--accent-blue)', whiteSpace: 'nowrap'
+                                  }}>
+                                    {t('inspector.youOwn', { count: pr.owned_qty })}
+                                  </span>
+                                )}
+                                <span style={{ color: 'var(--text-muted)' }}>
                                 {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}
                               </span>
-                            </div>
+                              </span>
+                            </button>
                           );
                         })}
                     </div>

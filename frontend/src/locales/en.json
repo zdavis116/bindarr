@@ -1357,5 +1357,8 @@
   "bulk.undone": "Restored {count} card(s).",
   "bulk.undoFailed": "That batch is no longer in the trash.",
   "bulk.deleted": "{count} card(s) deleted.",
-  "common.dismiss": "Dismiss"
+  "common.dismiss": "Dismiss",
+  "inspector.ownSomeOfThese": "tap one you own to view it",
+  "inspector.youOwn": "you own {count}",
+  "inspector.viewThisPrinting": "View this printing"
 }

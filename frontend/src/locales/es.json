@@ -1280,5 +1280,8 @@
   "bulk.undone": "Se restauraron {count} carta(s).",
   "bulk.undoFailed": "Ese lote ya no está en la papelera.",
   "bulk.deleted": "{count} carta(s) eliminadas.",
-  "common.dismiss": "Descartar"
+  "common.dismiss": "Descartar",
+  "inspector.ownSomeOfThese": "toca una que tengas para verla",
+  "inspector.youOwn": "tienes {count}",
+  "inspector.viewThisPrinting": "Ver esta edición"
 }

@@ -282,18 +282,32 @@ router.get('/card/:cardId/decks', async (req, res) => {
     // Served from this endpoint rather than a new one: it has already resolved
     // the oracle id, so this is one more query on data in hand.
     const printings = await db.all(
-      `SELECT id, set_id, number, set_name, price_trend, finishes
-         FROM card_cache
-        WHERE oracle_id = ?
-        ORDER BY price_trend DESC`,
-      [card.oracle_id]
+      `SELECT cc.id, cc.set_id, cc.number, cc.set_name, cc.price_trend, cc.finishes,
+              COALESCE(SUM(col.quantity), 0) AS owned_qty,
+              COUNT(col.id)                  AS owned_entries
+         FROM card_cache cc
+         LEFT JOIN collection col
+                ON col.card_id = cc.id
+               AND col.user_id = ?
+               AND col.list_type = 'collection'
+        WHERE cc.oracle_id = ?
+        GROUP BY cc.id
+        ORDER BY owned_qty DESC, cc.price_trend DESC`,
+      [req.user.id, card.oracle_id]
     );
 
     res.json({
       card_id: card.id,
       oracle_id: card.oracle_id,
       name: card.name,
+      // Oracle-wide: every printing of this card. The header must NOT render
+      // this beside a specific set code -- Zach owns 2XM #58 and the sheet
+      // said "The List #CON-31 ... x1 owned". A true number under a label that
+      // means something else.
       owned: owned.n,
+      // How many of THIS printing. What the header should say.
+      ownedThisPrinting: (ownedRows || []).reduce(
+        (n, r) => n + Number(r.quantity || 0), 0),
       reserved,
       free: Math.max(0, owned.n - reserved),
       decks: rows,

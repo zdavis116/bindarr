@@ -1242,5 +1242,8 @@
   "bulk.undone": "已恢复 {count} 张卡。",
   "bulk.undoFailed": "该批次已不在回收站中。",
   "bulk.deleted": "已删除 {count} 张卡。",
-  "common.dismiss": "关闭"
+  "common.dismiss": "关闭",
+  "inspector.ownSomeOfThese": "点按你拥有的版本以查看",
+  "inspector.youOwn": "你拥有 {count} 张",
+  "inspector.viewThisPrinting": "查看此版本"
 }

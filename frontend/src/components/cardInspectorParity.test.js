@@ -395,7 +395,13 @@ test('CIP-TC21: the header owned count never reads the caller', () => {
     + 'rendering it as "owned" claims a card the user does not have');
   // NOTE: setQ(card.quantity ?? 1) in the edit form is correct and stays --
   // it seeds an input from the row being edited, not a claim about ownership.
-  assert.match(impl, /deckUse\.owned \?\? 0/,
+  // Was `deckUse.owned` -- the ORACLE-WIDE total. Correct against the caller
+  // (the bug this test was written for) but still wrong beside a set code:
+  // it claimed "The List #CON-31 ... x1 owned" for a printing Zach does not
+  // own. The rule this test protects is unchanged -- the count comes from the
+  // server, never the caller -- but the right server field is the per-printing
+  // one. See CIP-TC24.
+  assert.match(impl, /deckUse\.ownedThisPrinting \?\? 0/,
     'the count must come from the server, which the Decks tab already trusts');
 });
 
@@ -421,4 +427,60 @@ test('CIP-TC23: one number, one source', () => {
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
   assert.doesNotMatch(header, /card\.quantity/,
     'the header must not fall back to the caller for a count');
+});
+
+test('CIP-TC24: the header counts THIS printing, not every printing', () => {
+  // Zach: "I own this card in 2XM #58 but it doesn't show here though it does
+  // seem to know 1 is owned."
+  //
+  // The sheet opened on The List #CON-31 -- which he does NOT own -- and the
+  // header read "The List #CON-31 ... x1 owned". The count was real, but it
+  // was the ORACLE-WIDE total sitting next to a specific set code, so it read
+  // as a claim about that printing.
+  //
+  // Third time this shape has appeared: a true number under a label meaning
+  // something else. Deck quantity as ownership, rows as cards, now oracle
+  // total as printing total.
+  assert.match(impl, /count: deckUse\.ownedThisPrinting \?\? 0/,
+    'the header must use the per-printing count');
+  assert.doesNotMatch(impl, /t\('inspector\.owned', \{ count: deckUse\.owned \?\? 0 \}\)/,
+    'the oracle-wide total must not be rendered beside a set code');
+});
+
+test('CIP-TC25: the own-none hint is conditional', () => {
+  // It printed unconditionally, over a list that contained the printing he
+  // owns. The app was telling him he owned none of exactly the thing he owned.
+  assert.match(impl, /\(deckUse\?\.printings \|\| \[\]\)\.some\(pr => \(pr\.owned_qty \|\| 0\) > 0\)/,
+    'the hint must check whether any printing is owned');
+});
+
+test('CIP-TC26: an owned printing is marked and reachable', () => {
+  // Zach: "I would like a way to switch to that card in that view."
+  assert.match(impl, /t\('inspector\.youOwn', \{ count: pr\.owned_qty \}\)/,
+    'an owned printing must say so on its row');
+  assert.match(impl, /onClick=\{\(\) => switchPrinting\(pr\)\}/,
+    'and the row must be tappable');
+  assert.match(impl, /type="button"/,
+    'as a real button, not a div with a click handler');
+});
+
+test('CIP-TC27: switching re-fetches rather than patching fields', () => {
+  // Patching the visible fields would leave Yours and Decks describing the
+  // printing he navigated away from -- two sources of truth for one sheet,
+  // which this component has already been bitten by twice.
+  const fn = impl.slice(impl.indexOf('const switchPrinting'),
+                       impl.indexOf('const invalidateDeckUse'));
+  assert.match(fn, /setDeckUse\(null\)/, 'the merged view must be cleared');
+  assert.match(fn, /deckFetchFor\.current = null/, 'and the fetch guard released');
+  assert.match(fn, /setSwitchedCardId\(pr\.id\)/, 'so the open-fetch reloads everything');
+  assert.match(fn, /if \(!pr \|\| pr\.id === \(deckUse\?\.card_id \|\| catalogueId\)\) return;/,
+    'tapping the printing already shown must be a no-op, not a reload');
+});
+
+test('CIP-TC28: opening a new card clears the printing override', () => {
+  // Otherwise the sheet opens on whatever was last switched to.
+  assert.match(impl, /useEffect\(\(\) => \{ setSwitchedCardId\(null\); \}, \[openedWith\]\)/,
+    'the override must reset when a different card is opened');
+  assert.match(impl, /const catalogueId = switchedCardId \|\| openedWith/,
+    'and the override must feed the SAME id the fetch keys on');
 });
