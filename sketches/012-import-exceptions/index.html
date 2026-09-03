@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import — Exceptions only</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b0b0d; --surface: #141417; --surface2: #1b1b1f;
+    --line: rgba(255,255,255,0.10); --line2: rgba(255,255,255,0.06);
+    --fg: #f2f2f4; --muted: #9a9aa2; --dim: #6c6c74;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --accent: #0a84ff;
+    --r: 12px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--fg); line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    display: flex; justify-content: center; padding: 24px 16px 60px;
+  }
+  .phone { width: 100%; max-width: 430px; }
+
+  h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin-bottom: 2px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 18px; }
+
+  /* THE HEADLINE: one number, unmissable */
+  .headline {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 26px 18px; text-align: center;
+    margin-bottom: 12px;
+  }
+  .headline .n { font-size: 3rem; font-weight: 800; letter-spacing: -0.04em;
+                 line-height: 1; color: var(--ok); }
+  .headline .l { font-size: 0.9rem; color: var(--muted); margin-top: 6px; }
+  .headline .file { font-size: 0.74rem; color: var(--dim); margin-top: 10px; }
+
+  /* EXCEPTIONS: the only detail shown by default */
+  .alert {
+    background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25);
+    border-radius: var(--r); padding: 14px 16px; margin-bottom: 12px;
+  }
+  .alert h3 { font-size: 0.9rem; font-weight: 700; color: var(--bad); margin-bottom: 4px; }
+  .alert p { font-size: 0.8rem; color: var(--muted); }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: var(--r); overflow: hidden; margin-bottom: 12px; }
+  .phead { padding: 12px 16px; border-bottom: 1px solid var(--line2);
+           font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em;
+           text-transform: uppercase; color: var(--dim); }
+
+  .ex { padding: 14px 16px; border-bottom: 1px solid var(--line2); }
+  .ex:last-child { border-bottom: 0; }
+  .ex .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .ex .name { font-size: 0.92rem; font-weight: 650; }
+  .ex .row-n { font-size: 0.72rem; color: var(--dim); flex-shrink: 0; }
+  .ex .why { font-size: 0.79rem; color: var(--warn); margin-top: 4px; }
+  .ex .why.bad { color: var(--bad); }
+  .ex .fix { font-size: 0.76rem; color: var(--dim); margin-top: 5px; line-height: 1.45; }
+
+  /* the quiet bit: what worked, collapsed */
+  .quiet { display: flex; justify-content: space-between; align-items: center;
+           padding: 14px 16px; cursor: pointer; }
+  .quiet .l { font-size: 0.85rem; color: var(--muted); }
+  .quiet .chev { color: var(--dim); font-size: 0.8rem; }
+  .hidden { display: none; }
+
+  .srow { display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+          border-top: 1px solid var(--line2); }
+  .srow .nm { flex: 1; font-size: 0.86rem; }
+  .srow .mt { font-size: 0.73rem; color: var(--dim); }
+  .srow .q { font-size: 0.82rem; font-weight: 700; color: var(--muted); }
+
+  .cta { display: flex; gap: 10px; margin-top: 4px; }
+  button { flex: 1; min-height: 46px; border: 0; border-radius: 10px;
+           font-size: 0.95rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .primary { background: var(--accent); color: #fff; }
+  .ghost { background: var(--surface2); color: var(--fg); border: 1px solid var(--line); }
+
+  .note { font-size: 0.76rem; color: var(--dim); margin-top: 12px; line-height: 1.5; }
+  .note b { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <h1>Import collection</h1>
+  <div class="sub">Nothing is saved until you say so</div>
+
+  <div id="review">
+    <div class="headline">
+      <div class="n">1,204</div>
+      <div class="l">cards ready to add</div>
+      <div class="file">manabox_2026-09-02.csv · 1,193 rows</div>
+    </div>
+
+    <div class="alert">
+      <h3>6 rows need your attention</h3>
+      <p>They will be skipped. Everything else imports normally.</p>
+    </div>
+
+    <div class="panel">
+      <div class="phead">Can't tell which printing</div>
+
+      <div class="ex">
+        <div class="top">
+          <span class="name">Smaug the Magnificent</span>
+          <span class="row-n">row 218</span>
+        </div>
+        <div class="why">4 printings — $30.62 to $24,500.00</div>
+        <div class="fix">Your file has the name but no set or collector number.</div>
+      </div>
+
+      <div class="ex">
+        <div class="top">
+          <span class="name">Cavern of Souls</span>
+          <span class="row-n">row 441</span>
+        </div>
+        <div class="why">21 printings — $49.96 to $10,000.00</div>
+        <div class="fix">Your file has the name but no set or collector number.</div>
+      </div>
+
+      <div class="ex">
+        <div class="top">
+          <span class="name">Aragorn, the Uniter</span>
+          <span class="row-n">row 1,140</span>
+        </div>
+        <div class="why">10 printings — $6.61 to $8,000.00</div>
+        <div class="fix">Your file has the name but no set or collector number.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">Other problems</div>
+
+      <div class="ex">
+        <div class="top">
+          <span class="name">Sol Ring (Proxy)</span>
+          <span class="row-n">row 663</span>
+        </div>
+        <div class="why bad">Not a card Scryfall knows about</div>
+        <div class="fix">PRX #001 isn't a real printing. Proxies can't be tracked.</div>
+      </div>
+
+      <div class="ex">
+        <div class="top">
+          <span class="name">Gempalm Incinerator</span>
+          <span class="row-n">row 894</span>
+        </div>
+        <div class="why">Quantity is 0</div>
+        <div class="fix">Bindarr won't record a card you told it you don't have.</div>
+      </div>
+
+      <div class="ex">
+        <div class="top">
+          <span class="name">The Unspeakable</span>
+          <span class="row-n">row 1,002</span>
+        </div>
+        <div class="why">Quantity says "two", not a number</div>
+        <div class="fix">Change it to 2 in ManaBox and import again.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="quiet" onclick="
+        const s = document.getElementById('sample');
+        s.classList.toggle('hidden');
+        this.querySelector('.chev').textContent = s.classList.contains('hidden') ? '▾' : '▴';
+      ">
+        <span class="l">1,187 rows matched cleanly</span>
+        <span class="chev">▾</span>
+      </div>
+      <div id="sample" class="hidden">
+        <div class="srow">
+          <div class="nm">Altar of Dementia<div class="mt">MH1 #218 · Near Mint · $18.26</div></div>
+          <div class="q">×1</div>
+        </div>
+        <div class="srow">
+          <div class="nm">The Golden Throne<div class="mt">40K #157★ · Lightly Played · $25.66</div></div>
+          <div class="q">×2</div>
+        </div>
+        <div class="srow">
+          <div class="nm">Hand of Justice<div class="mt">FEM #5 · Near Mint · $4.82</div></div>
+          <div class="q">×1</div>
+        </div>
+        <div class="srow" style="color:var(--dim);font-size:0.8rem;justify-content:center">
+          and 1,184 more
+        </div>
+      </div>
+    </div>
+
+    <div class="cta">
+      <button class="ghost" onclick="alert('Back to file picker')">Cancel</button>
+      <button class="primary" onclick="
+        document.getElementById('review').classList.add('hidden');
+        document.getElementById('after').classList.remove('hidden');
+        window.scrollTo(0,0);
+      ">Add 1,204 cards</button>
+    </div>
+
+    <div class="note">
+      Importing the same file twice <b>adds both copies</b> — it does not merge.
+      That's deliberate: a second export means you bought more.
+    </div>
+  </div>
+
+  <div id="after" class="hidden">
+    <div class="headline">
+      <div class="n">+1,204</div>
+      <div class="l">added to your collection</div>
+      <div class="file">1,387 rows · $14,208 total value</div>
+    </div>
+    <div class="alert">
+      <h3>6 rows skipped</h3>
+      <p>Saved to Settings → Import history so you can fix and retry just those.</p>
+    </div>
+    <div class="cta">
+      <button class="ghost" onclick="location.reload()">Import another</button>
+      <button class="primary" onclick="alert('Opens Collection')">View collection</button>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

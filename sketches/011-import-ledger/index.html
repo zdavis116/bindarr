@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import — Ledger</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b0b0d; --surface: #141417; --surface2: #1b1b1f;
+    --line: rgba(255,255,255,0.10); --line2: rgba(255,255,255,0.06);
+    --fg: #f2f2f4; --muted: #9a9aa2; --dim: #6c6c74;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --accent: #0a84ff;
+    --r: 12px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--fg); line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    display: flex; justify-content: center; padding: 24px 16px 60px;
+  }
+  .phone { width: 100%; max-width: 430px; }
+
+  h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin-bottom: 2px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 18px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: var(--r); overflow: hidden; margin-bottom: 14px; }
+
+  /* ---- the ledger: one line per outcome, like a bank statement ---- */
+  .ledger-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 14px 16px; border-bottom: 1px solid var(--line2);
+  }
+  .ledger-head h2 { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em;
+                    text-transform: uppercase; color: var(--dim); }
+  .file { font-size: 0.78rem; color: var(--muted); }
+
+  .row { display: flex; align-items: center; gap: 12px;
+         padding: 13px 16px; border-bottom: 1px solid var(--line2); }
+  .row:last-child { border-bottom: 0; }
+  .mark { width: 20px; text-align: center; font-size: 0.9rem; flex-shrink: 0; }
+  .mark.ok { color: var(--ok); }
+  .mark.bad { color: var(--bad); }
+  .mark.warn { color: var(--warn); }
+  .body { flex: 1; min-width: 0; }
+  .name { font-size: 0.9rem; font-weight: 600; }
+  .meta { font-size: 0.74rem; color: var(--dim); margin-top: 1px; }
+  .qty { font-size: 0.85rem; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+  .why { font-size: 0.72rem; color: var(--warn); margin-top: 2px; }
+  .why.bad { color: var(--bad); }
+
+  .totals { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tot { padding: 14px 10px; text-align: center; border-right: 1px solid var(--line2); }
+  .tot:last-child { border-right: 0; }
+  .tot .n { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+  .tot .l { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em;
+            color: var(--dim); margin-top: 2px; }
+  .tot.ok .n { color: var(--ok); }
+  .tot.bad .n { color: var(--bad); }
+
+  .fold { padding: 11px 16px; font-size: 0.8rem; color: var(--accent);
+          cursor: pointer; user-select: none; border-top: 1px solid var(--line2); }
+  .hidden { display: none; }
+
+  .cta { display: flex; gap: 10px; margin-top: 4px; }
+  button { flex: 1; min-height: 46px; border: 0; border-radius: 10px;
+           font-size: 0.95rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .primary { background: var(--accent); color: #fff; }
+  .ghost { background: var(--surface2); color: var(--fg); border: 1px solid var(--line); }
+
+  .note { font-size: 0.76rem; color: var(--dim); margin-top: 12px; line-height: 1.5; }
+  .note b { color: var(--muted); font-weight: 600; }
+
+  .done { text-align: center; padding: 30px 16px; }
+  .done .big { font-size: 2.4rem; font-weight: 800; color: var(--ok);
+               letter-spacing: -0.03em; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <h1>Import collection</h1>
+  <div class="sub">ManaBox export · reviewed before anything is saved</div>
+
+  <!-- STEP 1: THE LEDGER -->
+  <div id="review">
+    <div class="panel">
+      <div class="ledger-head">
+        <h2>What this file says</h2>
+        <span class="file">manabox_2026-09-02.csv</span>
+      </div>
+
+      <div class="totals">
+        <div class="tot ok"><div class="n">1,204</div><div class="l">will add</div></div>
+        <div class="tot"><div class="n">1,187</div><div class="l">rows</div></div>
+        <div class="tot bad"><div class="n">6</div><div class="l">rejected</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ledger-head"><h2>Rejected rows</h2><span class="file">6 of 1,193</span></div>
+
+      <div class="row">
+        <div class="mark bad">✕</div>
+        <div class="body">
+          <div class="name">Smaug the Magnificent</div>
+          <div class="meta">row 218 · no set or collector number</div>
+          <div class="why">Four printings, $30.62 to $24,500 — Bindarr will not guess</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="mark bad">✕</div>
+        <div class="body">
+          <div class="name">Cavern of Souls</div>
+          <div class="meta">row 441 · name only</div>
+          <div class="why">21 printings, $49.96 to $10,000</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="mark bad">✕</div>
+        <div class="body">
+          <div class="name">Sol Ring (Proxy)</div>
+          <div class="meta">row 663 · PRX #001</div>
+          <div class="why bad">Not a card Scryfall knows about</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="mark warn">!</div>
+        <div class="body">
+          <div class="name">Gempalm Incinerator</div>
+          <div class="meta">row 894 · ONS #211</div>
+          <div class="why">Quantity is 0</div>
+        </div>
+      </div>
+
+      <div class="fold" onclick="
+        document.getElementById('more').classList.toggle('hidden');
+        this.textContent = document.getElementById('more').classList.contains('hidden')
+          ? 'Show 2 more' : 'Show fewer';
+      ">Show 2 more</div>
+
+      <div id="more" class="hidden">
+        <div class="row">
+          <div class="mark warn">!</div>
+          <div class="body">
+            <div class="name">The Unspeakable</div>
+            <div class="meta">row 1,002 · CHK #62</div>
+            <div class="why">Quantity is not a number ("two")</div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="mark bad">✕</div>
+          <div class="body">
+            <div class="name">Aragorn, the Uniter</div>
+            <div class="meta">row 1,140 · name only</div>
+            <div class="why">10 printings, $6.61 to $8,000</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ledger-head"><h2>A sample of what will be added</h2></div>
+      <div class="row">
+        <div class="mark ok">✓</div>
+        <div class="body">
+          <div class="name">Altar of Dementia</div>
+          <div class="meta">MH1 #218 · Rare · Near Mint · $18.26</div>
+        </div>
+        <div class="qty">×1</div>
+      </div>
+      <div class="row">
+        <div class="mark ok">✓</div>
+        <div class="body">
+          <div class="name">The Golden Throne</div>
+          <div class="meta">40K #157★ · Rare · Lightly Played · $25.66</div>
+        </div>
+        <div class="qty">×2</div>
+      </div>
+      <div class="row">
+        <div class="mark ok">✓</div>
+        <div class="body">
+          <div class="name">Disrupt Decorum</div>
+          <div class="meta">C17 #25 · Rare · Near Mint · $3.57</div>
+        </div>
+        <div class="qty">×1</div>
+      </div>
+    </div>
+
+    <div class="cta">
+      <button class="ghost" onclick="alert('Back to file picker')">Choose another file</button>
+      <button class="primary" onclick="
+        document.getElementById('review').classList.add('hidden');
+        document.getElementById('after').classList.remove('hidden');
+        window.scrollTo(0,0);
+      ">Add 1,204 cards</button>
+    </div>
+
+    <div class="note">
+      Rejected rows are <b>never guessed at</b>. A name with no printing could be
+      any of a dozen cards at wildly different values, and a wrong record costs
+      you a recount against cardboard. Fix those rows in ManaBox and import the
+      file again — <b>importing twice adds both</b>, it does not merge.
+    </div>
+  </div>
+
+  <!-- STEP 2: AFTER -->
+  <div id="after" class="hidden">
+    <div class="panel">
+      <div class="done">
+        <div class="big">+1,204</div>
+        <div class="sub" style="margin:6px 0 0">cards added to your collection</div>
+      </div>
+      <div class="totals" style="border-top:1px solid var(--line2)">
+        <div class="tot"><div class="n">1,387</div><div class="l">rows now</div></div>
+        <div class="tot"><div class="n">$14,208</div><div class="l">value</div></div>
+        <div class="tot bad"><div class="n">6</div><div class="l">skipped</div></div>
+      </div>
+    </div>
+    <div class="cta">
+      <button class="ghost" onclick="location.reload()">Import another file</button>
+      <button class="primary" onclick="alert('Opens Collection')">View collection</button>
+    </div>
+    <div class="note">
+      The 6 skipped rows are listed in <b>Settings → Import history</b> so you can
+      fix and re-import just those.
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

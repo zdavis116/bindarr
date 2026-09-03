@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import — Resolve in place</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b0b0d; --surface: #141417; --surface2: #1b1b1f;
+    --line: rgba(255,255,255,0.10); --line2: rgba(255,255,255,0.06);
+    --fg: #f2f2f4; --muted: #9a9aa2; --dim: #6c6c74;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --accent: #0a84ff;
+    --r: 12px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--fg); line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    display: flex; justify-content: center; padding: 24px 16px 60px;
+  }
+  .phone { width: 100%; max-width: 430px; }
+
+  h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin-bottom: 2px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+
+  .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .track { flex: 1; height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  .fill { height: 100%; background: var(--ok); width: 99.5%; }
+  .barnum { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: var(--r); overflow: hidden; margin-bottom: 12px; }
+  .phead { display:flex; justify-content:space-between; align-items:baseline;
+           padding: 12px 16px; border-bottom: 1px solid var(--line2); }
+  .phead h2 { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em;
+              text-transform: uppercase; color: var(--dim); }
+  .phead .c { font-size: 0.75rem; color: var(--dim); }
+
+  /* AN UNRESOLVED ROW, WITH THE CHOICE INLINE */
+  .item { padding: 14px 16px; border-bottom: 1px solid var(--line2); }
+  .item:last-child { border-bottom: 0; }
+  .item.done { opacity: 0.55; }
+  .itop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .iname { font-size: 0.93rem; font-weight: 650; }
+  .irow { font-size: 0.72rem; color: var(--dim); flex-shrink: 0; }
+  .iwhy { font-size: 0.78rem; color: var(--warn); margin-top: 3px; }
+  .iwhy.bad { color: var(--bad); }
+
+  .choices { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .choice {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: var(--surface2); border: 1px solid var(--line2);
+    border-radius: 9px; padding: 9px 11px; cursor: pointer; text-align: left;
+    font-family: inherit; color: var(--fg);
+  }
+  .choice:hover { border-color: rgba(10,132,255,0.5); }
+  .choice.picked { border-color: var(--accent); background: rgba(10,132,255,0.12); }
+  .cset { font-size: 0.8rem; font-weight: 650; flex: 1; }
+  .cprice { font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+  .cnote { font-size: 0.68rem; color: var(--dim); display:block; font-weight: 400; }
+
+  .skipbtn { background: none; border: 0; color: var(--dim); font-size: 0.76rem;
+             padding: 6px 0 0; cursor: pointer; font-family: inherit; text-decoration: underline; }
+
+  .resolved { display: flex; align-items: center; gap: 8px; margin-top: 8px;
+              font-size: 0.79rem; color: var(--ok); font-weight: 600; }
+
+  .cta { display: flex; gap: 10px; margin-top: 4px; }
+  button.big { flex: 1; min-height: 46px; border: 0; border-radius: 10px;
+               font-size: 0.95rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .primary { background: var(--accent); color: #fff; }
+  .ghost { background: var(--surface2); color: var(--fg); border: 1px solid var(--line); }
+
+  .note { font-size: 0.76rem; color: var(--dim); margin-top: 12px; line-height: 1.5; }
+  .note b { color: var(--muted); font-weight: 600; }
+  .hidden { display: none; }
+
+  .headline { background: var(--surface); border: 1px solid var(--line);
+              border-radius: var(--r); padding: 26px 18px; text-align: center; margin-bottom: 12px; }
+  .headline .n { font-size: 3rem; font-weight: 800; letter-spacing: -0.04em;
+                 line-height: 1; color: var(--ok); }
+  .headline .l { font-size: 0.9rem; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <h1>Import collection</h1>
+  <div class="sub">manabox_2026-09-02.csv · 1,193 rows</div>
+
+  <div id="review">
+    <div class="bar">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <span class="barnum" id="barnum">1,187 / 1,193 ready</span>
+    </div>
+
+    <div class="panel">
+      <div class="phead">
+        <h2>Needs a decision</h2>
+        <span class="c" id="left">6 left</span>
+      </div>
+
+      <!-- AMBIGUOUS: Bindarr knows the candidates, so it can offer them -->
+      <div class="item" id="i1">
+        <div class="itop">
+          <span class="iname">Smaug the Magnificent</span>
+          <span class="irow">row 218</span>
+        </div>
+        <div class="iwhy">4 printings — which one do you own?</div>
+        <div class="choices">
+          <button class="choice" onclick="pick(this,'i1')">
+            <span class="cset">LTR #383 <span class="cnote">Showcase, borderless</span></span>
+            <span class="cprice">$24,500.00</span>
+          </button>
+          <button class="choice" onclick="pick(this,'i1')">
+            <span class="cset">LTR #26 <span class="cnote">Regular</span></span>
+            <span class="cprice">$30.62</span>
+          </button>
+          <button class="choice" onclick="pick(this,'i1')">
+            <span class="cset">LTC #12 <span class="cnote">Commander</span></span>
+            <span class="cprice">$34.10</span>
+          </button>
+        </div>
+        <button class="skipbtn" onclick="skip('i1')">Skip this row</button>
+      </div>
+
+      <div class="item" id="i2">
+        <div class="itop">
+          <span class="iname">Cavern of Souls</span>
+          <span class="irow">row 441</span>
+        </div>
+        <div class="iwhy">21 printings — $49.96 to $10,000.00</div>
+        <div class="choices">
+          <button class="choice" onclick="pick(this,'i2')">
+            <span class="cset">AVR #226 <span class="cnote">Original</span></span>
+            <span class="cprice">$68.40</span>
+          </button>
+          <button class="choice" onclick="pick(this,'i2')">
+            <span class="cset">LCI #270 <span class="cnote">Most recent</span></span>
+            <span class="cprice">$49.96</span>
+          </button>
+          <button class="choice" onclick="pick(this,'i2')" style="justify-content:center">
+            <span class="cset" style="flex:none;color:var(--accent)">See all 21 printings</span>
+          </button>
+        </div>
+        <button class="skipbtn" onclick="skip('i2')">Skip this row</button>
+      </div>
+
+      <!-- NOT AMBIGUOUS: no candidates to offer, so no choice is honest -->
+      <div class="item" id="i3">
+        <div class="itop">
+          <span class="iname">Sol Ring (Proxy)</span>
+          <span class="irow">row 663</span>
+        </div>
+        <div class="iwhy bad">Not a card Scryfall knows about — nothing to match</div>
+        <div class="resolved" style="color:var(--dim)">Will be skipped</div>
+      </div>
+
+      <div class="item" id="i4">
+        <div class="itop">
+          <span class="iname">Gempalm Incinerator</span>
+          <span class="irow">row 894</span>
+        </div>
+        <div class="iwhy">Quantity is 0</div>
+        <div class="choices">
+          <button class="choice" onclick="pick(this,'i4')">
+            <span class="cset">Treat as 1 copy</span>
+          </button>
+          <button class="choice" onclick="skip('i4')">
+            <span class="cset">Skip — I don't own it</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta">
+      <button class="big ghost" onclick="alert('Back to file picker')">Cancel</button>
+      <button class="big primary" id="go" onclick="
+        document.getElementById('review').classList.add('hidden');
+        document.getElementById('after').classList.remove('hidden');
+        window.scrollTo(0,0);
+      ">Add 1,187 cards</button>
+    </div>
+
+    <div class="note">
+      Skipping is always available — Bindarr never guesses a printing for you.
+      Importing the same file twice <b>adds both copies</b> rather than merging.
+    </div>
+  </div>
+
+  <div id="after" class="hidden">
+    <div class="headline">
+      <div class="n">+1,190</div>
+      <div class="l">added to your collection</div>
+    </div>
+    <div class="note" style="text-align:center;margin-bottom:12px">
+      3 resolved here · 3 skipped
+    </div>
+    <div class="cta">
+      <button class="big ghost" onclick="location.reload()">Import another</button>
+      <button class="big primary" onclick="alert('Opens Collection')">View collection</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let ready = 1187, left = 6;
+
+  function refresh() {
+    document.getElementById('barnum').textContent = ready.toLocaleString() + ' / 1,193 ready';
+    document.getElementById('fill').style.width = (ready / 1193 * 100) + '%';
+    document.getElementById('left').textContent = left + ' left';
+    document.getElementById('go').textContent = 'Add ' + ready.toLocaleString() + ' cards';
+  }
+
+  function pick(btn, id) {
+    const item = document.getElementById(id);
+    if (item.classList.contains('done')) return;
+    item.querySelectorAll('.choice').forEach(c => c.classList.remove('picked'));
+    btn.classList.add('picked');
+    item.classList.add('done');
+    const label = btn.querySelector('.cset').childNodes[0].textContent.trim();
+    const done = document.createElement('div');
+    done.className = 'resolved';
+    done.textContent = '✓ ' + label;
+    item.querySelector('.choices').replaceWith(done);
+    const s = item.querySelector('.skipbtn'); if (s) s.remove();
+    ready += 1; left -= 1; refresh();
+  }
+
+  function skip(id) {
+    const item = document.getElementById(id);
+    if (item.classList.contains('done')) return;
+    item.classList.add('done');
+    const done = document.createElement('div');
+    done.className = 'resolved';
+    done.style.color = 'var(--dim)';
+    done.textContent = 'Skipped';
+    item.querySelector('.choices').replaceWith(done);
+    const s = item.querySelector('.skipbtn'); if (s) s.remove();
+    left -= 1; refresh();
+  }
+</script>
+</body>
+</html>
