@@ -913,17 +913,22 @@ function CardInspectorModal({
                   entry has no physical card whose printing could be wrong. */}
               {listType !== 'wishlist' && (deckUse?.printings || []).length > 1 && (
                 <div className="form-group">
-                  <label className="form-label">{t('inspector.editPrinting')}</label>
+                  <label>{t('inspector.editPrinting')}</label>
                   <select
-                    className="form-input"
+                    className="select-control"
+                    style={{ width: '100%' }}
                     value={editCardId || ownedEntry?.card_id || catalogueId || ''}
                     onChange={(e) => setEditCardId(e.target.value)}
                   >
                     {(deckUse?.printings || []).map(pr => (
                       <option key={pr.id} value={pr.id}>
+                        {/* Set code, number and owned count FIRST: those
+                            identify the printing and must survive truncation
+                            on a narrow screen. The set name is the part that
+                            can be cut. */}
                         {String(pr.set_id || '').toUpperCase()} #{pr.number}
-                        {pr.set_name ? ` — ${pr.set_name}` : ''}
-                        {(pr.owned_qty || 0) > 0 ? ` (own ${pr.owned_qty})` : ''}
+                        {(pr.owned_qty || 0) > 0 ? ` · own ${pr.owned_qty}` : ''}
+                        {pr.set_name ? ` · ${pr.set_name}` : ''}
                       </option>
                     ))}
                   </select>

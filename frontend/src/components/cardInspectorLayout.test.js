@@ -347,3 +347,54 @@ test('CIL-TC15: the pips wrapper only renders when it has pips', () => {
     'a genuinely colourless card still says so -- but from the PARSED value, '
     + 'so "no colours" and "failed to parse" stay distinguishable');
 });
+
+test('CIL-TC16: every className in the sheet matches a real CSS rule', () => {
+  // Zach: "That drop down is unreadable but it does work."
+  //
+  // I gave the printing picker className="form-input" and a label
+  // className="form-label". NEITHER EXISTS -- zero `.form-input` rules in
+  // index.css. So the select fell back to the browser default: black-on-white
+  // options inside a dark modal. It worked perfectly and could not be read.
+  //
+  // The app's class is `select-control`, which every other select uses, and it
+  // carries the rule that actually matters:
+  //
+  //     .select-control option { background: ...; color: ...; }
+  //
+  // The native option list is drawn by the OS and inherits almost nothing, so
+  // without that rule a dark page gets an unreadable menu.
+  //
+  // A class name that matches no rule looks completely fine in source review.
+  // This is the general guard rather than one more assertion about one more
+  // control.
+  const used = new Set();
+  for (const m of src.matchAll(/className="([^"{}]+)"/g)) {
+    for (const name of m[1].split(/\s+/)) {
+      if (name) used.add(name);
+    }
+  }
+  assert.ok(used.size > 0, 'the component should use some classes');
+
+  const missing = [...used].filter(n => !css.includes(`.${n}`));
+  assert.deepEqual(missing, [],
+    `these class names match no CSS rule: ${missing.join(', ')}`);
+});
+
+test('CIL-TC17: the printing picker styles its option list', () => {
+  // Specifically the dropdown Zach could not read. `select-control` is the
+  // only class in this stylesheet with an `option` rule, and the OS-drawn
+  // option list needs it explicitly.
+  const i = src.indexOf("t('inspector.editPrinting')");
+  assert.ok(i > 0, 'the picker must exist');
+  const block = src.slice(i, i + 600);
+  assert.match(block, /className="select-control"/,
+    'the picker must use the class that styles option elements');
+  assert.doesNotMatch(block, /className="form-input"/,
+    'form-input matches no rule in this stylesheet');
+  // Anchor on the BASE rule, at line start. There is also a
+  // `:root[data-theme="lcars"] .select-control option` rule, and matching that
+  // one let the default-theme rule be deleted while this test stayed green --
+  // the theme Zach does not use guarding the one he does.
+  assert.match(css, /\n\.select-control option \{[^}]*color:/,
+    'the DEFAULT theme rule must set the option colour');
+});
