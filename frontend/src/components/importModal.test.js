@@ -93,9 +93,11 @@ test('IMPUI-TC5: the count reflects decisions made on screen', () => {
   // If the button still said "Add 1,187" after resolving three rows, he would
   // have to trust that his taps registered. Silent state changes are the thing
   // he has objected to most.
-  assert.match(modal, /const willAdd = \(preview\?\.matched \|\| 0\) \+ rescued/,
+  // Now counted in CARDS rather than rows -- see IMPUI-TC9. The point of this
+  // test is unchanged: decisions made on screen must move the number.
+  assert.match(modal, /const cardsToAdd = \(preview\?\.copies \|\| 0\) \+ rescuedCopies/,
     'the total must include rows resolved in the review');
-  assert.match(modal, /t\('import\.addN', \{ count: willAdd \}\)/,
+  assert.match(modal, /t\('import\.addN', \{ count: cardsToAdd \}\)/,
     'and the button must show that number');
 });
 
@@ -134,4 +136,40 @@ test('IMPUI-TC8: the modal cannot outgrow the screen', () => {
     'safe-area insets on the overlay');
   assert.doesNotMatch(modal, /position: 'absolute'[\s\S]{0,120}onClick=\{onClose\}/,
     'an absolutely-positioned close button follows the panel off-screen');
+});
+
+test('IMPUI-TC9: the headline counts CARDS, not rows', () => {
+  // Zach: "my import is reading 1404 cards but my manabox collection is 2433
+  // cards can you explain why that is?"
+  //
+  // The headline showed `matched` -- the number of ROWS -- under the label
+  // "cards ready to add". A ManaBox export is one row per printing with a
+  // Quantity column, so a playset of four is ONE row and FOUR cards.
+  //
+  // Reproduced exactly: a file of 1404 rows summing to 2433 copies returns
+  // matched=1404, copies=2433. The number was right and the WORD was wrong,
+  // which is worse than a wrong number -- it made him think 1,029 of his
+  // cards had been dropped.
+  assert.match(modal, /const cardsToAdd = \(preview\?\.copies \|\| 0\) \+ rescuedCopies/,
+    'the headline total must sum quantities, not count rows');
+  assert.match(modal, /\{cardsToAdd\.toLocaleString\(\)\}/,
+    'and that is what the big number shows');
+  assert.match(modal, /t\('import\.addN', \{ count: cardsToAdd \}\)/,
+    'the button must agree with the headline above it');
+});
+
+test('IMPUI-TC10: rows are shown too, so neither looks missing', () => {
+  // Showing only one of the two numbers is what caused the confusion. Both
+  // appear now: cards as the headline, rows underneath.
+  assert.match(modal, /t\('import\.fromRows', \{ rows: rowsToAdd, total: preview\.total \}\)/,
+    'the row count must stay visible alongside the card count');
+  assert.match(modal, /const rowsToAdd = \(preview\?\.matched \|\| 0\) \+ rescued/,
+    'and it counts rows, including any resolved by hand');
+});
+
+test('IMPUI-TC11: a resolved row contributes its quantity, not 1', () => {
+  // A row resolved in the review screen might be a playset. Counting it as one
+  // card would reintroduce the same undercount on a smaller scale.
+  assert.match(modal, /rescuedCopies = resolutions\.reduce\(\(n, c\) => n \+ Number\(c\.quantity \|\| 1\), 0\)/,
+    'resolved rows must contribute their quantity');
 });

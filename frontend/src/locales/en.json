@@ -1347,5 +1347,6 @@
   "import.reason.ambiguous_printing": "Which printing? {detail}",
   "import.reason.no_identifier": "No card name, set or Scryfall ID",
   "import.reason.bad_quantity": "Quantity is not a number of cards",
-  "import.reason.chosen_card_not_in_catalogue": "That printing is no longer in the catalogue"
+  "import.reason.chosen_card_not_in_catalogue": "That printing is no longer in the catalogue",
+  "import.fromRows": "from {rows} of {total} rows"
 }

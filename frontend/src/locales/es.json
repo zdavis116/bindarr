@@ -1270,5 +1270,6 @@
   "import.reason.ambiguous_printing": "¿Qué edición? {detail}",
   "import.reason.no_identifier": "Sin nombre, edición ni ID de Scryfall",
   "import.reason.bad_quantity": "La cantidad no es un número de cartas",
-  "import.reason.chosen_card_not_in_catalogue": "Esa edición ya no está en el catálogo"
+  "import.reason.chosen_card_not_in_catalogue": "Esa edición ya no está en el catálogo",
+  "import.fromRows": "de {rows} de {total} filas"
 }

@@ -136,8 +136,15 @@ function ImportModal({ onClose, onImported, showToast }) {
   };
 
   // How many rows will actually be added, counting the ones resolved here.
-  const rescued = Object.values(choices).filter(c => c && !c.skip).length;
-  const willAdd = (preview?.matched || 0) + rescued;
+  // ROWS vs CARDS. A ManaBox export is one row per printing with a Quantity
+  // column, so a playset of four is ONE row and FOUR cards. Showing rows under
+  // the word "cards" made Zach think 1,029 of his cards had been dropped.
+  const resolutions = Object.values(choices).filter(c => c && !c.skip);
+  const rescued = resolutions.length;
+  const rescuedCopies = resolutions.reduce((n, c) => n + Number(c.quantity || 1), 0);
+
+  const rowsToAdd = (preview?.matched || 0) + rescued;
+  const cardsToAdd = (preview?.copies || 0) + rescuedCopies;
   const unresolved = (preview?.rejections || [])
     .filter(r => !choices[r.row - 1]).length;
 
@@ -205,15 +212,22 @@ function ImportModal({ onClose, onImported, showToast }) {
               <div style={{ ...panel, padding: '1.4rem 1rem', textAlign: 'center' }}>
                 <div style={{ fontSize: '2.6rem', fontWeight: 800, lineHeight: 1,
                               letterSpacing: '-0.03em', color: 'var(--accent-green)' }}>
-                  {willAdd.toLocaleString()}
+                  {cardsToAdd.toLocaleString()}
                 </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem',
                               marginTop: '0.35rem' }}>
                   {t('import.readyToAdd')}
                 </div>
+                {/* Both numbers, always. A playset is one row and four cards,
+                    and showing only one of them looks like the other went
+                    missing. */}
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem',
                               marginTop: '0.5rem' }}>
-                  {fileName} · {t('import.rowCount', { count: preview.total })}
+                  {t('import.fromRows', { rows: rowsToAdd, total: preview.total })}
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem',
+                              marginTop: '0.15rem' }}>
+                  {fileName}
                 </div>
               </div>
 
@@ -266,7 +280,7 @@ function ImportModal({ onClose, onImported, showToast }) {
             <div style={{ ...panel, padding: '2rem 1rem', textAlign: 'center' }}>
               <div style={{ fontSize: '2.6rem', fontWeight: 800, lineHeight: 1,
                             letterSpacing: '-0.03em', color: 'var(--accent-green)' }}>
-                +{result.inserted.toLocaleString()}
+                +{(result.copies || result.inserted).toLocaleString()}
               </div>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem',
                             marginTop: '0.35rem' }}>
@@ -291,8 +305,8 @@ function ImportModal({ onClose, onImported, showToast }) {
                 {t('common.cancel')}
               </button>
               <button className="btn btn-primary" style={{ flex: 2, minHeight: 46 }}
-                      onClick={commit} disabled={busy || willAdd === 0}>
-                {busy ? t('import.adding') : t('import.addN', { count: willAdd })}
+                      onClick={commit} disabled={busy || cardsToAdd === 0}>
+                {busy ? t('import.adding') : t('import.addN', { count: cardsToAdd })}
               </button>
             </>
           )}

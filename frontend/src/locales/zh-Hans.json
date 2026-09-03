@@ -1232,5 +1232,6 @@
   "import.reason.ambiguous_printing": "哪个版本？{detail}",
   "import.reason.no_identifier": "没有卡名、系列或 Scryfall ID",
   "import.reason.bad_quantity": "数量不是有效的卡牌数",
-  "import.reason.chosen_card_not_in_catalogue": "该版本已不在目录中"
+  "import.reason.chosen_card_not_in_catalogue": "该版本已不在目录中",
+  "import.fromRows": "来自 {total} 行中的 {rows} 行"
 }
