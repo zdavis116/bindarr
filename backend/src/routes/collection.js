@@ -2154,7 +2154,7 @@ router.put('/collection/:id', async (req, res) => {
         // row becomes a different printing the allocation describes a card the
         // deck never asked for -- discoverable only by counting cardboard.
         const allocated = await tx.get(
-          `SELECT COUNT(*) AS n FROM deck_card_allocations WHERE collection_id = ?`,
+          `SELECT COUNT(*) AS n FROM deck_card_allocations WHERE collection_entry_id = ?`,
           [entry.id]);
         if (allocated && allocated.n > 0) {
           throw new InvariantError(409,
