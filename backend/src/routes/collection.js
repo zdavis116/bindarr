@@ -2101,7 +2101,11 @@ router.put('/collection/:id', async (req, res) => {
   const { id } = req.params;
   const {
     quantity, condition, printing, purchase_price,
-    location_id, compartment_id, list_type, is_trade, favorite, notes
+    location_id, compartment_id, list_type, is_trade, favorite, notes,
+    // WHICH PRINTING this row is. Absent means "leave it alone" -- every
+    // existing caller omits it, and treating undefined as a change would
+    // rewrite card_id to null on every quantity edit.
+    card_id
   } = req.body;
 
   try {
@@ -2119,6 +2123,47 @@ router.put('/collection/:id', async (req, res) => {
     const outcome = await db.withTransaction(async (tx) => {
       const entry = await tx.get(`SELECT * FROM collection WHERE id = ? AND user_id = ?`, [id, req.user.id]);
       if (!entry) throw new InvariantError(404, 'Collection entry not found', 'ENTRY_NOT_FOUND');
+
+      // CHANGING THE PRINTING.
+      //
+      // Zach: "I need to edit a card's set that is in my collection." The row's
+      // card_id IS the printing, and this route never accepted it -- so a
+      // mis-matched import row was stuck, and the only way out was delete and
+      // re-add, losing condition, location, purchase price and notes.
+      //
+      // Only within the same card: this fixes "I recorded the wrong set", not
+      // "this is a different card". A free-form card_id would turn an edit
+      // into a silent swap, with the quantity and price following it.
+      let finalCardId = entry.card_id;
+      if (card_id !== undefined && card_id !== null && card_id !== entry.card_id) {
+        const target = await tx.get(
+          `SELECT id, oracle_id FROM card_cache WHERE id = ?`, [card_id]);
+        if (!target) {
+          throw new InvariantError(400, 'That printing is not in the catalogue',
+            'UNKNOWN_PRINTING');
+        }
+        const current = await tx.get(
+          `SELECT oracle_id FROM card_cache WHERE id = ?`, [entry.card_id]);
+        if (!current || target.oracle_id !== current.oracle_id) {
+          throw new InvariantError(400,
+            'A printing can only be changed to another printing of the same card',
+            'DIFFERENT_CARD');
+        }
+
+        // A copy allocated to a checked-out deck is physically sleeved. If this
+        // row becomes a different printing the allocation describes a card the
+        // deck never asked for -- discoverable only by counting cardboard.
+        const allocated = await tx.get(
+          `SELECT COUNT(*) AS n FROM deck_card_allocations WHERE collection_id = ?`,
+          [entry.id]);
+        if (allocated && allocated.n > 0) {
+          throw new InvariantError(409,
+            'This copy is checked out to a deck. Return it before changing the printing.',
+            'ALLOCATED');
+        }
+
+        finalCardId = card_id;
+      }
 
       const isMoving = location_id !== undefined && location_id !== entry.location_id;
       let finalCompartmentId = entry.compartment_id;
@@ -2184,6 +2229,11 @@ router.put('/collection/:id', async (req, res) => {
       // One physical card = one row. The edited entry always stays quantity 1;
       // a quantity > 1 in the payload means "make this many copies" and is
       // fulfilled below by inserting extra single-card rows (auto-split).
+      // The printing. Guarded above: same card only, and refused while the
+      // copy is checked out to a deck.
+      if (finalCardId !== entry.card_id) {
+        updates.push('card_id = ?'); params.push(finalCardId);
+      }
       if (quantity !== undefined) { updates.push('quantity = ?'); params.push(1); }
       if (condition !== undefined) { updates.push('condition = ?'); params.push(condition); }
       // Both finish columns move together or neither does. Writing only the

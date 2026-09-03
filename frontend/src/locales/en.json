@@ -1370,5 +1370,7 @@
   "deck.repointFailed": "Nothing was changed.",
   "deck.repointDismiss": "Not now",
   "inspector.repointed": "Deck now uses {set} #{number}.",
-  "inspector.repointFailed": "That printing isn't free right now."
+  "inspector.repointFailed": "That printing isn't free right now.",
+  "inspector.editPrinting": "Set / printing",
+  "inspector.editPrintingHint": "Fix a copy recorded as the wrong printing."
 }

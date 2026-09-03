@@ -1255,5 +1255,7 @@
   "deck.repointFailed": "未做任何更改。",
   "deck.repointDismiss": "暂不",
   "inspector.repointed": "套牌现已使用 {set} #{number}。",
-  "inspector.repointFailed": "该版本当前不可用。"
+  "inspector.repointFailed": "该版本当前不可用。",
+  "inspector.editPrinting": "系列 / 版本",
+  "inspector.editPrintingHint": "修正版本记录错误的卡牌。"
 }

@@ -239,6 +239,9 @@ function CardInspectorModal({
   // A newly opened card clears any printing override -- otherwise the sheet
   // opens on whatever was last switched to.
   useEffect(() => { setSwitchedCardId(null); }, [openedWith]);
+  // Clear the printing picker between entries, or it carries the previous
+  // card's choice into the next edit.
+  useEffect(() => { setEditCardId(null); }, [targetEntryId, openedWith]);
 
   // USE THIS PRINTING IN THE DECK.
   //
@@ -248,6 +251,9 @@ function CardInspectorModal({
   // Only offered when the sheet was opened from a deck: from the collection
   // there is no requirement to repoint.
   const [repointing, setRepointing] = useState(null);
+  // Which printing the edit form will save. Seeded from the entry being
+  // edited, so leaving the field alone changes nothing.
+  const [editCardId, setEditCardId] = useState(null);
 
   // Declared before switchPrinting; the reference below resolves at TAP time,
   // by which point both consts are bound.
@@ -402,6 +408,11 @@ function CardInspectorModal({
           quantity: parseInt(q, 10),
           condition,
           printing,
+          // WHICH PRINTING this copy is. Zach: "I need to edit a card's set
+          // that is in my collection." Only sent when he actually picked a
+          // different one -- the route treats undefined as "leave it alone".
+          ...(editCardId && editCardId !== (ownedEntry?.card_id || catalogueId)
+              ? { card_id: editCardId } : {}),
           purchase_price: parseFloat(purchasePrice) || 0,
           location_id: locationId ? parseInt(locationId, 10) : null,
           list_type: listType,
@@ -893,6 +904,36 @@ function CardInspectorModal({
               {/* surface="edit": this form describes a card he ALREADY OWNS.
                   The finish here is a record of a physical object, so it must
                   never be rewritten by the picker — only flagged. */}
+              {/* WHICH PRINTING THIS COPY IS.
+                  Zach: "I need to edit a card's set that is in my collection."
+                  Reuses the printings the sheet already fetched for the Yours
+                  tab rather than adding a second source of truth.
+
+                  Only offered when editing a real collection row -- a wishlist
+                  entry has no physical card whose printing could be wrong. */}
+              {listType !== 'wishlist' && (deckUse?.printings || []).length > 1 && (
+                <div className="form-group">
+                  <label className="form-label">{t('inspector.editPrinting')}</label>
+                  <select
+                    className="form-input"
+                    value={editCardId || ownedEntry?.card_id || catalogueId || ''}
+                    onChange={(e) => setEditCardId(e.target.value)}
+                  >
+                    {(deckUse?.printings || []).map(pr => (
+                      <option key={pr.id} value={pr.id}>
+                        {String(pr.set_id || '').toUpperCase()} #{pr.number}
+                        {pr.set_name ? ` — ${pr.set_name}` : ''}
+                        {(pr.owned_qty || 0) > 0 ? ` (own ${pr.owned_qty})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)',
+                              margin: '0.35rem 0 0' }}>
+                    {t('inspector.editPrintingHint')}
+                  </p>
+                </div>
+              )}
+
               <CardEntryFields
                 game={card.game || card.supertype}
                 surface="edit"

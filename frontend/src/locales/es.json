@@ -1293,5 +1293,7 @@
   "deck.repointFailed": "No se cambió nada.",
   "deck.repointDismiss": "Ahora no",
   "inspector.repointed": "El mazo ahora usa {set} #{number}.",
-  "inspector.repointFailed": "Esa edición no está disponible ahora mismo."
+  "inspector.repointFailed": "Esa edición no está disponible ahora mismo.",
+  "inspector.editPrinting": "Edición",
+  "inspector.editPrintingHint": "Corrige una copia registrada con la edición equivocada."
 }
