@@ -63,15 +63,33 @@ const STRATEGIES = {
     game: 'mtg'
   }),
   manabox: (row) => ({
+    // THE SCRYFALL ID IS THE MATCH. card_cache.id IS a Scryfall UUID, so this
+    // column is a primary-key lookup -- exact, and immune to the variant
+    // problem that makes set+number a guess. Promos, alternate arts and
+    // Universes Beyond printings share collector numbers; picking the wrong
+    // one writes the wrong card into a collection, which costs a recount
+    // against cardboard. set+number stays as the fallback for exports that
+    // predate the column.
+    scryfall_id: (row['Scryfall ID'] || row['Scryfall Id'] || row['scryfall_id'] || '').trim() || null,
     name: row['Name'] || row['Card Name'],
     set_code: row['Set code'] || row['Set Code'] || row['Set'],
-    collector_number: row['Card number'] || row['Number'],
+    collector_number: row['Card number'] || row['Number'] || row['Collector number'],
     quantity: parseInt(row['Quantity'], 10) || 1,
     condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
     finish: finishFromFoilFlag(row['Foil']),
+    purchase_price: parsePrice(row['Purchase price'] || row['Purchase Price']),
     game: 'mtg'
   })
 };
+
+// ManaBox writes a bare number, a blank, or occasionally a currency symbol.
+// Anything unparseable becomes 0 rather than NaN -- a price is decoration
+// here, and a NaN would propagate into collection value totals.
+function parsePrice(raw) {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const n = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
 
 function parseThirdPartyCSV(rows, formatType = 'tcgplayer') {
   const formatKey = (formatType || 'internal').toLowerCase();
@@ -81,6 +99,7 @@ function parseThirdPartyCSV(rows, formatType = 'tcgplayer') {
 
 module.exports = {
   CONDITION_MAP,
+  parsePrice,
   STRATEGIES,
   parseThirdPartyCSV
 };

@@ -2,6 +2,13 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { generateExportCSV } = require('../utils/csvExporters');
+const { parseThirdPartyCSV } = require('../utils/csvMappers');
+const { resolveRows } = require('../utils/importResolver');
+const { displayPrinting } = require('../utils/finishes');
+
+// A ManaBox dump of a large collection is a few thousand rows. This is a
+// guard against a pasted wrong file, not a real ceiling.
+const MAX_IMPORT_ROWS = 20000;
 
 // Export endpoint
 router.get('/export', async (req, res) => {
@@ -54,13 +61,95 @@ router.get('/export', async (req, res) => {
   }
 });
 
-// Import is intentionally disabled until the Oracle-aware importer can validate
-// every row against an English Scryfall printing. Trusting uploaded metadata here
-// would bypass the card-admission boundary and poison the shared cache.
-router.post('/import', (_req, res) => {
-  res.status(501).json({
-    error: 'Collection import is temporarily disabled until Scryfall validation is available.'
-  });
-});
+// IMPORT.
+//
+// This was a 501 stub: "disabled until the Oracle-aware importer can validate
+// every row against an English Scryfall printing". That validation exists now
+// -- the nightly Scryfall refresh keeps card_cache current, and card_cache.id
+// IS the Scryfall UUID, so a ManaBox row carrying a Scryfall ID resolves by
+// primary key.
+//
+// THE ADMISSION BOUNDARY STILL HOLDS: this adds COLLECTION rows pointing at
+// cards already in the catalogue. It never INSERTs into card_cache. Uploaded
+// metadata does not get to define what a Magic card is.
+//
+// Two phases, because Zach reviews before he commits:
+//   POST /import?preview=1   resolve everything, write nothing, report
+//   POST /import             resolve and insert, report the same summary
+
+async function runImport(req, res, { commit }) {
+  const { rows, format = 'manabox' } = req.body || {};
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'No rows to import.' });
+  }
+  if (rows.length > MAX_IMPORT_ROWS) {
+    return res.status(413).json({
+      error: `That file has ${rows.length} rows; the limit is ${MAX_IMPORT_ROWS}.`
+    });
+  }
+
+  const mapped = parseThirdPartyCSV(rows, format);
+  const { resolved, rejected } = await resolveRows(mapped);
+
+  const summary = {
+    total: rows.length,
+    matched: resolved.length,
+    rejected: rejected.length,
+    copies: resolved.reduce((n, r) => n + Number(r.row.quantity || 0), 0),
+    matchedBy: resolved.reduce((acc, r) => {
+      acc[r.matchedBy] = (acc[r.matchedBy] || 0) + 1;
+      return acc;
+    }, {}),
+    // Every rejection, with enough detail to fix the source row. Zach: "Report
+    // it as rejected" -- so the file imports what it can and names what it
+    // could not, rather than refusing wholesale.
+    rejections: rejected.map(r => ({
+      row: r.index + 1,
+      card: r.label,
+      reason: r.reason,
+      detail: r.detail || null
+    }))
+  };
+
+  if (!commit) {
+    return res.json({ preview: true, ...summary });
+  }
+
+  // DUPLICATE ROWS ARE THE POINT. Zach: "If you re-import it adds duplicate
+  // rows." A ManaBox export is a full dump, so re-importing genuinely means
+  // "I have these again" -- silently merging into an existing entry would
+  // discard the condition and price of the copies already recorded.
+  let inserted = 0;
+  try {
+    await db.run('BEGIN');
+    for (const r of resolved) {
+      await db.run(
+        `INSERT INTO collection
+           (card_id, user_id, quantity, condition, printing, finish, purchase_price)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        // `printing` is the DISPLAY label ('Normal' / 'Foil'); `finish` is the
+        // machine value ('nonfoil' / 'foil'). Passing finish to both would put
+        // 'nonfoil' in a column every other screen renders as text. There is a
+        // helper for this, used by admin.js -- reusing it rather than writing
+        // a second mapping that can drift.
+        [r.card.id, req.user.id, r.row.quantity, r.row.condition,
+         displayPrinting(r.row.finish), r.row.finish, r.row.purchase_price || 0]
+      );
+      inserted += 1;
+    }
+    await db.run('COMMIT');
+  } catch (err) {
+    // ALL OR NOTHING on the write. A partial import leaves him unable to tell
+    // which rows landed, and the only way to find out is counting cardboard.
+    await db.run('ROLLBACK').catch(() => {});
+    return res.status(500).json({ error: 'Import failed; nothing was saved.', message: err.message });
+  }
+
+  res.json({ preview: false, inserted, ...summary });
+}
+
+router.post('/import/preview', (req, res) => runImport(req, res, { commit: false }));
+router.post('/import', (req, res) => runImport(req, res, { commit: true }));
 
 module.exports = router;

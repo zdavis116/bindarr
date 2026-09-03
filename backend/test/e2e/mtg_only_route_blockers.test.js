@@ -149,8 +149,14 @@ async function runTests() {
     });
 
     await check(9, async () => {
+      // Import is ENABLED now, behind the Scryfall validation this suite's
+      // 501 assertion was waiting for. What still matters here is that the
+      // route validates its input rather than trusting it: an empty body is a
+      // bad request, not a 500 and not a silent success.
       const response = await request('/api/import', { method: 'POST', body: '{}' });
-      assert.strictEqual(response.status, 501);
+      assert.strictEqual(response.status, 400);
+      const body = await response.json();
+      assert.ok(body.error, 'a rejected import must say why');
     });
 
     await check(10, async () => {
