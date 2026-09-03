@@ -458,7 +458,10 @@ test('CIP-TC26: an owned printing is marked and reachable', () => {
   // Zach: "I would like a way to switch to that card in that view."
   assert.match(impl, /t\('inspector\.youOwn', \{ count: pr\.owned_qty \}\)/,
     'an owned printing must say so on its row');
-  assert.match(impl, /onClick=\{\(\) => switchPrinting\(pr\)\}/,
+  // The tap now CHOOSES rather than only viewing: from a deck it repoints the
+  // decklist, from the collection it shows the printing. Zach: "just tapping
+  // the row should choose that printing." See RP-TC12.
+  assert.match(impl, /onClick=\{\(\) => \(deckCardId/,
     'and the row must be tappable');
   assert.match(impl, /type="button"/,
     'as a real button, not a div with a click handler');
