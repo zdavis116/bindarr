@@ -19,13 +19,19 @@ const { summarise } = require('./moxfieldPayload');
 //
 // Local decks (moxfield_public_id IS NULL) are never touched by any of this.
 
-// Match on ORACLE identity, not printing.
+// Match on ORACLE identity: not the printing, and NOT THE FINISH.
 //
-// "Is this card still in the deck?" is a question about the CARD. Keying the
-// diff on desired_card_id would make a printing change look like a removal plus
-// an addition, which is exactly how his choices would get destroyed.
-function oracleKey(oracleId, finish, board) {
-  return `${oracleId}|${finish}|${board}`;
+// "Is this card still in the deck?" is a question about the CARD. Keying on
+// desired_card_id would make a printing change look like a removal plus an
+// addition -- which is how his choices would get destroyed.
+//
+// The finish is excluded for the same reason, learned the hard way: the first
+// version keyed on it, preferOwnedPrinting swapped two cards to FOIL promos he
+// owns, and every subsequent sync then read those rows as "remove the nonfoil,
+// add the foil". Two rows churned forever. If the sync is allowed to choose the
+// finish, the finish cannot be part of the identity it diffs on.
+function oracleKey(oracleId, board) {
+  return `${oracleId}|${board}`;
 }
 
 // Work out what would change, without changing anything.
@@ -70,11 +76,11 @@ async function planSync(userId, deckId, payload) {
 
   const haveByKey = new Map();
   for (const e of existing) {
-    haveByKey.set(oracleKey(e.oracle_id, e.desired_finish, e.board), e);
+    haveByKey.set(oracleKey(e.oracle_id, e.board), e);
   }
   const wantByKey = new Map();
   for (const w of wanted) {
-    wantByKey.set(oracleKey(w.oracle_id, w.finish, w.board), w);
+    wantByKey.set(oracleKey(w.oracle_id, w.board), w);
   }
 
   const add = [];
