@@ -112,6 +112,16 @@ function DropButton({ label, count, onClick }) {
   );
 }
 
+// The card types this app filters on, read from type_line.
+//
+// NOT from `types` -- that column holds COLOURS in this database, so using it
+// made the Types sheet a second colour picker. Everything before the em dash in
+// a type_line is the card type(s) plus supertypes ("Legendary Creature");
+// everything after is subtypes ("Goblin Berserker"), which would flood a filter
+// list with hundreds of entries.
+const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
+                    'Land', 'Planeswalker', 'Sorcery'];
+
 function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSelectedLocationId, setFocusEntryId }) {
   const { t } = useT();
 
@@ -152,26 +162,24 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsTrigger]);
 
-  // The card types in this collection, read from type_line.
-  //
-  // NOT from `types` -- that column holds COLOURS in this database, so using it
-  // made the Types sheet a second colour picker. Everything before the em dash
-  // in a type_line is the card type(s) plus supertypes ("Legendary Creature");
-  // everything after is subtypes ("Goblin Berserker"), which would flood a
-  // filter list with hundreds of entries.
-  const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
-                      'Land', 'Planeswalker', 'Sorcery'];
-
-  const cardTypesOf = (card) => {
-    const line = (card.type_line || '').split('—')[0];
-    return CARD_TYPES.filter(ty => line.includes(ty));
-  };
+// The types on a card, from the front of its type line.
+//
+// Module scope, like CARD_TYPES: it reads nothing but its argument, so a fresh
+// identity every render is noise -- and inside the component it made
+// uniqueTypes' dependency list "incomplete", where listing it would have
+// defeated the memo (new function each render = recompute each render).
+const cardTypesOf = (card) => {
+  const line = (card.type_line || '').split('—')[0];
+  return CARD_TYPES.filter(ty => line.includes(ty));
+};
 
   const uniqueTypes = useMemo(() => {
     const found = new Set();
     for (const c of collection) for (const ty of cardTypesOf(c)) found.add(ty);
     return CARD_TYPES.filter(ty => found.has(ty));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No suppression needed: CARD_TYPES and cardTypesOf are module scope now,
+    // so `collection` really is the only dependency. The disable comment that
+    // used to sit here was hiding the warning rather than answering it.
   }, [collection]);
 
   const uniqueSets = useMemo(

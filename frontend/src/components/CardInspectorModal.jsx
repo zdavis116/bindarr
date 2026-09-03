@@ -188,6 +188,23 @@ function CardInspectorModal({
   //
   // A ref created at mount is fresh every time the modal opens, and the id
   // comparison still prevents a refetch loop while it is open.
+  // THE CATALOGUE ID, derived once.
+  //
+  // Held outside the fetch effect so the effect depends on a single primitive
+  // rather than reading three fields off `card`. Depending on `card` itself
+  // would refetch on every mutation of that object -- the edit form writes
+  // card.quantity in place -- and depending on the three fields separately is
+  // a longer way to say the same thing.
+  //
+  // A collection row carries card_id; a deck entry carries desired_card_id and
+  // puts its own row id in `id`. Falling through to `id` from a deck sends a
+  // deck_cards row number to a card_cache lookup: 404, and an empty tab.
+  const catalogueId = card?.card_id || card?.desired_card_id || card?.id;
+
+  // Bumped by invalidateDeckUse so the fetch effect can depend on a real
+  // input instead of on the state it writes.
+  const [deckRefresh, setDeckRefresh] = useState(0);
+
   const deckFetchFor = useRef(null);
 
   // REFETCH WHEN THE CARD'S DECK MEMBERSHIP CHANGES.
@@ -199,6 +216,7 @@ function CardInspectorModal({
   const invalidateDeckUse = () => {
     deckFetchFor.current = null;
     setDeckUse(null);
+    setDeckRefresh(n => n + 1);
   };
 
   // LOCK THE PAGE BEHIND THE MODAL.
@@ -225,7 +243,6 @@ function CardInspectorModal({
     // first open and the sheet fell back to the caller's object -- which from
     // the collection has no oracle_text and no mana_cost. Same card, two
     // screens, two answers, for the sake of avoiding one request.
-    if (!card) return;
     // THE CARD_CACHE ID, not the collection entry id. Opened from the
     // collection, card.id is undefined and card.entry_id is the collection row
     // (206) -- card_id holds the catalogue id the endpoint needs. Sending the
@@ -235,8 +252,7 @@ function CardInspectorModal({
     // a deck entry carries desired_card_id and puts its own row id in `id`.
     // Falling back to `id` from a deck sends a deck_cards row number to a
     // card_cache lookup -- 404, and an empty tab.
-    const catalogueId = card?.card_id || card?.desired_card_id || card?.id;
-    if (!catalogueId || deckUse) return;
+    if (!catalogueId) return;
     if (deckFetchFor.current === catalogueId) return;
 
     deckFetchFor.current = catalogueId;
@@ -249,7 +265,19 @@ function CardInspectorModal({
       .catch(() => {})
       .finally(() => { if (!cancelled) setDeckUseLoading(false); });
     return () => { cancelled = true; };
-  }, [tab, card?.card_id, card?.id, deckUse]);
+    // DEPENDENCIES THE EFFECT ACTUALLY READS.
+    //
+    // This used to list `deckUse` -- the state this effect SETS -- and relied
+    // on an early return to stop the loop. That is the same self-triggering
+    // shape as the bug that once made this tab spin forever, held in check by
+    // a guard instead of by design.
+    //
+    // `deckRefresh` is an explicit "reload was requested" counter, so the
+    // effect depends on an input rather than on its own output. It also listed
+    // `tab`, which it stopped reading when the Card tab began needing this
+    // response, and omitted desired_card_id, which it does read -- switching
+    // between two deck entries could reuse the previous card's data.
+  }, [catalogueId, deckRefresh]);
 
   const handleClose = () => {
     if (hasToggledRef.current && onUpdate) {

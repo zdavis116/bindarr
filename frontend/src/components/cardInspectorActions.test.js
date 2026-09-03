@@ -246,6 +246,11 @@ test('CIA-TC14: the fetch guard cannot outlive a close', () => {
     'the guard must be a per-mount ref');
 
   // And the invalidator must exist for in-place changes.
+  // The counter bump is what actually re-runs the fetch now that the effect no
+  // longer depends on deckUse. Without it, clearing the cache leaves the tab
+  // empty rather than reloading -- worse than the bug Zach reported.
+  assert.match(src, /const invalidateDeckUse = \(\) => \{[\s\S]{0,240}setDeckRefresh\(n => n \+ 1\);/,
+    'invalidating must BUMP the refresh counter, or nothing refetches');
   assert.match(src, /const invalidateDeckUse = \(\) => \{[\s\S]{0,160}deckFetchFor\.current = null;[\s\S]{0,80}setDeckUse\(null\);/,
     'changing deck membership must drop BOTH the cached response and the '
     + 'guard -- clearing one without the other either refetches nothing or '

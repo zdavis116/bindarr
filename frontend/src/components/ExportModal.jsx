@@ -16,7 +16,10 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 // Named for where the text gets pasted, not for the internal format id.
 // buildDeckExport really supports three shapes; offering five names for three
 // behaviours would hand the user the wrong format silently.
-export const EXPORT_FORMATS = [
+// Not exported: nothing outside this file imports it, and a non-component
+// export here breaks Fast Refresh for the whole module. If another screen ever
+// needs these, they belong in their own file rather than hanging off a modal.
+const EXPORT_FORMATS = [
   { id: 'brackets', label: 'Moxfield', format: 'buylist', bracketStyle: 'brackets' },
   { id: 'parens', label: 'Manapool', format: 'buylist', bracketStyle: 'parentheses' },
   { id: 'plain', label: 'Names only', format: 'plain', bracketStyle: 'brackets' },

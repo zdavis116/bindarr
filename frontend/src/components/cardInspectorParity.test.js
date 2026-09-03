@@ -226,15 +226,24 @@ test('CIP-TC13: the card request is not gated on the tab', () => {
   // Anchor on the EFFECT BODY. The invalidator now sits between the ref
   // declaration and the effect, so a fixed window from the ref reads the
   // wrong code -- the same slicing mistake as CIT-TC7.
-  const at = impl.indexOf('if (!card) return;', impl.indexOf('const deckFetchFor'));
+  // Anchor on the FETCH ITSELF -- the one line that cannot move without the
+  // effect ceasing to exist. Earlier versions anchored on `if (!card) return;`
+  // and on the ref declaration; both were incidental lines that later got
+  // removed or displaced, and the test then failed on correct code.
+  const at = impl.indexOf('/decks`)');
   assert.ok(at > 0, 'the fetch effect must exist');
-  const eff = impl.slice(at, at + 1200);
+  const eff = impl.slice(Math.max(0, at - 1400), at + 400);
 
   assert.doesNotMatch(eff, /tab !== 'decks'/,
     'gating the fetch on the tab leaves the DEFAULT tab unmerged, so the '
     + 'sheet renders the caller object and the two screens differ');
-  assert.match(eff, /if \(!card\) return;/,
-    'the card must be fetched as soon as a card is shown');
+
+  // The effect must depend on the card, and must NOT depend on the state it
+  // writes -- that shape is what once made this tab spin forever.
+  const deps = impl.slice(at, impl.indexOf('}, [', at) + 60);
+  assert.match(deps, /\}, \[catalogueId, deckRefresh\]\)/,
+    'the fetch keys on the catalogue id and an explicit refresh counter, not '
+    + 'on deckUse -- an effect listing the state it sets is self-triggering');
 });
 
 test('CIP-TC14: mana value is not shown', () => {
