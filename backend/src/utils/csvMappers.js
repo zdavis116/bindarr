@@ -48,7 +48,7 @@ const STRATEGIES = {
     name: row['Card Name'] || row['Name'],
     set_code: row['Set Code'] || row['Set'],
     collector_number: row['Number'] || row['Card Number'],
-    quantity: parseInt(row['Quantity'], 10) || 1,
+    quantity: parseQuantity(row['Quantity']),
     condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
     finish: finishFromFoilFlag(row['Printing']),
     game: 'mtg'
@@ -57,7 +57,7 @@ const STRATEGIES = {
     name: row['Card Name'] || row['Name'],
     set_code: row['Set Code'] || row['Set'],
     collector_number: row['Card Number'] || row['Number'],
-    quantity: parseInt(row['Quantity'], 10) || 1,
+    quantity: parseQuantity(row['Quantity']),
     condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
     finish: finishFromFoilFlag(row['Printing']),
     game: 'mtg'
@@ -74,13 +74,25 @@ const STRATEGIES = {
     name: row['Name'] || row['Card Name'],
     set_code: row['Set code'] || row['Set Code'] || row['Set'],
     collector_number: row['Card number'] || row['Number'] || row['Collector number'],
-    quantity: parseInt(row['Quantity'], 10) || 1,
+    quantity: parseQuantity(row['Quantity']),
     condition: CONDITION_MAP[(row['Condition'] || '').toLowerCase()] || 'Near Mint',
     finish: finishFromFoilFlag(row['Foil']),
     purchase_price: parsePrice(row['Purchase price'] || row['Purchase Price']),
     game: 'mtg'
   })
 };
+
+// Quantity, preserving the difference between "absent" and "zero".
+//
+// `parseInt(x, 10) || 1` is the obvious idiom and it is wrong here: 0 is
+// falsy, so an explicit "Quantity: 0" became 1 -- a card written into a
+// collection that its owner said they do not have. A missing column really
+// does mean one; a stated zero means zero, and the resolver rejects it.
+function parseQuantity(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return 1;
+  const n = parseInt(String(raw).trim(), 10);
+  return Number.isNaN(n) ? null : n;   // null: present but unreadable
+}
 
 // ManaBox writes a bare number, a blank, or occasionally a currency symbol.
 // Anything unparseable becomes 0 rather than NaN -- a price is decoration
@@ -100,6 +112,7 @@ function parseThirdPartyCSV(rows, formatType = 'tcgplayer') {
 module.exports = {
   CONDITION_MAP,
   parsePrice,
+  parseQuantity,
   STRATEGIES,
   parseThirdPartyCSV
 };

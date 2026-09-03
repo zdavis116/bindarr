@@ -149,3 +149,35 @@ test('IMP-TC10: printing and finish are not the same value', () => {
   assert.match(routeSrc, /displayPrinting\(r\.row\.finish\), r\.row\.finish/,
     'the display label must be derived, not copied from the finish');
 });
+
+test('IMP-TC11: an explicit quantity of zero is never turned into one', () => {
+  // FOUND BY RUNNING THE IMPORTER, NOT BY THESE TESTS. I sent a row with
+  // Quantity '0' expecting a rejection and got a match: the mapper used
+  // `parseInt(x, 10) || 1`, and 0 is falsy, so an explicit zero became one.
+  // The resolver's BAD_QUANTITY branch was unreachable for the exact input it
+  // exists to catch.
+  //
+  // That writes a card into a collection its owner said they do not have --
+  // the wrong-record failure, from a two-character idiom, in three places.
+  const { parseQuantity } = require('../src/utils/csvMappers');
+
+  assert.equal(parseQuantity('0'), 0, 'a stated zero must survive to the resolver');
+  assert.equal(parseQuantity('-3'), -3, 'so must a negative');
+  assert.equal(parseQuantity(''), 1, 'but a BLANK column really does mean one');
+  assert.equal(parseQuantity(undefined), 1, 'as does an absent one');
+  assert.equal(parseQuantity('abc'), null, 'unreadable is not a guess');
+
+  assert.doesNotMatch(mapperSrc, /parseInt\(row\['Quantity'\], 10\) \|\| 1/,
+    'the `|| 1` idiom cannot distinguish absent from zero');
+});
+
+test('IMP-TC12: a zero-quantity row is rejected end to end', () => {
+  const rows = parseThirdPartyCSV(
+    [{ 'Scryfall ID': 'abc', Name: 'Sol Ring', Quantity: '0' }], 'manabox');
+  assert.equal(rows[0].quantity, 0);
+
+  // And the resolver must refuse it rather than correct it.
+  assert.match(resolverSrc, /row\.quantity === null \? NaN : Number\(row\.quantity\)/,
+    'an unreadable quantity must not coerce to 0 and slip past the guard');
+  assert.match(resolverSrc, /!Number\.isInteger\(qty\) \|\| qty < 1/);
+});

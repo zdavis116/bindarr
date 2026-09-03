@@ -74,7 +74,11 @@ async function resolveRow(row, index) {
     return { ok: false, index, label, reason: REASONS.NO_IDENTIFIER };
   }
 
-  const qty = Number(row.quantity);
+  // null means the column was present but unreadable; a number below 1 means
+  // the file states a quantity nobody can own. Both are reported rather than
+  // corrected -- guessing here writes a record Zach would have to check
+  // against cardboard.
+  const qty = row.quantity === null ? NaN : Number(row.quantity);
   if (!Number.isInteger(qty) || qty < 1) {
     return { ok: false, index, label, reason: REASONS.BAD_QUANTITY, detail: String(row.quantity) };
   }
