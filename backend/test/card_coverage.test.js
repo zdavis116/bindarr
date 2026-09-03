@@ -102,8 +102,70 @@ test('CC-TC6: the endpoint orders rows by claim, not by deck name', () => {
 test('CC-TC7: the endpoint computes coverage instead of asserting it', () => {
   const start = route.indexOf("router.get('/card/:cardId/decks'");
   const scope = route.slice(start, route.indexOf('res.json({', start));
-  assert.match(scope, /remaining >= want/,
-    'coverage must be derived from copies actually remaining');
-  assert.match(scope, /if \(r\.covered\) remaining -= want/,
+  // Was `remaining >= want` against ONE oracle-wide pile. The rule it protects
+  // -- coverage is computed from copies actually left, not asserted -- is
+  // unchanged; the pool is now per printing and finish, because an owned 2XM
+  // cannot cover a requirement for a BRC. See COV-TC8.
+  assert.match(scope, /const have = ownedByVariant\.get\(key\) \|\| 0/,
+    'coverage must be derived from copies actually remaining, per variant');
+  assert.match(scope, /if \(r\.covered\) ownedByVariant\.set\(key, have - want\)/,
     'a covered requirement must consume the copies it claims');
+});
+
+test('COV-TC8: coverage is keyed on the PRINTING, not the oracle', () => {
+  // Zach: "I don't own this printing I own a different printing but right now
+  // I have a printing I don't own chosen so it shouldn't say covered."
+  //
+  // He owns Master Transmuter 2XM #58. The Tony Stark row wants BRC #87. The
+  // loop counted `owned.n` -- every printing of the card -- and handed it out
+  // in id order regardless of what each row asked for, so an owned 2XM covered
+  // a requirement for a BRC.
+  //
+  // A WRONG RECORD: a card shown as covered that he cannot actually put in the
+  // deck means walking to the shelf for a card that is not there.
+  assert.match(route, /const key = `\$\{r\.desired_card_id\}\|\$\{r\.desired_finish\}`/,
+    'each requirement must draw from its own variant pool');
+  assert.doesNotMatch(route, /let remaining = owned\.n;/,
+    'one oracle-wide pile is what caused the bug');
+});
+
+test('COV-TC9: the owned pool spans the oracle, not the opened printing', () => {
+  // ownedRows is scoped to the printing the sheet was OPENED on
+  // (WHERE c.card_id = ?), so it cannot see the 2XM copy when the sheet is
+  // open on BRC -- precisely Zach's case. Keying the coverage map off it would
+  // have bucketed everything under "undefined|nonfoil": the same oracle-wide
+  // flattening, with extra steps.
+  assert.match(route, /const ownedVariantRows = await db\.all\(/,
+    'coverage needs its own oracle-wide query');
+  assert.match(route, /GROUP BY c\.card_id, c\.finish/,
+    'grouped per printing and finish');
+});
+
+test('COV-TC10: the deck rows query selects desired_card_id', () => {
+  // Without it every row hashes to "undefined|<finish>" and the fix silently
+  // reproduces the bug it replaces -- while every test still passes.
+  // Strip SQL comments first: my own note explaining WHY the column is needed
+  // sits inside this window, so the test matched its own documentation and
+  // passed with the column removed. Fifth time today a test measured the
+  // wrong thing -- comments are not code.
+  const q = route
+    .slice(route.indexOf('SELECT d.id          AS deck_id'),
+           route.indexOf('ORDER BY CASE dc.board'))
+    .replace(/--[^\n]*/g, '');
+  // Match the SELECT LIST only. The JOIN clause below also mentions
+  // dc.desired_card_id, so a window-wide match passed with the column removed
+  // -- the test was reading the join condition, not the projection.
+  const selectList = q.slice(0, q.indexOf('FROM deck_cards'));
+  assert.match(selectList, /dc\.desired_card_id,/,
+    'coverage cannot be keyed on a column that was never selected');
+});
+
+test('COV-TC11: availability counts claims on cards he actually owns', () => {
+  // The panel read "Reserved by decks 1, Free to use 0" for a card whose only
+  // claim was on a printing he does not own. His one 2XM #58 is unclaimed, so
+  // the truth is reserved 0, free 1.
+  assert.match(route, /free: Math\.max\(0, owned\.n - reservedOwned\)/,
+    'free must not subtract claims on printings he does not own');
+  assert.match(route, /reserved: reservedOwned,/,
+    'and the panel must report the honest reservation');
 });

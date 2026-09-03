@@ -198,6 +198,10 @@ router.get('/card/:cardId/decks', async (req, res) => {
               dc.board,
               dc.quantity,
               dc.desired_finish,
+              -- Needed to key coverage per PRINTING. Without it every row
+              -- hashed to "undefined|nonfoil" and the fix would have
+              -- reproduced the oracle-wide bug it replaces.
+              dc.desired_card_id,
               cc.set_id, cc.number, cc.set_name,
               cc.price_trend
          FROM deck_cards dc
@@ -229,6 +233,9 @@ router.get('/card/:cardId/decks', async (req, res) => {
     // Only REAL requirements reserve. A considering entry cannot make a deck
     // short, so it must not count here either -- otherwise the tab would
     // report a shortfall the rest of the app does not recognise.
+    // NOTE: this counts claims on EVERY printing, including ones he does not
+    // own. Kept because the Decks tab uses it to explain what decks want, but
+    // it must NOT drive the availability panel -- see reservedOwned below.
     const reserved = rows
       .filter(r => r.board !== 'considering')
       .reduce((n, r) => n + (r.quantity || 0), 0);
@@ -245,16 +252,53 @@ router.get('/card/:cardId/decks', async (req, res) => {
     // physical card between decks). Rendering "Covered" on every row was a
     // label rather than a calculation, and it contradicted the shortfall
     // banner directly above it.
-    let remaining = owned.n;
+    // Copies he owns, PER PRINTING AND FINISH -- not one oracle-wide pile.
+    //
+    // A requirement for BRC #87 cannot be covered by an owned 2XM #58: they
+    // are different physical cards. Counting them together is what made the
+    // tab claim "Covered" for a printing he does not own.
+    //
+    // Its own query, not ownedRows: that one is scoped to the printing the
+    // sheet was opened on (WHERE c.card_id = ?), so it cannot see the 2XM copy
+    // when the sheet is open on BRC -- which is precisely Zach's case.
+    const ownedVariantRows = await db.all(
+      `SELECT c.card_id, c.finish, SUM(c.quantity) AS n
+         FROM collection c
+         JOIN card_cache cc ON cc.id = c.card_id
+        WHERE cc.oracle_id = ? AND c.user_id = ? AND c.list_type = 'collection'
+        GROUP BY c.card_id, c.finish`,
+      [card.oracle_id, req.user.id]
+    );
+    const ownedByVariant = new Map(
+      ownedVariantRows.map(o => [`${o.card_id}|${o.finish}`, Number(o.n || 0)])
+    );
+
+    // Claims are still consumed in deck_cards.id order -- the id never changes,
+    // so a physical card cannot silently move between decks -- but now within
+    // each variant's own pool.
     for (const r of rows) {
       if (r.board === 'considering') {
         r.covered = null;   // a shopping note claims nothing
         continue;
       }
+      const key = `${r.desired_card_id}|${r.desired_finish}`;
+      const have = ownedByVariant.get(key) || 0;
       const want = r.quantity || 0;
-      r.covered = remaining >= want;
-      if (r.covered) remaining -= want;
+      r.covered = have >= want;
+      if (r.covered) ownedByVariant.set(key, have - want);
     }
+
+    // `reserved` must match: only copies claimed against a printing he owns.
+    // Reporting a claim on a card he does not have makes "Free to use" lie in
+    // the other direction.
+    const reservedOwned = ownedVariantRows.reduce((n, o) => {
+      const claimed = rows
+        .filter(r => r.board !== 'considering'
+                  && r.desired_card_id === o.card_id
+                  && r.desired_finish === o.finish)
+        .reduce((m, r) => m + (r.quantity || 0), 0);
+      return n + Math.min(Number(o.n || 0), claimed);
+    }, 0);
 
     // YOUR COPIES OF THIS PRINTING.
     //
@@ -323,11 +367,22 @@ router.get('/card/:cardId/decks', async (req, res) => {
       // said "The List #CON-31 ... x1 owned". A true number under a label that
       // means something else.
       owned: owned.n,
+      // Claims against printings he ACTUALLY OWNS. The old `reserved` counted
+      // every requirement regardless of printing, so "Free to use" subtracted
+      // claims on cards he does not have.
+      reservedOwned,
       // How many of THIS printing. What the header should say.
       ownedThisPrinting: (ownedRows || []).reduce(
         (n, r) => n + Number(r.quantity || 0), 0),
-      reserved,
-      free: Math.max(0, owned.n - reserved),
+      // What the availability panel shows. `reserved` (below) still reports
+      // total deck demand for the Decks tab, but demand for a card he does not
+      // own is not a reservation against his shelf.
+      reserved: reservedOwned,
+      reservedAllPrintings: reserved,
+      // Copies he owns that nothing has claimed. Using `reserved` here
+      // subtracted claims on printings he does not own: his one 2XM #58 read
+      // "Free to use 0" because a deck wanted a BRC #87.
+      free: Math.max(0, owned.n - reservedOwned),
       decks: rows,
       // `free` is what the per-card repoint may offer. Derived here rather
       // than in the UI: availability is a fact about the whole collection, and

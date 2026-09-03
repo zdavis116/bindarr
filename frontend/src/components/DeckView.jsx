@@ -102,6 +102,9 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // Null until fetched; the banner only appears when there is something to do.
   const [repoint, setRepoint] = useState(null);
   const [repointBusy, setRepointBusy] = useState(false);
+  // Bumped whenever anything changes what a deck row asks for, so the
+  // candidate count refetches.
+  const [repointVersion, setRepointVersion] = useState(0);
   const searchRef = useRef(null);
 
   const cards = useMemo(() => deck?.cards || [], [deck]);
@@ -202,7 +205,11 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       } catch { /* the banner simply does not appear */ }
     })();
     return () => { cancelled = true; };
-  }, [deck?.id, deck?.updated_at]);
+    // An explicit counter, not deck.updated_at: nothing touches that column on
+    // repoint (the routes write deck_cards only), so the effect never re-ran
+    // and the count stayed stale until a manual refresh. Second time today an
+    // effect has keyed on a value that does not move when its subject does.
+  }, [deck?.id, repointVersion]);
 
   useEffect(() => {
     const q = query.trim();
@@ -918,7 +925,11 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
              collection there is no requirement and no button. */
           deckId={deck?.id}
           deckCardId={inspecting?.id}
-          onRepointed={() => { onChanged && onChanged(); }}
+          onRepointed={() => {
+            onChanged && onChanged();
+            // Recount: one row fewer needs repointing now.
+            setRepointVersion(v => v + 1);
+          }}
           onClose={() => setInspecting(null)}
           showToast={showToast}
           /* Delete from a deck means REMOVE THE REQUIREMENT, not destroy the

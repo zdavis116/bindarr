@@ -170,7 +170,10 @@ test('RP-TC13: the per-card button is REACHABLE from the deck', () => {
     'DeckView must pass the deck row id');
   assert.match(deckViewSrc, /deckId=\{deck\?\.id\}/,
     'and the deck id');
-  assert.match(deckViewSrc, /onRepointed=\{\(\) => \{ onChanged && onChanged\(\); \}\}/,
+  // Now a block: it also bumps the repoint counter so the banner recounts.
+  // See RP-TC24. The rule is unchanged -- the deck must reload, or the old
+  // printing stays on screen.
+  assert.match(deckViewSrc, /onRepointed=\{\(\) => \{[\s\S]{0,200}onChanged && onChanged\(\);/,
     'and reload the deck afterwards, or the old printing stays on screen');
 });
 
@@ -303,4 +306,25 @@ test('RP-TC23: no orphaned control or strings left behind', () => {
   assert.ok(!('inspector.useThisPrinting' in en),
     'and removed from the locale files');
   assert.ok(!('inspector.inUseByDeck' in en));
+});
+
+test('RP-TC24: the candidate count refetches after a per-card repoint', () => {
+  // Zach: "the total count for cards that we have printing doesn't change if I
+  // individually choose a card to change to a printing I own. It will update
+  // after a refresh but I have to enforce that refresh."
+  //
+  // The effect keyed on [deck?.id, deck?.updated_at]. NOTHING touches
+  // decks.updated_at on repoint -- the routes write deck_cards only -- so the
+  // dependency never moved and the fetch never re-ran.
+  //
+  // Second time today an effect has keyed on a value that does not change when
+  // its subject does. The fix is the same: an explicit counter bumped by the
+  // action, so the trigger is a FACT that something changed rather than a hope
+  // that some field moved.
+  assert.match(deckViewSrc, /\}, \[deck\?\.id, repointVersion\]\)/,
+    'the candidate fetch must depend on an explicit version counter');
+  assert.doesNotMatch(deckViewSrc, /\}, \[deck\?\.id, deck\?\.updated_at\]\)/,
+    'updated_at is never written by a repoint');
+  assert.match(deckViewSrc, /setRepointVersion\(v => v \+ 1\)/,
+    'and a per-card repoint must bump it');
 });
