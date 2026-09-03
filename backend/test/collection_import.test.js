@@ -224,3 +224,47 @@ test('IMP-TC16: ambiguous rejections carry their candidates', () => {
   assert.match(routeSrc, /candidates: r\.candidates \|\| null/,
     'and the response must pass them to the screen');
 });
+
+test('IMP-TC17: a ManaBox foil imports as a foil', () => {
+  // FOUND BY RUNNING THE REAL FLOW, not by these tests. I sent Foil='foil' and
+  // the row landed as finish=nonfoil.
+  //
+  //     value === 'Foil' || value === 'Holofoil'
+  //
+  // A case-sensitive list. ManaBox writes lowercase 'foil'; TCGplayer writes
+  // 'Foil'; Deckbox writes 'true'. It covered the tools whose capitalisation
+  // someone had checked, and ManaBox -- the ONLY export Zach uses -- was not
+  // among them. Every foil in his collection would have been recorded as a
+  // regular printing, which is a valuation error, not a cosmetic flag.
+  const { STRATEGIES } = require('../src/utils/csvMappers');
+  const mb = (foil) => STRATEGIES.manabox({ Name: 'x', Quantity: '1', Foil: foil }).finish;
+
+  assert.equal(mb('foil'), 'foil', 'ManaBox writes lowercase');
+  assert.equal(mb('Foil'), 'foil', 'other tools capitalise');
+  assert.equal(mb('FOIL'), 'foil');
+  assert.equal(mb('normal'), 'nonfoil');
+  assert.equal(mb(''), 'nonfoil');
+  assert.equal(mb(undefined), 'nonfoil', 'an absent column is not a foil');
+});
+
+test('IMP-TC18: etched does not collapse into foil', () => {
+  // Etched and traditional foil are separately priced printings. Folding one
+  // into the other misvalues the card and cannot be undone from the record.
+  const { STRATEGIES } = require('../src/utils/csvMappers');
+  const mb = (foil) => STRATEGIES.manabox({ Name: 'x', Quantity: '1', Foil: foil }).finish;
+
+  assert.equal(mb('etched'), 'etched');
+  assert.notEqual(mb('etched'), 'foil');
+});
+
+test('IMP-TC19: the other CSV formats still read their own column', () => {
+  // tcgplayer and deckbox read 'Printing', not 'Foil'. Changing the shared
+  // helper must not silently break them.
+  const { STRATEGIES } = require('../src/utils/csvMappers');
+  assert.equal(
+    STRATEGIES.tcgplayer({ 'Product Name': 'x', Quantity: '1', Printing: 'Foil' }).finish,
+    'foil');
+  assert.equal(
+    STRATEGIES.tcgplayer({ 'Product Name': 'x', Quantity: '1', Printing: 'Normal' }).finish,
+    'nonfoil');
+});

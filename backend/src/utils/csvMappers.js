@@ -19,8 +19,22 @@ const { normalizeFinish } = require('./finishes');
 // A source that says a card is foil is trusted; anything unrecognised is
 // treated as nonfoil, which is the honest reading of "this exporter did not
 // tell us it was foil".
+// Is this row a foil?
+//
+// CASE-INSENSITIVE, because every tool writes it differently: ManaBox uses
+// lowercase 'foil', TCGplayer 'Foil', Deckbox 'true'. The previous version
+// compared against a capitalised list, so ManaBox foils -- the only export
+// Zach actually uses -- all imported as non-foil. A foil is routinely worth
+// several times the regular printing, so that is a valuation error across a
+// whole collection rather than a cosmetic flag.
+//
+// 'etched' is a real third finish and must not collapse into 'foil': etched
+// and traditional foil are separately priced printings.
 function finishFromFoilFlag(value) {
-  return (value === 'true' || value === '1' || value === true || value === 'Foil' || value === 'Holofoil')
+  if (value === true) return 'foil';
+  const v = String(value ?? '').trim().toLowerCase();
+  if (v === 'etched' || v === 'foil etched') return 'etched';
+  return (v === 'foil' || v === 'holofoil' || v === 'true' || v === '1')
     ? 'foil'
     : 'nonfoil';
 }
