@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Scan Session</title>
+<style>
+  /* SCAN SESSION
+     The third screen, and the one with the hardest constraints: it is used
+     ONE-HANDED, at speed, while holding physical cards, and a mistake here
+     costs a recount against cardboard.
+     So this variant makes a deliberately different bet from the other two --
+     it is DARK and high-contrast, because the scanner runs behind it and a
+     paper-white sheet over a live camera is glare in a dim room. Everything
+     actionable sits in the bottom third, inside thumb reach. */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e;
+    --ink:#f5f5f7; --ink-2:#98989d; --ink-3:#636366;
+    --hair:rgba(255,255,255,.1);
+    --accent:#0a84ff; --ok:#30d158; --warn:#ff9f0a; --danger:#ff453a;
+    --tap:44px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-size:17px; line-height:1.45; padding-bottom:calc(96px + env(safe-area-inset-bottom));
+  }
+
+  header {
+    position:sticky; top:0; z-index:20;
+    background:color-mix(in srgb,var(--bg) 80%,transparent);
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    padding:calc(10px + env(safe-area-inset-top)) 20px 12px;
+    border-bottom:1px solid var(--hair);
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  h1 { font-size:24px; font-weight:700; letter-spacing:-.02em; }
+  .sub { font-size:13px; color:var(--ink-2); margin-top:1px; }
+  .close { width:32px; height:32px; border-radius:50%; border:0; background:var(--surface-2);
+           color:var(--ink); font-size:17px; cursor:pointer; display:grid; place-items:center; }
+
+  main { max-width:900px; margin:0 auto; padding:14px 16px 20px; }
+
+  /* Session state, stated plainly. A scanner that has silently stopped is
+     indistinguishable from a broken one. */
+  .status { display:flex; align-items:center; gap:9px; background:var(--surface); border-radius:12px;
+            padding:11px 14px; font-size:14px; margin-bottom:14px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); flex-shrink:0;
+         box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent); animation:pulse 2s infinite; }
+  .dot.paused { background:var(--warn); animation:none; }
+  @keyframes pulse { 70%{box-shadow:0 0 0 9px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+
+  .list { display:flex; flex-direction:column; gap:8px; }
+
+  /* Newest first, and NOTHING reorders. He scans a card and looks at the top
+     of the list to confirm it registered against the cardboard in his hand;
+     a list that rearranges itself cannot be checked at a glance. Attention is
+     signalled by colour, never by position. */
+  .row { background:var(--surface); border-radius:14px; padding:11px 12px; display:flex;
+         align-items:center; gap:12px; border:1.5px solid transparent;
+         animation:in .28s cubic-bezier(.2,.8,.3,1); }
+  @keyframes in { from{opacity:0; transform:translateY(-8px)} to{opacity:1; transform:none} }
+  .row.unresolved { border-color:var(--warn); }
+  .row.uncertain  { border-color:var(--warn); border-style:dashed; }
+
+  .thumb { width:38px; height:53px; border-radius:6px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,0,0,.5); }
+  .info { flex:1; min-width:0; }
+  .info b { display:block; font-size:15px; font-weight:600; letter-spacing:-.01em;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .info span { font-size:12px; color:var(--ink-2); }
+  .flagline { font-size:12px; color:var(--warn); margin-top:3px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .mini { border:0; background:var(--surface-2); color:var(--ink); font:inherit; font-size:12px;
+          font-weight:600; padding:5px 10px; border-radius:7px; cursor:pointer; min-height:28px; }
+
+  .qty { font-size:15px; font-weight:600; color:var(--ink-2); min-width:26px; text-align:right; }
+
+  /* The picker for a row that needs a decision. Inline -- Zach dislikes
+     redundant surfaces and wanted resolution in the list, not a second screen. */
+  .picker { margin-top:9px; display:flex; flex-direction:column; gap:6px; }
+  .opt { display:flex; align-items:center; gap:9px; background:var(--surface-2); border:0; border-radius:9px;
+         padding:9px 11px; cursor:pointer; text-align:left; color:var(--ink); font:inherit;
+         font-size:13px; min-height:var(--tap); }
+  .opt small { color:var(--ink-2); margin-left:auto; }
+  .searchbox { display:flex; gap:7px; }
+  .searchbox input { flex:1; background:var(--surface-2); border:1px solid var(--hair); border-radius:9px;
+                     padding:0 11px; height:38px; color:var(--ink); font:inherit; font-size:14px; outline:none; }
+
+  /* THE COMMIT BAR. Fixed, thumb-reachable, and it REFUSES while anything is
+     unresolved -- an unresolved row would otherwise be committed as a guess,
+     and a wrong card costs a physical recount. It says why, not just "no". */
+  .commit {
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:color-mix(in srgb,var(--bg) 88%,transparent);
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    border-top:1px solid var(--hair);
+    padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+  .commit button {
+    width:100%; min-height:50px; border:0; border-radius:14px; font:inherit; font-size:17px;
+    font-weight:600; background:var(--accent); color:#fff; cursor:pointer; transition:.2s;
+  }
+  .commit button:disabled { background:var(--surface-2); color:var(--ink-3); cursor:not-allowed; }
+  .why { text-align:center; font-size:12px; color:var(--ink-2); margin-top:7px; }
+
+  @media (min-width:900px) {
+    body { padding-bottom:0; }
+    main { padding-bottom:100px; }
+    .list { display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:start; }
+    .commit { max-width:900px; margin:0 auto; border-radius:16px 16px 0 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Scanned</h1>
+    <div class="sub" id="sub">6 cards · 1 needs a printing</div>
+  </div>
+  <button class="close">✕</button>
+</header>
+
+<main>
+  <div class="status">
+    <span class="dot paused" id="dot"></span>
+    <span id="statustext">Paused — scanning stops while you review</span>
+  </div>
+  <div class="list" id="list"></div>
+</main>
+
+<div class="commit">
+  <button id="add" disabled>1 card needs a printing</button>
+  <div class="why" id="why">Nothing is added to your collection until you tap Add All</div>
+</div>
+
+<script>
+  let CARDS = [
+    { n:'Dockside Extortionist', s:'C19 · #22',  q:1, tint:'#8a4433', state:'ok' },
+    { n:'Unidentified card',     s:'Which printing is this?', q:1, tint:'#3a3a3c', state:'unresolved',
+      opts:[['Sol Ring','CMM #263'],['Sol Ring','C21 #263'],['Sol Ring','LTC #333']] },
+    { n:'Goblin Chieftain',      s:'MMA · #98',  q:1, tint:'#8c3b2e', state:'uncertain' },
+    { n:'Mountain',              s:'KHM · #276', q:3, tint:'#7d4a3a', state:'ok' },
+    { n:'Krenko, Mob Boss',      s:'JMP · #67',  q:1, tint:'#9a4b30', state:'ok' },
+    { n:'Impact Tremors',        s:'DTK · #100', q:1, tint:'#9b4a33', state:'ok' },
+  ];
+  let openPicker = null;
+
+  const list = document.getElementById('list');
+  const addBtn = document.getElementById('add');
+  const sub = document.getElementById('sub');
+
+  function render() {
+    list.innerHTML = CARDS.map((c,i) => {
+      const cls = c.state === 'unresolved' ? 'unresolved' : c.state === 'uncertain' ? 'uncertain' : '';
+      let extra = '';
+      if (c.state === 'uncertain') {
+        extra = `<div class="flagline">Not fully confirmed
+                   <button class="mini" onclick="toggle(${i})">Change</button></div>`;
+      }
+      let picker = '';
+      if (openPicker === i) {
+        const opts = (c.opts || [['Goblin Chieftain','MMA #98'],['Goblin Chieftain','M10 #142'],['Goblin Chieftain','2XM #128']]);
+        picker = `<div class="picker">
+          ${opts.map(([n,s]) => `<button class="opt" onclick="pick(${i},'${n}','${s}')">${n}<small>${s}</small></button>`).join('')}
+          <div class="searchbox"><input placeholder="Search for the card"><button class="mini">Go</button></div>
+        </div>`;
+      }
+      return `<div class="row ${cls}">
+        <div style="display:flex;align-items:center;gap:12px;width:100%">
+          <div class="thumb" style="background:linear-gradient(150deg,${c.tint},${c.tint}aa)"></div>
+          <div class="info">
+            <b>${c.n}</b><span>${c.s}</span>
+            ${c.state === 'unresolved'
+              ? `<div class="flagline"><button class="mini" onclick="toggle(${i})">Choose printing</button></div>`
+              : extra}
+            ${picker}
+          </div>
+          <div class="qty">${c.q}×</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const unresolved = CARDS.filter(c => c.state === 'unresolved').length;
+    sub.textContent = CARDS.length + ' cards' + (unresolved ? ` · ${unresolved} needs a printing` : '');
+    addBtn.disabled = unresolved > 0;
+    addBtn.textContent = unresolved
+      ? `${unresolved} card${unresolved>1?'s':''} need${unresolved>1?'':'s'} a printing`
+      : `Add all ${CARDS.length} to collection`;
+    document.getElementById('why').textContent = unresolved
+      ? 'Add All is blocked so nothing is guessed into your collection'
+      : 'Nothing is added to your collection until you tap Add All';
+  }
+  render();
+
+  function toggle(i){ openPicker = openPicker === i ? null : i; render(); }
+  function pick(i,n,s){ CARDS[i] = { ...CARDS[i], n, s, state:'ok' }; openPicker = null; render(); }
+</script>
+</body>
+</html>

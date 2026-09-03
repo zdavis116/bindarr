@@ -145,6 +145,11 @@ function stagingParams(card) {
     // column. This is the fourth time in this project a change has landed in
     // one path and not its twin, so FFLV-TC6 now checks both.
     card.flavor_name || null,
+    // SAME ORDER as CARD_CACHE_COLUMNS, immediately after flavor_name.
+    card.display_name || null,
+    card.back_image_url || null,
+    card.back_name || null,
+    card.back_type_line || null,
     card.oracle_id || null, card.oracle_name || '', card.mana_cost || '',
     card.oracle_text || '', card.type_line || '', JSON.stringify(card.keywords || []),
     JSON.stringify(card.legalities || {}), JSON.stringify(card.finishes || []),

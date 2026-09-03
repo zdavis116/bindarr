@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Card Detail (B, all tabs)</title>
+<style>
+  /* CARD DETAIL — VARIANT B, ALL THREE TABS.
+     Zach: "I think I like B but I would like to see all 3 tabs before
+     deciding."
+
+     Fair: I drew one tab and asked him to choose a structure. The tabs only
+     earn their place if each one is worth a tap, and that cannot be judged
+     from a single screen.
+
+     EVERY NUMBER HERE IS REAL, read from the dev database for Tony Stark
+     (MSH #80). That matters more than it sounds: the Decks tab turned out to
+     contain a genuinely useful fact I would not have invented -- two decks
+     want DIFFERENT PRINTINGS of the same card, at $6.50 and $25.30. A tab
+     that only said "in 2 decks" would have hidden the thing worth knowing.
+
+     THE RULE EACH TAB ANSWERS:
+       Card  — what is this thing, and what does it do?
+       Yours — what do I physically have, and where?
+       Decks — who wants it, and can they all have it? */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --text:#fff; --text-2:#98989f; --text-3:#636366;
+    --line:rgba(255,255,255,.09);
+    --blue:#0a84ff; --green:#30d158; --yellow:#ffd60a; --red:#ff453a;
+    --r:12px;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; background:#0a0a0b; color:var(--text);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;
+    padding:28px 16px 60px;
+  }
+  h1.page { font-size:15px; color:var(--text-3); font-weight:600; margin:0 0 6px;
+            text-transform:uppercase; letter-spacing:.06em; }
+  .note { color:var(--text-2); font-size:13px; max-width:820px; margin:0 0 26px; }
+  .note b { color:var(--text); }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .phone {
+    width:340px; background:var(--bg); border-radius:26px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.14); flex:0 0 auto;
+  }
+  .cap { font-size:12px; color:var(--text-3); margin:8px 0 14px; width:340px;
+         line-height:1.5; }
+  .cap b { color:var(--text-2); font-weight:600; }
+
+  .grab { height:5px; width:38px; border-radius:3px; background:#48484a;
+          margin:9px auto 0; }
+  .sheet-head { display:flex; align-items:center; justify-content:space-between;
+                padding:12px 14px 10px; }
+  .sheet-title { font-size:13px; color:var(--text-2); }
+  .x { width:30px; height:30px; border-radius:50%; background:var(--surface-2);
+       display:grid; place-items:center; color:var(--text-2); font-size:15px; }
+
+  /* --- shared header: art + identity, present on every tab --- */
+  .art-wrap { position:relative; padding:0 14px; }
+  .art {
+    width:100%; aspect-ratio:488/680; border-radius:14px;
+    background:linear-gradient(145deg,#3a2f4a,#20304a 55%,#1a2233);
+    border:1px solid rgba(255,255,255,.1);
+    display:flex; align-items:flex-end; padding:12px; overflow:hidden;
+  }
+  .art.small { aspect-ratio:auto; height:132px; }
+  .art .facelabel { font-size:11px; color:rgba(255,255,255,.55); }
+  .flip {
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; min-height:44px; margin-top:10px;
+    background:var(--surface-2); border:1px solid var(--line);
+    border-radius:var(--r); font-size:14px; font-weight:600; color:var(--text);
+  }
+  .flip .to { color:var(--text-2); font-weight:400; }
+
+  .idblock { padding:12px 14px 0; }
+  .cardname { font-size:17px; font-weight:700; letter-spacing:-.02em; line-height:1.3; }
+  .typeline { font-size:12.5px; color:var(--text-2); margin-top:3px; }
+  .printing { font-size:12px; color:var(--text-3); margin-top:6px;
+              display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .chip { font-size:10px; font-weight:700; letter-spacing:.04em; padding:2px 6px;
+          border-radius:5px; background:var(--surface-3); color:var(--text-2);
+          text-transform:uppercase; }
+  .chip.foil { background:rgba(255,214,10,.16); color:var(--yellow); }
+
+  .tabs { display:flex; gap:4px; margin:14px 14px 0; background:var(--surface);
+          padding:3px; border-radius:10px; border:1px solid var(--line); }
+  .tab { flex:1; text-align:center; padding:8px 0; font-size:13px; font-weight:600;
+         color:var(--text-2); border-radius:8px; }
+  .tab.on { background:var(--surface-3); color:var(--text); }
+  .tab .n { font-size:11px; color:var(--text-3); margin-left:3px; }
+
+  .rules {
+    margin:12px 14px 0; padding:12px; background:var(--surface);
+    border-radius:var(--r); font-size:13px; line-height:1.5; color:#d8d8dc;
+    border:1px solid var(--line);
+  }
+  .rules .facehdr { font-size:10px; font-weight:700; letter-spacing:.06em;
+                    text-transform:uppercase; color:var(--text-3); margin-bottom:5px; }
+  .rules .divider { height:1px; background:var(--line); margin:11px 0; }
+
+  .sec { margin:14px 14px 0; }
+  .sechdr { font-size:11px; font-weight:700; letter-spacing:.06em;
+            text-transform:uppercase; color:var(--text-3); margin-bottom:8px;
+            display:flex; justify-content:space-between; align-items:baseline; }
+  .sechdr .hint { font-weight:400; letter-spacing:0; text-transform:none;
+                  color:var(--text-3); font-size:11px; }
+  .list { background:var(--surface); border:1px solid var(--line);
+          border-radius:var(--r); overflow:hidden; }
+  .li { display:flex; align-items:center; justify-content:space-between;
+        padding:11px 13px; min-height:46px; gap:10px; }
+  .li + .li { border-top:1px solid var(--line); }
+  .li .k { font-size:13px; color:var(--text-2); }
+  .li .v { font-size:13px; font-weight:600; text-align:right; }
+  .v.green { color:var(--green); } .v.yellow { color:var(--yellow); }
+  .v.red { color:var(--red); } .v.muted { color:var(--text-3); font-weight:400; }
+  .sub { display:block; font-size:11px; color:var(--text-3); font-weight:400;
+         margin-top:2px; }
+  .stepper { display:flex; align-items:center; gap:12px; }
+  .stepbtn { width:30px; height:30px; border-radius:8px; background:var(--surface-3);
+             display:grid; place-items:center; font-size:16px; }
+  .qty { font-size:16px; font-weight:700; min-width:22px; text-align:center; }
+
+  .acts { margin:16px 14px 0; display:flex; flex-direction:column; gap:8px; }
+  .btn { min-height:46px; border-radius:var(--r); display:flex; align-items:center;
+         justify-content:center; gap:8px; font-size:15px; font-weight:600;
+         border:1px solid transparent; }
+  .btn.primary { background:var(--blue); color:#fff; }
+  .btn.sec { background:var(--surface-2); color:var(--text); border-color:var(--line); }
+  .btn.danger { background:transparent; color:var(--red); border-color:rgba(255,69,58,.35); }
+  .pad { height:22px; }
+
+  .warn {
+    margin:14px 14px 0; padding:10px 12px; border-radius:var(--r);
+    background:rgba(255,214,10,.1); border:1px solid rgba(255,214,10,.3);
+    font-size:12.5px; color:var(--yellow); line-height:1.45;
+  }
+</style>
+</head>
+<body>
+
+<h1 class="page">Variant B — all three tabs</h1>
+<p class="note">
+  Same card in all three: <b>Tony Stark (MSH #80)</b>, and every number is read
+  from the dev database rather than invented. The art and the flip control stay
+  put across tabs — only the panel below changes, so flipping never costs you
+  your place.
+</p>
+
+<div class="row">
+
+  <!-- ======================= TAB 1: CARD ======================= -->
+  <div>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="sheet-head"><span class="sheet-title">Card detail</span><span class="x">✕</span></div>
+
+      <div class="art-wrap">
+        <div class="art"><span class="facelabel">front face — Tony Stark</span></div>
+        <div class="flip">⇄ Flip to <span class="to">The Invincible Iron Man</span></div>
+      </div>
+
+      <div class="idblock">
+        <div class="cardname">Tony Stark // The Invincible Iron Man</div>
+        <div class="typeline">Legendary Creature — Human Artificer Hero</div>
+        <div class="printing"><span class="chip">MSH</span> #80 · Marvel Super Heroes</div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab on">Card</div>
+        <div class="tab">Yours</div>
+        <div class="tab">Decks</div>
+      </div>
+
+      <div class="rules">
+        <div class="facehdr">Tony Stark · {1}{U}</div>
+        {1}, {T}: Look at the top four cards of your library. You may reveal an
+        artifact card from among them and put it into your hand.
+        <div class="divider"></div>
+        <div class="facehdr">The Invincible Iron Man · {4}{U}{R}</div>
+        Flying, trample. Whenever this creature deals combat damage to a player,
+        create a Powerstone token.
+      </div>
+
+      <div class="sec">
+        <div class="list">
+          <div class="li"><span class="k">Colour identity</span><span class="v">Blue · Red</span></div>
+          <div class="li"><span class="k">Mana value</span><span class="v">2</span></div>
+          <div class="li"><span class="k">Rarity</span><span class="v">Mythic</span></div>
+          <div class="li"><span class="k">Commander legal</span><span class="v green">Yes</span></div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <div class="btn primary">Add to a deck</div>
+      </div>
+      <div class="pad"></div>
+    </div>
+    <div class="cap">
+      <b>CARD — what is this thing.</b> Both faces' rules together, so you never
+      flip just to read the back. The flip button changes the picture; it does
+      not hide half the text.
+    </div>
+  </div>
+
+  <!-- ======================= TAB 2: YOURS ======================= -->
+  <div>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="sheet-head"><span class="sheet-title">Card detail</span><span class="x">✕</span></div>
+
+      <div class="art-wrap">
+        <div class="art small"><span class="facelabel">front face — Tony Stark</span></div>
+        <div class="flip">⇄ Flip to <span class="to">The Invincible Iron Man</span></div>
+      </div>
+
+      <div class="idblock">
+        <div class="cardname">Tony Stark // The Invincible Iron Man</div>
+        <div class="printing"><span class="chip">MSH</span> #80 · Marvel Super Heroes</div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab">Card</div>
+        <div class="tab on">Yours</div>
+        <div class="tab">Decks</div>
+      </div>
+
+      <div class="sec">
+        <div class="sechdr">This printing <span class="hint">MSH #80</span></div>
+        <div class="list">
+          <div class="li">
+            <span class="k">Copies</span>
+            <span class="stepper"><span class="stepbtn">−</span><span class="qty">1</span><span class="stepbtn">+</span></span>
+          </div>
+          <div class="li"><span class="k">Finish</span><span class="v">Nonfoil</span></div>
+          <div class="li"><span class="k">Condition</span><span class="v">Near Mint</span></div>
+          <div class="li"><span class="k">Location</span><span class="v muted">Not filed yet</span></div>
+          <div class="li"><span class="k">Value</span><span class="v green">$6.50</span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sechdr">
+          Other printings
+          <span class="hint">you own none of these</span>
+        </div>
+        <div class="list">
+          <div class="li">
+            <span class="k">MSH #350<span class="sub">Marvel Super Heroes</span></span>
+            <span class="v muted">$18.75</span>
+          </div>
+          <div class="li">
+            <span class="k">MSH #363<span class="sub">Marvel Super Heroes</span></span>
+            <span class="v muted">$25.30</span>
+          </div>
+          <div class="li">
+            <span class="k">MSH #392<span class="sub">Marvel Super Heroes · <span style="color:var(--yellow)">foil only</span></span></span>
+            <span class="v muted">$76.94</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <div class="btn sec">Edit details</div>
+        <div class="btn danger">Remove from collection</div>
+      </div>
+      <div class="pad"></div>
+    </div>
+    <div class="cap">
+      <b>YOURS — what you physically have.</b> Scoped to <b>this printing</b>,
+      because that is what Bindarr records. The other printings are listed
+      underneath with prices, so the four near-identical Tony Starks that
+      confused you are told apart here — $6.50 vs $76.94 is not a detail.
+    </div>
+  </div>
+
+  <!-- ======================= TAB 3: DECKS ======================= -->
+  <div>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="sheet-head"><span class="sheet-title">Card detail</span><span class="x">✕</span></div>
+
+      <div class="art-wrap">
+        <div class="art small"><span class="facelabel">front face — Tony Stark</span></div>
+        <div class="flip">⇄ Flip to <span class="to">The Invincible Iron Man</span></div>
+      </div>
+
+      <div class="idblock">
+        <div class="cardname">Tony Stark // The Invincible Iron Man</div>
+        <div class="printing"><span class="chip">MSH</span> #80 · Marvel Super Heroes</div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab">Card</div>
+        <div class="tab">Yours</div>
+        <div class="tab on">Decks</div>
+      </div>
+
+      <!-- NO BANNER. Zach: "that warning should only show if its in the main
+           deck". Only ONE deck makes a real claim on this card; the other is
+           considering it, which is a shopping note, not a shortfall. Warning
+           here would cry wolf about a decision he has not made -- and the
+           server already skips considering entries for missing-copies and deck
+           size, so a banner here would contradict the app. -->
+
+      <div class="sec">
+        <div class="sechdr">In your decks</div>
+        <div class="list">
+          <div class="li">
+            <span class="k">Tony Stark
+              <span class="sub">Commander · wants MSH #80 · $6.50</span></span>
+            <span class="v green">Covered</span>
+          </div>
+          <div class="li">
+            <span class="k">Hashaton, Scarab's Fist
+              <span class="sub">wants MSH #363 · $25.30</span></span>
+            <!-- SAYS WHAT IT IS, not what is wrong with it. "Not owned" in
+                 yellow read as a problem; considering a card is not a problem.
+                 Zach: "if we are going to show a card in a deck even if its in
+                 considering then we should note that." -->
+            <span class="v muted">Considering</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sechdr">Availability</div>
+        <div class="list">
+          <div class="li"><span class="k">Owned</span><span class="v">1</span></div>
+          <!-- Only REAL requirements reserve a card. A considering entry does
+               not, which is why this reads 1 and not 2. -->
+          <div class="li"><span class="k">Reserved by decks</span><span class="v">1</span></div>
+          <div class="li"><span class="k">Free to use</span><span class="v muted">0</span></div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <div class="btn primary">Add to another deck</div>
+      </div>
+      <div class="pad"></div>
+    </div>
+    <div class="cap">
+      <b>DECKS — who wants it, and can they all have it.</b> The useful fact
+      here is one I did not expect: your two decks want <b>different printings</b>
+      of the same card. A tab that only said "in 2 decks" would have hidden
+      that. <b>No warning shows</b>, because only one deck makes a real claim —
+      considering a card is a shopping note, not a shortfall.
+    </div>
+  </div>
+
+</div>
+
+<p class="note" style="margin-top:28px;">
+  <b>What changed my mind while drawing these:</b> I recommended A, on the
+  grounds that tabs hide things. Having built all three, the Decks tab holds a
+  fact that has no home in A — your Tony Stark and your Hashaton deck want
+  different printings at very different prices, and A would either bury that in
+  a long scroll or drop it. Tabs are worth the tap when each tab answers a
+  different question, and these do.
+  <br><br>
+  The art and flip control stay fixed across all three, so the tabs never cost
+  you the thing you came to look at.
+  <br><br>
+  <b>The shortfall warning only fires on real requirements.</b> A card you are
+  merely considering cannot make a deck short, and the server already treats
+  it that way — the banner I first drew would have contradicted the app.
+</p>
+
+</body>
+</html>

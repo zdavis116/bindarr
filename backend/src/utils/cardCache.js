@@ -23,6 +23,13 @@ const COLUMNS = [
   // catalogue identity everything else keys on, and this is purely what to show
   // and what to match against.
   'flavor_name',
+  // DOUBLE-FACED CARDS, display only. `name` stays the front face -- it is
+  // the identity the import matches on. These carry what a card's back
+  // side is, which had nowhere to live, so the flip side was unviewable.
+  'display_name',
+  'back_image_url',
+  'back_name',
+  'back_type_line',
   'oracle_id', 'oracle_name', 'mana_cost', 'oracle_text', 'type_line', 'keywords',
   'legalities', 'finishes', 'layout',
   'tcgplayer_url', 'cardmarket_url',
@@ -58,6 +65,12 @@ async function cacheNormalizedCards(cards, opts = {}) {
         // oracle-card-cache suite failed with "normal is not valid JSON",
         // because a price string had landed where `finishes` was expected.
         c.flavor_name || null,
+        // SAME ORDER as COLUMNS: display_name, back_image_url, back_name,
+        // back_type_line sit immediately after flavor_name.
+        c.display_name || null,
+        c.back_image_url || null,
+        c.back_name || null,
+        c.back_type_line || null,
         c.oracle_id || null, c.oracle_name || '', c.mana_cost || '',
         c.oracle_text || '', c.type_line || '', JSON.stringify(c.keywords || []),
         JSON.stringify(c.legalities || {}), JSON.stringify(c.finishes || []),

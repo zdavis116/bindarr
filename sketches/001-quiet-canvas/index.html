@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Collection</title>
+<style>
+  /* COLLECTION — DARK, OWNED ONLY, MULTI-SELECT FILTERS.
+     Zach: "cards can be multi colored and there is 5 colors so only being able
+     to choose one color doesn't make sense. Also artifact and land are types so
+     probably should be a type drop down like set. Also a card can be multiple
+     types so it should be multi select."
+     Right on both counts, and the first was a modelling error rather than a UI
+     one -- I had colour as single-choice, which cannot express a Golgari card
+     at all. Colours are now the five pips, multi-select. Types moved into a
+     multi-select sheet alongside Set. */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --ink:#f5f5f7; --ink-2:#98989d; --ink-3:#636366;
+    --hair:rgba(255,255,255,.1);
+    --accent:#0a84ff; --tap:44px;
+    --W:#f8e7b9; --U:#a5cced; --B:#a9a19b; --R:#eba18b; --G:#a3c6a5;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-size:17px; line-height:1.45; padding-bottom:calc(72px + env(safe-area-inset-bottom));
+  }
+
+  header {
+    position:sticky; top:0; z-index:20;
+    background:color-mix(in srgb,var(--bg) 80%,transparent);
+    backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
+    padding:calc(8px + env(safe-area-inset-top)) 20px 8px;
+    border-bottom:1px solid transparent; transition:border-color .2s;
+  }
+  header.stuck { border-bottom-color:var(--hair); }
+  header { position:sticky; }
+  .h1row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+  h1 { font-size:34px; letter-spacing:-.022em; font-weight:700; }
+  .count { font-size:15px; color:var(--ink-3); font-weight:500; }
+
+  main { padding:8px 20px 24px; max-width:1100px; margin:0 auto; }
+
+  .addbtn {
+    width:34px; height:34px; border-radius:50%; border:0; background:var(--surface-2);
+    color:var(--ink); cursor:pointer; display:grid; place-items:center; flex-shrink:0;
+  }
+  .addbtn:active { background:var(--surface-3); }
+
+  /* Two ways to add cards, so this is a menu rather than a single action.
+     Import lived nowhere discoverable before -- Zach: "I don't see a button". */
+  .addmenu {
+    position:absolute; right:20px; top:calc(100% - 2px); z-index:40;
+    background:var(--surface-2); border-radius:14px; overflow:hidden; min-width:220px;
+    box-shadow:0 12px 32px rgba(0,0,0,.7); opacity:0; pointer-events:none;
+    transform:translateY(-6px) scale(.97); transform-origin:top right; transition:.18s cubic-bezier(.2,.8,.3,1);
+  }
+  .addmenu.show { opacity:1; pointer-events:auto; transform:none; }
+  .addmenu button {
+    display:flex; align-items:center; gap:11px; width:100%; border:0; background:transparent;
+    color:var(--ink); font:inherit; font-size:15px; padding:13px 15px; cursor:pointer;
+    text-align:left; min-height:var(--tap); border-bottom:1px solid var(--hair);
+  }
+  .addmenu button:last-child { border-bottom:0; }
+  .addmenu button:active { background:var(--surface-3); }
+  .addmenu small { display:block; font-size:11.5px; color:var(--ink-2); margin-top:1px; }
+
+  .search { display:flex; align-items:center; gap:8px; background:var(--surface);
+            border-radius:12px; padding:0 12px; height:var(--tap); margin:12px 0 12px; }
+  .search input { border:0; background:transparent; outline:none; flex:1; font-size:17px;
+                  color:var(--ink); font-family:inherit; }
+
+  .filterrow { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+
+  /* THE FIVE COLOUR PIPS, MULTI-SELECT. A card is not "red OR green" -- Gruul
+     cards are both, so these have to combine rather than replace each other.
+     Shown as WUBRG pips because that is how players read colour; a dropdown
+     labelled "Color" would be slower and less recognisable. */
+  .pips { display:flex; gap:6px; }
+  .pip {
+    width:36px; height:36px; border-radius:50%; border:2px solid var(--surface-2);
+    background:var(--surface); cursor:pointer; display:grid; place-items:center;
+    font-size:14px; font-weight:800; color:var(--ink-3); transition:.16s; padding:0;
+  }
+  .pip[aria-pressed="true"] { border-color:currentColor; }
+  .pip.W[aria-pressed="true"] { background:var(--W); color:#2a2a2a; }
+  .pip.U[aria-pressed="true"] { background:var(--U); color:#12314a; }
+  .pip.B[aria-pressed="true"] { background:var(--B); color:#221f1d; }
+  .pip.R[aria-pressed="true"] { background:var(--R); color:#4a1e12; }
+  .pip.G[aria-pressed="true"] { background:var(--G); color:#1c3a1f; }
+
+  .drop {
+    border:0; background:var(--surface); color:var(--ink-2); font:inherit; font-size:14px;
+    font-weight:500; padding:0 13px; height:36px; border-radius:10px; cursor:pointer;
+    display:flex; align-items:center; gap:6px; white-space:nowrap;
+  }
+  .drop[data-active="true"] { background:var(--accent); color:#fff; font-weight:600; }
+  .clear { border:0; background:transparent; color:var(--accent); font:inherit; font-size:14px;
+           font-weight:500; cursor:pointer; padding:0 4px; height:36px; }
+
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); }
+  @media (min-width:700px) { .grid { grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:20px; } }
+
+  .card { cursor:pointer; }
+  .art { aspect-ratio:63/88; border-radius:12px; position:relative; overflow:hidden;
+         box-shadow:0 2px 10px rgba(0,0,0,.5); display:flex; align-items:flex-end; padding:10px;
+         transition:transform .22s cubic-bezier(.2,.8,.3,1), box-shadow .22s; }
+  .card:active .art { transform:scale(.96); }
+  @media (hover:hover) { .card:hover .art { transform:translateY(-4px); box-shadow:0 12px 28px rgba(0,0,0,.6); } }
+  .art .nm { font-size:12px; font-weight:600; color:#fff; text-shadow:0 1px 5px rgba(0,0,0,.9); line-height:1.25; }
+  .qty { position:absolute; top:8px; right:8px; min-width:22px; height:22px; padding:0 6px;
+         border-radius:11px; display:grid; place-items:center; font-size:11px; font-weight:700;
+         color:#fff; background:rgba(0,0,0,.6); backdrop-filter:blur(8px); }
+  .meta { padding:8px 2px 0; }
+  .nm2 { font-size:14px; font-weight:600; letter-spacing:-.01em; white-space:nowrap;
+         overflow:hidden; text-overflow:ellipsis; }
+  .sub { font-size:12px; color:var(--ink-2); margin-top:1px; }
+  .none { padding:44px 8px; text-align:center; color:var(--ink-2); font-size:15px; grid-column:1/-1; }
+
+  /* Bottom sheet for the multi-select lists. iOS pattern, thumb-reachable,
+     and it can hold 30 sets without becoming a scroll trap. */
+  .sheetbg { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; opacity:0;
+             pointer-events:none; transition:opacity .25s; backdrop-filter:blur(3px); }
+  .sheetbg.show { opacity:1; pointer-events:auto; }
+  .sheet {
+    position:fixed; left:0; right:0; bottom:0; z-index:51; background:var(--surface);
+    border-radius:20px 20px 0 0; padding:8px 0 calc(12px + env(safe-area-inset-bottom));
+    transform:translateY(100%); transition:transform .32s cubic-bezier(.2,.8,.3,1);
+    max-height:72vh; display:flex; flex-direction:column;
+  }
+  .sheet.show { transform:translateY(0); }
+  .grab { width:36px; height:5px; border-radius:3px; background:var(--surface-3); margin:6px auto 10px; }
+  .sheethead { display:flex; align-items:center; justify-content:space-between; padding:0 18px 10px;
+               border-bottom:1px solid var(--hair); }
+  .sheethead b { font-size:17px; font-weight:600; }
+  .opts { overflow-y:auto; padding:6px 0; }
+  .opt { display:flex; align-items:center; gap:12px; padding:12px 18px; cursor:pointer;
+         min-height:var(--tap); font-size:16px; }
+  .opt:active { background:var(--surface-2); }
+  .box { width:22px; height:22px; border-radius:6px; border:2px solid var(--ink-3); flex-shrink:0;
+         display:grid; place-items:center; transition:.15s; }
+  .opt[aria-selected="true"] .box { background:var(--accent); border-color:var(--accent); }
+  .box svg { opacity:0; } .opt[aria-selected="true"] .box svg { opacity:1; }
+  .opt small { margin-left:auto; color:var(--ink-3); font-size:13px; }
+
+  nav {
+    position:fixed; bottom:0; left:0; right:0; z-index:30; display:flex; justify-content:space-around;
+    background:color-mix(in srgb,var(--bg) 80%,transparent);
+    backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
+    border-top:1px solid var(--hair); padding:6px 0 calc(6px + env(safe-area-inset-bottom));
+  }
+  nav a { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; text-decoration:none;
+          color:var(--ink-3); font-size:10px; font-weight:500; min-height:var(--tap); justify-content:center; }
+  nav a.on { color:var(--accent); }
+
+  @media (min-width:900px) {
+    body { padding-bottom:0; padding-left:220px; }
+    nav { top:0; bottom:0; right:auto; width:220px; flex-direction:column; justify-content:flex-start;
+          gap:2px; padding:24px 12px; border-top:0; border-right:1px solid var(--hair); }
+    nav a { flex:none; flex-direction:row; gap:12px; justify-content:flex-start; font-size:15px;
+            padding:10px 12px; border-radius:10px; }
+    nav a.on { background:color-mix(in srgb,var(--accent) 18%,transparent); }
+    header, main { padding-left:32px; padding-right:32px; }
+    /* On desktop the sheet becomes a centred dialog -- a bottom sheet on a
+       27-inch monitor is a phone idiom in the wrong place. */
+    .sheet { left:50%; right:auto; bottom:auto; top:50%; width:420px; border-radius:16px;
+             transform:translate(-50%,-50%) scale(.96); opacity:0; max-height:70vh; }
+    .sheet.show { transform:translate(-50%,-50%) scale(1); opacity:1; }
+    .grab { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header id="hd">
+  <div class="h1row">
+    <h1>Collection</h1>
+    <div style="display:flex; align-items:center; gap:12px">
+      <span class="count" id="cnt">154 cards</span>
+      <button class="addbtn" id="addbtn" title="Add cards">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="addmenu" id="addmenu">
+    <button onclick="closeMenu()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2.5"/><circle cx="12" cy="12.5" r="3.5"/></svg>
+      <span>Scan cards<small>Use the camera</small></span>
+    </button>
+    <button onclick="closeMenu()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5M4 20h16"/></svg>
+      <span>Import<small>ManaBox, CSV or a pasted list</small></span>
+    </button>
+    <button onclick="closeMenu()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span>Search for a card<small>Add one by name</small></span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <label class="search">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".45">
+      <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+    </svg>
+    <input placeholder="Search your cards" id="q">
+  </label>
+
+  <div class="filterrow">
+    <div class="pips" id="pips">
+      <button class="pip W" data-c="W" aria-pressed="false" title="White">W</button>
+      <button class="pip U" data-c="U" aria-pressed="false" title="Blue">U</button>
+      <button class="pip B" data-c="B" aria-pressed="false" title="Black">B</button>
+      <button class="pip R" data-c="R" aria-pressed="false" title="Red">R</button>
+      <button class="pip G" data-c="G" aria-pressed="false" title="Green">G</button>
+    </div>
+    <button class="drop" id="typebtn" data-active="false">Types
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <button class="drop" id="setbtn" data-active="false">Sets
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <button class="clear" id="clear" style="display:none">Clear</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="sheetbg" id="bg"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <div class="sheethead"><b id="sheettitle">Types</b><button class="clear" id="sheetdone">Done</button></div>
+  <div class="opts" id="opts"></div>
+</div>
+
+<nav>
+  <a href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg>Home</a>
+  <a href="#" class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg>Collection</a>
+  <a href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/></svg>Decks</a>
+  <a href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 008 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H2a2 2 0 110-4h.1A1.6 1.6 0 004.6 8a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V2a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H22a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg>Settings</a>
+</nav>
+
+<script>
+  /* name, set, number, qty, tint, types[], colors[]  -- both are ARRAYS, which
+     is the whole point of Zach's correction. */
+  const CARDS = [
+    ['Sol Ring','Commander Masters','#263',4,'#7a6a52',['Artifact'],[]],
+    ['Lightning Bolt','Alpha','#161',2,'#8c3b2e',['Instant'],['R']],
+    ['Krenko, Mob Boss','Jumpstart','#67',1,'#9a4b30',['Creature'],['R']],
+    ['Mountain','Kaldheim','#276',18,'#7d4a3a',['Land'],[]],
+    ['Counterspell','Tempest','#61',1,'#33507a',['Instant'],['U']],
+    ['Forest','March of the Machine','#282',12,'#3f6b42',['Land'],[]],
+    ['Arcane Signet','Throne of Eldraine','#331',3,'#6d6455',['Artifact'],[]],
+    ['Assassin\u2019s Trophy','Guilds of Ravnica','#152',1,'#4a5a3a',['Instant'],['B','G']],
+    ['Vraska, Golgari Queen','Guilds of Ravnica','#213',1,'#4b3a52',['Planeswalker'],['B','G']],
+    ['Dryad of the Ilysian Grove','Theros','#169',1,'#3f6b42',['Creature','Enchantment'],['G']],
+    ['Sarkhan, Fire Blood','Dominaria','#154',1,'#a8452c',['Planeswalker'],['R']],
+    ['Steam Vents','Guilds of Ravnica','#257',1,'#5a4a5e',['Land'],[]],
+    ['Niv-Mizzet, Parun','Guilds of Ravnica','#192',1,'#6a3a5e',['Creature'],['U','R']],
+    ['Wrath of God','Tenth Edition','#68',1,'#c9bda0',['Sorcery'],['W']],
+  ];
+
+  const TYPES = ['Artifact','Creature','Enchantment','Instant','Land','Planeswalker','Sorcery'];
+  const SETS  = [...new Set(CARDS.map(c => c[1]))].sort();
+
+  const colors = new Set(), types = new Set(), sets = new Set();
+  let sheetMode = 'types';
+
+  const grid = document.getElementById('grid');
+  const cnt  = document.getElementById('cnt');
+
+  function render() {
+    const q = document.getElementById('q').value.toLowerCase();
+    const rows = CARDS.filter(([n,s,num,qty,tint,ctypes,ccolors]) => {
+      if (q && !(n.toLowerCase().includes(q) || s.toLowerCase().includes(q))) return false;
+      // A card matches if it has ANY selected colour -- Assassin's Trophy shows
+      // under B and under G, and under both together.
+      if (colors.size && !ccolors.some(c => colors.has(c))) return false;
+      if (types.size  && !ctypes.some(t => types.has(t)))   return false;
+      if (sets.size   && !sets.has(s))                      return false;
+      return true;
+    });
+
+    grid.innerHTML = rows.length ? rows.map(([n,s,num,qty,tint]) => `
+      <div class="card">
+        <div class="art" style="background:linear-gradient(150deg,${tint},${tint}88)">
+          <div class="qty">${qty}</div><div class="nm">${n}</div>
+        </div>
+        <div class="meta"><div class="nm2">${n}</div><div class="sub">${s} · ${num}</div></div>
+      </div>`).join('')
+      : '<div class="none">No cards match those filters.</div>';
+
+    cnt.textContent = `${rows.length} unique · ${rows.reduce((a,c)=>a+c[3],0)} cards`;
+    document.getElementById('typebtn').dataset.active = types.size > 0;
+    document.getElementById('setbtn').dataset.active  = sets.size > 0;
+    document.getElementById('typebtn').firstChild.textContent =
+      types.size ? `Types (${types.size}) ` : 'Types ';
+    document.getElementById('setbtn').firstChild.textContent =
+      sets.size ? `Sets (${sets.size}) ` : 'Sets ';
+    document.getElementById('clear').style.display =
+      (colors.size || types.size || sets.size) ? '' : 'none';
+  }
+  render();
+
+  document.querySelectorAll('.pip').forEach(p => p.onclick = () => {
+    const c = p.dataset.c, on = p.getAttribute('aria-pressed') === 'true';
+    p.setAttribute('aria-pressed', String(!on));
+    on ? colors.delete(c) : colors.add(c);
+    render();
+  });
+
+  function openSheet(mode) {
+    sheetMode = mode;
+    const set = mode === 'types' ? types : sets;
+    const items = mode === 'types' ? TYPES : SETS;
+    document.getElementById('sheettitle').textContent = mode === 'types' ? 'Types' : 'Sets';
+    document.getElementById('opts').innerHTML = items.map(v => {
+      const n = CARDS.filter(c => mode === 'types' ? c[5].includes(v) : c[1] === v).length;
+      return `<div class="opt" aria-selected="${set.has(v)}" data-v="${v}">
+        <span class="box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg></span>
+        ${v}<small>${n}</small></div>`;
+    }).join('');
+    document.querySelectorAll('.opt').forEach(o => o.onclick = () => {
+      const v = o.dataset.v, s = sheetMode === 'types' ? types : sets;
+      s.has(v) ? s.delete(v) : s.add(v);
+      o.setAttribute('aria-selected', String(s.has(v)));
+      render();
+    });
+    document.getElementById('sheet').classList.add('show');
+    document.getElementById('bg').classList.add('show');
+  }
+  function closeSheet() {
+    document.getElementById('sheet').classList.remove('show');
+    document.getElementById('bg').classList.remove('show');
+  }
+
+  document.getElementById('typebtn').onclick = () => openSheet('types');
+  document.getElementById('setbtn').onclick  = () => openSheet('sets');
+  document.getElementById('bg').onclick = closeSheet;
+  document.getElementById('sheetdone').onclick = closeSheet;
+  document.getElementById('q').oninput = render;
+  document.getElementById('clear').onclick = () => {
+    colors.clear(); types.clear(); sets.clear();
+    document.querySelectorAll('.pip').forEach(p => p.setAttribute('aria-pressed','false'));
+    render();
+  };
+  const menu = document.getElementById('addmenu');
+  document.getElementById('addbtn').onclick = e => { e.stopPropagation(); menu.classList.toggle('show'); };
+  function closeMenu() { menu.classList.remove('show'); }
+  document.addEventListener('click', closeMenu);
+
+  addEventListener('scroll', () => document.getElementById('hd').classList.toggle('stuck', scrollY > 4));
+</script>
+</body>
+</html>

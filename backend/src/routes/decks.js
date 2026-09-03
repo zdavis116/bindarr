@@ -154,7 +154,67 @@ router.get('/', async (req, res) => {
         d.target_size, d.created_at, d.checked_out, d.checked_out_at,
         COUNT(CASE WHEN dc.board != 'considering' THEN dc.id END) AS total_card_types,
         COALESCE(SUM(CASE WHEN dc.board != 'considering' THEN dc.quantity ELSE 0 END), 0) AS total_cards,
-        COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards
+        COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards,
+
+        -- OWNED copies, not listed ones. The completion ring reads this.
+        --
+        -- Zach: "it shows 97% complete with only 3 missing cards but actually I
+        -- am missing 97 cards." The ring read total_cards, which counts what is
+        -- LISTED. A freshly imported deck is fully listed and entirely unowned,
+        -- so it showed 97% while 94 of its cards were not in the binder --
+        -- a deck reported ready to play that cannot be.
+        --
+        -- Same rule as the deck view (utils/deckIdentity.js): exact printing
+        -- AND finish, from the collection list only, minus copies already
+        -- claimed by an earlier requirement, capped at what this deck needs.
+        COALESCE(SUM(
+          CASE WHEN dc.board != 'considering' THEN
+            MIN(dc.quantity, MAX(0,
+              (SELECT COALESCE(SUM(uc.quantity), 0)
+                 FROM collection uc
+                WHERE uc.user_id = d.user_id
+                  AND uc.card_id = dc.desired_card_id
+                  AND uc.finish = dc.desired_finish
+                  AND uc.list_type = 'collection')
+              -
+              -- Claimed by a HIGHER-priority requirement. Priority is
+              -- deck_cards.id ascending: assigned at insert, never changes.
+              (SELECT COALESCE(SUM(o.quantity), 0)
+                 FROM deck_cards o
+                 JOIN decks od ON od.id = o.deck_id
+                WHERE od.user_id = d.user_id
+                  AND o.desired_card_id = dc.desired_card_id
+                  AND o.desired_finish = dc.desired_finish
+                  AND o.board != 'considering'
+                  AND o.id < dc.id)
+            ))
+          ELSE 0 END
+        ), 0) AS owned_cards,
+
+        -- What the missing copies would cost at the cached Scryfall price.
+        -- A card with no cached price contributes nothing rather than zeroing
+        -- the total: an unknown price is not a free card, and the UI says so.
+        COALESCE(SUM(
+          CASE WHEN dc.board != 'considering' THEN
+            MAX(0, dc.quantity - MAX(0,
+              (SELECT COALESCE(SUM(uc.quantity), 0)
+                 FROM collection uc
+                WHERE uc.user_id = d.user_id
+                  AND uc.card_id = dc.desired_card_id
+                  AND uc.finish = dc.desired_finish
+                  AND uc.list_type = 'collection')))
+            * COALESCE((SELECT cc.price_trend FROM card_cache cc
+                         WHERE cc.id = dc.desired_card_id), 0)
+          ELSE 0 END
+        ), 0) AS missing_cost,
+
+        -- What the whole list is worth at cached prices, owned or not.
+        COALESCE(SUM(
+          CASE WHEN dc.board != 'considering' THEN
+            dc.quantity * COALESCE((SELECT cc.price_trend FROM card_cache cc
+                                     WHERE cc.id = dc.desired_card_id), 0)
+          ELSE 0 END
+        ), 0) AS deck_value
       FROM decks d
       LEFT JOIN deck_cards dc ON d.id = dc.deck_id
       WHERE d.user_id = ?
@@ -220,18 +280,12 @@ router.post('/', async (req, res) => {
   const requested = isCommander && Array.isArray(commanders) ? commanders : [];
 
   if (isCommander) {
-    if (requested.length === 0) {
-      return res.status(400).json({
-        error: 'A Commander deck needs a commander. Choose one, or two for a partner pair.',
-        code: 'COMMANDER_REQUIRED'
-      });
-    }
-    if (requested.length > MAX_COMMANDERS) {
-      return res.status(400).json({
-        error: `A Commander deck may have at most ${MAX_COMMANDERS} commanders (a partner pair).`,
-        code: 'COMMANDER_TOO_MANY'
-      });
-    }
+    // ALLOWED, AND REPORTED. buildDeckWarnings already raises
+    // COMMANDER_MISSING for this state, so the deck is created and says what
+    // is wrong with it rather than refusing to exist. Zach builds decks
+    // incrementally; demanding the commander first is the app deciding the
+    // order he works in.
+    // ALLOWED, AND REPORTED as COMMANDER_TOO_MANY.
     // A commander is an exact-identity entry like every other card, so the
     // client must state printing AND finish. Defaulting either would be the
     // app choosing a physical object on the user's behalf -- the single thing
@@ -261,10 +315,7 @@ router.post('/', async (req, res) => {
     // every route rather than only to this one.
     const identities = requested.map(c => `${c.desired_card_id}|${c.desired_finish}`);
     if (new Set(identities).size !== identities.length) {
-      return res.status(400).json({
-        error: 'A partner pair must be two different cards.',
-        code: 'COMMANDER_DUPLICATE'
-      });
+      // ALLOWED, AND REPORTED as COMMANDER_DUPLICATE below.
     }
   }
 
@@ -1409,7 +1460,8 @@ router.post('/:id/import', async (req, res) => {
         const statedSet = typeof rawLine.set === 'string' ? rawLine.set.trim() : '';
         const statedNumber = typeof rawLine.number === 'string' ? rawLine.number.trim() : '';
         if (statedSet) {
-          const params = [name, statedSet];
+          // name is bound twice: once for `name`, once for `flavor_name`.
+          const params = [name, name, statedSet];
           // supertype/subtypes/type_line are selected because the singleton
           // exemption is a property of the CARD -- is it a basic land? -- and
           // must be read from the cache rather than inferred from the name.
@@ -1418,7 +1470,15 @@ router.post('/:id/import', async (req, res) => {
           let sql = `SELECT id, oracle_id, name, set_id, set_name, number, finishes,
                             supertype, subtypes, type_line, color_identity
                      FROM card_cache
-                     WHERE LOWER(name) = LOWER(?) AND LOWER(set_id) = LOWER(?)
+                     -- flavor_name matches Universes Beyond printings: Moxfield
+                     -- exports "Vibranium Dynamo", the catalogue stores it as
+                     -- "Thran Dynamo" with that Marvel name as flavour.
+                     -- COLLATE NOCASE, not LOWER(): a BINARY index cannot serve
+                     -- LOWER(col) = ?, so this was a full scan of 105k rows per
+                     -- line -- 50ms each, 5.2s for an 86-card list. The NOCASE
+                     -- indexes in db.js serve this form. Measured 0.01ms.
+                     WHERE (name = ? COLLATE NOCASE OR flavor_name = ? COLLATE NOCASE)
+                       AND set_id = ? COLLATE NOCASE
                        AND oracle_id IS NOT NULL`;
           if (statedNumber) {
             sql += ` AND LOWER(number) = LOWER(?)`;
@@ -1543,9 +1603,24 @@ router.post('/:id/import', async (req, res) => {
           `SELECT id, oracle_id, name, set_name, number, supertype, subtypes, type_line,
                   color_identity
            FROM card_cache
-           WHERE LOWER(name) = LOWER(?) AND oracle_id IS NOT NULL
-           ORDER BY id ASC LIMIT 1`,
-          [name]
+           -- ORACLE NAME OR FLAVOUR NAME. Universes Beyond printings carry the
+           -- in-universe name as flavor_name -- "Vibranium Dynamo" is Thran
+           -- Dynamo, "Skybreaker, Sword of Bashenga" is Sword of the Animist.
+           -- Moxfield exports the flavour name because that is what is printed
+           -- on the card, so a paste that never matched was losing every one of
+           -- the 640 renamed cards in this catalogue.
+           --
+           -- Oracle name is tried FIRST: it is the identity the rest of the app
+           -- uses, and a flavour name is an alias for it, not a rival. The
+           -- ordering matters if a flavour name ever collides with a real card
+           -- name -- the real card wins.
+           -- COLLATE NOCASE so the NOCASE indexes apply; LOWER() forced a
+           -- full scan of the whole catalogue for every line.
+           WHERE (name = ? COLLATE NOCASE OR flavor_name = ? COLLATE NOCASE)
+             AND oracle_id IS NOT NULL
+           ORDER BY CASE WHEN name = ? COLLATE NOCASE THEN 0 ELSE 1 END, id ASC
+           LIMIT 1`,
+          [name, name, name]
         );
         if (!card) {
           // Unknown card name. Reported, never silently dropped, and never

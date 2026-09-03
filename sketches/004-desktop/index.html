@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Desktop</title>
+<style>
+  /* DESKTOP DECK BUILDER.
+     Zach: "I will primarily use my phone for scanning. But I could deck build
+     and view collection on my desktop."
+     That is the honest case for a real desktop layout rather than a stretched
+     phone one: deck building is a COMPARISON task -- deck on one side, the
+     cards you could add on the other -- and a single column forces you to hold
+     one list in your head while looking at the other.
+     Everything else (Home, Collection) reflows from the phone design. Only
+     this screen earns a distinct layout. */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --ink:#f5f5f7; --ink-2:#98989d; --ink-3:#636366;
+    --hair:rgba(255,255,255,.1);
+    --accent:#0a84ff; --have:#30d158; --need:#ff9f0a;
+    --W:#f8e7b9; --U:#a5cced; --B:#a9a19b; --R:#eba18b; --G:#a3c6a5;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-size:15px; line-height:1.45; display:flex; min-height:100vh;
+  }
+
+  /* Persistent rail. Same three destinations as the phone tab bar -- one
+     information architecture, not two. */
+  aside.rail {
+    width:216px; flex-shrink:0; border-right:1px solid var(--hair); padding:22px 12px;
+    display:flex; flex-direction:column; gap:2px; position:sticky; top:0; height:100vh;
+  }
+  .brand { font-size:19px; font-weight:700; letter-spacing:-.02em; padding:0 12px 18px; }
+  .rail a { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:10px;
+            text-decoration:none; color:var(--ink-2); font-size:15px; font-weight:500; }
+  .rail a.on { background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent); font-weight:600; }
+  .rail a:hover:not(.on) { background:var(--surface); color:var(--ink); }
+  .railfoot { margin-top:auto; padding:0 12px; font-size:12px; color:var(--ink-3); }
+
+  .wrap { flex:1; min-width:0; display:flex; flex-direction:column; }
+
+  .top {
+    padding:20px 28px 14px; border-bottom:1px solid var(--hair);
+    display:flex; align-items:center; justify-content:space-between; gap:20px;
+  }
+  h1 { font-size:24px; font-weight:700; letter-spacing:-.02em; }
+  .sub { font-size:13px; color:var(--ink-2); margin-top:2px; }
+  .headright { display:flex; align-items:center; gap:22px; }
+  .kpi { text-align:right; }
+  .kpi b { display:block; font-size:20px; font-weight:700; letter-spacing:-.02em; }
+  .kpi b.money { color:var(--need); }
+  .kpi span { font-size:11px; color:var(--ink-2); }
+  .export { border:0; background:var(--accent); color:#fff; font:inherit; font-size:14px;
+            font-weight:600; padding:0 16px; height:38px; border-radius:10px; cursor:pointer;
+            display:flex; align-items:center; gap:7px; }
+
+  /* THE TWO PANES. Deck left because it is the thing being built; the source
+     of cards on the right, where you reach for them. */
+  .panes { flex:1; display:grid; grid-template-columns:1fr 380px; min-height:0; }
+  .pane { min-height:0; display:flex; flex-direction:column; }
+  .pane + .pane { border-left:1px solid var(--hair); }
+  .panehead {
+    padding:13px 20px; border-bottom:1px solid var(--hair); display:flex;
+    align-items:center; justify-content:space-between; gap:12px;
+    position:sticky; top:0; background:var(--bg); z-index:5;
+  }
+  .panehead b { font-size:13px; font-weight:600; text-transform:uppercase;
+                letter-spacing:.05em; color:var(--ink-2); }
+  .panebody { overflow-y:auto; padding:10px 14px 24px; flex:1; }
+
+  .seg { display:flex; background:var(--surface); border-radius:9px; padding:2px; }
+  .seg button { border:0; background:transparent; font:inherit; font-size:13px; font-weight:500;
+                color:var(--ink-2); padding:6px 12px; border-radius:7px; cursor:pointer; }
+  .seg button[aria-selected="true"] { background:var(--surface-3); color:var(--ink); font-weight:600; }
+
+  .row {
+    display:flex; align-items:center; gap:11px; padding:8px 10px; border-radius:10px;
+    cursor:pointer; transition:background .12s;
+  }
+  .row:hover { background:var(--surface); }
+  .thumb { width:30px; height:42px; border-radius:4px; flex-shrink:0; box-shadow:0 1px 3px rgba(0,0,0,.5); }
+  .rname { flex:1; min-width:0; }
+  .rname b { display:block; font-size:14px; font-weight:600; white-space:nowrap;
+             overflow:hidden; text-overflow:ellipsis; }
+  .rname span { font-size:11.5px; color:var(--ink-2); }
+  .state { font-size:12px; font-weight:600; padding:3px 9px; border-radius:7px; flex-shrink:0; }
+  .state.have { color:var(--have); background:color-mix(in srgb,var(--have) 18%,transparent); }
+  .price { font-size:13.5px; font-weight:600; color:var(--need); flex-shrink:0; }
+
+  /* Hovering a deck row reveals its remove control; hovering a collection row
+     reveals Add. Actions appear where the pointer already is -- the one real
+     affordance a mouse gives you that a thumb does not. */
+  .act { opacity:0; border:0; background:var(--surface-3); color:var(--ink); font:inherit;
+         font-size:12px; font-weight:600; padding:4px 9px; border-radius:6px; cursor:pointer;
+         flex-shrink:0; transition:opacity .12s; }
+  .row:hover .act { opacity:1; }
+
+  .searchbar { display:flex; align-items:center; gap:8px; background:var(--surface);
+               border-radius:9px; padding:0 11px; height:34px; flex:1; }
+  .searchbar input { border:0; background:transparent; outline:none; flex:1; font-size:13.5px;
+                     color:var(--ink); font-family:inherit; }
+  .pips { display:flex; gap:5px; padding:10px 14px 4px; }
+  .pip { width:26px; height:26px; border-radius:50%; border:1.5px solid var(--surface-2);
+         background:var(--surface); cursor:pointer; font-size:11px; font-weight:800;
+         color:var(--ink-3); padding:0; }
+  .pip[aria-pressed="true"] { border-color:currentColor; }
+  .pip.W[aria-pressed="true"]{background:var(--W);color:#2a2a2a}
+  .pip.U[aria-pressed="true"]{background:var(--U);color:#12314a}
+  .pip.B[aria-pressed="true"]{background:var(--B);color:#221f1d}
+  .pip.R[aria-pressed="true"]{background:var(--R);color:#4a1e12}
+  .pip.G[aria-pressed="true"]{background:var(--G);color:#1c3a1f}
+
+  .bar { height:8px; border-radius:4px; background:var(--surface-2); overflow:hidden; width:180px; }
+  .bar i { display:block; height:100%; background:var(--have); }
+  .empty { padding:34px 12px; text-align:center; color:var(--ink-2); font-size:14px; }
+
+  .note { padding:9px 14px; margin:0 14px 10px; background:var(--surface); border-radius:9px;
+          font-size:12px; color:var(--ink-2); }
+
+  @media (max-width:1100px) { .panes { grid-template-columns:1fr; } .pane + .pane { border-left:0; border-top:1px solid var(--hair); } }
+</style>
+</head>
+<body>
+
+<aside class="rail">
+  <div class="brand">Bindarr</div>
+  <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg>Home</a>
+  <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg>Collection</a>
+  <a href="#" class="on"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/></svg>Decks</a>
+  <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 008 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H2a2 2 0 110-4h.1A1.6 1.6 0 004.6 8a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V2a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H22a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg>Settings</a>
+  <div class="railfoot">154 cards owned</div>
+</aside>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Krenko, Mob Boss</h1>
+      <div class="sub">Commander · Bracket 3</div>
+    </div>
+    <div class="headright">
+      <div class="bar"><i style="width:87%"></i></div>
+      <div class="kpi"><b>87<span style="font-size:13px;font-weight:500;color:var(--ink-2)">/100</span></b><span>Owned</span></div>
+      <div class="kpi"><b class="money">$41.60</b><span>To finish</span></div>
+      <button class="export">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
+        Export missing
+      </button>
+    </div>
+  </div>
+
+  <div class="panes">
+    <!-- LEFT: the deck being built -->
+    <div class="pane">
+      <div class="panehead">
+        <b>Deck · 100 cards</b>
+        <div class="seg">
+          <button aria-selected="true"  data-f="all">All</button>
+          <button aria-selected="false" data-f="have">Owned</button>
+          <button aria-selected="false" data-f="need">Missing</button>
+        </div>
+      </div>
+      <div class="panebody" id="deck"></div>
+    </div>
+
+    <!-- RIGHT: what you can add, from what you own -->
+    <div class="pane">
+      <div class="panehead">
+        <div class="searchbar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" opacity=".45"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input placeholder="Search your collection" id="q">
+        </div>
+      </div>
+      <div class="pips">
+        <button class="pip W" data-c="W" aria-pressed="false">W</button>
+        <button class="pip U" data-c="U" aria-pressed="false">U</button>
+        <button class="pip B" data-c="B" aria-pressed="false">B</button>
+        <button class="pip R" data-c="R" aria-pressed="false">R</button>
+        <button class="pip G" data-c="G" aria-pressed="false">G</button>
+      </div>
+      <div class="note">Only cards you own. Add one and it moves into the deck as Owned.</div>
+      <div class="panebody" id="pool" style="padding-top:0"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let DECK = [
+    ['Sol Ring','Commander Masters',1,'have','#7a6a52',0],
+    ['Krenko, Mob Boss','Jumpstart',1,'have','#9a4b30',0],
+    ['Goblin Chieftain','Modern Masters',1,'need','#8c3b2e',3.40],
+    ['Purphoros, God of the Forge','Theros',1,'need','#a8452c',8.90],
+    ['Skullclamp','Darksteel',1,'have','#6b6b6b',0],
+    ['Dockside Extortionist','Commander 2019',1,'need','#8a4433',24.00],
+    ['Mountain','Kaldheim',34,'have','#7d4a3a',0],
+    ['Impact Tremors','Dragons of Tarkir',1,'have','#9b4a33',0],
+    ['Coat of Arms','Tenth Edition',1,'need','#6d6455',4.10],
+  ];
+
+  let POOL = [
+    ['Goblin Matron','Urza\u2019s Saga',2,'#7e3a2c',['R']],
+    ['Goblin Warchief','Dominaria',1,'#8c3b2e',['R']],
+    ['Shattergang Brothers','Commander 2013',1,'#6a5a3a',['R','G','B']],
+    ['Chaos Warp','Commander 2011',3,'#a8452c',['R']],
+    ['Counterspell','Tempest',1,'#33507a',['U']],
+    ['Cultivate','Commander 2021',2,'#3f6b42',['G']],
+    ['Wrath of God','Tenth Edition',1,'#c9bda0',['W']],
+  ];
+
+  const colors = new Set();
+  let filter = 'all';
+
+  function renderDeck() {
+    const rows = DECK.filter(c => filter === 'all' || c[3] === filter);
+    document.getElementById('deck').innerHTML = rows.length ? rows.map(([n,s,q,st,tint,p],i) => `
+      <div class="row">
+        <div class="thumb" style="background:linear-gradient(150deg,${tint},${tint}aa)"></div>
+        <div class="rname"><b>${n}</b><span>${s}${q>1?' · '+q+'x':''}</span></div>
+        ${st==='have' ? '<span class="state have">Owned</span>' : `<span class="price">$${p.toFixed(2)}</span>`}
+        <button class="act" onclick="removeCard('${n.replace(/'/g,'')}')">Remove</button>
+      </div>`).join('') : '<div class="empty">Nothing in this filter.</div>';
+  }
+
+  function renderPool() {
+    const q = document.getElementById('q').value.toLowerCase();
+    const rows = POOL.filter(([n,s,qty,tint,cols]) =>
+      (!q || n.toLowerCase().includes(q)) &&
+      (!colors.size || cols.some(c => colors.has(c))));
+    document.getElementById('pool').innerHTML = rows.length ? rows.map(([n,s,qty,tint]) => `
+      <div class="row">
+        <div class="thumb" style="background:linear-gradient(150deg,${tint},${tint}aa)"></div>
+        <div class="rname"><b>${n}</b><span>${s} · ${qty} owned</span></div>
+        <button class="act" onclick="addCard('${n.replace(/'/g,'')}')">Add</button>
+      </div>`).join('') : '<div class="empty">No owned cards match.</div>';
+  }
+
+  function addCard(name) {
+    const i = POOL.findIndex(c => c[0].replace(/'/g,'') === name);
+    if (i < 0) return;
+    const [n,s,qty,tint] = POOL[i];
+    DECK.unshift([n,s,1,'have',tint,0]);
+    if (qty > 1) POOL[i][2]--; else POOL.splice(i,1);
+    renderDeck(); renderPool();
+  }
+  function removeCard(name) {
+    const i = DECK.findIndex(c => c[0].replace(/'/g,'') === name);
+    if (i >= 0) { DECK.splice(i,1); renderDeck(); }
+  }
+
+  document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-selected','false'));
+    b.setAttribute('aria-selected','true');
+    filter = b.dataset.f; renderDeck();
+  });
+  document.querySelectorAll('.pip').forEach(p => p.onclick = () => {
+    const c = p.dataset.c, on = p.getAttribute('aria-pressed') === 'true';
+    p.setAttribute('aria-pressed', String(!on));
+    on ? colors.delete(c) : colors.add(c);
+    renderPool();
+  });
+  document.getElementById('q').oninput = renderPool;
+
+  renderDeck(); renderPool();
+</script>
+</body>
+</html>

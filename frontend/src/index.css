@@ -1,51 +1,102 @@
 :root {
-  --font-main: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  /* SYSTEM FONT STACK, not a webfont. Three reasons, in order of weight:
+       1. It is the Apple-like look Zach asked for -- SF Pro on his phone, and
+          the platform's own face everywhere else.
+       2. It renders on the FIRST paint. A webfont costs a round trip before
+          any text appears, on a screen he opens while holding a card.
+       3. It is what all nine approved mockups were built and reviewed in, so
+          the rebuilt screens match what he signed off rather than being
+          "close".
+     'Outfit' was a rounded display face inherited from the Pokemon-card app. */
+  --font-main: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+               Roboto, "Helvetica Neue", Arial, sans-serif;
   
-  /* Theme Colors: Sleek Dark Cyberpunk Pokédex */
-  --bg-primary: #0a0f1d;
-  --bg-secondary: #131b2e;
-  --bg-glass: rgba(20, 28, 47, 0.65);
-  --border-glass: rgba(255, 255, 255, 0.07);
-  --border-glass-hover: rgba(255, 255, 255, 0.15);
-  
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  
-  --accent-red: #ff4747;
-  --accent-red-glow: rgba(255, 71, 71, 0.4);
-  --accent-blue: #3b82f6;
-  --accent-blue-glow: rgba(59, 130, 246, 0.4);
-  --accent-yellow: #eab308;
-  --accent-yellow-glow: rgba(234, 179, 8, 0.4);
-  
-  /* Pokémon Type Colors for Visual Coding */
-  --type-grass: #4ade80;
-  --type-fire: #f87171;
-  --type-water: #60a5fa;
-  --type-lightning: #facc15;
-  --type-psychic: #c084fc;
-  --type-fighting: #f97316;
-  --type-darkness: #475569;
-  --type-metal: #94a3b8;
-  --type-dragon: #a855f7;
-  --type-fairy: #f472b6;
-  --type-colorless: #cbd5e1;
+  /* ------------------------------------------------------------------------
+     THEME COLOURS — dark, Apple-like. Replaces the "Sleek Dark Cyberpunk
+     Pokedex" palette (navy #0a0f1d + red #ff4747) that Bindarr inherited from
+     the Pokemon-card app it started as.
 
-  /* Semantic surface/foreground tokens. These back the values components used
-     to hardcode (#fff text, white overlay fills, dark input bg) so themes can
-     re-map them. Dark theme keeps the original literals, so dark is unchanged. */
-  --text-strong: #fff;                    /* strongest foreground on panels */
-  --text-on-accent: #fff;                 /* text/icons on saturated buttons */
-  --surface-1: rgba(255, 255, 255, 0.03); /* faint fill */
-  --surface-2: rgba(255, 255, 255, 0.05); /* hover fill */
-  --surface-3: rgba(255, 255, 255, 0.08); /* raised chip */
-  --input-bg: rgba(15, 23, 42, 0.6);
-  --input-bg-focus: rgba(15, 23, 42, 0.85);
-  --bg-gradient:
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(239, 68, 68, 0.1) 0px, transparent 50%),
-    radial-gradient(at 50% 50%, rgba(20, 28, 47, 0.95) 0px, var(--bg-primary) 100%);
+     Zach asked for "a complete overhaul", dark: "I just like dark over light."
+
+     This is a TOKEN REMAP, not a rewrite. Every component already reads these
+     variables, and two other themes (light, lcars) re-map the same names, so
+     changing values here restyles the whole app without touching a single
+     component. Names are kept EXACTLY as they were for that reason -- renaming
+     --accent-red to --accent would mean editing 27 components to gain nothing.
+
+     Greys are the iOS system dark set (#1c1c1e / #2c2c2e / #3a3a3c) on true
+     black. True black rather than near-black because the phone is the primary
+     device: on OLED the background is genuinely off, which makes card art the
+     only lit thing on screen.
+     --------------------------------------------------------------------- */
+  --bg-primary: #000000;
+  --bg-secondary: #1c1c1e;
+  --bg-glass: #1c1c1e;
+  --border-glass: rgba(255, 255, 255, 0.10);
+  --border-glass-hover: rgba(255, 255, 255, 0.18);
+
+  --text-primary: #f5f5f7;
+  --text-secondary: #98989d;
+  --text-muted: #636366;
+
+  /* ACCENT IS NOW BLUE, NOT RED. Red is reserved for destructive actions --
+     it cannot mean both "primary action" and "this deletes things". The old
+     palette used #ff4747 for both, so a delete button and a save button were
+     the same colour. */
+  --accent-red: #0a84ff;                      /* primary accent (name kept) */
+  --accent-red-glow: rgba(10, 132, 255, 0.35);
+  --accent-blue: #0a84ff;
+  --accent-blue-glow: rgba(10, 132, 255, 0.35);
+  --accent-yellow: #ff9f0a;                   /* "needs attention", not warning-red */
+  --accent-yellow-glow: rgba(255, 159, 10, 0.35);
+
+  /* Semantic state colours. These did not exist before -- components reached
+     for --accent-red or a hardcoded green. */
+  --accent-green: #30d158;                    /* owned / complete / healthy */
+  --accent-danger: #ff453a;                   /* destructive ONLY */
+
+  /* MTG colour identity (WUBRG). Replaces the Pokemon type palette, which had
+     no meaning in this app -- --type-grass on a Magic card is nonsense. Values
+     are muted so five pips in a row read as a set, not as five alarms. */
+  --mtg-white: #f8e7b9;
+  --mtg-blue: #a5cced;
+  --mtg-black: #a9a19b;
+  --mtg-red: #eba18b;
+  --mtg-green: #a3c6a5;
+  --mtg-colorless: #cbd5e1;
+
+  /* Kept as aliases so any component still referencing a type colour renders
+     sanely instead of falling back to unstyled. Phase B removes the callers,
+     then these go. */
+  --type-grass: var(--mtg-green);
+  --type-fire: var(--mtg-red);
+  --type-water: var(--mtg-blue);
+  --type-lightning: #ff9f0a;
+  --type-psychic: #bf5af2;
+  --type-fighting: #ff9f0a;
+  --type-darkness: var(--mtg-black);
+  --type-metal: #98989d;
+  --type-dragon: #bf5af2;
+  --type-fairy: #ff6482;
+  --type-colorless: var(--mtg-colorless);
+
+  /* Semantic surface/foreground tokens. Solid greys rather than translucent
+     white overlays: stacked translucency over a photo of a card produced a
+     different grey depending on what was behind it, so two panels side by side
+     did not match. */
+  --text-strong: #f5f5f7;                 /* strongest foreground on panels */
+  --text-on-accent: #ffffff;              /* text/icons on saturated buttons */
+  --surface-1: #1c1c1e;                   /* panel */
+  --surface-2: #2c2c2e;                   /* hover / raised */
+  --surface-3: #3a3a3c;                   /* chip / control */
+  --input-bg: #1c1c1e;
+  --input-bg-focus: #2c2c2e;
+
+  /* NO GRADIENT. The old background layered two coloured radial gradients over
+     navy, which tinted every card thumbnail differently depending on where it
+     sat on screen -- actively unhelpful in an app whose whole job is judging
+     card art. */
+  --bg-gradient: var(--bg-primary);
 
   --logo-cover: #ff4747;
   --logo-spine: #c92f2f;
@@ -55,12 +106,16 @@
   --logo-ring-inner: #ffffff;
 
   /* Shadows and Transitions */
-  --shadow-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  --shadow-accent: 0 0 15px var(--accent-red-glow);
+  /* Shadow, not glow. On true black a coloured glow halo reads as a rendering
+     artefact; depth comes from a plain dark shadow instead. */
+  --shadow-glow: 0 8px 28px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 6px 20px rgba(10, 132, 255, 0.28);
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
+  /* Radii tuned to the mockups: 10 for controls, 14 for grouped rows and
+     panels, 18 for the few full-bleed cards. 24 read as a toy at phone size. */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
 }
 
 /* ------------------------------------------------------------------ THEMES */
@@ -314,19 +369,44 @@ button, input, select, textarea {
 }
 
 /* Glassmorphic Panel Component */
+/* The app's panel. Renamed in spirit but not in name: 27 components apply
+   .glass-panel, so changing the class name would be a 27-file edit to gain
+   nothing. What changed is what it looks like.
+
+   NO BACKDROP BLUR. It was doing real damage rather than being merely
+   decorative: blur(16px) saturate(180%) over card artwork tinted every panel
+   differently depending on which cards happened to be scrolling behind it, so
+   two panels side by side did not match. In an app whose job is judging card
+   art, the chrome must not restate the art.
+
+   It was also the single most expensive property on the page -- a full-screen
+   backdrop filter repaints on every scroll frame, on a phone, while the camera
+   may be running.
+
+   Flat surface, hairline border, no shadow. Depth on true black comes from the
+   surface step (#000 -> #1c1c1e), which is what the mockups use. */
 .glass-panel {
-  background: var(--bg-glass);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: var(--surface-1);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-glow);
-  padding: 1.5rem;
+  padding: 1.25rem;
   transition: var(--transition-smooth);
 }
 
 .glass-panel:hover {
   border-color: var(--border-glass-hover);
+}
+
+/* The position number inside a binder pocket (CompartmentView).
+   This class was applied but never defined -- found by uiClassNames.test.js.
+   It is a quiet label, not content: the cards are what matter in a pocket
+   grid, so the number sits back and stays legible rather than competing. */
+.slot-number {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 /* Glow Cards based on Pokemon Types */
@@ -930,47 +1010,158 @@ button, input, select, textarea {
 .card-inspector {
   max-width: 720px;
   width: 100%;
+  /* DYNAMIC viewport height. On iOS Safari `vh` is the LARGEST viewport --
+     measured with the toolbars retracted -- so a 90vh panel is taller than the
+     screen actually offers while they are showing, and the page scrolls to
+     reveal the rest. Zach reported that three times. `dvh` tracks the real
+     usable height; the vh line above it is the fallback for browsers that
+     drop the dvh declaration. */
+  /* A HEIGHT, NOT ONLY A CEILING.
+     With max-height alone the panel sized to whatever the current tab held --
+     short on Card, taller on Yours -- so it jumped when Zach switched tabs:
+     "the modal should stay the same size when changing between tabs it's
+     growing when moving to yours". A height makes it the same box on every
+     tab and lets .ci-scroll absorb the difference, which is its whole job.
+     Viewport-relative rather than fixed px, so it still fits a short screen. */
+  height: 82vh;
+  height: 82dvh;
   max-height: 90vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-height: 100dvh;
+  /* THE PANEL ITSELF NO LONGER SCROLLS.
+     It used to be overflow-y:auto, which anchored the absolutely-positioned
+     close button to the CONTENT: scroll down and the X left the screen. Zach
+     reported it as "missing an x button", and his screenshot showed it half
+     gone behind the card art.
+     Only .ci-scroll scrolls now, so the header -- art, name, tabs and the
+     close button -- stays put. */
+  overflow: hidden;
   box-sizing: border-box;
   padding: 2.5rem;
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  /* NO WRAPPING. A wrapped flex container sizes to its content, so when the
+     two columns could not sit side by side they stacked and the panel grew
+     past max-height -- and the PAGE scrolled instead of .ci-scroll. Zach:
+     "the entire modal shouldn't be scrollable but since it doesn't fully fit
+     in the screen it becomes scrollable."
+     The mobile breakpoint stacks deliberately, with its own height rules. */
+  flex-wrap: nowrap;
+  align-items: stretch;
   gap: 2.5rem;
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
 }
 
+/* THE ONLY SCROLLING REGION: everything below the tabs.
+   Zach: "I think it would make sense for the section below the 3 tabs to be
+   the scrollable area." min-height:0 is load-bearing -- a flex child defaults
+   to min-height:auto, which refuses to shrink below its content and makes the
+   overflow escape the panel instead of scrolling inside it. */
+.card-inspector .ci-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* THE GAP ABOVE THE BODY MUST EQUAL THE GAP INSIDE IT.
+     Zach: "the white space between the tab bar and card description should be
+     the same as the white space between the card description and other grid
+     below."
+
+     Three things stack up here -- the tab bar's 0.35rem bottom margin, the
+     info column's 0.75rem flex gap, and this offset -- against the Card tab's
+     own 0.6rem gap between its blocks. Cancelling the extra so the total is
+     exactly 0.6rem:  0.35 + 0.75 - 0.5 = 0.6 */
+  margin-top: -0.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The header holds the art, the identity block and the tabs. It must not
+   shrink, or a long rules text would squeeze the card image away. */
+.card-inspector .ci-head {
+  flex: 0 0 auto;
+}
+
+/* The info column is a flex COLUMN containing the fixed header and the
+   scroller. min-height:0 is the same load-bearing default as on .ci-scroll: a
+   flex child will not shrink below its content unless told to, so without this
+   the scroller never gets a bounded box and the panel grows instead. */
+.card-inspector .ci-info-col {
+  min-height: 0;
+}
+
+/* The card art must not dictate the panel's height on desktop either. */
+.card-inspector .ci-image-col {
+  min-height: 0;
+}
+
 @media (max-width: 768px) {
   /* Stacked on mobile: card image on top (the focus), details below full-width.
      Roomier than the old side-by-side squeeze; the dialog scrolls if tall. */
   .card-inspector {
-    padding: 1.25rem 1.1rem !important;
-    gap: 1.1rem !important;
+    /* Vertical padding trimmed harder than horizontal. Zach: "feels like
+       maybe there is to much white space". Text still needs side margins to
+       stay readable, but the top edge was pure distance between the panel
+       border and an already-inset close button. */
+    padding: 0.75rem 1rem 1rem !important;
+    gap: 0.75rem !important;
+    /* Same reasoning as the desktop rule, and it matters more here: the phone
+       is where the toolbars move and shrink the usable height. */
+    /* Same reasoning as the desktop rule: a stable box so switching tabs does
+       not resize the modal. */
+    height: 88vh !important;
+    height: 88dvh !important;
     max-height: 90vh !important;
+    max-height: 100dvh !important;
     flex-direction: column !important;
     flex-wrap: nowrap !important;
     align-items: stretch !important;
     max-width: 440px !important;
     width: 94vw !important;
     box-sizing: border-box !important;
-    overflow-x: hidden !important;
+    /* BOTH AXES, explicitly. The old rule set only overflow-x, leaving the
+       shorthand above it half-overridden and the intent unclear at a glance --
+       and this is the rule that wins on Zach's phone. */
+    overflow: hidden !important;
     border-radius: var(--radius-md) !important;
   }
+  /* THE IMAGE COLUMN MUST BE ABLE TO SHRINK.
+     It was flex: 0 0 auto, so on a short screen the card art kept its full
+     height, pushed the header past the viewport and took the close button --
+     pinned at top:1rem of the panel -- off the top of the screen with it.
+     Zach reported this twice as "the x button still doesn't show at the top".
+     min-height:0 lets it give way; the art scales instead of overflowing. */
+  /* flex: 0 0 auto -- NOT `0 1 auto`.
+     Allowing the column to shrink meant its flex-basis was the content's
+     CURRENT height, so every re-render measured the already-shrunken image and
+     shrank it again. Zach: "shrinks sometimes shrinks multiple times".
+     The image now carries a fixed viewport-relative height, so the column has
+     a stable size and .ci-scroll absorbs any overflow. */
   .card-inspector .ci-image-col {
     flex: 0 0 auto !important;
+    min-height: 0 !important;
     width: 100% !important;
     align-items: center !important;
-    gap: 0.6rem !important;
+    gap: 0.35rem !important;
   }
+  /* The height budget lives ON THE ELEMENT (min(42vh, 420px)), so the card
+     shrinks to fit rather than overflowing. This rule deliberately sets only
+     WIDTH: a second max-height here would clamp the wrapper smaller than the
+     image inside it and bring the overlap straight back. One rule, one place. */
+  /* NO WIDTH CAP. The image is height-driven now and its width follows the
+     aspect ratio; capping the width would derive the height from the width
+     again, which is the bug this replaced. */
   .card-inspector .ci-image-wrap {
-    max-width: 200px !important;
-    width: 62% !important;
+    min-height: 0 !important;
   }
+  /* On mobile the panel is a single column, so the info column IS the body.
+     It must be allowed to shrink below its content or .ci-scroll cannot
+     scroll -- the overflow would push the panel taller instead. */
   .card-inspector .ci-info-col {
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
     flex: 1 1 auto !important;
     min-width: 0 !important; /* let the column shrink instead of overflowing */
     width: 100% !important;

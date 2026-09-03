@@ -75,6 +75,36 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// CARD CATALOGUE STATUS, read-only.
+//
+// Every figure here is measured, not derived on the client: the row count is a
+// COUNT, and the timestamps are what the nightly refresh actually wrote. A
+// settings screen that reports a stale or guessed catalogue size is worse than
+// one that says nothing, because it is the screen you check when you suspect
+// the catalogue is stale.
+router.get('/catalogue', authenticateToken, async (req, res) => {
+  try {
+    const counts = await db.get(`SELECT COUNT(*) AS cards FROM card_cache`);
+    const meta = await db.get(
+      `SELECT card_catalogue_refreshed_at   AS refreshedAt,
+              card_catalogue_updated_at     AS scryfallBuild,
+              card_catalogue_refresh_started_at AS runningSince
+       FROM app_settings WHERE id = 1`
+    );
+    res.json({
+      cards: counts ? counts.cards : 0,
+      refreshed_at: meta ? meta.refreshedAt : null,
+      scryfall_build: meta ? meta.scryfallBuild : null,
+      // Non-null while a refresh holds the lock, so the screen can say "running"
+      // instead of showing a last-refreshed time that is about to change.
+      running_since: meta ? meta.runningSince : null,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to read catalogue status' });
+  }
+});
+
 // Only admins can override settings
 router.put('/', authenticateToken, requireAdmin, async (req, res) => {
   const { public_base_url } = req.body;

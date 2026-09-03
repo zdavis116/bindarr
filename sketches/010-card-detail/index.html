@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bindarr — Card Detail</title>
+<style>
+  /* CARD DETAIL.
+     Zach: "I think the card detail view needs an overhaul and I still cant
+     flip the tony stark can you do a mock up of what you think would be best
+     for that"
+
+     THE ORGANISING IDEA: this screen answers three questions, and the current
+     one mixes them together.
+
+       1. WHAT IS THIS CARD?      art, both faces, rules text, printing
+       2. WHAT DO I OWN?          copies, finish, condition, where it lives
+       3. WHAT CAN I DO WITH IT?  edit, add to deck, mark for trade
+
+     Today they are interleaved down one column, so the card art competes with
+     a quantity stepper and the flip control has nowhere to live. Splitting
+     them means the flip button has an obvious home (on the art, where the
+     thing being flipped is) and the ownership block can be dense without
+     crowding the picture.
+
+     The flip button is the specific failure being fixed: it renders only when
+     back_image_url exists, and until an hour ago no API route returned that
+     field -- so it never appeared. Here it is deliberately LARGE and labelled
+     with the face you would turn TO, not a bare icon, because a circular
+     arrow on card art reads as "reload" or "refresh price". */
+  :root {
+    --bg:#000; --surface:#1c1c1e; --surface-2:#2c2c2e; --surface-3:#3a3a3c;
+    --text:#fff; --text-2:#98989f; --text-3:#636366;
+    --line:rgba(255,255,255,.09);
+    --blue:#0a84ff; --green:#30d158; --yellow:#ffd60a; --red:#ff453a;
+    --r:12px;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; background:#0a0a0b; color:var(--text);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;
+    padding:28px 16px 60px;
+  }
+  h1.page { font-size:15px; color:var(--text-3); font-weight:600; margin:0 0 6px;
+            text-transform:uppercase; letter-spacing:.06em; }
+  .note { color:var(--text-2); font-size:13px; max-width:760px; margin:0 0 26px; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  .phone {
+    width:340px; background:var(--bg); border-radius:26px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.14); flex:0 0 auto;
+  }
+  .cap { font-size:12px; color:var(--text-3); margin:8px 0 14px; width:340px;
+         line-height:1.5; }
+  .cap b { color:var(--text-2); font-weight:600; }
+
+  /* --- sheet chrome --- */
+  .grab { height:5px; width:38px; border-radius:3px; background:#48484a;
+          margin:9px auto 0; }
+  .sheet-head {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px 10px;
+  }
+  .sheet-title { font-size:13px; color:var(--text-2); }
+  .x { width:30px; height:30px; border-radius:50%; background:var(--surface-2);
+       display:grid; place-items:center; color:var(--text-2); font-size:15px; }
+
+  /* --- 1. the card itself --- */
+  .art-wrap { position:relative; padding:0 14px; }
+  .art {
+    width:100%; aspect-ratio:488/680; border-radius:14px;
+    background:linear-gradient(145deg,#3a2f4a,#20304a 55%,#1a2233);
+    border:1px solid rgba(255,255,255,.1);
+    display:flex; align-items:flex-end; padding:12px;
+    position:relative; overflow:hidden;
+  }
+  .art .facelabel {
+    font-size:11px; color:rgba(255,255,255,.55); letter-spacing:.04em;
+  }
+  /* THE FLIP CONTROL. Full-width under the art rather than a small overlay
+     chip: it is the control Zach could not find, and a 34px chip in a corner
+     of a picture is exactly the affordance this project keeps losing. */
+  .flip {
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; min-height:44px; margin-top:10px;
+    background:var(--surface-2); border:1px solid var(--line);
+    border-radius:var(--r); font-size:14px; font-weight:600; color:var(--text);
+  }
+  .flip .ico { font-size:15px; }
+  .flip .to { color:var(--text-2); font-weight:400; }
+
+  .idblock { padding:14px 14px 0; }
+  .cardname { font-size:19px; font-weight:700; letter-spacing:-.02em;
+              line-height:1.25; }
+  .typeline { font-size:13px; color:var(--text-2); margin-top:3px; }
+  .printing { font-size:12px; color:var(--text-3); margin-top:6px;
+              display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .chip { font-size:10px; font-weight:700; letter-spacing:.04em;
+          padding:2px 6px; border-radius:5px; background:var(--surface-3);
+          color:var(--text-2); text-transform:uppercase; }
+  .chip.foil { background:rgba(255,214,10,.16); color:var(--yellow); }
+
+  .rules {
+    margin:12px 14px 0; padding:12px; background:var(--surface); border-radius:var(--r);
+    font-size:13px; line-height:1.5; color:#d8d8dc; border:1px solid var(--line);
+  }
+  .rules .facehdr {
+    font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--text-3); margin-bottom:5px;
+  }
+  .rules .divider { height:1px; background:var(--line); margin:11px 0; }
+
+  /* --- 2. what I own --- */
+  .sec { margin:18px 14px 0; }
+  .sechdr { font-size:11px; font-weight:700; letter-spacing:.06em;
+            text-transform:uppercase; color:var(--text-3); margin-bottom:8px; }
+  .own {
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+    overflow:hidden;
+  }
+  .ownrow {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:11px 13px; min-height:46px;
+  }
+  .ownrow + .ownrow { border-top:1px solid var(--line); }
+  .ownrow .k { font-size:13px; color:var(--text-2); }
+  .ownrow .v { font-size:13px; font-weight:600; }
+  .v.green { color:var(--green); }
+  .v.yellow { color:var(--yellow); }
+  .stepper { display:flex; align-items:center; gap:12px; }
+  .stepbtn { width:30px; height:30px; border-radius:8px; background:var(--surface-3);
+             display:grid; place-items:center; font-size:16px; color:var(--text); }
+  .qty { font-size:16px; font-weight:700; min-width:22px; text-align:center; }
+
+  /* --- 3. actions --- */
+  .acts { margin:18px 14px 0; display:flex; flex-direction:column; gap:8px; }
+  .btn {
+    min-height:46px; border-radius:var(--r); display:flex; align-items:center;
+    justify-content:center; gap:8px; font-size:15px; font-weight:600;
+    border:1px solid transparent;
+  }
+  .btn.primary { background:var(--blue); color:#fff; }
+  .btn.sec { background:var(--surface-2); color:var(--text); border-color:var(--line); }
+  .btn.danger { background:transparent; color:var(--red); border-color:rgba(255,69,58,.35); }
+  .pad { height:22px; }
+
+  /* --- variant B: tabs --- */
+  .tabs { display:flex; gap:4px; margin:14px 14px 0; background:var(--surface);
+          padding:3px; border-radius:10px; border:1px solid var(--line); }
+  .tab { flex:1; text-align:center; padding:7px 0; font-size:13px; font-weight:600;
+         color:var(--text-2); border-radius:8px; }
+  .tab.on { background:var(--surface-3); color:var(--text); }
+
+  /* --- variant C: flip as a segmented control --- */
+  .seg { display:flex; margin:10px 14px 0; background:var(--surface);
+         padding:3px; border-radius:10px; border:1px solid var(--line); }
+  .seg div { flex:1; text-align:center; padding:8px 4px; font-size:12.5px;
+             font-weight:600; color:var(--text-2); border-radius:8px;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .seg div.on { background:var(--blue); color:#fff; }
+</style>
+</head>
+<body>
+
+<h1 class="page">Bindarr — card detail</h1>
+<p class="note">
+  Three ways to organise the same screen. All of them separate <b>what the card
+  is</b> from <b>what you own</b> from <b>what you can do</b> — the current
+  screen interleaves those, which is why the flip control had nowhere obvious
+  to sit. Every variant makes flipping a full-width labelled control rather
+  than an icon chip on the art.
+</p>
+
+<div class="row">
+
+  <!-- ============================ A ============================ -->
+  <div>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="sheet-head">
+        <span class="sheet-title">Card detail</span>
+        <span class="x">✕</span>
+      </div>
+
+      <div class="art-wrap">
+        <div class="art"><span class="facelabel">front face — Tony Stark</span></div>
+        <div class="flip">
+          <span class="ico">⇄</span>
+          Flip to <span class="to">The Invincible Iron Man</span>
+        </div>
+      </div>
+
+      <div class="idblock">
+        <div class="cardname">Tony Stark<br><span style="color:var(--text-2);font-weight:400;font-size:15px;">// The Invincible Iron Man</span></div>
+        <div class="typeline">Legendary Creature — Human Artificer Hero</div>
+        <div class="printing">
+          <span class="chip">MSH</span> #80 · Marvel Super Heroes
+          <span class="chip foil">foil only</span>
+        </div>
+      </div>
+
+      <div class="rules">
+        <div class="facehdr">Tony Stark</div>
+        {1}, {T}: Look at the top four cards of your library. You may reveal an
+        artifact card from among them and put it into your hand.
+        <div class="divider"></div>
+        <div class="facehdr">The Invincible Iron Man</div>
+        Flying, trample. Whenever this creature deals combat damage to a player,
+        create a Powerstone token.
+      </div>
+
+      <div class="sec">
+        <div class="sechdr">What you own</div>
+        <div class="own">
+          <div class="ownrow">
+            <span class="k">Copies</span>
+            <span class="stepper">
+              <span class="stepbtn">−</span><span class="qty">2</span><span class="stepbtn">+</span>
+            </span>
+          </div>
+          <div class="ownrow"><span class="k">Finish</span><span class="v">Nonfoil</span></div>
+          <div class="ownrow"><span class="k">Condition</span><span class="v">Near Mint</span></div>
+          <div class="ownrow"><span class="k">Location</span><span class="v">Binder 2 · page 4</span></div>
+          <div class="ownrow">
+            <span class="k">In decks</span>
+            <span class="v yellow">1 reserved by Tony Stark</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sechdr">Market</div>
+        <div class="own">
+          <div class="ownrow"><span class="k">TCG market</span><span class="v">$4.31</span></div>
+          <div class="ownrow"><span class="k">Your copies</span><span class="v green">$8.62</span></div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <div class="btn primary">Add to a deck</div>
+        <div class="btn sec">Edit details</div>
+        <div class="btn danger">Remove from collection</div>
+      </div>
+      <div class="pad"></div>
+    </div>
+    <div class="cap">
+      <b>A — one scroll, grouped.</b> Everything on one column in three labelled
+      groups. The flip control sits directly under the art, full width, naming
+      the face you turn to. Both faces' rules text is shown at once, separated
+      by a rule — you never have to flip just to read the back.
+      <b>Best if</b> you mostly want to look things up.
+    </div>
+  </div>
+
+  <!-- ============================ B ============================ -->
+  <div>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="sheet-head">
+        <span class="sheet-title">Card detail</span>
+        <span class="x">✕</span>
+      </div>
+
+      <div class="art-wrap">
+        <div class="art"><span class="facelabel">front face — Tony Stark</span></div>
+        <div class="flip">
+          <span class="ico">⇄</span>
+          Flip to <span class="to">The Invincible Iron Man</span>
+        </div>
+      </div>
+
+      <div class="idblock">
+        <div class="cardname">Tony Stark // The Invincible Iron Man</div>
+        <div class="printing">
+          <span class="chip">MSH</span> #80 · Marvel Super Heroes
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab on">Card</div>
+        <div class="tab">Yours</div>
+        <div class="tab">Decks</div>
+      </div>
+
+      <div class="rules" style="margin-top:12px;">
+        <div class="facehdr">Tony Stark · Legendary Creature</div>
+        {1}, {T}: Look at the top four cards of your library. You may reveal an
+        artifact card from among them and put it into your hand.
+        <div class="divider"></div>
+        <div class="facehdr">The Invincible Iron Man · Artifact Creature</div>
+        Flying, trample. Whenever this creature deals combat damage to a player,
+        create a Powerstone token.
+      </div>
+
+      <div class="sec">
+        <div class="own">
+          <div class="ownrow"><span class="k">Mana cost</span><span class="v">{1}{U} // {4}{U}{R}</span></div>
+          <div class="ownrow"><span class="k">Colour identity</span><span class="v">Blue · Red</span></div>
+          <div class="ownrow"><span class="k">Legal in</span><span class="v green">Commander</span></div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <div class="btn primary">Add to a deck</div>
+        <div class="btn sec">Edit details</div>
+      </div>
+      <div class="pad"></div>
+    </div>
+    <div class="cap">
+      <b>B — tabbed.</b> Same three questions, but only one at a time: Card /
+      Yours / Decks. Shorter screen, no scrolling past things you did not ask
+      for. <b>Cost:</b> a tap to see how many you own, and this project has a
+      history of things being unreachable behind one more tap.
+    </div>
+  </div>
+
+  <!-- ============================ C ============================ -->
+  <div>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="sheet-head">
+        <span class="sheet-title">Card detail</span>
+        <span class="x">✕</span>
+      </div>
+
+      <div class="seg">
+        <div class="on">Tony Stark</div>
+        <div>The Invincible Iron Man</div>
+      </div>
+
+      <div class="art-wrap" style="margin-top:10px;">
+        <div class="art"><span class="facelabel">front face</span></div>
+      </div>
+
+      <div class="idblock">
+        <div class="cardname">Tony Stark</div>
+        <div class="typeline">Legendary Creature — Human Artificer Hero</div>
+        <div class="printing">
+          <span class="chip">MSH</span> #80 · Marvel Super Heroes
+        </div>
+      </div>
+
+      <div class="rules">
+        {1}, {T}: Look at the top four cards of your library. You may reveal an
+        artifact card from among them and put it into your hand.
+      </div>
+
+      <div class="sec">
+        <div class="sechdr">What you own</div>
+        <div class="own">
+          <div class="ownrow">
+            <span class="k">Copies</span>
+            <span class="stepper">
+              <span class="stepbtn">−</span><span class="qty">2</span><span class="stepbtn">+</span>
+            </span>
+          </div>
+          <div class="ownrow"><span class="k">Finish</span><span class="v">Nonfoil</span></div>
+          <div class="ownrow"><span class="k">Location</span><span class="v">Binder 2 · page 4</span></div>
+          <div class="ownrow"><span class="k">In decks</span><span class="v yellow">1 reserved</span></div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <div class="btn primary">Add to a deck</div>
+        <div class="btn sec">Edit details</div>
+      </div>
+      <div class="pad"></div>
+    </div>
+    <div class="cap">
+      <b>C — faces as a switch.</b> The two faces are a segmented control at the
+      very top, so the whole screen (art, type line, rules) belongs to the face
+      you picked. Closest to how Scryfall and Moxfield behave.
+      <b>Best if</b> you think of a DFC as genuinely two cards.
+      <b>Cost:</b> the back's rules text needs a tap.
+    </div>
+  </div>
+
+</div>
+
+<p class="note" style="margin-top:28px;">
+  My recommendation is <b>A</b>. It fixes the actual complaint — the flip
+  control is a full-width labelled button that cannot be missed — and it shows
+  both faces' rules at once, which is what you usually want when checking
+  whether a card does what you remember. B and C are both shorter, but each
+  puts something behind a tap, and on this project the recurring failure has
+  been controls people could not find.
+</p>
+
+</body>
+</html>

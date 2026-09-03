@@ -213,9 +213,26 @@ function normalizeCard(raw) {
     ? faces.map(cardFace => `=== ${cardFace.name || ''} ===\n${cardFace.oracle_text || ''}`).join('\n\n')
     : (face.oracle_text || '');
 
+  // The BACK face, for display only.
+  //
+  // `name` stays the FRONT face: it is the identity the import matches on and
+  // what every other screen looks up. These two are additive -- a full display
+  // name in the style every Magic site uses, and the back-face art, which had
+  // nowhere to live so the flip side was simply unviewable.
+  const backFace = hasMultipleFaces ? faces[1] : null;
+
   return {
     id: raw.id,
     name: face.name || raw.name || '',
+    // "Tony Stark // The Invincible Iron Man" -- Scryfall's own full name.
+    // Null for single-faced cards rather than a copy of `name`, so a screen can
+    // tell "this card has two faces" from "this card is normal".
+    display_name: hasMultipleFaces ? (raw.name || null) : null,
+    back_image_url: backFace
+      ? (backFace.image_uris?.normal || backFace.image_uris?.large || null)
+      : null,
+    back_name: backFace ? (backFace.name || null) : null,
+    back_type_line: backFace ? (backFace.type_line || null) : null,
     supertype: 'MTG',
     subtypes: typeLine.split(/[^A-Za-z]+/).filter(Boolean),
     types: colors.map(c => COLOR_NAMES[c] || c),

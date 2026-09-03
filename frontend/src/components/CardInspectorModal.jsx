@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, MapPin, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
-import { formatPrice } from '../utils/formatPrice';
+import { Z_MODAL } from '../utils/zLayers';
+import { RefreshCw, X, Trash2, Star, Maximize2 } from 'lucide-react';
 import { displayName, secondaryName } from '../utils/cardName';
-import { tcgplayerUrl, cardmarketUrl, priceSource, noLinkReason } from '../utils/marketplaceLinks';
 import CardImageZoom from './CardImageZoom';
 import CardEntryFields from './CardEntryFields';
-import PriceHistoryChart from './PriceHistoryChart';
 import AddToDeckSelect from './AddToDeckSelect';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
@@ -18,23 +16,25 @@ const MTG_COLOR_FG = {
   White: '#3a3520', Blue: '#fff', Black: '#fff', Red: '#fff', Green: '#fff'
 };
 
-function getSlotNumber(c) {
-  if (!c) return null;
-  if (c.slot != null) return c.slot;
-  if (c.slot_number != null) return c.slot_number;
-  if (c.__slotNumber != null) return c.__slotNumber;
-  if (typeof c.position === 'number') {
-    if (c.position >= 1000) return Math.floor(c.position / 1000);
-    return Math.floor(c.position) + 1;
-  }
-  return null;
-}
 
 // Shared card detail popup used by Dashboard, CollectionList and LocationManager.
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
 // gets the same rich view + edit without duplicating the form. onUpdate() lets
 // the parent refetch after a change. onViewStorage is optional (hidden if absent).
-function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onViewStorage, startInEdit = false }) {
+function CardInspectorModal({
+  card, onClose, onUpdate, onDeleted, showToast,
+  startInEdit = false,
+  readOnly = false,
+  // REMOVE FROM THIS DECK, supplied only by the deck view.
+  //
+  // Delete cannot be one function: from the collection it destroys a physical
+  // record, from a deck it drops a requirement. handleDelete targets
+  // `entry_id || id`, and from a deck that id is a deck_cards row -- so
+  // reusing it would delete a COLLECTION row whose id happened to match.
+  // The caller owns its own context and passes the right action in.
+  onRemoveFromDeck = null,
+  deckName = null,
+}) {
   const { t } = useT();
   const [mode, setMode] = useState('view');
   const [locations, setLocations] = useState([]);
@@ -53,6 +53,88 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   useBackGuard(isFullScreen, () => setIsFullScreen(false));
 
   const targetEntryId = card?.entry_id || card?.id;
+  // Which face is showing. Only meaningful when the card HAS a back face.
+  const [showBack, setShowBack] = useState(false);
+
+  // THREE TABS, each answering one question:
+  //   card  -- what is this thing, and what does it do?
+  //   yours -- what do I physically have, and where?
+  //   decks -- who wants it, and can they all have it?
+  //
+  // The current screen interleaved all three, which is why the flip control
+  // had nowhere to live and why "add to a deck" sat next to rules text.
+  const [tab, setTab] = useState('card');
+  const [deckUse, setDeckUse] = useState(null);
+  const [deckUseLoading, setDeckUseLoading] = useState(false);
+  // Every printing of this card, for the Yours tab. Same request as the
+  // decks data -- both need the oracle id resolved, so one call serves both.
+  const printings = deckUse?.printings || null;
+
+  // THE CARD, from the server, with the caller's object underneath.
+  //
+  // The caller passes a collection row from one screen and a deck requirement
+  // from the other, and they carry different fields -- a collection row has no
+  // oracle_text and no mana_cost, so the Card tab silently lost its rules text
+  // and mana cost from that screen while the deck view showed both.
+  //
+  // Server values WIN. A card's rules text is a fact about the card, not about
+  // the row that referenced it, so it must not depend on which screen you
+  // opened. The caller keeps only what the server cannot know: which
+  // collection entry this is, and which deck board it sits on.
+  const view = deckUse?.card ? { ...card, ...deckUse.card } : card;
+
+  // THE FACE CURRENTLY SHOWN, for a double-faced card.
+  //
+  // Zach: "if Tony stark is showing that's the card info that should show. If
+  // I flip Tony stark to invincible iron man then that info should show."
+  //
+  // Scryfall stores the two faces joined: type_line and mana_cost as
+  // "front // back", oracle_text as "=== Face ===" blocks. Splitting here
+  // rather than at import keeps one row per printing and one source of truth --
+  // the same reason the ownership rule lives in SQL and not in three
+  // components.
+  //
+  // A single-faced card has no separator, so every split yields one part and
+  // this collapses to exactly what it renders today.
+  // COLOURS, PARSED. The API stores these as a JSON string; every consumer
+  // that forgot to parse rendered nothing and left an empty element behind.
+  const cardColors = (() => {
+    const raw = view?.types;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    }
+    return [];
+  })();
+
+  const faceIndex = showBack && view?.back_image_url ? 1 : 0;
+  const facePart = (val) => {
+    if (typeof val !== 'string') return val;
+    const parts = val.split(' // ');
+    return parts.length > 1 ? (parts[faceIndex] ?? parts[0]) : val;
+  };
+  const faceRules = (() => {
+    const txt = view?.oracle_text;
+    if (typeof txt !== 'string') return txt;
+    const blocks = txt.split(/\n\n(?==== )/);
+    if (blocks.length < 2) return txt;
+    const blk = blocks[faceIndex] ?? blocks[0];
+    // The face header is redundant once only one face is shown -- the card
+    // name above already says which face you are looking at.
+    return blk.replace(/^=== .+? ===\n/, '');
+  })();
+  const faceTypeLine = faceIndex === 1
+    ? (view?.back_type_line || facePart(view?.type_line))
+    : facePart(view?.type_line);
+  // YOUR copies of THIS printing, from the server -- the one source both
+  // callers share. Falls back to the caller's own numbers while the
+  // request is in flight, so the rows do not flash empty.
+  const ownedEntry = deckUse?.owned_entries?.[0] || null;
+  const ownedCopies = (deckUse?.owned_entries || [])
+    .reduce((n, e) => n + (e.quantity || 0), 0) || (card?.quantity ?? 0);
 
   useEffect(() => {
     fetch('/api/locations')
@@ -64,7 +146,14 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   useEffect(() => {
     if (!card) return;
     hasToggledRef.current = false;
-    setMode(startInEdit ? 'edit' : 'view');
+    // readOnly wins: a deck card has no collection entry to edit.
+    setMode(startInEdit && !readOnly ? 'edit' : 'view');
+    // Always open on the front: carrying the flipped state into the next
+    // card would show a face the user did not ask for.
+    setShowBack(false);
+    setTab('card');
+    setDeckUse(null);
+    deckFetchFor.current = null;
     setQ(card.quantity ?? 1);
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.finish || 'nonfoil');
@@ -75,7 +164,120 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
     setListType(card.list_type || 'collection');
     setNotes(card.notes || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset form only when the entry changes, not on every card mutation
-  }, [targetEntryId, startInEdit]);
+  }, [targetEntryId, startInEdit, readOnly]);
+
+  // Load the Decks tab on demand. Most opens never leave the Card tab, so
+  // fetching this up front would cost a request per card view for data that is
+  // usually not looked at.
+  // IN-FLIGHT GUARD AS A REF, NOT STATE.
+  //
+  // This effect used to list deckUseLoading as a dependency AND set it, so it
+  // cancelled its own request: setting the flag re-ran the effect, the
+  // previous run's cleanup set cancelled = true, and the response that
+  // arrived afterwards was thrown away by a closure that no longer trusted
+  // itself. setDeckUse was never called and the spinner ran forever.
+  //
+  // "A request is in flight" is not something the UI renders, so it must not
+  // drive a re-render or re-run.
+  // PER-MOUNT, NOT PER-CARD-ID.
+  //
+  // This used to be cleared only by the reset effect, which keys on
+  // targetEntryId -- so closing and REOPENING THE SAME CARD left the ref set,
+  // the guard returned early forever, and the sheet never loaded again.
+  // Zach: "when I went out and back in now it won't load".
+  //
+  // A ref created at mount is fresh every time the modal opens, and the id
+  // comparison still prevents a refetch loop while it is open.
+  // THE CATALOGUE ID, derived once.
+  //
+  // Held outside the fetch effect so the effect depends on a single primitive
+  // rather than reading three fields off `card`. Depending on `card` itself
+  // would refetch on every mutation of that object -- the edit form writes
+  // card.quantity in place -- and depending on the three fields separately is
+  // a longer way to say the same thing.
+  //
+  // A collection row carries card_id; a deck entry carries desired_card_id and
+  // puts its own row id in `id`. Falling through to `id` from a deck sends a
+  // deck_cards row number to a card_cache lookup: 404, and an empty tab.
+  const catalogueId = card?.card_id || card?.desired_card_id || card?.id;
+
+  // Bumped by invalidateDeckUse so the fetch effect can depend on a real
+  // input instead of on the state it writes.
+  const [deckRefresh, setDeckRefresh] = useState(0);
+
+  const deckFetchFor = useRef(null);
+
+  // REFETCH WHEN THE CARD'S DECK MEMBERSHIP CHANGES.
+  //
+  // Zach: "when I do add to deck the in your deck section doesn't update".
+  // Adding to a deck changes what this endpoint would return, so the cached
+  // response has to be dropped -- otherwise the tab shows the state from
+  // before the add.
+  const invalidateDeckUse = () => {
+    deckFetchFor.current = null;
+    setDeckUse(null);
+    setDeckRefresh(n => n + 1);
+  };
+
+  // LOCK THE PAGE BEHIND THE MODAL.
+  //
+  // Zach: "the whole window wants to scroll". Opening a modal does not stop
+  // the body scrolling, so a flick anywhere -- including on the dimmed
+  // backdrop -- drags the page underneath. That reads as the modal being too
+  // big even when it fits, because the thing that moves is the window.
+  //
+  // The previous scroll position is restored on close: locking with
+  // overflow:hidden alone makes the page jump to the top when it is released.
+  useEffect(() => {
+    const { body } = document;
+    const previous = body.style.overflow;
+    body.style.overflow = 'hidden';
+    return () => { body.style.overflow = previous; };
+  }, []);
+
+  useEffect(() => {
+    // FETCHED FOR EVERY TAB, INCLUDING THE ONE YOU LAND ON.
+    //
+    // This used to skip the Card tab, on the theory that most opens never
+    // leave it. But the Card tab is the DEFAULT, so the merge never ran on
+    // first open and the sheet fell back to the caller's object -- which from
+    // the collection has no oracle_text and no mana_cost. Same card, two
+    // screens, two answers, for the sake of avoiding one request.
+    // THE CARD_CACHE ID, not the collection entry id. Opened from the
+    // collection, card.id is undefined and card.entry_id is the collection row
+    // (206) -- card_id holds the catalogue id the endpoint needs. Sending the
+    // entry id returned 404, so deckUse stayed null and BOTH the Decks tab and
+    // the Yours tab's other-printings list rendered nothing.
+    // The catalogue id, from EITHER shape. A collection row carries card_id;
+    // a deck entry carries desired_card_id and puts its own row id in `id`.
+    // Falling back to `id` from a deck sends a deck_cards row number to a
+    // card_cache lookup -- 404, and an empty tab.
+    if (!catalogueId) return;
+    if (deckFetchFor.current === catalogueId) return;
+
+    deckFetchFor.current = catalogueId;
+    let cancelled = false;
+    setDeckUseLoading(true);
+    // Routers mount at bare /api -- see server.js:250.
+    fetch(`/api/card/${catalogueId}/decks`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setDeckUse(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setDeckUseLoading(false); });
+    return () => { cancelled = true; };
+    // DEPENDENCIES THE EFFECT ACTUALLY READS.
+    //
+    // This used to list `deckUse` -- the state this effect SETS -- and relied
+    // on an early return to stop the loop. That is the same self-triggering
+    // shape as the bug that once made this tab spin forever, held in check by
+    // a guard instead of by design.
+    //
+    // `deckRefresh` is an explicit "reload was requested" counter, so the
+    // effect depends on an input rather than on its own output. It also listed
+    // `tab`, which it stopped reading when the Card tab began needing this
+    // response, and omitted desired_card_id, which it does read -- switching
+    // between two deck entries could reuse the previous card's data.
+  }, [catalogueId, deckRefresh]);
 
   const handleClose = () => {
     if (hasToggledRef.current && onUpdate) {
@@ -91,6 +293,13 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
   const handleSave = async (e) => {
     e.preventDefault();
     if (!targetEntryId) return;
+    // A deck card is NOT a collection entry. Saving one would PUT to
+    // /api/collection/<deck_cards.id> and rewrite whichever collection row
+    // shares that number -- silently, and on a card the user is not looking at.
+    if (readOnly) {
+      showToast && showToast(t('card.viewOnly'), 'error');
+      return;
+    }
     try {
       const res = await fetch(`/api/collection/${targetEntryId}`, {
         method: 'PUT',
@@ -186,10 +395,26 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       });
       const data = await res.json().catch(() => ({}));
       showToast && showToast(res.ok ? (data.message || t('inspector.addedToDeck')) : (data.error || t('inspector.errAddDeck')));
+      // The Decks tab now shows stale data: this card is in one more deck than
+      // the cached response says. Zach: "when I do add to deck the in your
+      // deck section doesn't update".
+      if (res.ok) invalidateDeckUse();
     } catch (err) {
       console.error(err);
       showToast && showToast(t('inspector.errAddDeckGeneric'));
     }
+  };
+
+  // Remove this card from the DECK it was opened from. Distinct from
+  // handleDelete, which destroys a collection record.
+  const handleRemoveFromDeck = async () => {
+    if (!onRemoveFromDeck) return;
+    const label = deckName
+      ? t('inspector.confirmRemoveFromDeck', { name: view.name, deck: deckName })
+      : t('inspector.confirmRemoveFromDeckShort', { name: view.name });
+    if (!window.confirm(label)) return;
+    await onRemoveFromDeck(card);
+    onClose();
   };
 
   const handleDelete = async () => {
@@ -222,39 +447,123 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 999
+      // ROOM TO BREATHE. A full-bleed overlay puts a 90vh panel flush against
+      // the viewport edges, so any browser chrome or dynamic toolbar tips it
+      // over. The safe-area insets matter on a phone with a notch or a home
+      // bar, where the usable height is smaller than the reported height.
+      padding: 'max(0.75rem, env(safe-area-inset-top, 0px)) 0.75rem '
+             + 'max(0.75rem, env(safe-area-inset-bottom, 0px))',
+      boxSizing: 'border-box',
+      // The overlay itself must never scroll -- .ci-scroll is the only
+      // scrolling region in this modal.
+      overflow: 'hidden',
+      zIndex: Z_MODAL
     }} onClick={handleClose}>
       <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
-        <button className="btn btn-secondary btn-icon-only" onClick={handleClose} style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-          borderRadius: '50%',
-          zIndex: 10
+        {/* CLOSE, IN THE FLOW.
+            This was position:absolute at top:1rem of the panel, and Zach
+            reported it missing twice for two different reasons: first the
+            panel scrolled and carried it off, then the header outgrew the
+            viewport and took it off the top. An absolute button has no
+            relationship to the layout -- it goes wherever the panel's top
+            goes, including off-screen.
+            As a flex row it cannot be anywhere the panel is not. */}
+        <div style={{
+          order: -1,
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          flex: '0 0 auto',
+          // Pulled tight: this row exists only to place the button, so
+          // its height is pure slack above the card. Zach: "feels like maybe
+          // there is to much white space".
+          marginBottom: '-1.75rem',
         }}>
-          <X size={16} />
-        </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-icon-only"
+            onClick={handleClose}
+            aria-label={t('common.close')}
+            style={{ borderRadius: '50%' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
 
         {/* Left side: Main Card Image Focus */}
-        <div className="ci-image-col" style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {/* flex: 0 0 auto -- the column must NOT shrink to fit its content.
+            With `0 1 auto` its basis was the content's CURRENT height, so a
+            re-render measured the shrunken image and shrank it further. The
+            image now has a fixed height, so the column has a stable size and
+            the scroller absorbs any overflow instead. */}
+        <div className="ci-image-col" style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div
             className="ci-image-wrap"
             onClick={() => setIsFullScreen(true)}
             title={t('inspector.zoomHint')}
-            style={{ position: 'relative', width: '100%', maxWidth: '300px', cursor: 'pointer' }}
+            style={{
+              position: 'relative',
+              // A FIXED HEIGHT, NOT A CAP.
+              //
+              // This was maxHeight, which is a ceiling rather than a size: the
+              // actual height came from whatever space the flex layout offered,
+              // and the column's flex-basis:auto then MEASURED that height on
+              // the next render. Each tab switch or flip re-measured the
+              // already-shrunken image, took it as the new preferred size and
+              // shrank again -- Zach: "shrinks sometimes shrinks multiple
+              // times". It never recovered, because nothing pushed back up.
+              //
+              // A height in viewport units is the same number before and after
+              // a re-render, so there is nothing left to ratchet.
+              // 30% smaller, at Zach's request: "can the image maybe shrink
+              // 30% it's taking up to much of the screen". BOTH caps scale
+              // together -- shrinking only one would make the card 30% smaller
+              // on a tall phone and unchanged on a short one.
+              height: 'min(24vh, 239px)',
+              width: 'auto',
+              aspectRatio: 0.718,
+              flex: '0 0 auto',
+              minHeight: 0,
+              cursor: 'pointer',
+              display: 'flex',
+            }}
           >
             <img
-              src={card.image_url}
-              alt={card.name}
+              src={showBack && view.back_image_url ? view.back_image_url : view.image_url}
+              alt={showBack && view.back_name ? view.back_name : view.name}
               style={{
+                // Fill the wrapper, which now HAS a size. The image no longer
+                // decides anything: it cannot feed a measurement back into the
+                // layout that produced it.
+                height: '100%',
                 width: '100%',
-                aspectRatio: 0.718,
-                objectFit: 'cover',
+                objectFit: 'contain',
                 borderRadius: 'var(--radius-md)',
                 boxShadow: '0 12px 36px rgba(0,0,0,0.6), 0 0 20px rgba(255,255,255,0.05)',
                 transition: 'transform 0.2s ease'
               }}
             />
+            {/* FLIP. Rendered only when there IS a second face -- a
+                single-faced card must not grow a button that does nothing. */}
+            {view.back_image_url && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowBack(v => !v); }}
+                style={{
+                  position: 'absolute', right: 10, bottom: 10,
+                  display: 'flex', alignItems: 'center', gap: '0.35rem',
+                  minHeight: 34, padding: '0 0.7rem',
+                  borderRadius: 'var(--radius-md)', border: 0,
+                  background: 'rgba(0,0,0,0.72)', color: '#fff',
+                  font: 'inherit', fontSize: '0.78rem', fontWeight: 600,
+                  cursor: 'pointer', zIndex: 2,
+                }}
+              >
+                <RefreshCw size={13} />
+                {showBack ? view.name : view.back_name}
+              </button>
+            )}
             <div style={{
               position: 'absolute',
               bottom: '0.6rem',
@@ -279,8 +588,11 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
         </div>
 
         {/* Right side: Information / Edit */}
-        <div className="ci-info-col" style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '1.25rem', justifyContent: 'space-between' }}>
-          <div>
+        <div className="ci-info-col" style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '0.75rem', justifyContent: 'flex-start' }}>
+          {/* HEADER -- stays put while the body scrolls. The close button,
+              the art and the tabs must stay reachable no matter how long
+              the rules text is. */}
+          <div className="ci-head">
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
               {card.list_type === 'wishlist' && (
                 <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
@@ -298,41 +610,168 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
                 utils/cardName.js -- one rule, so the inspector and the grid can
                 never disagree about what a card is called. */}
             <h3 style={{ fontSize: '1.65rem', color: 'var(--text-strong)', fontWeight: 800, lineHeight: 1.15, marginBottom: '0.25rem' }}>
-              {displayName(card)}
+              {/* The face's own name. Everything else on this tab follows
+                  the flip; a fixed heading would be the only thing left
+                  disagreeing with the picture. */}
+              {faceIndex === 1 && view.back_name
+                ? view.back_name
+                : displayName(view)}
             </h3>
-            {secondaryName(card) && (
+            {/* TYPE LINE, DIRECTLY UNDER THE NAME. Zach: "we need to move
+                the type line to below name of card." It used to open the Card
+                tab, which put the tab bar between a card's name and its type
+                -- two halves of one identity, separated by navigation. */}
+            <div style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.35,
+              marginTop: '0.15rem',
+            }}>
+              {faceTypeLine}
+            </div>
+
+            {secondaryName(view) && (
               <p style={{
                 color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500,
                 marginBottom: '0.25rem',
               }}>
-                {secondaryName(card)}
+                {faceIndex === 1 && view.back_name
+                  ? (view.name || secondaryName(view))
+                  : secondaryName(view)}
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
               {card.set_name}
-              {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''} • {t('inspector.owned', { count: card.quantity ?? 1 })}
+              {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''}
+              {/* OWNED COUNT, FROM THE SERVER.
+                  This read `card.quantity ?? 1` -- the CALLER's object. From a
+                  deck that is how many the DECK WANTS, so a deck requirement
+                  rendered as "x1 owned" for a card Zach does not own. His two
+                  screenshots disagreed with each other and the header was the
+                  wrong one. The `?? 1` default also turned missing data into a
+                  claim of ownership.
+                  deckUse.owned is what the Decks tab already trusts. */}
+              {deckUse ? ` • ${t('inspector.owned', { count: deckUse.owned ?? 0 })}` : ''}
             </p>
 
-            {/* MTG color pips and type line. */}
-            {card.supertype === 'MTG' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                {(Array.isArray(card.types) ? card.types : []).map(color => (
-                  <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
-                    fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em',
-                    padding: '0.15rem 0.45rem', borderRadius: '999px',
-                    background: MTG_COLOR_BG[color] || 'rgba(255,255,255,0.1)',
-                    color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
-                  }}>{color}</span>
-                ))}
-                {(!card.types || card.types.length === 0) && (
-                  <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>{t('inspector.colorless')}</span>
+            {/* THREE TABS. Each answers a different question, which is the
+                only thing that justifies a tap: what the card IS, what you
+                OWN, and which decks WANT it.
+
+                No counts on the labels. Zach: "can remove the numbers from the
+                tabs seems pointless". */}
+            <div style={{
+              display: 'flex', gap: 4, marginTop: '0.5rem', marginBottom: '0.35rem',
+              background: 'var(--bg-secondary)', padding: 3, borderRadius: 10,
+              border: '1px solid var(--border-glass)',
+            }}>
+              {[['card', t('inspector.tabCard')],
+                ['yours', t('inspector.tabYours')],
+                ['decks', t('inspector.tabDecks')]].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  style={{
+                    flex: 1, minHeight: 36, border: 0, borderRadius: 8,
+                    background: tab === id ? 'var(--bg-tertiary)' : 'transparent',
+                    color: tab === id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    font: 'inherit', fontSize: '0.82rem', fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* THE ONLY SCROLLING REGION. Zach: "I think it would make sense
+              for the section below the 3 tabs to be the scrollable area." */}
+          <div className="ci-scroll">
+
+
+            {/* ============================ CARD TAB ============================
+                What this thing is and what it does. Built from the mockup
+                rather than from whatever the old layout left behind. */}
+            {tab === 'card' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+
+                {/* TYPE LINE, from type_line -- NOT from `subtypes`, which is
+                    type_line split on non-letters and rejoined with spaces
+                    (scryfallApi.js:220). For a double-faced card that welds
+                    both faces together and drops every separator, which is
+                    exactly what Zach's screenshot showed. */}
+                {/* COLOUR PIPS.
+                    `types` arrives as a JSON STRING ('["Black"]'), not an
+                    array, so Array.isArray was false and this mapped over
+                    nothing -- no pips on ANY card. Worse, the wrapper still
+                    rendered: a zero-height flex child with the tab's 0.6rem
+                    gap on both sides, doubling the space above the rules text.
+                    Zach circled that gap twice.
+                    Parsed here, and the wrapper only renders when it has
+                    something to show. */}
+                {view.supertype === 'MTG' && (cardColors.length > 0 || facePart(view.mana_cost)) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {cardColors.map(color => (
+                      <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
+                        fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em',
+                        padding: '0.15rem 0.45rem', borderRadius: '999px',
+                        background: MTG_COLOR_BG[color] || 'rgba(255,255,255,0.1)',
+                        color: MTG_COLOR_FG[color] || '#fff', border: '1px solid rgba(0,0,0,0.2)'
+                      }}>{color}</span>
+                    ))}
+                    {/* MANA COST, beside the colours.
+                        Zach: "get rid of the bottom grid and add mana value
+                        next to the red blue chips in that margin". It was the
+                        only row in that grid not already on screen -- rarity
+                        is in the header and colour identity IS these pips. */}
+                    {facePart(view.mana_cost) && (
+                      <span style={{
+                        fontSize: '0.72rem', fontWeight: 700,
+                        padding: '0.15rem 0.5rem', borderRadius: '999px',
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-glass)',
+                        color: 'var(--text-primary)',
+                        marginLeft: cardColors.length ? '0.15rem' : 0,
+                      }}>
+                        {facePart(view.mana_cost)}
+                      </span>
+                    )}
+                  </div>
                 )}
-                {Array.isArray(card.subtypes) && card.subtypes.length > 0 && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{card.subtypes.join(' ')}</span>
+
+                {/* A genuinely colourless card still says so -- but only when
+                    the card really has no colours, not when the field failed
+                    to parse. Those are different facts and the old code could
+                    not tell them apart. */}
+                {view.supertype === 'MTG' && cardColors.length === 0 && (
+                  <div>
+                    <span style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'rgba(180,180,180,0.25)', color: '#eee' }}>
+                      {t('inspector.colorless')}
+                    </span>
+                  </div>
                 )}
+
+                {/* RULES TEXT, BOTH FACES. The mockup shows them together so
+                    you never flip merely to read the back. normalizeCard stores
+                    them as "=== Face ===\n<text>" blocks joined by a blank
+                    line, so the face headers are already there to split on. */}
+                {faceRules && (
+                  <div style={{
+                    background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                    borderRadius: 'var(--radius-md)', padding: '0.75rem',
+                    fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-primary)',
+                    whiteSpace: 'pre-wrap',
+                  }}>
+                    {faceRules}
+                  </div>
+                )}
+
               </div>
             )}
-          </div>
+          
+
 
           {mode === 'edit' ? (
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -392,153 +831,367 @@ function CardInspectorModal({ card, onClose, onUpdate, onDeleted, showToast, onV
             </form>
           ) : (
             <>
-              {/* Price Panel */}
-              <div style={{ borderTop: '1px solid var(--border-glass)', borderBottom: '1px solid var(--border-glass)', padding: '0.75rem 0', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-                <div>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t('inspector.marketPrice')}</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--accent-yellow)', marginTop: '0.15rem' }}>
-                    ${formatPrice(card.price_trend)}
-                  </div>
-                  {/* Say where a non-English price came from and in what currency —
-                      it is Cardmarket's EUR figure rendered with the app's $. */}
-                  {priceSource(card) && (
-                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                      {t('inspector.priceVia', { source: priceSource(card).name, currency: priceSource(card).currency })}
+              {/* Price Panel -- YOURS: what your copies are worth. */}
+              {tab === 'yours' && (<>
+
+                {/* THIS PRINTING. Scoped deliberately: Bindarr records the
+                    exact physical card, so "how many do I own" is a question
+                    about MSH #80, not about Tony Stark in general. */}
+                  <div style={{
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                  borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem',
+                }}>
+                  {[
+                    // FROM THE SERVER, not from the caller's object. The
+                    // collection passes a collection row and the deck view
+                    // passes a deck requirement -- different shapes, different
+                    // fields -- so reading them directly made the SAME CARD
+                    // look different depending on which screen opened it.
+                    // Zach: "The card detail view should be no different
+                    // between collection and deck view."
+                    //
+                    // owned_entries comes from the endpoint both tabs already
+                    // call, so the two callers cannot diverge. Same technique
+                    // as the shared search row: identical by construction
+                    // rather than by my remembering to update two places.
+                    [t('inspector.finish'), ownedEntry?.finish
+                      || card.finish || card.desired_finish || 'nonfoil'],
+                    [t('inspector.condition'), ownedEntry?.condition || null],
+                    // "Not filed yet" only when a copy EXISTS to be filed. For
+                    // a card you do not own, a location row would describe a
+                    // shelf that holds nothing.
+                    [t('inspector.location'), ownedEntry
+                      ? (ownedEntry.location_name || t('inspector.notFiled'))
+                      : null],
+                    [t('inspector.value'), card.price_trend && ownedCopies
+                      ? `$${(Number(card.price_trend) * ownedCopies).toFixed(2)}`
+                      : null],
+                  ].filter(([, v]) => v).map(([k, v], i) => (
+                    <div key={k} style={{
+                      display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
+                      padding: '0.6rem 0.75rem', minHeight: 42, fontSize: '0.82rem',
+                      borderTop: i ? '1px solid var(--border-glass)' : 0,
+                    }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                      <span style={{ fontWeight: 600, textAlign: 'right' }}>{v}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
-                <div>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t('inspector.purchaseValue')}</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-strong)', marginTop: '0.15rem' }}>
-                    ${formatPrice(card.purchase_price)}
-                  </div>
-                </div>
-              </div>
 
-              {/* Marketplace links are rendered only when they can resolve. */}
-              {(tcgplayerUrl(card) || cardmarketUrl(card)) ? (
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {tcgplayerUrl(card) && (
-                    <a
-                      href={tcgplayerUrl(card)} target="_blank" rel="noopener noreferrer"
-                      className="btn btn-secondary"
-                      style={{ flex: 1, minWidth: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontSize: '0.75rem' }}
-                    >
-                      <ExternalLink size={13} /> {t('inspector.viewOnTcgplayer')}
-                    </a>
-                  )}
-                  {cardmarketUrl(card) && (
-                    <a
-                      href={cardmarketUrl(card)} target="_blank" rel="noopener noreferrer"
-                      className="btn btn-secondary"
-                      style={{ flex: 1, minWidth: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontSize: '0.75rem' }}
-                    >
-                      <ExternalLink size={13} /> Cardmarket
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  {noLinkReason(card)}
-                </div>
-              )}
-
-              {/* Price History Area Chart */}
-              <PriceHistoryChart cardId={card.card_id} height={100} defaultRange="30d" />
-
-              {/* Specifications Details Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specCondition')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.condition}</span></div>
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specPrinting')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.printing}</span></div>
-
-                <div><span style={{ color: 'var(--text-muted)' }}>{t('inspector.specSupertype')}</span> <span style={{ color: 'var(--text-strong)', fontWeight: 600 }}>{card.supertype}</span></div>
-              </div>
-
-              {/* Storage Container details (clickable to view in storage) */}
-              {card.list_type !== 'wishlist' && (
-                <div 
-                  onClick={() => onViewStorage && card.list_type !== 'wishlist' && onViewStorage(card)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '0.5rem',
-                    background: 'rgba(255, 71, 71, 0.03)', padding: '0.65rem 0.75rem',
-                    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
-                    fontSize: '0.75rem', cursor: onViewStorage ? 'pointer' : 'default',
-                    transition: 'background 0.2s'
-                  }}
-                  title={onViewStorage ? t('inspector.viewInStorage') : undefined}
-                >
-                  <MapPin size={14} style={{ color: 'var(--accent-red)', flexShrink: 0 }} />
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    <span style={{ color: 'var(--text-muted)' }}>{t('inspector.locationLabel')} </span>
-                    <strong style={{ color: 'var(--text-strong)' }}>
-                      {card.location_name ? `${card.location_name}${card.location_type ? ` (${card.location_type})` : ''}` : t('bulk.unassignedPile')}
-                    </strong>
-                    {card.location_name && card.compartment_display_label && (
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {` • ${card.compartment_display_label}`}
-                        {getSlotNumber(card) !== null ? ` • ${t('wizard.slot', { slot: getSlotNumber(card) })}` : ''}
+                {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
+                    found four "identical" Tony Starks that were different
+                    printings between $6.50 and $76.94. Telling them apart is
+                    the difference between buying the right card and the wrong
+                    one. Loaded with the Decks tab data, which already knows
+                    every printing of this oracle id. */}
+                {printings && printings.length > 1 && (
+                  <div style={{ marginBottom: '0.85rem' }}>
+                    <div style={{
+                      fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                      textTransform: 'uppercase', color: 'var(--text-muted)',
+                      marginBottom: '0.4rem',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    }}>
+                      <span>{t('inspector.otherPrintings')}</span>
+                      {/* States the fact plainly rather than leaving him to
+                          infer it from an absence. */}
+                      <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
+                        {t('inspector.ownNoneOfThese')}
                       </span>
-                    )}
+                    </div>
+                    <div style={{
+                      background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                      borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                    }}>
+                      {printings.filter(pr => pr.id !== (card.card_id || card.id))
+                        .map((pr, i) => {
+                          let fin = [];
+                          try { fin = Array.isArray(pr.finishes) ? pr.finishes : JSON.parse(pr.finishes || '[]'); }
+                          catch { fin = []; }
+                          const foilOnly = fin.length === 1 && fin[0] === 'foil';
+                          return (
+                            <div key={pr.id} style={{
+                              display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
+                              padding: '0.6rem 0.75rem', minHeight: 44, fontSize: '0.82rem',
+                              borderTop: i ? '1px solid var(--border-glass)' : 0,
+                            }}>
+                              <span style={{ minWidth: 0 }}>
+                                <span style={{ display: 'block', fontWeight: 600 }}>
+                                  {(pr.set_id || '').toUpperCase()} #{pr.number}
+                                </span>
+                                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                  {pr.set_name}
+                                  {foilOnly && ` · ${t('card.foilOnly')}`}
+                                </span>
+                              </span>
+                              <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                                {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {card.notes && (
-                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '0.6rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {card.notes}
-                </div>
-              )}
+              {/* The legacy price/chart/specs panel lived here. Removed at
+                  Zach's request -- "Why is that view still in the yours section
+                  it should go just should be edit button section." It is not in
+                  the mockup and it repeated what the blocks above already say:
+                  Condition twice, Location twice under two different names.
 
-              {/* Main Actions Row: Edit Card + Icon buttons for Favorite & Delete */}
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setMode('edit')}>
-                  {t('inspector.editCard')}
-                </button>
+                  Market price and the marketplace links are reachable from the
+                  Edit view, which is where changing a card belongs. */}
+                {/* ACTIONS FOR A CARD YOU OWN.
+                    Zach: "This is where edit card should be and only be here
+                    when coming from the collection and this is where favorite
+                    and delete should live as well." Editing, favouriting and
+                    deleting all act on a COLLECTION ROW, so they belong on the
+                    tab that describes it -- and only when one exists. */}
+                {ownedEntry && !readOnly && (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
+                    <button
+                      className="btn btn-primary"
+                      style={{ flex: 1 }}
+                      onClick={() => setMode('edit')}
+                    >
+                      {t('inspector.editCard')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
+                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                      onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
+                      title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
+                    >
+                      <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-icon-only"
+                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                      onClick={handleDelete}
+                      title={t('inspector.deleteCard')}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
 
-                <AddToDeckSelect
-                  onAdd={handleAddToDeck}
-                  placeholder={t('inspector.addToDeck')}
-                  style={{ fontSize: '0.8rem', padding: '0.45rem 0.5rem', maxWidth: '140px' }}
-                />
-
-                {card.list_type === 'wishlist' && (
-                  <button 
-                    className="btn btn-secondary" 
-                    style={{ backgroundColor: 'rgba(74,222,128,0.2)', color: 'var(--type-grass)', border: '1px solid rgba(74,222,128,0.3)', padding: '0 0.75rem', fontSize: '0.8rem' }} 
-                    onClick={() => handleQuickToggle('list_type', 'collection')}
-                    title={t('bulk.moveToCollection')}
+                {/* FROM A DECK, delete means REMOVE FROM THIS DECK. Zach: "The
+                    delete when coming from deck view should delete the card
+                    from the deck not the collection otherwise seems weird."
+                    The wording says where the copy goes, because a delete that
+                    might destroy a record is not one to guess at. */}
+                {onRemoveFromDeck && (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    style={{ width: '100%', marginBottom: '0.85rem' }}
+                    onClick={handleRemoveFromDeck}
                   >
-                    {t('inspector.obtained')}
+                    <Trash2 size={16} />
+                    {t('inspector.removeFromDeck')}
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
-                  style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem', ...(favorite === 1 ? { backgroundColor: 'rgba(250,204,21,0.2)', color: '#facc15', border: '1px solid rgba(250,204,21,0.3)' } : {}) }}
-                  onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
-                  title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
-                >
-                  <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
-                </button>
+              </>)}
 
-                <button
-                  type="button"
-                  className="btn btn-danger btn-icon-only"
-                  style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
-                  onClick={handleDelete}
-                  title={t('inspector.deleteCard')}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
+              {/* DECKS -- who wants this card, and can they all have it. */}
+              {tab === 'decks' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {deckUseLoading && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {t('common.loading')}
+                    </div>
+                  )}
+
+                  {/* SHORTFALL, and only for REAL requirements. Zach: "that
+                      warning should only show if its in the main deck". A
+                      considering entry is a shopping note -- the server does
+                      not count it for missing copies or deck size, and neither
+                      does this. */}
+                  {deckUse && deckUse.reserved > deckUse.owned && (
+                    <div style={{
+                      padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-md)',
+                      background: 'rgba(255,214,10,.1)',
+                      border: '1px solid rgba(255,214,10,.3)',
+                      color: 'var(--accent-yellow)', fontSize: '0.8rem', lineHeight: 1.45,
+                    }}>
+                      {t('inspector.shortfall', { owned: deckUse.owned, reserved: deckUse.reserved })}
+                    </div>
+                  )}
+
+                  {deckUse && deckUse.decks.length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {t('inspector.noDecks')}
+                    </div>
+                  )}
+
+                  {deckUse && deckUse.decks.length > 0 && (<>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                    textTransform: 'uppercase', color: 'var(--text-muted)',
+                    marginBottom: '0.4rem',
+                  }}>
+                    <span>{t('inspector.inYourDecks')}</span>
+                  </div>
+                    <div style={{
+                      background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-glass)', overflow: 'hidden',
+                    }}>
+                      {deckUse.decks.map((d, i) => (
+                        <div key={`${d.deck_id}-${d.board}-${i}`} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          gap: '0.6rem', padding: '0.65rem 0.75rem', minHeight: 46,
+                          borderTop: i ? '1px solid var(--border-glass)' : 0,
+                        }}>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600,
+                                           whiteSpace: 'nowrap', overflow: 'hidden',
+                                           textOverflow: 'ellipsis' }}>
+                              {d.deck_name}
+                            </span>
+                            {/* THE PRINTING EACH DECK WANTS. Two decks can want
+                                different printings at very different prices --
+                                Zach's Tony Stark deck wants MSH #80 at $6.50
+                                and his Hashaton deck wants MSH #363 at $25.30.
+                                A row saying only the deck name hides that. */}
+                            <span style={{ display: 'block', fontSize: '0.7rem',
+                                           color: 'var(--text-muted)' }}>
+                              {t('inspector.deckWants', {
+                                printing: `${(d.set_id || '').toUpperCase()} #${d.number}`,
+                              })}
+                              {d.price_trend ? ` · $${Number(d.price_trend).toFixed(2)}` : ''}
+                            </span>
+                          </span>
+                          {/* Considering is LABELLED, not flagged as a fault.
+                              Zach: "if we are going to show a card in a deck
+                              even if its in considering then we should note
+                              that." */}
+                          {/* Considering is LABELLED, not flagged as a fault.
+                              A real requirement says whether it is COVERED --
+                              the question the tab exists to answer. */}
+                          {/* THE SERVER DECIDES, per requirement, in claim
+                              order. Rendering "Covered" for every real
+                              requirement was a label rather than a
+                              calculation: with one copy owned and two decks
+                              wanting it, both rows claimed Covered while the
+                              banner directly above said one was short. */}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                            <span style={{
+                              fontSize: '0.7rem', fontWeight: 600,
+                              color: d.board === 'considering'
+                                ? 'var(--text-muted)'
+                                : (d.covered ? 'var(--accent-green)' : 'var(--accent-yellow)'),
+                            }}>
+                              {d.board === 'considering'
+                                ? t('inspector.considering')
+                                : (d.covered ? t('inspector.covered') : t('inspector.short'))}
+                            </span>
+                            {/* REMOVE FROM THIS DECK, on the deck's own row.
+                                Zach: "Maybe a delete in each row for the decks
+                                it shows in." Better than one modal-wide
+                                delete: the tab lists several decks, so a
+                                single button would need a picker to say WHICH.
+                                Shown only for the deck the sheet was opened
+                                from -- the collection has no deck context to
+                                act with. */}
+                            {onRemoveFromDeck && deckName === d.deck_name && (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-icon-only"
+                                style={{ borderRadius: 'var(--radius-sm)', padding: '0.35rem' }}
+                                onClick={handleRemoveFromDeck}
+                                title={t('inspector.removeFromDeck')}
+                                aria-label={t('inspector.removeFromDeck')}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>)}
+
+                  {deckUse && (<>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                    textTransform: 'uppercase', color: 'var(--text-muted)',
+                    marginBottom: '0.4rem',
+                  }}>
+                      <span>{t('inspector.availability')}</span>
+                    </div>
+                    <div style={{
+                      background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-glass)', overflow: 'hidden',
+                    }}>
+                      {[[t('inspector.reservedCount'), deckUse.reserved],
+                        [t('inspector.freeCount'), deckUse.free]].map(([k, v], i) => (
+                        <div key={k} style={{
+                          display: 'flex', justifyContent: 'space-between',
+                          padding: '0.6rem 0.75rem', minHeight: 42,
+                          borderTop: i ? '1px solid var(--border-glass)' : 0,
+                          fontSize: '0.82rem',
+                        }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                          <span style={{ fontWeight: 600 }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>)}
+
+                  {/* ADD TO A DECK -- only here. Zach: "on the card tab remove
+                      the add to deck button should only show on the deck tab."
+                      The action needs its context: on this tab you can see who
+                      already wants the card and how many are free before
+                      committing another copy. Hidden in read-only mode, where
+                      the card is a deck entry rather than a collection row. */}
+                  {/* ADD TO A DECK -- the Decks tab's primary action, styled
+                      like Edit on the Yours tab. Zach: "Just an add to deck
+                      button styled just like the edit." */}
+                  {!readOnly && (
+                    <div style={{ marginTop: '0.25rem' }}>
+                {/* STYLED AS THE PRIMARY ACTION, matching Edit on the Yours
+                    tab. Zach: "please make it the same as the edit button".
+                    The values live here rather than in a stylesheet because
+                    this component takes a `style` prop -- and an inline style
+                    silently beat my .ci-add-deck rule last time, leaving it a
+                    140px dropdown beside a full-width button. */}
+                <AddToDeckSelect
+                  onAdd={handleAddToDeck}
+                  placeholder={t('inspector.addToDeck')}
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    maxWidth: 'none',
+                    minHeight: 42,
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    padding: '0 0.9rem',
+                    textAlign: 'center',
+                    textAlignLast: 'center',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    cursor: 'pointer',
+                  }}
+                />
+                    </div>
+                  )}
+                </div>
+              )}
+
             </>
           )}
         </div>
-      </div>
+                </div>
+</div>
 
       {isFullScreen && (
-        <CardImageZoom src={card.image_url} alt={card.name} onClose={() => setIsFullScreen(false)} />
+        <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />
       )}
     </div>
   );

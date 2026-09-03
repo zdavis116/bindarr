@@ -87,7 +87,7 @@ export default function MissingCardsPanel({
         style={{
           display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
           gap: '0.6rem', padding: '0.45rem 0.6rem',
-          background: 'rgba(0,0,0,0.15)', borderRadius: 'var(--radius-sm)',
+          background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)',
           fontSize: '0.8rem'
         }}
       >
@@ -99,7 +99,7 @@ export default function MissingCardsPanel({
             {badge && (
               <span style={{
                 fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em',
-                color: 'var(--accent-yellow)', border: '1px solid rgba(234,179,8,0.4)',
+                color: 'var(--accent-yellow)', border: '1px solid var(--accent-yellow)',
                 borderRadius: 'var(--radius-sm)', padding: '0 4px'
               }}>
                 {badge}
@@ -198,7 +198,7 @@ export default function MissingCardsPanel({
               aria-label={t('deck.buylistBracketStyle')}
               style={{
                 display: 'flex', alignItems: 'center', gap: '3px',
-                background: 'rgba(0,0,0,0.3)', padding: '2px',
+                background: 'var(--surface-2)', padding: '2px',
                 borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)'
               }}
             >

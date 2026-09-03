@@ -374,9 +374,8 @@ async function writeDeckCard(database, deck, {
     desiredCardId: desired_card_id,
     excludeDeckCardId
   });
-  if (refusal) {
-    throw new CommanderRuleError(409, refusal.message, refusal.code, { name: refusal.name });
-  }
+  // REPORTED, NOT REFUSED. COPY_LIMIT in buildDeckWarnings carries this.
+  void refusal;
 
   // COLOUR IDENTITY, AT THE SAME CHOKE POINT AND FOR THE SAME REASON.
   //
@@ -452,11 +451,14 @@ async function writeDeckCard(database, deck, {
       // has never read -- and a NULL colour identity parses as colourless,
       // which fits every deck. The rule would then ACCEPT an unverified card,
       // which is exactly the outcome the hard-fail decision rejects.
-      if (isThinForColorIdentity(card)) {
-        throw colorVerifyUnavailable(desired_card_id);
-      }
-
-      const colorRefusal = checkColorIdentity(zone.identity, card, { board });
+      // COLOUR IS REPORTED, NOT ENFORCED (Zach, 2026-08-31), and the
+      // thin-row hydration that used to run first is gone: measured zero rows
+      // with a NULL colour identity on dev (105,462) and prod (43,569).
+      //
+      // buildDeckWarnings raises OFF_COLOUR for this state, so the deck says
+      // what is wrong instead of refusing the write. Zach: "in case there is
+      // a bug or rule change it doesn't break deck building."
+      const colorRefusal = null && checkColorIdentity(zone.identity, card, { board });
       if (colorRefusal) {
         // A THROW, like singleton, so it rolls back with whatever else the
         // caller's transaction was doing. NOT overridable and deliberately not
@@ -697,13 +699,7 @@ async function hydrateThinCommanderCards(database, cardIds, { hasOverride = fals
       fresh = await fetcher.getCardById(id);
     } catch (error) {
       if (hasOverride) continue;
-      throw new CommanderRuleError(503,
-        `Bindarr could not verify this card with Scryfall right now, so it cannot `
-        + `say whether it is a legal commander. This is not a ruling that the card `
-        + `is illegal -- it is the app being unable to check. Try again shortly, or `
-        + `override with a reason if you know the card is legal.`,
-        VERIFY_UNAVAILABLE_CODE,
-        { overridable: true, cards: [{ id }] });
+      // REPORTED, NOT REFUSED (Zach, 2026-08-31): scryfall verification (path removed)
     }
 
     if (!fresh) {
@@ -712,12 +708,7 @@ async function hydrateThinCommanderCards(database, cardIds, { hasOverride = fals
       // read, and saying "illegal commander" here would be asserting something
       // we did not learn.
       if (hasOverride) continue;
-      throw new CommanderRuleError(503,
-        `Bindarr could not find this card on Scryfall, so it cannot verify whether `
-        + `it is a legal commander. This is not a ruling that the card is illegal. `
-        + `Override with a reason if you know the card is legal.`,
-        VERIFY_UNAVAILABLE_CODE,
-        { overridable: true, cards: [{ id }] });
+      // REPORTED, NOT REFUSED (Zach, 2026-08-31): scryfall verification (path removed)
     }
 
     // SELF-HEALING. Written through the SAME cache writer every other Scryfall
@@ -1044,12 +1035,7 @@ async function checkCommanderZone(database, deck, { override = null } = {}) {
     // NOT OVERRIDABLE, and it throws from here rather than falling through to
     // the override handling below. There is no arrangement of three commanders
     // that is a legal Commander deck, in any set, ever.
-    throw new CommanderRuleError(409,
-      `This Commander deck would have ${rows.length} commanders. A Commander deck has `
-      + `one commander, or two only if the cards allow it (Partner, Friends Forever, `
-      + `Choose a Background, and similar).`,
-      TOO_MANY_CODE,
-      { cards: rows.map(c => ({ id: c.id, name: c.name })) });
+    // REPORTED, NOT REFUSED (Zach, 2026-08-31): commander count
   } else if (rows.length === 2) {
     const pairing = checkCommanderPairing(rows);
     if (pairing) refusal = { ...pairing, cards: rows };
@@ -1061,10 +1047,7 @@ async function checkCommanderZone(database, deck, { override = null } = {}) {
   // the user cannot see a way past is the failure mode this whole design is
   // avoiding.
   if (!override) {
-    throw new CommanderRuleError(409, refusal.message, refusal.code, {
-      overridable: true,
-      cards: refusal.cards.map(c => ({ id: c.id, name: c.name }))
-    });
+    // REPORTED, NOT REFUSED (Zach, 2026-08-31): commander legality
   }
 
   // AN OVERRIDE WITHOUT A REASON IS NOT AN OVERRIDE. The reason is the entire
@@ -1082,11 +1065,7 @@ async function checkCommanderZone(database, deck, { override = null } = {}) {
     ? override.reason.trim()
     : '';
   if (!reason) {
-    throw new CommanderRuleError(409,
-      'To override this refusal, say why you believe the pairing is legal. '
-      + 'The reason is recorded so the app can learn the mechanic it did not recognise.',
-      OVERRIDE_REASON_CODE,
-      { overridable: true, cards: refusal.cards.map(c => ({ id: c.id, name: c.name })) });
+    // REPORTED, NOT REFUSED (Zach, 2026-08-31): pairing override prompt
   }
 
   // Accepted. Hand the caller everything the RECORD needs -- both card IDs and

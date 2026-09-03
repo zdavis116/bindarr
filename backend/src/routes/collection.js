@@ -160,6 +160,153 @@ function sortOwnedFirst(cards) {
 //
 // OPT-IN, never applied by default: the deck Add Cards search and the manual
 // collection add both use this route and must keep seeing every card.
+// WHICH DECKS WANT THIS CARD -- the card detail's Decks tab.
+//
+// Keyed on ORACLE id, not card id. Two decks can want different PRINTINGS of
+// the same card, and the whole point of this tab is to show that: one deck
+// wanting a $6.50 printing and another wanting the $25.30 one is a fact the
+// user acts on. Matching by card id would show one and hide the other.
+//
+// Considering entries are INCLUDED and flagged. They are not a claim on
+// cardboard -- deckRules already refuses to count them for missing-copies or
+// deck size -- but the user asked to see them, labelled as what they are.
+router.get('/card/:cardId/decks', async (req, res) => {
+  try {
+    // THE WHOLE CATALOGUE ROW, not just the identity.
+    //
+    // The card detail must look the same from every screen, and it cannot if
+    // it reads card facts off whatever object the caller passed: a collection
+    // row carries no oracle_text and no mana_cost, so the Card tab lost its
+    // rules text and mana cost when opened from the collection, while the deck
+    // view showed both. Same card, two screens, two answers.
+    //
+    // Serving the card itself is the structural fix -- the callers cannot
+    // diverge because they no longer supply the data.
+    const card = await db.get(
+      `SELECT * FROM card_cache WHERE id = ?`,
+      [req.params.cardId]
+    );
+    if (!card || !card.oracle_id) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    const rows = await db.all(
+      `SELECT d.id          AS deck_id,
+              d.name        AS deck_name,
+              d.format,
+              dc.board,
+              dc.quantity,
+              dc.desired_finish,
+              cc.set_id, cc.number, cc.set_name,
+              cc.price_trend
+         FROM deck_cards dc
+         JOIN decks d       ON d.id = dc.deck_id
+         JOIN card_cache cc ON cc.id = dc.desired_card_id
+        WHERE cc.oracle_id = ? AND d.user_id = ?
+        ORDER BY CASE dc.board WHEN 'considering' THEN 1 ELSE 0 END,
+                 -- CLAIM ORDER, not alphabetical. deckIdentity.js awards a
+                 -- copy by deck_cards.id ASC because the id is assigned at
+                 -- insert and never changes: renaming a deck must not move a
+                 -- physical card to another deck. Sorting by name here would
+                 -- have given Zach's copy to "Avatar Aang" over "Tony Stark",
+                 -- which is the opposite of what he did.
+                 dc.id ASC`,
+      [card.oracle_id, req.user.id]
+    );
+
+    // Copies owned across EVERY printing of this card: the user physically
+    // holds the card, and which printing satisfies which deck is a separate
+    // question the deck view already answers.
+    const owned = await db.get(
+      `SELECT COALESCE(SUM(c.quantity), 0) AS n
+         FROM collection c
+         JOIN card_cache cc ON cc.id = c.card_id
+        WHERE cc.oracle_id = ? AND c.user_id = ? AND c.list_type = 'collection'`,
+      [card.oracle_id, req.user.id]
+    );
+
+    // Only REAL requirements reserve. A considering entry cannot make a deck
+    // short, so it must not count here either -- otherwise the tab would
+    // report a shortfall the rest of the app does not recognise.
+    const reserved = rows
+      .filter(r => r.board !== 'considering')
+      .reduce((n, r) => n + (r.quantity || 0), 0);
+
+    // WHICH requirements the owned copies actually cover.
+    //
+    // Not every non-considering row: claims are consumed in deck_cards.id
+    // order, so with one copy owned and two decks wanting it, the FIRST claim
+    // is covered and the second is short. Zach: "only one should specifically
+    // Tony stark since I added it 1st there."
+    //
+    // This is deckIdentity.js's rule (see requirementsForVariant, ordered by
+    // dc.id ASC because the id never changes and so cannot silently move a
+    // physical card between decks). Rendering "Covered" on every row was a
+    // label rather than a calculation, and it contradicted the shortfall
+    // banner directly above it.
+    let remaining = owned.n;
+    for (const r of rows) {
+      if (r.board === 'considering') {
+        r.covered = null;   // a shopping note claims nothing
+        continue;
+      }
+      const want = r.quantity || 0;
+      r.covered = remaining >= want;
+      if (r.covered) remaining -= want;
+    }
+
+    // YOUR COPIES OF THIS PRINTING.
+    //
+    // Returned from the server so the Yours tab reads the same source no
+    // matter which screen opened the sheet. The collection passes a collection
+    // row and the deck view passes a deck requirement -- different shapes,
+    // different fields -- and reading the caller's object made the same card
+    // look different from two places. Zach: "The card detail view should be no
+    // different between collection and deck view".
+    const ownedRows = await db.all(
+      `SELECT c.id, c.quantity, c.finish, c.condition, c.notes,
+              l.name AS location_name
+         FROM collection c
+         LEFT JOIN locations l ON l.id = c.location_id
+        WHERE c.card_id = ? AND c.user_id = ? AND c.list_type = 'collection'
+        ORDER BY c.id`,
+      [card.id, req.user.id]
+    );
+
+    // EVERY PRINTING of this card, for the Yours tab's "other printings"
+    // list. Zach found four "identical" Tony Starks that were different
+    // printings between $6.50 and $76.94 -- telling them apart is the
+    // difference between buying the right card and the wrong one.
+    //
+    // Served from this endpoint rather than a new one: it has already resolved
+    // the oracle id, so this is one more query on data in hand.
+    const printings = await db.all(
+      `SELECT id, set_id, number, set_name, price_trend, finishes
+         FROM card_cache
+        WHERE oracle_id = ?
+        ORDER BY price_trend DESC`,
+      [card.oracle_id]
+    );
+
+    res.json({
+      card_id: card.id,
+      oracle_id: card.oracle_id,
+      name: card.name,
+      owned: owned.n,
+      reserved,
+      free: Math.max(0, owned.n - reserved),
+      decks: rows,
+      printings,
+      owned_entries: ownedRows,
+      // The catalogue row, so every tab reads the same card.
+      card,
+    });
+  } catch (error) {
+    console.error('Failed to load decks for card:', error);
+    res.status(500).json({ error: 'Failed to load decks for this card' });
+  }
+});
+
 router.get('/search', searchLimiter, async (req, res) => {
   const { name, number, set, scope = 'database', prints } = req.query;
   const commandersOnly = req.query.commanders === '1';
@@ -1591,7 +1738,7 @@ router.get('/collection', async (req, res) => {
         cc.set_id,
         cc.set_name,
         cc.number,
-        cc.image_url,
+        cc.image_url, cc.display_name, cc.back_image_url, cc.back_name, cc.back_type_line,
         cc.price_trend,
         cc.price_normal,
         cc.price_holofoil,
@@ -2208,17 +2355,22 @@ router.post('/collection/bulk', async (req, res) => {
         ...preflight.problems
       ];
 
-      if (problems.length > 0 && !confirm) {
-        // NOTHING HAS BEEN WRITTEN. This is a report, not a failure: the user
-        // is being shown what will happen before it happens, and may send the
-        // same request back with confirm:true to apply the rest.
+      // RULE PROBLEMS NO LONGER STOP THE BATCH (Zach, 2026-08-31): "I want
+      // anything allowed but error message saying the issues." The cards go
+      // in and the deck reports what is wrong with it.
+      //
+      // CARD_UNKNOWN is different and still stops that card: the app cannot
+      // identify it, so there is no row to write. A rule problem has a
+      // perfectly good row behind it; an unknown card has nothing.
+      const unknown = problems.filter(p => p.code === 'CARD_UNKNOWN');
+      if (unknown.length > 0 && unknown.length === problems.length && !confirm) {
         return res.status(409).json({
           error: problems[0].message,
           code: 'BULK_ADD_PREFLIGHT',
           problems,
           applicable: preflight.applicable,
           message: `${preflight.applicable} card(s) can be added; `
-            + `${problems.length} cannot. Nothing has been added yet.`
+            + `${unknown.length} could not be identified. Nothing has been added yet.`
         });
       }
 

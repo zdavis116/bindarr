@@ -141,7 +141,11 @@ export function parseDeckLine(line) {
   let number;
   if (setMatch) {
     const after = rest.slice(setMatch.index + setMatch[0].length);
-    const numberMatch = after.match(/^\s*#?\s*(\d+[a-zA-Z]?)\b/);
+    // Collector numbers are not always plain digits. The List uses CON-31,
+    // promos use 12s, prerelease printings use 001p. Accept a leading digit OR
+    // a set-prefixed form, but still require the token to contain a digit --
+    // otherwise a word following the set code is mistaken for a number.
+    const numberMatch = after.match(/^\s*#?\s*([A-Za-z]*-?\d+[a-zA-Z]?)\b/);
     if (numberMatch) number = numberMatch[1];
   }
 
@@ -163,10 +167,22 @@ export function parseDeckLine(line) {
     .trim()
     .replace(TRAILING_FINISH_WORD, '')
     .trim()
-    .replace(/\s*#\d+[a-zA-Z]?$/, '')
+    .replace(/\s*#[A-Za-z]*-?\d+[a-zA-Z]?$/, '')
     .trim()
-    .replace(/\s+\d+[a-zA-Z]?$/, '')
+    .replace(/\s+[A-Za-z]*-?\d+[a-zA-Z]?$/, '')
     .replace(/\s+/g, ' ')
+    .trim()
+    // DOUBLE-FACED CARDS -> the FRONT FACE only.
+    //
+    // "Tony Stark / The Invincible Iron Man" and Scryfall's own
+    // "Tony Stark // The Invincible Iron Man" both become "Tony Stark", which
+    // is what card_cache stores for a modal DFC. Moxfield exports one slash,
+    // Scryfall writes two, and neither matched -- so a pasted commander line
+    // resolved to nothing at all.
+    //
+    // The FRONT face is the identity: it is unique, and it does not depend on
+    // the exporter spelling the back face the same way we do.
+    .split(/\s*\/\/?\s*/)[0]
     .trim();
 
   if (!name) return null;

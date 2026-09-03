@@ -1,7 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, Trash2, AlertTriangle, Check, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { Z_FULLSCREEN } from '../utils/zLayers';
 import { sortForReview, isWeakMatch } from './scanStaging';
+
+// Button shapes, matching the rebuilt screens: flat fills, no gradient, no
+// hover lift. Defined here rather than by redefining .btn in index.css, which
+// would restyle screens that have not been rebuilt or reviewed yet.
+const BTN_BASE = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  gap: '0.45rem', minHeight: 44, padding: '0 1rem',
+  borderRadius: 'var(--radius-md)', border: 0,
+  font: 'inherit', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer',
+};
+const BTN_SECONDARY = {
+  ...BTN_BASE,
+  background: 'var(--surface-3)',
+  color: 'var(--text-primary)',
+};
+const BTN_PRIMARY = {
+  ...BTN_BASE,
+  background: 'var(--accent-blue)',
+  color: '#fff',
+};
 
 // SEARCH FOR A PRINTING when none of the offered candidates is right.
 //
@@ -51,8 +72,8 @@ function StagingSearch({ onPick, disabled }) {
           disabled={disabled}
         />
         <button
-          type="button" className="btn btn-secondary"
-          style={{ minHeight: 38, minWidth: 44, fontSize: '0.72rem' }}
+          type="button"
+          style={{ ...BTN_SECONDARY, minHeight: 38, minWidth: 44, fontSize: '0.72rem' }}
           onClick={run} disabled={disabled || busy || !q.trim()}
         >
           {busy ? '…' : 'Go'}
@@ -61,8 +82,8 @@ function StagingSearch({ onPick, disabled }) {
       {hits.map(h => (
         <button
           key={h.id}
-          type="button" className="btn btn-secondary"
-          style={{
+          type="button"
+          style={{ ...BTN_SECONDARY,
             display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem',
             minHeight: 40, textAlign: 'left', justifyContent: 'flex-start', fontSize: '0.72rem',
           }}
@@ -70,7 +91,7 @@ function StagingSearch({ onPick, disabled }) {
           disabled={disabled}
         >
           {h.image_url ? (
-            <img src={h.image_url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }} />
+            <img src={h.image_url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 'var(--radius-sm)', flexShrink: 0 }} />
           ) : null}
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {h.name} · {(h.set_id || '').toUpperCase()} {h.number ? `#${h.number}` : ''}
@@ -165,7 +186,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'var(--bg-primary, #12121a)',
+      position: 'fixed', inset: 0, background: 'var(--bg-primary)',
       // ABOVE THE APP CHROME. This was zIndex 120 while the global bottom nav
       // is z-index 1000 (index.css) -- so the nav, which is opaque, drew ON TOP
       // of this full-screen overlay and covered exactly the strip where Add All
@@ -177,9 +198,9 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
       // app header and the Dashboard/Add Cards/Collection nav rendering over the
       // list, which no amount of safe-area padding can move out of the way.
       //
-      // 1100 matches the scanner's own modals in CameraScanner.jsx, which sit
+      // Z_FULLSCREEN matches the scanner's own modals in CameraScanner.jsx, which sit
       // above the nav for the same reason.
-      zIndex: 1100,
+      zIndex: Z_FULLSCREEN,
       display: 'flex', flexDirection: 'column',
       // RESPECT THE NOTCH AND THE HOME BAR.
       //
@@ -207,7 +228,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-strong)' }}>
+          <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
             {t('scan.stagingTitle', { count: entries.length })}
           </span>
           <span style={{ fontSize: '0.7rem', color: unresolvedCount ? 'var(--accent-yellow)' : 'var(--text-secondary)' }}>
@@ -218,15 +239,15 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
         </div>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
           <button
-            type="button" className="btn btn-secondary"
-            style={{ padding: '0.45rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            type="button"
+            style={{ ...BTN_SECONDARY, padding: '0.45rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={sync} aria-label={t('scan.reviewRefresh')}
           >
             <RefreshCw size={16} />
           </button>
           <button
-            type="button" className="btn btn-secondary"
-            style={{ padding: '0.45rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            type="button"
+            style={{ ...BTN_SECONDARY, padding: '0.45rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={onClose} aria-label={t('common.close')}
           >
             <X size={18} />
@@ -237,7 +258,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
       {error && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem',
-          background: 'rgba(239,68,68,0.15)', color: 'var(--accent-red)', fontSize: '0.75rem',
+          background: 'rgba(255,69,58,0.16)', color: 'var(--accent-red)', fontSize: '0.75rem',
         }}>
           <AlertTriangle size={14} />
           <span>{t('scan.stagingCommitFailed', { error })}</span>
@@ -247,7 +268,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
       {result?.ok && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem',
-          background: 'rgba(74,222,128,0.15)', color: 'var(--type-grass)', fontSize: '0.75rem',
+          background: 'rgba(48,209,88,0.16)', color: 'var(--accent-green)', fontSize: '0.75rem',
         }}>
           <Check size={14} /> {t('scan.stagingCommitted', { count: result.committed })}
         </div>
@@ -286,10 +307,12 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
             return (
               <div
                 key={entry.id}
-                className="glass-panel"
                 style={{
                   padding: '0.7rem', display: 'flex', gap: '0.7rem', alignItems: 'flex-start',
                   opacity: busyId === entry.id ? 0.5 : 1,
+                  // Flat surface, matching Collection and the deck screens.
+                  background: 'var(--surface-1)',
+                  borderRadius: 'var(--radius-md)',
                   // UNRESOLVED IS THE ONLY THING THAT STANDS OUT NOW.
                   //
                   // Zach removed the advisory flags: "The only cards that should
@@ -315,14 +338,14 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                 {entry.crop ? (
                   <img
                     src={entry.crop} alt=""
-                    style={{ width: 52, height: 73, objectFit: 'cover', borderRadius: 6, flexShrink: 0, background: 'rgba(0,0,0,0.4)' }}
+                    style={{ width: 52, height: 73, objectFit: 'cover', borderRadius: 'var(--radius-sm)', flexShrink: 0, background: 'var(--surface-2)' }}
                   />
                 ) : (
-                  <div style={{ width: 52, height: 73, borderRadius: 6, flexShrink: 0, background: 'rgba(255,255,255,0.06)' }} />
+                  <div style={{ width: 52, height: 73, borderRadius: 'var(--radius-sm)', flexShrink: 0, background: 'var(--surface-2)' }} />
                 )}
 
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isUnresolved ? 'var(--accent-yellow)' : 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isUnresolved ? 'var(--accent-yellow)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {isUnresolved
                       ? (entry.matched_name || 'Unidentified card')
                       : (entry.name || entry.card_id)}
@@ -348,8 +371,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                       </span>
                       <button
                         type="button"
-                        className="btn btn-secondary"
-                        style={{ fontSize: '0.66rem', padding: '0.15rem 0.5rem', minHeight: 26 }}
+                        style={{ ...BTN_SECONDARY, fontSize: '0.66rem', padding: '0.15rem 0.5rem', minHeight: 26 }}
                         onClick={() => setOverrideId(overrideId === entry.id ? null : entry.id)}
                         disabled={busyId === entry.id}
                       >
@@ -367,8 +389,8 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                       {(entry.candidates || []).slice(0, 3).map(c => (
                         <button
                           key={c.id || `${c.set_id}-${c.number}`}
-                          type="button" className="btn btn-secondary"
-                          style={{
+                          type="button"
+                          style={{ ...BTN_SECONDARY,
                             display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem',
                             minHeight: 40, textAlign: 'left', justifyContent: 'flex-start', fontSize: '0.72rem',
                           }}
@@ -406,17 +428,14 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                         <button
                           key={c.id}
                           type="button"
-                          className="btn btn-secondary"
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          style={{ ...BTN_SECONDARY, display: 'flex', alignItems: 'center', gap: '0.5rem',
                             padding: '0.35rem 0.5rem', minHeight: 40, textAlign: 'left',
-                            justifyContent: 'flex-start', fontSize: '0.72rem',
-                          }}
+                            justifyContent: 'flex-start', fontSize: '0.72rem', }}
                           onClick={() => resolve(entry, c.id)}
                           disabled={busyId === entry.id}
                         >
                           {c.image_url ? (
-                            <img src={c.image_url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }} />
+                            <img src={c.image_url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 'var(--radius-sm)', flexShrink: 0 }} />
                           ) : null}
                           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {c.name} · {(c.set_id || '').toUpperCase()} {c.number ? `#${c.number}` : ''}
@@ -425,8 +444,7 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
                       ))}
                       <button
                         type="button"
-                        className="btn btn-secondary"
-                        style={{ minHeight: 40, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.4rem', justifyContent: 'center' }}
+                        style={{ ...BTN_SECONDARY, minHeight: 40, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.4rem', justifyContent: 'center' }}
                         onClick={() => setSearchFor(searchFor === entry.id ? null : entry.id)}
                         disabled={busyId === entry.id}
                       >
@@ -444,26 +462,26 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem' }}>
                     <button
-                      type="button" className="btn btn-secondary"
-                      style={{ minWidth: 34, minHeight: 34, padding: 0 }}
+                      type="button"
+                      style={{ ...BTN_SECONDARY, minWidth: 34, minHeight: 34, padding: 0 }}
                       onClick={() => setQty(entry, entry.quantity - 1)}
                       disabled={entry.quantity <= 1 || busyId === entry.id}
                       aria-label={t('scan.stagingQtyDown')}
                     >−</button>
-                    <span style={{ fontSize: '0.8rem', minWidth: 22, textAlign: 'center', color: 'var(--text-strong)' }}>
+                    <span style={{ fontSize: '0.8rem', minWidth: 22, textAlign: 'center', color: 'var(--text-primary)' }}>
                       {entry.quantity}
                     </span>
                     <button
-                      type="button" className="btn btn-secondary"
-                      style={{ minWidth: 34, minHeight: 34, padding: 0 }}
+                      type="button"
+                      style={{ ...BTN_SECONDARY, minWidth: 34, minHeight: 34, padding: 0 }}
                       onClick={() => setQty(entry, entry.quantity + 1)}
                       disabled={busyId === entry.id}
                       aria-label={t('scan.stagingQtyUp')}
                     >+</button>
 
                     <button
-                      type="button" className="btn btn-secondary"
-                      style={{ marginLeft: 'auto', minWidth: 34, minHeight: 34, padding: 0, color: 'var(--accent-red)' }}
+                      type="button"
+                      style={{ ...BTN_SECONDARY, marginLeft: 'auto', minWidth: 34, minHeight: 34, padding: 0, color: 'var(--accent-red)' }}
                       onClick={() => discard(entry)}
                       disabled={busyId === entry.id}
                       aria-label={t('scan.stagingDiscardOne')}
@@ -491,8 +509,8 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
           paddingBottom: '0.75rem',
         }}>
           <button
-            type="button" className="btn btn-secondary"
-            style={{ minHeight: 46 }}
+            type="button"
+            style={{ ...BTN_SECONDARY, minHeight: 46 }}
             onClick={async () => {
               setCommitting(true);
               await staging.discardAll();
@@ -511,8 +529,8 @@ export default function ScanStagingReview({ staging, onClose, onCommitted }) {
               The server enforces the same rule (409 unresolved_entries) -- this
               button is the explanation, not the guard. */}
           <button
-            type="button" className="btn btn-primary"
-            style={{ flex: 1, minHeight: 46, fontWeight: 700 }}
+            type="button"
+            style={{ ...BTN_PRIMARY, flex: 1, minHeight: 46, fontWeight: 700 }}
             onClick={commit}
             disabled={committing || unresolvedCount > 0}
           >
