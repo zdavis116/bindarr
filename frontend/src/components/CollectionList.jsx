@@ -31,6 +31,7 @@ import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import CardInspectorModal from './CardInspectorModal';
 import ImportModal from './ImportModal';
+import { useMultiSelect } from '../utils/useMultiSelect';
 import CardTile from './CardTile';
 
 // The five MTG colours in WUBRG order -- the order every player and every deck
@@ -123,6 +124,10 @@ function DropButton({ label, count, onClick }) {
 const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
                     'Land', 'Planeswalker', 'Sorcery'];
 
+// Shared sizing for the bulk bar's controls, so a stray padding value cannot
+// make one button a different height from its neighbours.
+const BULK_BTN = { fontSize: '0.72rem', padding: '0.3rem 0.6rem' };
+
 function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSelectedLocationId, setFocusEntryId }) {
   const { t } = useT();
 
@@ -139,6 +144,29 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [bulkLocation, setBulkLocation] = useState('');
+  const [locations, setLocations] = useState([]);
+  const [lastDelete, setLastDelete] = useState(null);   // { batchId, count }
+
+  // SELECT MODE. The same hook three other screens use, so the interaction is
+  // identical wherever cards are selected rather than a second one invented
+  // for this screen.
+  const {
+    selectMode, setSelectMode, selectedIds, setSelectedIds, selectAt,
+    clearSelection, exitSelectMode, pressHandlers, longPressFired, runBulk,
+  } = useMultiSelect({
+    showToast,
+    onChanged: ({ action, batchId, ids, data }) => {
+      // A delete comes back with a batch id; hold it so the toast can offer an
+      // undo. Anything else just refreshes.
+      // The count comes from the RESPONSE. Reading selectedIds here would give
+      // 0: runBulk clears the selection before calling back.
+      if (action === 'delete' && batchId) {
+        setLastDelete({ batchId, count: data?.affected ?? ids.length });
+      }
+      onUpdate && onUpdate();
+    },
+  });
   // Which bottom sheet is open: 'type' | 'set' | 'sort' | null. One piece of
   // state for all three, so two sheets can never be open at once.
   const [sheet, setSheet] = useState(null);
@@ -163,6 +191,22 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsTrigger]);
+
+  // Storage locations for the bulk move. Fetched once: the list is short and
+  // changes rarely, and re-fetching per selection would put a request behind
+  // every tap.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/locations');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setLocations(Array.isArray(data) ? data : []);
+      } catch { /* the dropdown just stays empty */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
 // The types on a card, from the front of its type line.
 //
@@ -259,6 +303,18 @@ const cardTypesOf = (card) => {
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <div style={{ position: 'relative' }}>
+            {/* SELECT. Long-press also arms select mode, but a hidden gesture is
+                not a discoverable feature, and on a phone it competes with the
+                browser's own text selection. The other three screens that use this
+                hook all pair the gesture with an explicit button. */}
+            <button
+              className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.7rem' }}
+            >
+              {t(selectMode ? 'bulk.done' : 'collection.select')}
+            </button>
+
             <button
               onClick={() => setAddMenuOpen(o => !o)}
               aria-expanded={addMenuOpen} aria-haspopup="menu"
@@ -418,6 +474,108 @@ const cardTypesOf = (card) => {
       </div>
 
       {/* CARDS */}
+      {/* UNDO. The trash makes a delete recoverable; this makes the recovery
+          REACHABLE. A banner, not a timed toast -- an undo you have to catch
+          within three seconds is a worse guarantee than one that waits. */}
+      {lastDelete && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+          background: 'rgba(248,113,113,0.10)',
+          border: '1px solid rgba(248,113,113,0.28)',
+          borderRadius: 'var(--radius-md)', padding: '0.65rem 0.9rem',
+          marginBottom: '0.75rem'
+        }}>
+          <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            {t('bulk.deleted', { count: lastDelete.count })}
+          </span>
+          <button className="btn btn-secondary" style={BULK_BTN} onClick={async () => {
+            try {
+              const res = await fetch(
+                `/api/collection/trash/${lastDelete.batchId}/restore`,
+                { method: 'POST' });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                // Purged, or already restored. Saying so beats a silent no-op
+                // that leaves him wondering where the cards went.
+                showToast(data.error || t('bulk.undoFailed'));
+                setLastDelete(null);
+                return;
+              }
+              showToast(t('bulk.undone', { count: data.restored }));
+              setLastDelete(null);
+              onUpdate && onUpdate();
+            } catch {
+              showToast(t('bulk.undoFailed'));
+            }
+          }}>
+            {t('bulk.undo')}
+          </button>
+          <button className="btn btn-secondary" style={BULK_BTN}
+                  onClick={() => setLastDelete(null)}>
+            {t('common.dismiss')}
+          </button>
+        </div>
+      )}
+
+      {/* SELECT MODE BAR.
+          A sibling of the display chain, not a branch inside it: it sits above
+          whichever state renders. My first attempt spliced it into the ternary
+          and the build passed while the empty state stopped excluding the card
+          list -- balanced braces are not correct structure. */}
+      {selectMode && (
+        <div className="glass-panel" style={{
+          marginBottom: '0.75rem', padding: '0.7rem 0.9rem', display: 'flex',
+          alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+          position: 'sticky', top: '0.5rem', zIndex: 30
+        }}>
+          <span style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-strong)' }}>
+            {t('bulk.selected', { count: selectedIds.size })}
+          </span>
+
+          {/* NAMES THE COUNT. Zach: "Select all should be on what's filtered."
+              A bare "Select all" beside a filtered list could mean 47 or
+              2,433, and the destructive action is the one where being wrong
+              costs a recount against cardboard. */}
+          <button className="btn btn-secondary" style={BULK_BTN}
+                  onClick={() => setSelectedIds(new Set(shown.map(c => c.entry_id || c.id)))}>
+            {t('bulk.selectAllShown', { count: shown.length })}
+          </button>
+          <button className="btn btn-secondary" style={BULK_BTN} onClick={clearSelection}>
+            {t('bulk.clear')}
+          </button>
+
+          <div style={{ width: 1, height: 22, background: 'var(--border-glass)' }} />
+
+          {/* MOVE -- non-destructive, and the case Zach led with:
+              "if I'm trying to put 100 cards in a deck box". */}
+          <select className="select-control" style={{ ...BULK_BTN, maxWidth: 170 }}
+                  value={bulkLocation}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setBulkLocation('');
+                    if (!v) return;
+                    const name = locations.find(l => String(l.id) === v)?.name || '';
+                    runBulk('move', v, t('bulk.confirmMove', {
+                      count: selectedIds.size, location: name
+                    }));
+                  }}>
+            <option value="">{t('bulk.moveTo')}</option>
+            {locations.map(l => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+
+          {/* DELETE -- recoverable, but still named. The confirm states the
+              count, because "delete selected" hides how much that is. */}
+          <button className="btn btn-danger" style={BULK_BTN}
+                  disabled={selectedIds.size === 0}
+                  onClick={() => runBulk('delete', null,
+                    t('bulk.confirmDelete', { count: selectedIds.size }))}>
+            {t('bulk.delete')}
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-secondary)' }}>
           {t('common.loading')}
@@ -434,7 +592,21 @@ const cardTypesOf = (card) => {
       ) : viewMode === 'gallery' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.7rem' }}>
           {shown.map(card => (
-            <CardTile key={card.entry_id || card.id} card={card} onClick={() => setInspectorCard(card)} />
+            <CardTile
+              key={card.entry_id || card.id}
+              card={card}
+              selected={selectedIds.has(card.entry_id || card.id)}
+              {...pressHandlers(card.entry_id || card.id)}
+              onClick={(e) => {
+                if (longPressFired.current) return;
+                if (selectMode) {
+                  selectAt(card.entry_id || card.id,
+                           shown.map(c => c.entry_id || c.id), e?.shiftKey);
+                  return;
+                }
+                setInspectorCard(card);
+              }}
+            />
           ))}
         </div>
       ) : (
@@ -442,12 +614,29 @@ const cardTypesOf = (card) => {
           {shown.map(card => (
             <button
               key={card.entry_id || card.id}
-              onClick={() => setInspectorCard(card)}
+              {...pressHandlers(card.entry_id || card.id)}
+              onClick={(e) => {
+                // A long press arms select mode and must NOT also open the
+                // inspector when the finger lifts.
+                if (longPressFired.current) return;
+                if (selectMode) {
+                  selectAt(card.entry_id || card.id,
+                           shown.map(c => c.entry_id || c.id), e.shiftKey);
+                  return;
+                }
+                setInspectorCard(card);
+              }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.7rem', width: '100%',
                 minHeight: 52, padding: '0.6rem 0.75rem', border: 0, textAlign: 'left',
-                background: 'var(--surface-1)', color: 'var(--text-primary)',
+                background: selectedIds.has(card.entry_id || card.id)
+                  ? 'var(--accent-blue-soft, rgba(10,132,255,0.18))'
+                  : 'var(--surface-1)',
+                color: 'var(--text-primary)',
                 borderRadius: 'var(--radius-md)', font: 'inherit', cursor: 'pointer',
+                outline: selectedIds.has(card.entry_id || card.id)
+                  ? '2px solid var(--accent-blue)' : 'none',
+                outlineOffset: -2,
               }}
             >
               <span style={{ flex: 1, minWidth: 0 }}>

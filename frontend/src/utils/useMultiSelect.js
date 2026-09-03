@@ -92,7 +92,10 @@ export function useMultiSelect({ showToast, onChanged, guard } = {}) {
       if (res.ok) {
         showToast(data.message || 'Done.');
         clearSelection();
-        onChanged && onChanged({ ids, action, value });
+        // The delete response carries batch_id so the caller can offer an
+        // undo. Passing the whole response through rather than a hand-picked
+        // subset, so a future field does not need this line changed again.
+        onChanged && onChanged({ ids, action, value, batchId: data.batch_id, data });
         return;
       }
       if (res.status === 409 && data.code === 'BULK_ADD_PREFLIGHT' && !confirmed) {

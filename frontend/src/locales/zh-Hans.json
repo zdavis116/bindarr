@@ -1233,5 +1233,14 @@
   "import.reason.no_identifier": "没有卡名、系列或 Scryfall ID",
   "import.reason.bad_quantity": "数量不是有效的卡牌数",
   "import.reason.chosen_card_not_in_catalogue": "该版本已不在目录中",
-  "import.fromRows": "来自 {total} 行中的 {rows} 行"
+  "import.fromRows": "来自 {total} 行中的 {rows} 行",
+  "bulk.selectAllShown": "选择显示的 {count} 张",
+  "bulk.moveTo": "移动到位置…",
+  "bulk.confirmMove": "将 {count} 张卡移动到 {location}？",
+  "bulk.confirmDelete": "删除 {count} 张卡？此操作可撤销。",
+  "bulk.undo": "撤销",
+  "bulk.undone": "已恢复 {count} 张卡。",
+  "bulk.undoFailed": "该批次已不在回收站中。",
+  "bulk.deleted": "已删除 {count} 张卡。",
+  "common.dismiss": "关闭"
 }

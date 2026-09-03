@@ -1348,5 +1348,14 @@
   "import.reason.no_identifier": "No card name, set or Scryfall ID",
   "import.reason.bad_quantity": "Quantity is not a number of cards",
   "import.reason.chosen_card_not_in_catalogue": "That printing is no longer in the catalogue",
-  "import.fromRows": "from {rows} of {total} rows"
+  "import.fromRows": "from {rows} of {total} rows",
+  "bulk.selectAllShown": "Select all {count} shown",
+  "bulk.moveTo": "Move to location…",
+  "bulk.confirmMove": "Move {count} card(s) to {location}?",
+  "bulk.confirmDelete": "Delete {count} card(s)? You can undo this.",
+  "bulk.undo": "Undo",
+  "bulk.undone": "Restored {count} card(s).",
+  "bulk.undoFailed": "That batch is no longer in the trash.",
+  "bulk.deleted": "{count} card(s) deleted.",
+  "common.dismiss": "Dismiss"
 }
