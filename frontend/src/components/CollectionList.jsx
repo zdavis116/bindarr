@@ -30,6 +30,7 @@ import { sortCardsByOrder } from '../utils/cardSort';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import CardInspectorModal from './CardInspectorModal';
+import ImportModal from './ImportModal';
 import CardTile from './CardTile';
 
 // The five MTG colours in WUBRG order -- the order every player and every deck
@@ -137,6 +138,7 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   const [sortBy, setSortBy] = useState('added-newest');
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   // Which bottom sheet is open: 'type' | 'set' | 'sort' | null. One piece of
   // state for all three, so two sheets can never be open at once.
   const [sheet, setSheet] = useState(null);
@@ -291,8 +293,11 @@ const cardTypesOf = (card) => {
                   {/* Import is SHOWN but disabled until Feature 3. A control
                       that materialises later is a surprise; a disabled one that
                       says when it is coming is an answer. */}
-                  <button role="menuitem" disabled title={t('collection.addImportSoon')}
-                          style={{ ...MENU_ITEM, borderBottom: 0, opacity: 0.45, cursor: 'not-allowed' }}>
+                  {/* No longer "coming soon": the importer exists, behind the
+                      Scryfall validation the 501 stub was waiting for. */}
+                  <button role="menuitem"
+                          onClick={() => { setAddMenuOpen(false); setImportOpen(true); }}
+                          style={{ ...MENU_ITEM, borderBottom: 0 }}>
                     <Download size={18} />
                     <span>{t('collection.addImport')}<small style={MENU_SUB}>{t('collection.addImportSub')}</small></span>
                   </button>
@@ -513,6 +518,17 @@ const cardTypesOf = (card) => {
             </div>
           </div>
         </>
+      )}
+
+      {importOpen && (
+        <ImportModal
+          onClose={() => setImportOpen(false)}
+          /* The list reloads from an effect keyed on statsTrigger, which the
+             parent bumps via onUpdate -- there is no local fetch function to
+             call. I invented fetchCollection() first; caught by the build. */
+          onImported={() => onUpdate && onUpdate()}
+          showToast={showToast}
+        />
       )}
 
       {inspectorCard && (

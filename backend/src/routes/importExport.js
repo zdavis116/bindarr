@@ -92,23 +92,81 @@ async function runImport(req, res, { commit }) {
   const mapped = parseThirdPartyCSV(rows, format);
   const { resolved, rejected } = await resolveRows(mapped);
 
+  // DECISIONS FROM THE REVIEW SCREEN.
+  //
+  // { "218": { card_id: "...", quantity: 1 } } keyed by row index. Applied
+  // AFTER resolution so they can only ever rescue a row that was rejected --
+  // a resolution cannot redirect a row that already matched cleanly.
+  //
+  // The chosen card_id goes through the same catalogue check as every other
+  // row. The admission boundary is not waived because a human pointed at
+  // something: the client could post any id at all.
+  const resolutions = (req.body && req.body.resolutions) || {};
+  const rescued = [];
+  const stillRejected = [];
+
+  for (const r of rejected) {
+    const choice = resolutions[String(r.index)];
+    if (!choice || choice.skip) {
+      stillRejected.push(r);
+      continue;
+    }
+
+    const qty = Number(choice.quantity ?? r.quantity ?? 1);
+    if (!Number.isInteger(qty) || qty < 1) {
+      stillRejected.push(r);
+      continue;
+    }
+
+    // A chosen printing still has to exist.
+    const card = choice.card_id
+      ? await db.get('SELECT id, name FROM card_cache WHERE id = ?', [choice.card_id])
+      : null;
+
+    if (choice.card_id && !card) {
+      stillRejected.push({ ...r, reason: 'chosen_card_not_in_catalogue' });
+      continue;
+    }
+
+    // No card_id means this was a quantity fix on a row whose card was never
+    // in doubt -- keep whatever the resolver had already identified.
+    const target = card || r.card;
+    if (!target) {
+      stillRejected.push(r);
+      continue;
+    }
+
+    rescued.push({
+      ok: true, index: r.index, label: target.name,
+      card: target, matchedBy: 'chosen',
+      row: { quantity: qty, condition: r.condition || 'Near Mint',
+             finish: r.finish || 'nonfoil', purchase_price: 0 }
+    });
+  }
+
+  const finalResolved = resolved.concat(rescued);
+
   const summary = {
     total: rows.length,
-    matched: resolved.length,
-    rejected: rejected.length,
-    copies: resolved.reduce((n, r) => n + Number(r.row.quantity || 0), 0),
-    matchedBy: resolved.reduce((acc, r) => {
+    matched: finalResolved.length,
+    rejected: stillRejected.length,
+    resolvedByHand: rescued.length,
+    copies: finalResolved.reduce((n, r) => n + Number(r.row.quantity || 0), 0),
+    matchedBy: finalResolved.reduce((acc, r) => {
       acc[r.matchedBy] = (acc[r.matchedBy] || 0) + 1;
       return acc;
     }, {}),
     // Every rejection, with enough detail to fix the source row. Zach: "Report
     // it as rejected" -- so the file imports what it can and names what it
     // could not, rather than refusing wholesale.
-    rejections: rejected.map(r => ({
+    rejections: stillRejected.map(r => ({
       row: r.index + 1,
       card: r.label,
       reason: r.reason,
-      detail: r.detail || null
+      detail: r.detail || null,
+      // The printings this row could be, when Bindarr knows them. The review
+      // screen offers these inline instead of sending him back to ManaBox.
+      candidates: r.candidates || null
     }))
   };
 
@@ -123,7 +181,7 @@ async function runImport(req, res, { commit }) {
   let inserted = 0;
   try {
     await db.run('BEGIN');
-    for (const r of resolved) {
+    for (const r of finalResolved) {
       await db.run(
         `INSERT INTO collection
            (card_id, user_id, quantity, condition, printing, finish, purchase_price)

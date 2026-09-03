@@ -50,13 +50,23 @@ const MATCH = {
   //    a recount against cardboard. Reported instead.
   byName: async (row) => {
     if (!row.name) return null;
+    // Fetch the CANDIDATES, not just a yes/no. A row rejected for ambiguity is
+    // the one case where Bindarr knows exactly what the options are, so it can
+    // offer them instead of sending the user back to their source file.
+    //
+    // Ordered cheapest first: the expensive printings are the ones a wrong
+    // pick would hurt on, so they should never be the default landing spot.
+    // Capped at 25 -- Cavern of Souls has 21 printings and is near the top end.
     const printings = await db.all(
-      `SELECT id, name, set_id, number FROM card_cache
-        WHERE name = ? COLLATE NOCASE LIMIT 2`,
+      `SELECT id, name, set_id, set_name, number, rarity, price_trend, image_url
+         FROM card_cache
+        WHERE name = ? COLLATE NOCASE
+        ORDER BY COALESCE(price_trend, 0) ASC
+        LIMIT 25`,
       [String(row.name).trim()]
     );
     if (printings.length === 0) return null;
-    return { ambiguous: true, name: printings[0].name };
+    return { ambiguous: true, name: printings[0].name, printings };
   }
 };
 
@@ -93,7 +103,14 @@ async function resolveRow(row, index) {
     return {
       ok: false, index, label,
       reason: REASONS.AMBIGUOUS_PRINTING,
-      detail: `${row.set_code || '?'} #${row.collector_number || '?'}`
+      detail: `${named.printings.length} printings`,
+      // The options, so the review screen can offer them inline. Sent with the
+      // rejection rather than fetched per row on demand: a file with 40
+      // ambiguous rows would otherwise be 40 extra requests while he waits.
+      candidates: named.printings,
+      quantity: row.quantity,
+      condition: row.condition,
+      finish: row.finish
     };
   }
 

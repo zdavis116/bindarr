@@ -54,8 +54,9 @@ test('IMP-TC2: an unknown card is rejected, not invented', () => {
   // Zach: "Report it as rejected."
   assert.match(resolverSrc, /NOT_IN_CATALOGUE/,
     'a card we do not have must produce a named rejection');
-  assert.match(routeSrc, /rejections: rejected\.map/,
-    'and the response must carry every rejection back');
+  assert.match(routeSrc, /rejections: stillRejected\.map/,
+    'and the response must carry every rejection back -- stillRejected, so a '
+    + 'row the user resolved by hand no longer appears as a problem');
   assert.match(routeSrc, /row: r\.index \+ 1/,
     'with the source row number, or he cannot fix the file');
 });
@@ -180,4 +181,46 @@ test('IMP-TC12: a zero-quantity row is rejected end to end', () => {
   assert.match(resolverSrc, /row\.quantity === null \? NaN : Number\(row\.quantity\)/,
     'an unreadable quantity must not coerce to 0 and slip past the guard');
   assert.match(resolverSrc, /!Number\.isInteger\(qty\) \|\| qty < 1/);
+});
+
+test('IMP-TC13: a hand-picked printing still goes through the catalogue', () => {
+  // THE BOUNDARY IS NOT WAIVED BECAUSE A HUMAN POINTED AT SOMETHING. The
+  // review screen posts a card_id; the client could post any string at all.
+  assert.match(routeSrc, /SELECT id, name FROM card_cache WHERE id = \?/,
+    'a chosen card_id must be looked up, not trusted');
+  assert.match(routeSrc, /chosen_card_not_in_catalogue/,
+    'and a choice that resolves to nothing is reported, not inserted');
+});
+
+test('IMP-TC14: a resolution cannot redirect a row that already matched', () => {
+  // Resolutions are applied to the REJECTED list only. If they were applied
+  // before resolution, a client could point a cleanly-matched row at a
+  // different card -- silently replacing what the file actually said.
+  const applyAt = routeSrc.indexOf('for (const r of rejected)');
+  const resolveAt = routeSrc.indexOf('await resolveRows(mapped)');
+  assert.ok(resolveAt > 0 && applyAt > resolveAt,
+    'resolutions are applied after resolution, and only to rejected rows');
+});
+
+test('IMP-TC15: a resolution with a bad quantity is refused', () => {
+  // The same rule as the file itself: nobody owns zero of something.
+  const block = routeSrc.slice(routeSrc.indexOf('for (const r of rejected)'),
+                               routeSrc.indexOf('const finalResolved'));
+  assert.match(block, /!Number\.isInteger\(qty\) \|\| qty < 1/,
+    'a hand-entered quantity gets the same check as a parsed one');
+  assert.match(block, /choice\.skip/,
+    'and skipping must stay available -- Zach: "Skipping is always available"');
+});
+
+test('IMP-TC16: ambiguous rejections carry their candidates', () => {
+  // 013 offers a choice only where Bindarr KNOWS the options. They ride along
+  // with the rejection rather than being fetched per row: a file with 40
+  // ambiguous rows would otherwise be 40 extra requests while he waits.
+  assert.match(resolverSrc, /candidates: named\.printings/,
+    'the rejection must carry the printings it was rejected for');
+  assert.match(resolverSrc, /ORDER BY COALESCE\(price_trend, 0\) ASC/,
+    'cheapest first -- an expensive printing must never be the default '
+    + 'landing spot, because a wrong pick there is a four-figure error');
+  assert.match(routeSrc, /candidates: r\.candidates \|\| null/,
+    'and the response must pass them to the screen');
 });
