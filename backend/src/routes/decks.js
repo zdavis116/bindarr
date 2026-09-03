@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../db');
+const { alternativesForRequirement, repointRequirement } = require('../utils/deckRepoint');
 const scryfallApi = require('../scryfallApi');
 const { recordPrice } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
@@ -2273,6 +2274,131 @@ router.put('/:id/return', async (req, res) => {
     res.json({ message: 'Deck returned to storage successfully' });
   } catch (error) {
     sendError(res, error, 'Failed to return deck');
+  }
+});
+
+
+// SWITCHING A DECK ROW TO A PRINTING HE ACTUALLY HAS.
+//
+// Zach's Moxfield import gave each deck row a specific printing; his ManaBox
+// import gave his collection different printings of the same cards. Neither is
+// wrong, they just disagree -- and the deck then reports a card as missing
+// while a copy sits on the shelf.
+//
+// Zach: "we could own 1 but it could be in another deck so we need to own it
+// and it needs to be available."
+//
+// Availability comes from deckIdentity.availabilityForRequirement, the module
+// that already owns the claim rule. Computing it a second way here would
+// eventually disagree with the "covered" badge about the same card.
+
+// What could change. Writes nothing.
+router.get('/decks/:id/repoint-candidates', async (req, res) => {
+  try {
+    const deck = await db.get(
+      `SELECT id FROM decks WHERE id = ? AND user_id = ?`,
+      [req.params.id, req.user.id]);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
+
+    const rows = await db.all(
+      `SELECT dc.id, dc.oracle_id, dc.desired_card_id, dc.desired_finish,
+              dc.quantity, dc.board, dc.checked_out,
+              cc.name, cc.set_id, cc.number, cc.set_name
+         FROM deck_cards dc
+         JOIN card_cache cc ON cc.id = dc.desired_card_id
+        WHERE dc.deck_id = ?
+        ORDER BY dc.id ASC`,
+      [deck.id]);
+
+    const candidates = [];
+    for (const row of rows) {
+      if (row.checked_out) continue;   // a physical card is allocated to it
+      const { current, alternatives } =
+        await alternativesForRequirement(db, req.user.id, row);
+      if (alternatives.length === 0) continue;
+      candidates.push({
+        deck_card_id: row.id,
+        name: row.name,
+        board: row.board,
+        quantity: row.quantity,
+        wants: { set_id: row.set_id, number: row.number,
+                 set_name: row.set_name, finish: row.desired_finish },
+        available_now: current.quantity_available,
+        // AMBIGUOUS rows are reported but never auto-applied: more than one
+        // free printing means a choice, and guessing which card goes in a deck
+        // is a wrong record he would have to find by counting cardboard.
+        alternatives,
+        unambiguous: alternatives.length === 1
+      });
+    }
+
+    res.json({
+      total: rows.length,
+      candidates,
+      auto_applicable: candidates.filter(c => c.unambiguous).length
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not read candidates', message: err.message });
+  }
+});
+
+// Apply. One row when deck_card_id is given, otherwise every UNAMBIGUOUS row.
+router.post('/decks/:id/repoint', async (req, res) => {
+  const { deck_card_id, card_id, finish } = req.body || {};
+  try {
+    const deck = await db.get(
+      `SELECT id FROM decks WHERE id = ? AND user_id = ?`,
+      [req.params.id, req.user.id]);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
+
+    // ONE ROW, explicitly chosen.
+    if (deck_card_id) {
+      if (!card_id || !finish) {
+        return res.status(400).json({ error: 'card_id and finish are required' });
+      }
+      const r = await repointRequirement(db, deck_card_id, req.user.id, card_id, finish);
+      if (!r.ok) return res.status(409).json({ error: r.reason });
+      return res.json({ changed: 1, ...r });
+    }
+
+    // EVERY UNAMBIGUOUS ROW. Recomputed per row inside the transaction, not
+    // from a candidate list built earlier: each swap consumes a copy, so a
+    // second row wanting the same printing must see it already taken. Applying
+    // a precomputed list would hand the same physical card to two decks.
+    const rows = await db.all(
+      `SELECT dc.id, dc.oracle_id, dc.desired_card_id, dc.desired_finish,
+              dc.quantity, dc.board, dc.checked_out
+         FROM deck_cards dc WHERE dc.deck_id = ? ORDER BY dc.id ASC`,
+      [deck.id]);
+
+    const changed = [];
+    const skipped = [];
+    await db.run('BEGIN');
+    try {
+      for (const row of rows) {
+        if (row.checked_out) { skipped.push({ id: row.id, reason: 'checked_out' }); continue; }
+        const { alternatives } = await alternativesForRequirement(db, req.user.id, row);
+        if (alternatives.length === 0) continue;
+        if (alternatives.length > 1) {
+          skipped.push({ id: row.id, reason: 'ambiguous', count: alternatives.length });
+          continue;
+        }
+        const pick = alternatives[0];
+        const r = await repointRequirement(db, row.id, req.user.id, pick.card_id, pick.finish);
+        if (r.ok) changed.push({ id: row.id, to: pick.card_id, finish: pick.finish });
+        else skipped.push({ id: row.id, reason: r.reason });
+      }
+      await db.run('COMMIT');
+    } catch (err) {
+      // All or nothing: a half-applied sweep across 38 rows leaves him unable
+      // to tell which decklist he is holding.
+      await db.run('ROLLBACK').catch(() => {});
+      return res.status(500).json({ error: 'Nothing was changed.', message: err.message });
+    }
+
+    res.json({ changed: changed.length, skipped, details: changed });
+  } catch (err) {
+    res.status(500).json({ error: 'Repoint failed', message: err.message });
   }
 });
 
