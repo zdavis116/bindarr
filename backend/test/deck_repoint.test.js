@@ -156,8 +156,11 @@ test('RP-TC12: the per-card switch exists, not just the sweep', () => {
     'the sheet must be able to repoint a single row');
   assert.match(modalSrc, /deck_card_id: deckCardId/,
     'and target the deck row it was opened from');
-  assert.match(modalSrc, /t\('inspector\.useThisPrinting'\)/,
-    'with a visible control');
+  // The control WAS a button inside the row. Zach: "get rid of the button in
+  // the row just tapping the row should choose that printing." The row itself
+  // is the control now, so the assertion is on the tap.
+  assert.match(modalSrc, /onClick=\{\(\) => \(deckCardId\s*\n\s*\? assignPrintingToDeck\(pr\)/,
+    'tapping the row chooses the printing');
 });
 
 test('RP-TC13: the per-card button is REACHABLE from the deck', () => {
@@ -179,8 +182,8 @@ test('RP-TC14: the switch is offered from a deck, and never onto itself', () => 
   // What survives is the part that is still true: the action exists only when
   // there is a deck row to repoint, and a printing cannot be switched to
   // itself.
-  assert.match(modalSrc, /\{deckCardId\s*\n\s*&& pr\.id !== /,
-    'the button requires a deck row');
+  assert.match(modalSrc, /deckCardId\s*\n\s*\? assignPrintingToDeck\(pr\)\s*\n\s*: switchPrinting\(pr\)/,
+    'a deck row repoints; without one the tap only changes the view');
   assert.match(modalSrc, /pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\)/,
     'and the printing already in use offers no swap');
 });
@@ -219,12 +222,15 @@ test('RP-TC17: every other printing offers the switch', () => {
   // decision; a deck may want a card he does not own, which is what the
   // buylist is for and what 9 of his 90 rows already do. Availability belongs
   // in what the row SAYS, not in whether the action exists.
-  assert.match(modalSrc,
-    /\{deckCardId\s*\n\s*&& pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\) && \(/,
-    'only the current printing is excluded, not the unowned ones');
+  // The row is now the control, and the current printing is filtered out of
+  // the list entirely -- so every row rendered is switchable. What must stay
+  // true is that availability never gates it.
   assert.doesNotMatch(modalSrc,
     /deckCardId && \(pr\.quantity_available \|\| 0\) > 0/,
     'availability must not gate the action');
+  assert.match(modalSrc,
+    /printings\.filter\(pr => pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\)\)/,
+    'and only the printing in use is excluded from the list');
 });
 
 test('RP-TC18: the list excludes the CURRENT printing, not the opened one', () => {
@@ -268,4 +274,33 @@ test('RP-TC21: no unreachable "in use" label', () => {
   // to handle a case is worse than none: it implies a state that cannot occur.
   assert.doesNotMatch(modalSrc, /inspector\.inUseByDeck/,
     'the label was removed with the case it handled');
+});
+
+test('RP-TC22: choosing a printing does not close the sheet', () => {
+  // Zach: "The row tap should select the printing and change the view and not
+  // exit the modal."
+  //
+  // It called onClose() on success, throwing him back to the deck list -- so
+  // checking what he had just chosen meant reopening the card, and an edit he
+  // might want to follow with another felt like a commit-and-leave.
+  const fn = modalSrc.slice(modalSrc.indexOf('const assignPrintingToDeck'),
+                            modalSrc.indexOf('const switchPrinting'));
+  assert.doesNotMatch(fn, /onClose && onClose\(\)/,
+    'a successful repoint must leave the sheet open');
+  assert.match(fn, /switchPrinting\(pr\)/,
+    'and move the view to the printing he chose');
+  assert.match(fn, /onRepointed && onRepointed\(\)/,
+    'while the deck reloads behind it');
+});
+
+test('RP-TC23: no orphaned control or strings left behind', () => {
+  // A locale key for a button that does not exist tells the next reader a
+  // control is there when it is not.
+  assert.doesNotMatch(modalSrc, /inspector\.useThisPrinting/,
+    'the button label is gone with the button');
+  const en = JSON.parse(require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../../frontend/src/locales/en.json'), 'utf8'));
+  assert.ok(!('inspector.useThisPrinting' in en),
+    'and removed from the locale files');
+  assert.ok(!('inspector.inUseByDeck' in en));
 });

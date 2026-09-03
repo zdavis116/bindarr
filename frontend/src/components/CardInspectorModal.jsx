@@ -249,6 +249,8 @@ function CardInspectorModal({
   // there is no requirement to repoint.
   const [repointing, setRepointing] = useState(null);
 
+  // Declared before switchPrinting; the reference below resolves at TAP time,
+  // by which point both consts are bound.
   const assignPrintingToDeck = async (pr) => {
     if (!deckId || !deckCardId) return;
     setRepointing(pr.id);
@@ -281,8 +283,12 @@ function CardInspectorModal({
       showToast(t('inspector.repointed', {
         set: String(pr.set_id || '').toUpperCase(), number: pr.number
       }));
+      // Tell the deck to reload, then MOVE THE SHEET to the printing he chose.
+      // Closing here threw him back to the deck list, so checking his own
+      // choice meant reopening the card -- and it made an edit feel like a
+      // commit-and-leave when he may well want to switch again.
       onRepointed && onRepointed();
-      onClose && onClose();
+      switchPrinting(pr);
     } catch {
       showToast(t('inspector.repointFailed'));
     } finally {
@@ -1017,7 +1023,15 @@ function CardInspectorModal({
                             <button
                               key={pr.id}
                               type="button"
-                              onClick={() => switchPrinting(pr)}
+                              /* TAP CHOOSES. From a deck that means the deck
+                                 now uses this printing AND the sheet follows
+                                 it. From the collection there is no deck row
+                                 to repoint, so it just shows the printing --
+                                 the only meaning that context has. */
+                              onClick={() => (deckCardId
+                                ? assignPrintingToDeck(pr)
+                                : switchPrinting(pr))}
+                              disabled={repointing === pr.id}
                               style={{
                               display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
                               padding: '0.6rem 0.75rem', minHeight: 44, fontSize: '0.82rem',
@@ -1050,41 +1064,6 @@ function CardInspectorModal({
                                   }}>
                                     {t('inspector.youOwn', { count: pr.owned_qty })}
                                   </span>
-                                )}
-                                {/* USE THIS PRINTING IN THE DECK.
-                                    Zach: "I might not want to do all 34, some
-                                    I might want to leave as that printing" --
-                                    so the per-card control exists alongside
-                                    the deck-wide sweep.
-
-                                    Offered only when it would actually work:
-                                    opened from a deck, a FREE copy exists (not
-                                    merely owned -- it could be sleeved in
-                                    another deck), and it is not already the
-                                    printing this row uses. */}
-                                {/* EVERY other printing offers the switch.
-                                    Gating this on availability meant that once
-                                    the deck used the printing he owns, nothing
-                                    else had a free copy and the row was stuck
-                                    with no way back.
-
-                                    Choosing a printing is a DECKLIST decision.
-                                    A deck may want a card he does not own --
-                                    that is what the buylist is for. What he
-                                    owns is shown on the row; it does not
-                                    decide whether the action exists. */}
-                                {deckCardId
-                                  && pr.id !== (deckUse?.card_id || catalogueId) && (
-                                  <button
-                                    type="button"
-                                    className="btn btn-secondary"
-                                    disabled={repointing === pr.id}
-                                    onClick={(e) => { e.stopPropagation(); assignPrintingToDeck(pr); }}
-                                    style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem',
-                                             whiteSpace: 'nowrap' }}
-                                  >
-                                    {t('inspector.useThisPrinting')}
-                                  </button>
                                 )}
                                 <span style={{ color: 'var(--text-muted)' }}>
                                 {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}

@@ -1292,8 +1292,6 @@
   "deck.repointSkipped": "{count} requerían elegir y no se tocaron.",
   "deck.repointFailed": "No se cambió nada.",
   "deck.repointDismiss": "Ahora no",
-  "inspector.useThisPrinting": "Usar en el mazo",
   "inspector.repointed": "El mazo ahora usa {set} #{number}.",
-  "inspector.repointFailed": "Esa edición no está disponible ahora mismo.",
-  "inspector.inUseByDeck": "el mazo usa esta"
+  "inspector.repointFailed": "Esa edición no está disponible ahora mismo."
 }
