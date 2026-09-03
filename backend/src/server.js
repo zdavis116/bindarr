@@ -15,6 +15,7 @@ const statsRoutes = require('./routes/stats');
 const importExportRoutes = require('./routes/importExport');
 const setsRoutes = require('./routes/sets');
 const decksRoutes = require('./routes/decks');
+const moxfieldRoutes = require('./routes/moxfield');
 const settingsRoutes = require('./routes/settings');
 const tagsRoutes = require('./routes/tags');
 const notesRoutes = require('./routes/notes');
@@ -257,6 +258,8 @@ app.get('/api/audit-logs', getAuditLogs);
 app.post('/api/audit-logs/:id/revert', revertAuditEvent);
 app.use('/api/sets', setsRoutes);
 app.use('/api/decks', decksRoutes);
+// Paths inside are /moxfield/..., so this mounts at bare /api like collection.
+app.use('/api', moxfieldRoutes);
 app.use('/api/settings', settingsRoutes);
 
 // PHASE 4a SPIKE — throwaway detector benchmark, dev only.

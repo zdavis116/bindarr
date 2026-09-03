@@ -592,6 +592,43 @@ async function initDb() {
     )
   `);
 
+  // WHICH MOXFIELD DECK THIS MIRRORS, when it mirrors one.
+  //
+  // Zach: "shouldn't moxfield decks have their own specific ids so decks built
+  // locally will be untouched". NULL means built in Bindarr -- sync skips it
+  // entirely. The unique index is partial so any number of local decks can
+  // coexist while a Moxfield deck can only be mirrored once.
+  const deckCols = await all(`PRAGMA table_info(decks)`);
+  if (!deckCols.some(c => c.name === 'moxfield_public_id')) {
+    await run(`ALTER TABLE decks ADD COLUMN moxfield_public_id TEXT`);
+  }
+  if (!deckCols.some(c => c.name === 'moxfield_synced_at')) {
+    await run(`ALTER TABLE decks ADD COLUMN moxfield_synced_at DATETIME`);
+  }
+  if (!deckCols.some(c => c.name === 'moxfield_updated_at')) {
+    // Moxfield's own lastUpdatedAtUtc as of the last sync. Change detection
+    // compares this, so an unchanged deck costs one list call rather than a
+    // full fetch.
+    await run(`ALTER TABLE decks ADD COLUMN moxfield_updated_at TEXT`);
+  }
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_decks_moxfield_public_id
+               ON decks(moxfield_public_id) WHERE moxfield_public_id IS NOT NULL`);
+
+  // The Moxfield account whose public decks this user mirrors.
+  await run(`
+    CREATE TABLE IF NOT EXISTS moxfield_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      display_name TEXT,
+      last_checked_at DATETIME,
+      last_error TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, username),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
   // Exact-only deck identity.
   //
   // The old table keyed on (deck_id, card_id) with no finish at all, which made
