@@ -21,10 +21,18 @@ const MTG_COLOR_FG = {
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
 // gets the same rich view + edit without duplicating the form. onUpdate() lets
 // the parent refetch after a change. onViewStorage is optional (hidden if absent).
+// Which deck row this sheet was opened from, when it came from a deck.
+// Present only in the deck view: from the collection there is no deck context
+// and no requirement to repoint.
 function CardInspectorModal({
   card, onClose, onUpdate, onDeleted, showToast,
   startInEdit = false,
   readOnly = false,
+  // The deck_cards row this sheet was opened from, and a callback to reload
+  // the deck after a swap. Absent from the collection view.
+  deckCardId = null,
+  deckId = null,
+  onRepointed = null,
   // REMOVE FROM THIS DECK, supplied only by the deck view.
   //
   // Delete cannot be one function: from the collection it destroys a physical
@@ -231,6 +239,51 @@ function CardInspectorModal({
   // A newly opened card clears any printing override -- otherwise the sheet
   // opens on whatever was last switched to.
   useEffect(() => { setSwitchedCardId(null); }, [openedWith]);
+
+  // USE THIS PRINTING IN THE DECK.
+  //
+  // Different from switchPrinting, which only changes what the SHEET shows.
+  // This changes what the deck asks for, so his owned copy satisfies it.
+  //
+  // Only offered when the sheet was opened from a deck: from the collection
+  // there is no requirement to repoint.
+  const [repointing, setRepointing] = useState(null);
+
+  const assignPrintingToDeck = async (pr) => {
+    if (!deckId || !deckCardId) return;
+    setRepointing(pr.id);
+    try {
+      const res = await fetch(`/api/decks/${deckId}/repoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deck_card_id: deckCardId,
+          card_id: pr.id,
+          // The finish he OWNS this printing in, not the one the deck asked
+          // for -- the whole point is to use the physical card on the shelf.
+          finish: pr.owned_finish || pr.finish || 'nonfoil'
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // The server re-checks availability, so a copy claimed since this
+        // sheet opened is refused here rather than silently taken.
+        showToast(data.error === 'checked_out'
+          ? t('inspector.repointFailed')
+          : (data.error || t('inspector.repointFailed')));
+        return;
+      }
+      showToast(t('inspector.repointed', {
+        set: String(pr.set_id || '').toUpperCase(), number: pr.number
+      }));
+      onRepointed && onRepointed();
+      onClose && onClose();
+    } catch {
+      showToast(t('inspector.repointFailed'));
+    } finally {
+      setRepointing(null);
+    }
+  };
 
   const switchPrinting = (pr) => {
     if (!pr || pr.id === (deckUse?.card_id || catalogueId)) return;
@@ -985,6 +1038,37 @@ function CardInspectorModal({
                                     color: 'var(--accent-blue)', whiteSpace: 'nowrap'
                                   }}>
                                     {t('inspector.youOwn', { count: pr.owned_qty })}
+                                  </span>
+                                )}
+                                {/* USE THIS PRINTING IN THE DECK.
+                                    Zach: "I might not want to do all 34, some
+                                    I might want to leave as that printing" --
+                                    so the per-card control exists alongside
+                                    the deck-wide sweep.
+
+                                    Offered only when it would actually work:
+                                    opened from a deck, a FREE copy exists (not
+                                    merely owned -- it could be sleeved in
+                                    another deck), and it is not already the
+                                    printing this row uses. */}
+                                {deckCardId && (pr.quantity_available || 0) > 0
+                                  && pr.id !== (deckUse?.card_id || catalogueId) && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    disabled={repointing === pr.id}
+                                    onClick={(e) => { e.stopPropagation(); assignPrintingToDeck(pr); }}
+                                    style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem',
+                                             whiteSpace: 'nowrap' }}
+                                  >
+                                    {t('inspector.useThisPrinting')}
+                                  </button>
+                                )}
+                                {deckCardId && pr.id === (deckUse?.card_id || catalogueId) && (
+                                  <span style={{ fontSize: '0.66rem',
+                                                 color: 'var(--text-muted)',
+                                                 whiteSpace: 'nowrap' }}>
+                                    {t('inspector.inUseByDeck')}
                                   </span>
                                 )}
                                 <span style={{ color: 'var(--text-muted)' }}>

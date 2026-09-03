@@ -1368,5 +1368,9 @@
   "deck.repointDone": "Switched {count} cards to printings you own.",
   "deck.repointSkipped": "{count} needed a choice and were left alone.",
   "deck.repointFailed": "Nothing was changed.",
-  "deck.repointDismiss": "Not now"
+  "deck.repointDismiss": "Not now",
+  "inspector.useThisPrinting": "Use in deck",
+  "inspector.repointed": "Deck now uses {set} #{number}.",
+  "inspector.repointFailed": "That printing isn't free right now.",
+  "inspector.inUseByDeck": "this deck uses this"
 }

@@ -284,7 +284,21 @@ router.get('/card/:cardId/decks', async (req, res) => {
     const printings = await db.all(
       `SELECT cc.id, cc.set_id, cc.number, cc.set_name, cc.price_trend, cc.finishes,
               COALESCE(SUM(col.quantity), 0) AS owned_qty,
-              COUNT(col.id)                  AS owned_entries
+              COUNT(col.id)                  AS owned_entries,
+              -- Which finish he actually holds it in. A repoint must ask for
+              -- the physical card on the shelf, not the finish the deck
+              -- happened to record. MIN() is stable when he owns both; the
+              -- per-card UI shows what it picked.
+              MIN(col.finish)                AS owned_finish,
+              -- Copies of this printing already committed to a deck. Owning
+              -- one that is sleeved elsewhere is not the same as having one.
+              COALESCE((
+                SELECT SUM(dc.quantity) FROM deck_cards dc
+                  JOIN decks d ON d.id = dc.deck_id
+                 WHERE d.user_id = ?
+                   AND dc.desired_card_id = cc.id
+                   AND dc.board IN ('commander', 'mainboard', 'sideboard')
+              ), 0)                          AS committed_qty
          FROM card_cache cc
          LEFT JOIN collection col
                 ON col.card_id = cc.id
@@ -293,7 +307,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
         WHERE cc.oracle_id = ?
         GROUP BY cc.id
         ORDER BY owned_qty DESC, cc.price_trend DESC`,
-      [req.user.id, card.oracle_id]
+      [req.user.id, req.user.id, card.oracle_id]
     );
 
     res.json({
@@ -311,7 +325,13 @@ router.get('/card/:cardId/decks', async (req, res) => {
       reserved,
       free: Math.max(0, owned.n - reserved),
       decks: rows,
-      printings,
+      // `free` is what the per-card repoint may offer. Derived here rather
+      // than in the UI: availability is a fact about the whole collection, and
+      // no single screen has the information.
+      printings: printings.map(p => ({
+        ...p,
+        quantity_available: Math.max(0, (p.owned_qty || 0) - (p.committed_qty || 0))
+      })),
       owned_entries: ownedRows,
       // The catalogue row, so every tab reads the same card.
       card,

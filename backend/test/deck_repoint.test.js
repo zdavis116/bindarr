@@ -135,3 +135,67 @@ test('RP-TC11: routes are relative to the /api/decks mount', () => {
   assert.doesNotMatch(routeSrc, /router\.(get|post)\('\/decks\/:id\/repoint/,
     'a /decks prefix here resolves to /api/decks/decks/:id');
 });
+
+const collectionSrc = require('node:fs').readFileSync(
+  require('node:path').join(__dirname, '../src/routes/collection.js'), 'utf8');
+const modalSrc = require('node:fs').readFileSync(
+  require('node:path').join(__dirname, '../../frontend/src/components/CardInspectorModal.jsx'),
+  'utf8');
+const deckViewSrc = require('node:fs').readFileSync(
+  require('node:path').join(__dirname, '../../frontend/src/components/DeckView.jsx'),
+  'utf8');
+
+test('RP-TC12: the per-card switch exists, not just the sweep', () => {
+  // Zach asked for BOTH and I built only the batch. His objection is the
+  // reason the per-card control matters: "I might not want to do all 34, some
+  // I might want to leave as that printing."
+  //
+  // A one-tap sweep with no per-card control forces an all-or-nothing decision
+  // over 34 separate judgements.
+  assert.match(modalSrc, /const assignPrintingToDeck = async \(pr\) => \{/,
+    'the sheet must be able to repoint a single row');
+  assert.match(modalSrc, /deck_card_id: deckCardId/,
+    'and target the deck row it was opened from');
+  assert.match(modalSrc, /t\('inspector\.useThisPrinting'\)/,
+    'with a visible control');
+});
+
+test('RP-TC13: the per-card button is REACHABLE from the deck', () => {
+  // It is gated on deckCardId. A missing prop means the feature looks built
+  // and does nothing -- this project's most repeated failure.
+  assert.match(deckViewSrc, /deckCardId=\{inspecting\?\.id\}/,
+    'DeckView must pass the deck row id');
+  assert.match(deckViewSrc, /deckId=\{deck\?\.id\}/,
+    'and the deck id');
+  assert.match(deckViewSrc, /onRepointed=\{\(\) => \{ onChanged && onChanged\(\); \}\}/,
+    'and reload the deck afterwards, or the old printing stays on screen');
+});
+
+test('RP-TC14: the button only appears where the swap would work', () => {
+  // Offered only when a FREE copy exists -- owning one that is sleeved in
+  // another deck is not the same as having one. A button that looks available
+  // and then fails is worse than no button.
+  assert.match(modalSrc, /deckCardId && \(pr\.quantity_available \|\| 0\) > 0/,
+    'availability gates the button, not ownership');
+  assert.match(modalSrc, /pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\)/,
+    'and the printing already in use offers no swap');
+});
+
+test('RP-TC15: a per-card swap asks for the finish he OWNS', () => {
+  // The point is to use the physical card on the shelf, not the finish the
+  // deck happened to record. Zach: "if I already own it idc if it changes the
+  // price of what the deck is worth."
+  assert.match(modalSrc, /finish: pr\.owned_finish \|\| pr\.finish \|\| 'nonfoil'/,
+    'the owned finish wins');
+  assert.match(collectionSrc, /MIN\(col\.finish\)\s+AS owned_finish/,
+    'and the server must report which finish he holds');
+});
+
+test('RP-TC16: availability is computed on the server', () => {
+  // It is a fact about the whole collection; no single screen has the
+  // information. The same reason in_deck_qty is computed server-side.
+  assert.match(collectionSrc, /quantity_available: Math\.max\(0, \(p\.owned_qty \|\| 0\) - \(p\.committed_qty \|\| 0\)\)/,
+    'free = owned minus committed, derived once on the server');
+  assert.match(collectionSrc, /dc\.board IN \('commander', 'mainboard', 'sideboard'\)/,
+    'a considering row claims nothing, so it must not count as committed');
+});

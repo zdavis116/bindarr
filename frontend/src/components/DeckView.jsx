@@ -912,6 +912,13 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         <CardInspectorModal
           card={inspecting}
           readOnly
+          /* PER-CARD REPOINT. Zach: "I might not want to do all 34, some I
+             might want to leave as that printing." The sheet needs to know
+             WHICH deck row it is looking at to offer the swap; from the
+             collection there is no requirement and no button. */
+          deckId={deck?.id}
+          deckCardId={inspecting?.id}
+          onRepointed={() => { onChanged && onChanged(); }}
           onClose={() => setInspecting(null)}
           showToast={showToast}
           /* Delete from a deck means REMOVE THE REQUIREMENT, not destroy the

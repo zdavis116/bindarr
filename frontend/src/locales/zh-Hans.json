@@ -1253,5 +1253,9 @@
   "deck.repointDone": "已将 {count} 张卡切换为你拥有的版本。",
   "deck.repointSkipped": "{count} 张需要你选择，已保持不变。",
   "deck.repointFailed": "未做任何更改。",
-  "deck.repointDismiss": "暂不"
+  "deck.repointDismiss": "暂不",
+  "inspector.useThisPrinting": "用于此套牌",
+  "inspector.repointed": "套牌现已使用 {set} #{number}。",
+  "inspector.repointFailed": "该版本当前不可用。",
+  "inspector.inUseByDeck": "此套牌使用该版本"
 }
