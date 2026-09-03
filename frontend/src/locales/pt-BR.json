@@ -960,8 +960,6 @@
   "settings.showLocationsHint": "Revela em qual fichário ou caixa cada carta está guardada.",
   "settings.regenerateLink": "Gerar um novo link",
   "settings.confirmRegenerate": "Tem certeza de que quer gerar um novo token de compartilhamento? Todos os links que você já compartilhou vão parar de funcionar.",
-  "settings.sharingOn": "Compartilhamento da coleção ativado.",
-  "settings.sharingOff": "Compartilhamento da coleção desativado.",
   "settings.errSharing": "Não foi possível atualizar as configurações de compartilhamento.",
   "settings.errSharingGeneric": "Erro ao atualizar as configurações de compartilhamento.",
   "settings.locationsOn": "Agora dá para ver onde as cartas estão na sua página compartilhada.",

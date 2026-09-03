@@ -960,8 +960,6 @@
   "settings.showLocationsHint": "Rivela in quale raccoglitore o scatola è archiviata ogni carta.",
   "settings.regenerateLink": "Rigenera il link",
   "settings.confirmRegenerate": "Vuoi davvero rigenerare il tuo token di condivisione? Tutti i link già condivisi smetteranno di funzionare.",
-  "settings.sharingOn": "Condivisione della collezione attivata.",
-  "settings.sharingOff": "Condivisione della collezione disattivata.",
   "settings.errSharing": "Impossibile aggiornare le impostazioni di condivisione.",
   "settings.errSharingGeneric": "Errore durante l'aggiornamento delle impostazioni di condivisione.",
   "settings.locationsOn": "Ora si vede dove sono le carte nella tua pagina condivisa.",

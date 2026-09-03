@@ -946,8 +946,6 @@
   "settings.showLocationsHint": "Zeigt, in welchem Ordner oder welcher Box jede Karte liegt.",
   "settings.regenerateLink": "Link neu erzeugen",
   "settings.confirmRegenerate": "Willst du dein Freigabe-Token wirklich neu erzeugen? Alle bereits geteilten Links funktionieren dann nicht mehr.",
-  "settings.sharingOn": "Teilen der Sammlung aktiviert.",
-  "settings.sharingOff": "Teilen der Sammlung deaktiviert.",
   "settings.errSharing": "Freigabeeinstellungen konnten nicht aktualisiert werden.",
   "settings.errSharingGeneric": "Fehler beim Aktualisieren der Freigabeeinstellungen.",
   "settings.locationsOn": "Kartenorte sind jetzt auf deiner Freigabeseite sichtbar.",

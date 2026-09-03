@@ -974,8 +974,6 @@
   "settings.showLocationsHint": "Показывает, в каком альбоме или коробке лежит каждая карта.",
   "settings.regenerateLink": "Создать ссылку заново",
   "settings.confirmRegenerate": "Действительно создать токен доступа заново? Все ранее отправленные ссылки перестанут работать.",
-  "settings.sharingOn": "Доступ к коллекции включён.",
-  "settings.sharingOff": "Доступ к коллекции отключён.",
   "settings.errSharing": "Не удалось обновить настройки доступа.",
   "settings.errSharingGeneric": "Ошибка при обновлении настроек доступа.",
   "settings.locationsOn": "Места карт теперь видны на вашей публичной странице.",

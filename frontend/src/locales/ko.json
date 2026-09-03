@@ -932,8 +932,6 @@
   "settings.showLocationsHint": "각 카드가 어느 바인더나 상자에 보관되어 있는지 보여 줍니다.",
   "settings.regenerateLink": "링크 다시 만들기",
   "settings.confirmRegenerate": "공유 토큰을 다시 만드시겠습니까? 이미 공유한 링크는 모두 작동하지 않게 됩니다.",
-  "settings.sharingOn": "컬렉션 공유를 켰습니다.",
-  "settings.sharingOff": "컬렉션 공유를 껐습니다.",
   "settings.errSharing": "공유 설정을 변경할 수 없습니다.",
   "settings.errSharingGeneric": "공유 설정을 변경하는 중 오류가 발생했습니다.",
   "settings.locationsOn": "이제 공유 페이지에서 카드 위치가 보입니다.",

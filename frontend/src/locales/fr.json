@@ -960,8 +960,6 @@
   "settings.showLocationsHint": "Révèle dans quel classeur ou quelle boîte chaque carte est rangée.",
   "settings.regenerateLink": "Régénérer le lien",
   "settings.confirmRegenerate": "Veux-tu vraiment régénérer ton jeton de partage ? Tous les liens déjà partagés cesseront de fonctionner.",
-  "settings.sharingOn": "Partage de la collection activé.",
-  "settings.sharingOff": "Partage de la collection désactivé.",
   "settings.errSharing": "Impossible de mettre à jour les paramètres de partage.",
   "settings.errSharingGeneric": "Erreur lors de la mise à jour des paramètres de partage.",
   "settings.locationsOn": "L'emplacement des cartes est maintenant visible sur ta page de partage.",

@@ -932,8 +932,6 @@
   "settings.showLocationsHint": "顯示每張卡放在哪個卡冊或卡盒裡。",
   "settings.regenerateLink": "重新產生連結",
   "settings.confirmRegenerate": "確定要重新產生分享權杖嗎？你已經分享出去的連結都會失效。",
-  "settings.sharingOn": "已開啟收藏分享。",
-  "settings.sharingOff": "已關閉收藏分享。",
   "settings.errSharing": "無法更新分享設定。",
   "settings.errSharingGeneric": "更新分享設定時發生錯誤。",
   "settings.locationsOn": "現在分享頁面上可以看到卡牌位置了。",

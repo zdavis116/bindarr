@@ -1235,5 +1235,13 @@
   "inspector.short": "No la tienes",
   "inspector.confirmRemoveFromDeck": "¿Quitar {name} de {deck}? Tu copia sigue en tu colección.",
   "inspector.confirmRemoveFromDeckShort": "¿Quitar {name} de este mazo? Tu copia sigue en tu colección.",
-  "inspector.removeFromDeck": "Quitar del mazo"
+  "inspector.removeFromDeck": "Quitar del mazo",
+  "deck.cardsMissing.many": "{count} cards missing",
+  "deck.cardsToBuy.many": "{count} cards to buy",
+  "deck.copyCards.many": "Copy {count} cards",
+  "deck.decksSelected.many": "{count} decks selected",
+  "deck.oneCopyPerDeck.many": "{count} cards to buy - one copy per deck",
+  "deck.overCommitted.many": "Only {owned} owned, but {decks} decks want it",
+  "deck.swapRemovesBody.many": "{count} cards fall outside the new commander's colours and will be removed:",
+  "deck.usedInDecks.many": "{owned} owned, used in {decks} decks"
 }

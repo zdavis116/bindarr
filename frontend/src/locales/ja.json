@@ -932,8 +932,6 @@
   "settings.showLocationsHint": "各カードがどのバインダーやボックスに入っているかを見せます。",
   "settings.regenerateLink": "リンクを再生成",
   "settings.confirmRegenerate": "共有トークンを再生成してもよろしいですか？すでに共有したリンクは使えなくなります。",
-  "settings.sharingOn": "コレクションの共有を有効にしました。",
-  "settings.sharingOff": "コレクションの共有を無効にしました。",
   "settings.errSharing": "共有設定を更新できませんでした。",
   "settings.errSharingGeneric": "共有設定の更新でエラーが発生しました。",
   "settings.locationsOn": "共有ページでカードの保管場所が表示されるようになりました。",
