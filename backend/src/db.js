@@ -461,6 +461,49 @@ async function initDb() {
     )
   `);
 
+  // DELETED CARDS, RECOVERABLE.
+  //
+  // A mirror of `collection` rather than a `deleted_at` flag on it. 79 places
+  // in the backend read the collection table; a flag would need every one of
+  // them to filter, and one miss means a deleted card still counts toward a
+  // deck's coverage or the collection value. A row that has moved out cannot
+  // be counted by a query that forgot about it.
+  //
+  // entry_id preserves the ORIGINAL collection.id. collection_tags and
+  // deck_card_allocations reference it, so restoring under a new id would
+  // silently drop those links.
+  //
+  // batch_id groups one delete action. Zach: keep three batches, and the
+  // fourth delete purges the oldest -- so the trash cannot grow without bound
+  // and he can always undo the last thing he did.
+  await run(`
+    CREATE TABLE IF NOT EXISTS collection_trash (
+      entry_id INTEGER PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      user_id INTEGER,
+      card_id TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      condition TEXT,
+      printing TEXT,
+      finish TEXT,
+      purchase_price REAL,
+      location_id INTEGER,
+      compartment_id INTEGER,
+      position REAL DEFAULT 0,
+      favorite INTEGER DEFAULT 0,
+      is_trade INTEGER DEFAULT 0,
+      list_type TEXT DEFAULT 'collection',
+      notes TEXT DEFAULT '',
+      added_at DATETIME
+    )
+  `);
+
+  // Batches are read newest-first to decide which to purge, and a restore
+  // fetches one whole batch.
+  await run(`CREATE INDEX IF NOT EXISTS idx_trash_batch ON collection_trash(batch_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_trash_user_time ON collection_trash(user_id, deleted_at DESC)`);
+
   await run(`
     CREATE TABLE IF NOT EXISTS tags (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

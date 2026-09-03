@@ -3,6 +3,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const sharp = require('sharp');
 const db = require('../db');
+const { trashEntries, restoreBatch, listTrash } = require('../utils/collectionTrash');
 const scryfallApi = require('../scryfallApi');
 const scanMatch = require('../scanMatch');
 const setIndex = require('../setIndex');
@@ -2267,6 +2268,37 @@ router.delete('/collection/:id', async (req, res) => {
 });
 
 // 5b. Bulk actions
+// THE TRASH.
+//
+// Deleting is reversible until three more batches have been deleted. These two
+// routes are the whole recovery path: list what is recoverable, and put one
+// batch back.
+router.get('/collection/trash', async (req, res) => {
+  try {
+    res.json(await listTrash(req.user.id));
+  } catch (err) {
+    res.status(500).json({ error: 'Could not read the trash', message: err.message });
+  }
+});
+
+router.post('/collection/trash/:batchId/restore', async (req, res) => {
+  try {
+    const { restored, skipped } = await restoreBatch(req.params.batchId, req.user.id);
+    if (restored === 0 && skipped === 0) {
+      // Already purged, already restored, or never his. Saying so plainly
+      // beats a silent success that leaves him wondering where the cards went.
+      return res.status(404).json({ error: 'That batch is no longer in the trash.' });
+    }
+    res.json({
+      message: `Restored ${restored} card(s)`,
+      restored,
+      skipped
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Restore failed; nothing was changed.', message: err.message });
+  }
+});
+
 const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condition', 'printing', 'purchase_split', 'add_to_deck'];
 // Allowed field values mirror the collection table CHECK constraints in db.js.
 // Finish values are NOT listed here: utils/finishes.js owns that vocabulary, so
@@ -2418,8 +2450,21 @@ router.post('/collection/bulk', async (req, res) => {
     }
 
     if (action === 'delete') {
-      const result = await db.run(`DELETE FROM collection WHERE id IN (${placeholders}) AND user_id = ?`, [...ids, req.user.id]);
-      return res.json({ message: `Deleted ${result.changes} card(s)`, affected: result.changes });
+      // RECOVERABLE. The rows move to collection_trash rather than being
+      // destroyed, and the batch id comes back so the client can offer an
+      // undo. Zach keeps the last three batches; the fourth delete purges the
+      // oldest.
+      //
+      // Deliberately NOT a `deleted_at` flag on this table: 79 places in the
+      // backend read `collection`, and one that forgot to filter would leave a
+      // deleted card still counting toward a deck's coverage or the collection
+      // value. A row that has moved out cannot be miscounted.
+      const { batchId, moved } = await trashEntries(ids, req.user.id);
+      return res.json({
+        message: `Deleted ${moved} card(s)`,
+        affected: moved,
+        batch_id: batchId
+      });
     }
 
     if (action === 'trade' || action === 'untrade') {
