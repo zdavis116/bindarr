@@ -306,7 +306,11 @@ router.get('/card/:cardId/decks', async (req, res) => {
                AND col.list_type = 'collection'
         WHERE cc.oracle_id = ?
         GROUP BY cc.id
-        ORDER BY owned_qty DESC, cc.price_trend DESC`,
+        -- Owned first (Zach: "the ones you own filter to the top"), then
+        -- CHEAPEST among the rest: this list exists to pick a printing for a
+        -- deck, so the expensive variant should never be the default landing
+        -- spot. Some cards span $30 to $24,500 across printings.
+        ORDER BY owned_qty DESC, COALESCE(cc.price_trend, 999999) ASC`,
       [req.user.id, req.user.id, card.oracle_id]
     );
 

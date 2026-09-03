@@ -261,7 +261,12 @@ function CardInspectorModal({
           card_id: pr.id,
           // The finish he OWNS this printing in, not the one the deck asked
           // for -- the whole point is to use the physical card on the shelf.
-          finish: pr.owned_finish || pr.finish || 'nonfoil'
+          // The finish he OWNS it in when he owns it -- the point is to use
+          // the physical card. For a printing he does not own there is no
+          // owned finish, so keep what the deck already asked for rather than
+          // silently dropping to nonfoil.
+          finish: pr.owned_finish || deckUse?.desired_finish
+                  || card?.desired_finish || 'nonfoil'
         })
       });
       const data = await res.json().catch(() => ({}));
@@ -996,7 +1001,13 @@ function CardInspectorModal({
                       background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                       borderRadius: 'var(--radius-md)', overflow: 'hidden',
                     }}>
-                      {printings.filter(pr => pr.id !== (card.card_id || card.id))
+                      {/* Exclude the printing CURRENTLY in use, not the one
+                          the sheet was opened with. `card` is the caller's
+                          object and stops being the shown printing the moment
+                          he switches -- which listed the row he just chose and
+                          hid the one he moved away from. catalogueId is what
+                          the sheet is actually showing. */}
+                      {printings.filter(pr => pr.id !== (deckUse?.card_id || catalogueId))
                         .map((pr, i) => {
                           let fin = [];
                           try { fin = Array.isArray(pr.finishes) ? pr.finishes : JSON.parse(pr.finishes || '[]'); }
@@ -1051,7 +1062,18 @@ function CardInspectorModal({
                                     merely owned -- it could be sleeved in
                                     another deck), and it is not already the
                                     printing this row uses. */}
-                                {deckCardId && (pr.quantity_available || 0) > 0
+                                {/* EVERY other printing offers the switch.
+                                    Gating this on availability meant that once
+                                    the deck used the printing he owns, nothing
+                                    else had a free copy and the row was stuck
+                                    with no way back.
+
+                                    Choosing a printing is a DECKLIST decision.
+                                    A deck may want a card he does not own --
+                                    that is what the buylist is for. What he
+                                    owns is shown on the row; it does not
+                                    decide whether the action exists. */}
+                                {deckCardId
                                   && pr.id !== (deckUse?.card_id || catalogueId) && (
                                   <button
                                     type="button"
@@ -1063,13 +1085,6 @@ function CardInspectorModal({
                                   >
                                     {t('inspector.useThisPrinting')}
                                   </button>
-                                )}
-                                {deckCardId && pr.id === (deckUse?.card_id || catalogueId) && (
-                                  <span style={{ fontSize: '0.66rem',
-                                                 color: 'var(--text-muted)',
-                                                 whiteSpace: 'nowrap' }}>
-                                    {t('inspector.inUseByDeck')}
-                                  </span>
                                 )}
                                 <span style={{ color: 'var(--text-muted)' }}>
                                 {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}

@@ -171,12 +171,16 @@ test('RP-TC13: the per-card button is REACHABLE from the deck', () => {
     'and reload the deck afterwards, or the old printing stays on screen');
 });
 
-test('RP-TC14: the button only appears where the swap would work', () => {
-  // Offered only when a FREE copy exists -- owning one that is sleeved in
-  // another deck is not the same as having one. A button that looks available
-  // and then fails is worse than no button.
-  assert.match(modalSrc, /deckCardId && \(pr\.quantity_available \|\| 0\) > 0/,
-    'availability gates the button, not ownership');
+test('RP-TC14: the switch is offered from a deck, and never onto itself', () => {
+  // ORIGINALLY this required availability > 0 as well, and that is what
+  // trapped Zach: once the deck used the printing he owns, nothing else had a
+  // free copy and the row was stuck. See RP-TC17.
+  //
+  // What survives is the part that is still true: the action exists only when
+  // there is a deck row to repoint, and a printing cannot be switched to
+  // itself.
+  assert.match(modalSrc, /\{deckCardId\s*\n\s*&& pr\.id !== /,
+    'the button requires a deck row');
   assert.match(modalSrc, /pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\)/,
     'and the printing already in use offers no swap');
 });
@@ -185,8 +189,11 @@ test('RP-TC15: a per-card swap asks for the finish he OWNS', () => {
   // The point is to use the physical card on the shelf, not the finish the
   // deck happened to record. Zach: "if I already own it idc if it changes the
   // price of what the deck is worth."
-  assert.match(modalSrc, /finish: pr\.owned_finish \|\| pr\.finish \|\| 'nonfoil'/,
-    'the owned finish wins');
+  // The fallback chain changed when unowned printings became switchable: there
+  // is no owned_finish for a printing he does not have, and dropping to a bare
+  // 'nonfoil' would silently change a deliberately-foil row. See RP-TC20.
+  assert.match(modalSrc, /finish: pr\.owned_finish \|\| deckUse\?\.desired_finish/,
+    'the owned finish wins, then the deck\'s own');
   assert.match(collectionSrc, /MIN\(col\.finish\)\s+AS owned_finish/,
     'and the server must report which finish he holds');
 });
@@ -198,4 +205,67 @@ test('RP-TC16: availability is computed on the server', () => {
     'free = owned minus committed, derived once on the server');
   assert.match(collectionSrc, /dc\.board IN \('commander', 'mainboard', 'sideboard'\)/,
     'a considering row claims nothing, so it must not count as committed');
+});
+
+test('RP-TC17: every other printing offers the switch', () => {
+  // Zach: "once I switched to the one I own there is no way to switch to a
+  // different one."
+  //
+  // The button was gated on quantity_available > 0. Once the deck used the
+  // printing he owns, every OTHER printing had 0 free -- he owns none of them
+  // -- so no button rendered anywhere. Verified on his data: 0 routes out.
+  //
+  // The gate was wrong in principle. Choosing a printing is a DECKLIST
+  // decision; a deck may want a card he does not own, which is what the
+  // buylist is for and what 9 of his 90 rows already do. Availability belongs
+  // in what the row SAYS, not in whether the action exists.
+  assert.match(modalSrc,
+    /\{deckCardId\s*\n\s*&& pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\) && \(/,
+    'only the current printing is excluded, not the unowned ones');
+  assert.doesNotMatch(modalSrc,
+    /deckCardId && \(pr\.quantity_available \|\| 0\) > 0/,
+    'availability must not gate the action');
+});
+
+test('RP-TC18: the list excludes the CURRENT printing, not the opened one', () => {
+  // It filtered on `card.card_id` -- the caller's object, which stops being
+  // the shown printing the moment he switches. So the row he just chose
+  // appeared in "other printings" and the one he moved away from was hidden.
+  //
+  // Zach: "if I chose a printing that should be the printing I am using and
+  // the other printings besides that one should show in the printing area."
+  assert.match(modalSrc,
+    /printings\.filter\(pr => pr\.id !== \(deckUse\?\.card_id \|\| catalogueId\)\)/,
+    'the filter must follow the printing actually in use');
+  assert.doesNotMatch(modalSrc,
+    /printings\.filter\(pr => pr\.id !== \(card\.card_id \|\| card\.id\)\)/,
+    'the caller\'s card is not the current printing after a switch');
+});
+
+test('RP-TC19: owned printings sort to the top, then cheapest', () => {
+  // Zach: "the ones you own filter to the top." Verified on Sol Ring: 127
+  // printings, his five owned ones at positions 0-4.
+  //
+  // Cheapest among the rest, because this list exists to pick a printing for a
+  // deck -- some cards span $30 to $24,500, and the expensive variant must
+  // never be the default landing spot.
+  assert.match(collectionSrc,
+    /ORDER BY owned_qty DESC, COALESCE\(cc\.price_trend, 999999\) ASC/,
+    'owned first, then ascending price');
+});
+
+test('RP-TC20: an unowned printing keeps the finish the deck asked for', () => {
+  // owned_finish is null for a printing he does not own. Falling through to
+  // 'nonfoil' would silently change the finish of a deliberately-foil row.
+  assert.match(modalSrc,
+    /finish: pr\.owned_finish \|\| deckUse\?\.desired_finish\s*\n?\s*\|\| card\?\.desired_finish \|\| 'nonfoil'/,
+    'the deck\'s own finish is the fallback, not a bare default');
+});
+
+test('RP-TC21: no unreachable "in use" label', () => {
+  // The current printing is filtered out before the map runs, so a branch
+  // keyed on the row BEING current can never render. Dead markup that claims
+  // to handle a case is worse than none: it implies a state that cannot occur.
+  assert.doesNotMatch(modalSrc, /inspector\.inUseByDeck/,
+    'the label was removed with the case it handled');
 });
