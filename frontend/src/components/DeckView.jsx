@@ -98,6 +98,10 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // { card, removing, message } while the server is asking whether it may
   // remove off-colour cards. Null the rest of the time.
   const [swapConfirm, setSwapConfirm] = useState(null);
+  // Rows that could use a printing he owns AND has free right now.
+  // Null until fetched; the banner only appears when there is something to do.
+  const [repoint, setRepoint] = useState(null);
+  const [repointBusy, setRepointBusy] = useState(false);
   const searchRef = useRef(null);
 
   const cards = useMemo(() => deck?.cards || [], [deck]);
@@ -179,6 +183,27 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   }, [shown]);
 
   // Add a card. Zach: "we need a search to add cards to the deck."
+  // WHAT COULD BE REPOINTED.
+  //
+  // 39 of Zach's 87 Tony Stark rows want a printing he does not own while a
+  // copy sits on the shelf: Moxfield gave the deck specific printings, ManaBox
+  // gave the collection different ones. Neither is wrong, they disagree.
+  //
+  // Read-only. Nothing changes until he taps.
+  useEffect(() => {
+    if (!deck?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/decks/${deck.id}/repoint-candidates`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setRepoint(data);
+      } catch { /* the banner simply does not appear */ }
+    })();
+    return () => { cancelled = true; };
+  }, [deck?.id, deck?.updated_at]);
+
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) { setResults([]); return; }
@@ -475,6 +500,66 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         )}
       </div>
+
+      {/* CARDS THAT COULD USE A PRINTING HE OWNS.
+          Moxfield gave the deck specific printings; ManaBox gave the
+          collection different ones. Neither is wrong -- they disagree, and the
+          deck then reports a card missing while a copy sits on the shelf.
+          Appears only when there is something to fix, and goes once fixed. */}
+      {repoint && repoint.auto_applicable > 0 && (
+        <div style={{
+          background: 'rgba(74,222,128,0.10)',
+          border: '1px solid rgba(74,222,128,0.28)',
+          borderRadius: 'var(--radius-md)', padding: '0.85rem 1rem',
+          marginBottom: '0.9rem'
+        }}>
+          <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: '0.2rem' }}>
+            {t('deck.repointTitle', { count: repoint.auto_applicable })}
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)',
+                        marginBottom: '0.7rem', lineHeight: 1.45 }}>
+            {t('deck.repointBody')}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-primary"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+              disabled={repointBusy}
+              onClick={async () => {
+                setRepointBusy(true);
+                try {
+                  const res = await fetch(`/api/decks/${deck.id}/repoint`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    showToast(data.error || t('deck.repointFailed'));
+                    return;
+                  }
+                  showToast(t('deck.repointDone', { count: data.changed }));
+                  setRepoint(null);
+                  onChanged && onChanged();
+                } catch {
+                  showToast(t('deck.repointFailed'));
+                } finally {
+                  setRepointBusy(false);
+                }
+              }}
+            >
+              {repointBusy ? t('deck.repointApplying') : t('deck.repointApply')}
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+              onClick={() => setRepoint(null)}
+            >
+              {t('deck.repointDismiss')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: 2, marginBottom: '0.75rem' }}>

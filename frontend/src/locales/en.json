@@ -1360,5 +1360,13 @@
   "common.dismiss": "Dismiss",
   "inspector.ownSomeOfThese": "tap one you own to view it",
   "inspector.youOwn": "you own {count}",
-  "inspector.viewThisPrinting": "View this printing"
+  "inspector.viewThisPrinting": "View this printing",
+  "deck.repointTitle": "{count} cards can use a printing you own",
+  "deck.repointBody": "Your decklist asks for printings you don't have, but you own another printing that's free right now.",
+  "deck.repointApply": "Use my printings",
+  "deck.repointApplying": "Switching…",
+  "deck.repointDone": "Switched {count} cards to printings you own.",
+  "deck.repointSkipped": "{count} needed a choice and were left alone.",
+  "deck.repointFailed": "Nothing was changed.",
+  "deck.repointDismiss": "Not now"
 }

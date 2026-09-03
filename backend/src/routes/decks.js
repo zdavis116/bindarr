@@ -2293,7 +2293,7 @@ router.put('/:id/return', async (req, res) => {
 // eventually disagree with the "covered" badge about the same card.
 
 // What could change. Writes nothing.
-router.get('/decks/:id/repoint-candidates', async (req, res) => {
+router.get('/:id/repoint-candidates', async (req, res) => {
   try {
     const deck = await db.get(
       `SELECT id FROM decks WHERE id = ? AND user_id = ?`,
@@ -2343,7 +2343,7 @@ router.get('/decks/:id/repoint-candidates', async (req, res) => {
 });
 
 // Apply. One row when deck_card_id is given, otherwise every UNAMBIGUOUS row.
-router.post('/decks/:id/repoint', async (req, res) => {
+router.post('/:id/repoint', async (req, res) => {
   const { deck_card_id, card_id, finish } = req.body || {};
   try {
     const deck = await db.get(

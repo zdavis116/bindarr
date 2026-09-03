@@ -1245,5 +1245,13 @@
   "common.dismiss": "关闭",
   "inspector.ownSomeOfThese": "点按你拥有的版本以查看",
   "inspector.youOwn": "你拥有 {count} 张",
-  "inspector.viewThisPrinting": "查看此版本"
+  "inspector.viewThisPrinting": "查看此版本",
+  "deck.repointTitle": "{count} 张卡可以改用你拥有的版本",
+  "deck.repointBody": "你的牌表指定了你没有的版本，但你拥有另一个当前可用的版本。",
+  "deck.repointApply": "使用我的版本",
+  "deck.repointApplying": "切换中…",
+  "deck.repointDone": "已将 {count} 张卡切换为你拥有的版本。",
+  "deck.repointSkipped": "{count} 张需要你选择，已保持不变。",
+  "deck.repointFailed": "未做任何更改。",
+  "deck.repointDismiss": "暂不"
 }

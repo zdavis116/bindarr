@@ -1283,5 +1283,13 @@
   "common.dismiss": "Descartar",
   "inspector.ownSomeOfThese": "toca una que tengas para verla",
   "inspector.youOwn": "tienes {count}",
-  "inspector.viewThisPrinting": "Ver esta edición"
+  "inspector.viewThisPrinting": "Ver esta edición",
+  "deck.repointTitle": "{count} cartas pueden usar una edición que tienes",
+  "deck.repointBody": "Tu lista pide ediciones que no tienes, pero posees otra edición libre ahora mismo.",
+  "deck.repointApply": "Usar mis ediciones",
+  "deck.repointApplying": "Cambiando…",
+  "deck.repointDone": "Se cambiaron {count} cartas a ediciones que tienes.",
+  "deck.repointSkipped": "{count} requerían elegir y no se tocaron.",
+  "deck.repointFailed": "No se cambió nada.",
+  "deck.repointDismiss": "Ahora no"
 }

@@ -101,9 +101,19 @@ async function alternativesForRequirement(database, userId, requirement) {
     }
   }
 
-  // Same finish first -- a foil and a nonfoil are different cards at different
-  // prices, and silently changing finish is a value change he did not ask for.
-  // Then cheapest, so an automatic swap never reaches for the expensive copy.
+  // Same finish first, then cheapest.
+  //
+  // Finish differences are NOT excluded: Zach, asked directly, said "if I
+  // already own it idc if it changes the price of what the deck is worth". A
+  // nonfoil he has beats a foil he does not -- the deck is for playing, and a
+  // missing card is a real problem where a finish difference is a preference.
+  //
+  // So this is a tiebreak, not a gate. Given a real choice between an exact
+  // finish match and a different one, the exact match is the better default;
+  // when only a different finish is free, it is still offered.
+  //
+  // Cheapest second, so an automatic swap never reaches for the expensive copy
+  // when two are equally free.
   alternatives.sort((a, b) => {
     const af = a.finish === req.desired_finish ? 0 : 1;
     const bf = b.finish === req.desired_finish ? 0 : 1;
