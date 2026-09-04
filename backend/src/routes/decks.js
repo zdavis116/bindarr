@@ -509,7 +509,17 @@ router.get('/:id', async (req, res) => {
     const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
     const { entries } = await deckIdentity.availabilityForDeck(db, deck.id, req.user.id);
     const warnings = await buildDeckWarnings(db, deck, entries);
-    res.json({ ...deck, cards: entries, warnings });
+    // HAS MOXFIELD MOVED SINCE WE LAST SYNCED?
+    //
+    // The deck LIST computes this in SQL; `SELECT *` here returns the columns
+    // but not the derived flag, so the deck view's sync banner was gated on
+    // undefined and could never appear. Derived from the same two columns
+    // rather than copying the CASE expression a third time.
+    const moxfieldChanged = Boolean(
+      deck.moxfield_public_id && deck.moxfield_updated_at && deck.moxfield_synced_at
+      && deck.moxfield_updated_at > deck.moxfield_synced_at);
+    res.json({ ...deck, moxfield_changed: moxfieldChanged ? 1 : 0,
+               cards: entries, warnings });
   } catch (error) {
     sendError(res, error, 'Failed to retrieve deck details');
   }

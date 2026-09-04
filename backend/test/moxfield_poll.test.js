@@ -97,3 +97,36 @@ test('MXP-TC7: the poll interval is minutes, and defaults to five', () => {
   assert.match(server, /Math\.max\(1, Number\(process\.env\.MOXFIELD_POLL_MINUTES\)/,
     'a floor stops a stray 0 turning this into a tight loop against Moxfield');
 });
+
+test('MXP-TC8: the deck DETAIL endpoint sends the drift flag', () => {
+  // Zach: "my I am iron man deck has the updated banner but nothing in the deck
+  // view lets me update it."
+  //
+  // The deck view's sync banner is gated on deck.moxfield_changed. /decks/:id
+  // does `SELECT *` and spreads the row, which returns the raw COLUMNS but not
+  // that DERIVED flag -- so the gate was permanently undefined and the banner
+  // was dead code that builds, lints and tests clean.
+  //
+  // Found by asking the running server what it sends. Reading the route would
+  // not have shown it: `...deck` looks like it returns everything.
+  const routes = fs.readFileSync(
+    path.join(__dirname, '../src/routes/decks.js'), 'utf8');
+  const i = routes.indexOf("router.get('/:id'");
+  const handler = routes.slice(i, routes.indexOf('});', i));
+  assert.match(handler, /moxfield_changed:/,
+    'the deck detail response must carry the drift flag, not just the columns');
+  assert.match(handler, /moxfield_updated_at > deck\.moxfield_synced_at/,
+    'and derive it from the same two columns the list query compares');
+});
+
+test('MXP-TC9: the deck view can act on the drift it reports', () => {
+  // A badge that says "UPDATED" with no way to update is a dead end -- the same
+  // shape as the printing switch that could be entered and not left. Detection
+  // and action must live on the same screen.
+  const view = fs.readFileSync(
+    path.join(__dirname, '../../frontend/src/components/DeckView.jsx'), 'utf8');
+  assert.match(view, /moxfield\/decks\/\$\{deck\.moxfield_public_id\}\/sync/,
+    'the deck view must be able to trigger a sync');
+  assert.match(view, /deck\?\.moxfield_public_id && deck\?\.moxfield_changed/,
+    'and show the control only when there is something to sync');
+});
