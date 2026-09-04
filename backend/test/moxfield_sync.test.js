@@ -299,3 +299,23 @@ test('MFX-TC20: considering rows keep Moxfield\'s printing', () => {
   assert.match(identitySrc, /RESERVING_BOARDS = \['commander', 'mainboard', 'sideboard'\]/,
     'deckIdentity still names the same three boards');
 });
+
+test('MFX-TC21: the deck search is not the profanity-filtered variant', () => {
+  // Zach: "your endpoint says search-sfw meaning it probably won't show the
+  // word ass so that's probably why". He was right. Measured, five calls each:
+  //
+  //     /v2/decks/search-sfw   stable, 2 decks
+  //     /v2/decks/search       stable, 3 decks  (+ "Ass-Blaster 3000")
+  //
+  // A "safe for work" filter exists for public browsing. Applied to a user's
+  // own decks it silently removes cards from his own inventory -- the missing
+  // record failure, caused by a content filter nobody asked for.
+  //
+  // I also mis-diagnosed this as an unreliable index, because I varied the
+  // endpoint and the sort order between probes and read my own confound as
+  // flakiness. Both endpoints are perfectly stable.
+  assert.match(apiSrc, /httpGet\('\/v2\/decks\/search',/,
+    'the deck search must be the unfiltered endpoint');
+  assert.doesNotMatch(apiSrc, /httpGet\('\/v2\/decks\/search-sfw'/,
+    'search-sfw hides decks by name and must not come back');
+});

@@ -925,6 +925,7 @@
   "moxfield.notSynced": "Not synced yet",
   "moxfield.previewFailed": "Could not read that deck",
   "moxfield.printingsKept": "{count} cards stay exactly as they are, including the printings you picked.",
+  "moxfield.publicOnly": "Only public decks appear here. Unlisted and private decks are not visible to Moxfield search.",
   "moxfield.review": "Review",
   "moxfield.skipped": "{count} cards could not be matched and were left out.",
   "moxfield.sync": "Sync",

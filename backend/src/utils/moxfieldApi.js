@@ -122,7 +122,11 @@ async function getAuthorDeckSummaries(username, { pageSize = 100, maxPages = 20 
   let page = 1;
   let totalPages = 1;
   while (page <= totalPages && page <= maxPages) {
-    const data = await httpGet('/v2/decks/search-sfw', {
+    // NOT search-sfw. That variant hides decks whose names trip a profanity
+    // filter -- it silently dropped his "Ass-Blaster 3000". A content filter
+    // meant for public browsing has no business deciding which of HIS OWN decks
+    // he is allowed to see in his own collection.
+    const data = await httpGet('/v2/decks/search', {
       authorUserNames: username,
       pageNumber: page,
       pageSize,

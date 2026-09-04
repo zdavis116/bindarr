@@ -891,6 +891,7 @@
   "moxfield.notSynced": "Sin sincronizar",
   "moxfield.previewFailed": "No se pudo leer ese mazo",
   "moxfield.printingsKept": "{count} cartas se quedan igual, incluidas las ediciones que elegiste.",
+  "moxfield.publicOnly": "Aquí solo aparecen los mazos públicos. Los mazos no listados y privados no son visibles para la búsqueda de Moxfield.",
   "moxfield.review": "Revisar",
   "moxfield.skipped": "{count} cartas no se pudieron emparejar y se omitieron.",
   "moxfield.sync": "Sincronizar",

@@ -865,6 +865,7 @@
   "moxfield.notSynced": "尚未同步",
   "moxfield.previewFailed": "无法读取该套牌",
   "moxfield.printingsKept": "{count} 张卡保持不变，包括你选择的版本。",
+  "moxfield.publicOnly": "此处仅显示公开套牌。未列出和私密套牌不会出现在 Moxfield 搜索中。",
   "moxfield.review": "查看",
   "moxfield.skipped": "{count} 张卡无法匹配，已跳过。",
   "moxfield.sync": "同步",

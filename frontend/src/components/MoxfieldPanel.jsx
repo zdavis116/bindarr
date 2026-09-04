@@ -219,6 +219,10 @@ function MoxfieldPanel({ onClose, onDecksChanged, showToast }) {
                 </button>
               </div>
             ))}
+            {/* Unlisted and private decks are invisible to any author search.
+                Zach is fine with that -- but the list must SAY so, or it looks
+                complete while quietly omitting decks he owns. */}
+            <p className="mfx-help">{t('moxfield.publicOnly')}</p>
           </>
         )}
 
