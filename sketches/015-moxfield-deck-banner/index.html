@@ -1,0 +1,111 @@
+<!doctype html>
+<!-- VARIANT B: BANNER ON THE DECK ITSELF.
+     Stance: sync belongs where the deck is, not in a settings screen. The deck
+     knows it mirrors Moxfield and tells you when it has drifted. Same shape as
+     the repoint banner Zach already has. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moxfield sync — deck banner</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--line:#2a2f3a;
+        --fg:#e6e9ef;--muted:#8b93a3;--accent:#4c9aff;--good:#3fb950;--warn:#d29922}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg);color:var(--fg);line-height:1.5;padding:1rem;
+       max-width:430px;margin:0 auto;-webkit-font-smoothing:antialiased}
+  .hdr{display:flex;align-items:center;gap:.6rem;margin-bottom:.2rem}
+  h1{font-size:1.25rem;font-weight:700}
+  .src{font-size:.7rem;padding:.15rem .45rem;border-radius:999px;font-weight:600;
+       background:rgba(76,154,255,.14);color:var(--accent)}
+  .sub{font-size:.8rem;color:var(--muted);margin-bottom:.9rem}
+  .banner{background:linear-gradient(180deg,rgba(210,153,34,.10),rgba(210,153,34,.04));
+          border:1px solid rgba(210,153,34,.32);border-radius:12px;padding:.9rem;
+          margin-bottom:.9rem}
+  .banner.clean{background:rgba(63,185,80,.06);border-color:rgba(63,185,80,.28)}
+  .b-title{font-weight:650;font-size:.92rem;margin-bottom:.25rem}
+  .b-body{font-size:.8rem;color:var(--muted);line-height:1.45}
+  .chg{display:flex;gap:.4rem;flex-wrap:wrap;margin:.65rem 0}
+  .chip{font-size:.72rem;padding:.2rem .5rem;border-radius:7px;background:var(--panel2);
+        border:1px solid var(--line)}
+  .chip b{color:var(--fg)}
+  .chip.add b{color:var(--good)} .chip.rm b{color:#e06c6c} .chip.mv b{color:var(--accent)}
+  .row{display:flex;gap:.5rem;margin-top:.6rem}
+  .btn{background:var(--accent);color:#08101d;border:none;border-radius:8px;
+       padding:.5rem .85rem;font-size:.82rem;font-weight:650;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .tabs{display:flex;gap:.35rem;margin-bottom:.7rem}
+  .tab{flex:1;text-align:center;padding:.45rem;border-radius:8px;font-size:.82rem;
+       background:var(--panel);border:1px solid var(--line);cursor:pointer}
+  .tab.on{background:var(--panel2);border-color:var(--accent);font-weight:650}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:.6rem .75rem;margin-bottom:.4rem;display:flex;align-items:center;gap:.6rem}
+  .nm{flex:1;min-width:0}
+  .nm b{font-size:.88rem;font-weight:600;display:block;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .nm span{font-size:.73rem;color:var(--muted)}
+  .own{font-size:.68rem;padding:.12rem .4rem;border-radius:5px;
+       background:rgba(63,185,80,.13);color:var(--good);white-space:nowrap}
+  .det{display:none;margin-top:.5rem}
+  .det.on{display:block}
+  .det .card{background:var(--panel2)}
+  .lbl{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;
+       color:var(--muted);margin:.7rem 0 .35rem}
+</style></head><body>
+
+<div class="hdr"><h1>Ur-Dragon</h1><span class="src">Moxfield</span></div>
+<div class="sub">Commander · 100 cards · last synced 2 minutes ago</div>
+
+<div class="banner" id="banner">
+  <div class="b-title">Moxfield has changes</div>
+  <div class="b-body">You edited this deck on Moxfield after the last sync.</div>
+  <div class="chg">
+    <span class="chip add"><b>+3</b> added</span>
+    <span class="chip rm"><b>−1</b> removed</span>
+    <span class="chip mv"><b>2</b> moved board</span>
+  </div>
+  <div class="b-body">Your printings stay as they are — 2 of the added cards will
+    use copies you already own.</div>
+  <div class="row">
+    <button class="btn" onclick="apply()">Sync now</button>
+    <button class="btn ghost" onclick="toggle()">See what changes</button>
+  </div>
+
+  <div class="det" id="det">
+    <div class="lbl">Adding</div>
+    <div class="card"><div class="nm"><b>Sarkhan, Fireblood</b><span>M19 #154 · mainboard</span></div>
+      <span class="own">using your copy</span></div>
+    <div class="card"><div class="nm"><b>Scourge of Valkas</b><span>M14 #144 · mainboard</span></div>
+      <span class="own">using your copy</span></div>
+    <div class="card"><div class="nm"><b>Utvara Hellkite</b><span>DDG #47 · mainboard</span></div></div>
+    <div class="lbl">Removing</div>
+    <div class="card"><div class="nm"><b>Hellkite Charger</b><span>PLST #ARB-97 · mainboard</span></div></div>
+    <div class="lbl">Moving board — printing kept</div>
+    <div class="card"><div class="nm"><b>Tiamat</b><span>AFR #235 · considering → mainboard</span></div></div>
+    <div class="card"><div class="nm"><b>Dragon Tempest</b><span>TDC #94 · mainboard → considering</span></div></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab on">Cards</div><div class="tab">Buylist</div><div class="tab">Considering</div>
+</div>
+
+<div class="card"><div class="nm"><b>The Ur-Dragon</b><span>CMM #361 · commander</span></div>
+  <span class="own">owned</span></div>
+<div class="card"><div class="nm"><b>Arcane Signet</b><span>MSC #193 · mainboard</span></div>
+  <span class="own">owned</span></div>
+<div class="card"><div class="nm"><b>Dracogenesis</b><span>TDM #105 · mainboard</span></div>
+  <span class="own">owned</span></div>
+<div class="card"><div class="nm"><b>Cultivate</b><span>TMC #50 · mainboard</span></div>
+  <span class="own">owned</span></div>
+
+<script>
+  function toggle(){document.getElementById('det').classList.toggle('on');}
+  function apply(){
+    const b=document.getElementById('banner');
+    b.className='banner clean';
+    b.innerHTML='<div class="b-title">Up to date with Moxfield</div>'+
+      '<div class="b-body">Added 3, removed 1, moved 2. '+
+      '2 cards used printings you already own. Nothing else changed.</div>';
+  }
+</script>
+</body></html>

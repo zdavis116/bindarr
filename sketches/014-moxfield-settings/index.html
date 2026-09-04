@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- VARIANT A: SETTINGS PANEL.
+     Stance: Moxfield is a SOURCE you configure once, like a backup target.
+     Lives in Settings. Sync is a maintenance action you visit deliberately. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moxfield sync — Settings panel</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--line:#2a2f3a;
+        --fg:#e6e9ef;--muted:#8b93a3;--accent:#4c9aff;--good:#3fb950;--warn:#d29922}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg);color:var(--fg);line-height:1.5;padding:1rem;
+       max-width:430px;margin:0 auto;-webkit-font-smoothing:antialiased}
+  h1{font-size:1.05rem;margin:.4rem 0 1rem;font-weight:600}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:1rem;margin-bottom:.85rem}
+  .lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;
+       color:var(--muted);margin-bottom:.5rem}
+  .acct{display:flex;align-items:center;gap:.7rem}
+  .avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#5b3fb9,#3f7bb9);
+          display:grid;place-items:center;font-weight:700;font-size:.9rem;flex:none}
+  .acct-name{font-weight:600}
+  .acct-sub{font-size:.78rem;color:var(--muted)}
+  .unlink{margin-left:auto;background:none;border:1px solid var(--line);color:var(--muted);
+          border-radius:7px;padding:.3rem .6rem;font-size:.75rem;cursor:pointer}
+  .unlink:hover{border-color:#5a3030;color:#e06c6c}
+  .deck{display:flex;align-items:center;gap:.7rem;padding:.75rem 0;
+        border-bottom:1px solid var(--line)}
+  .deck:last-child{border-bottom:none}
+  .deck-main{flex:1;min-width:0}
+  .deck-name{font-weight:600;font-size:.92rem;white-space:nowrap;overflow:hidden;
+             text-overflow:ellipsis}
+  .deck-meta{font-size:.75rem;color:var(--muted);margin-top:.15rem}
+  .pill{font-size:.68rem;padding:.15rem .45rem;border-radius:999px;font-weight:600;
+        white-space:nowrap}
+  .pill.synced{background:rgba(63,185,80,.13);color:var(--good)}
+  .pill.changed{background:rgba(210,153,34,.14);color:var(--warn)}
+  .pill.new{background:rgba(76,154,255,.14);color:var(--accent)}
+  .btn{background:var(--accent);color:#08101d;border:none;border-radius:8px;
+       padding:.45rem .8rem;font-size:.8rem;font-weight:650;cursor:pointer;flex:none}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .btn:active{transform:translateY(1px)}
+  .cov{display:flex;align-items:center;gap:.5rem;margin-top:.4rem}
+  .bar{flex:1;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--good)}
+  .cov-txt{font-size:.72rem;color:var(--muted);white-space:nowrap}
+  .foot{font-size:.75rem;color:var(--muted);margin-top:.5rem;line-height:1.45}
+  .row{display:flex;gap:.5rem;margin-top:.8rem}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.2rem;
+         background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+         padding:.7rem .95rem;font-size:.82rem;opacity:0;pointer-events:none;
+         transition:opacity .25s;max-width:92vw}
+  .toast.on{opacity:1}
+</style></head><body>
+
+<h1>Settings › Moxfield</h1>
+
+<div class="card">
+  <div class="lbl">Linked account</div>
+  <div class="acct">
+    <div class="avatar">YZ</div>
+    <div>
+      <div class="acct-name">YoungsterZach</div>
+      <div class="acct-sub">3 public decks · checked 2 min ago</div>
+    </div>
+    <button class="unlink" onclick="say('Unlinking leaves your decks in place.')">Unlink</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="lbl">Your Moxfield decks</div>
+
+  <div class="deck">
+    <div class="deck-main">
+      <div class="deck-name">Ur-Dragon</div>
+      <div class="deck-meta">100 cards · 9 considering · synced 2 min ago</div>
+      <div class="cov"><div class="bar"><i style="width:100%"></i></div>
+        <span class="cov-txt">100/100 owned</span></div>
+    </div>
+    <span class="pill synced">Up to date</span>
+  </div>
+
+  <div class="deck">
+    <div class="deck-main">
+      <div class="deck-name">I Am Iron Man</div>
+      <div class="deck-meta">Moxfield updated today · not synced yet</div>
+    </div>
+    <button class="btn" onclick="say('Preview: 100 to add, 0 to remove.')">Sync</button>
+  </div>
+
+  <div class="deck">
+    <div class="deck-main">
+      <div class="deck-name">Avatar Aang</div>
+      <div class="deck-meta">Moxfield updated 20 Aug · not synced yet</div>
+    </div>
+    <button class="btn" onclick="say('Preview: 100 to add, 0 to remove.')">Sync</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="lbl">Decks built in Bindarr</div>
+  <div class="foot">Hashaton, Tony Stark and Avatar Aang were built here.
+    Moxfield never touches them.</div>
+</div>
+
+<div class="card">
+  <div class="lbl">How syncing works</div>
+  <div class="foot">
+    Moxfield decides <b>which cards</b> are in the deck.<br>
+    Bindarr keeps <b>which printing</b> — including the ones you've switched to
+    copies you own.<br>
+    Cards you're <b>considering</b> keep Moxfield's printing and stay out of your buylist.
+  </div>
+  <div class="row">
+    <button class="btn ghost" onclick="say('Checked all 3 decks. Nothing changed.')">Check now</button>
+  </div>
+</div>
+
+<div class="toast" id="t"></div>
+<script>
+  let timer;
+  function say(msg){
+    const t=document.getElementById('t');
+    t.textContent=msg; t.classList.add('on');
+    clearTimeout(timer); timer=setTimeout(()=>t.classList.remove('on'),2600);
+  }
+</script>
+</body></html>

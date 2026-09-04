@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- VARIANT C: DECKS SCREEN, ONE LIST.
+     Stance: Moxfield decks are just decks. No separate screen, no banner --
+     the deck list itself shows source and coverage, and sync is one tap on the
+     row. Answers "what do I own vs need to buy" without opening anything. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moxfield sync — unified deck list</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--line:#2a2f3a;
+        --fg:#e6e9ef;--muted:#8b93a3;--accent:#4c9aff;--good:#3fb950;--warn:#d29922}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg);color:var(--fg);line-height:1.5;padding:1rem;
+       max-width:430px;margin:0 auto;-webkit-font-smoothing:antialiased}
+  .top{display:flex;align-items:center;margin-bottom:.9rem;gap:.6rem}
+  h1{font-size:1.3rem;font-weight:700;flex:1}
+  .icon{width:34px;height:34px;border-radius:9px;background:var(--panel);
+        border:1px solid var(--line);display:grid;place-items:center;font-size:1.05rem;
+        cursor:pointer}
+  .sync-all{font-size:.75rem;color:var(--accent);cursor:pointer;font-weight:600}
+  .deck{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:.85rem;margin-bottom:.6rem;cursor:pointer;transition:border-color .15s}
+  .deck:hover{border-color:#3a4150}
+  .d-top{display:flex;align-items:center;gap:.5rem}
+  .d-name{font-weight:650;font-size:1rem;flex:1;white-space:nowrap;overflow:hidden;
+          text-overflow:ellipsis}
+  .src{font-size:.64rem;padding:.12rem .4rem;border-radius:999px;font-weight:700;
+       letter-spacing:.03em;white-space:nowrap}
+  .src.mox{background:rgba(76,154,255,.14);color:var(--accent)}
+  .src.local{background:rgba(139,147,163,.14);color:var(--muted)}
+  .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .dot.changed{background:var(--warn)} .dot.ok{background:var(--good)}
+  .d-meta{font-size:.75rem;color:var(--muted);margin-top:.2rem}
+  .cov{display:flex;align-items:center;gap:.55rem;margin-top:.6rem}
+  .bar{flex:1;height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;
+       display:flex}
+  .bar i{display:block;height:100%}
+  .bar .have{background:var(--good)}
+  .bar .need{background:#e06c6c}
+  .cov-txt{font-size:.73rem;white-space:nowrap;color:var(--muted)}
+  .cov-txt b{color:var(--fg)}
+  .buy{margin-top:.5rem;font-size:.76rem;color:var(--warn);font-weight:600}
+  .buy.none{color:var(--good)}
+  .act{margin-top:.65rem;display:flex;gap:.45rem}
+  .btn{background:var(--accent);color:#08101d;border:none;border-radius:8px;
+       padding:.4rem .75rem;font-size:.78rem;font-weight:650;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .sec{font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+       margin:1.1rem 0 .5rem}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.2rem;
+         background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+         padding:.7rem .95rem;font-size:.82rem;opacity:0;pointer-events:none;
+         transition:opacity .25s;max-width:92vw;text-align:center}
+  .toast.on{opacity:1}
+</style></head><body>
+
+<div class="top">
+  <h1>Decks</h1>
+  <span class="sync-all" onclick="say('Checked 3 Moxfield decks · 1 has changes')">Check Moxfield</span>
+  <div class="icon">+</div>
+</div>
+
+<div class="sec">From Moxfield</div>
+
+<div class="deck" id="d1">
+  <div class="d-top">
+    <span class="dot changed"></span>
+    <span class="d-name">I Am Iron Man</span>
+    <span class="src mox">MOXFIELD</span>
+  </div>
+  <div class="d-meta">Updated on Moxfield today · never synced</div>
+  <div class="act">
+    <button class="btn" onclick="event.stopPropagation();first()">Sync to Bindarr</button>
+  </div>
+</div>
+
+<div class="deck">
+  <div class="d-top">
+    <span class="dot ok"></span>
+    <span class="d-name">Ur-Dragon</span>
+    <span class="src mox">MOXFIELD</span>
+  </div>
+  <div class="d-meta">Commander · synced 2 min ago · 9 considering</div>
+  <div class="cov"><div class="bar"><i class="have" style="width:100%"></i></div>
+    <span class="cov-txt"><b>100</b>/100</span></div>
+  <div class="buy none">Nothing to buy — you own every card</div>
+</div>
+
+<div class="sec">Built in Bindarr</div>
+
+<div class="deck">
+  <div class="d-top"><span class="d-name">Tony Stark</span>
+    <span class="src local">LOCAL</span></div>
+  <div class="d-meta">Commander · 100 cards</div>
+  <div class="cov"><div class="bar"><i class="have" style="width:91%"></i><i class="need" style="width:9%"></i></div>
+    <span class="cov-txt"><b>91</b>/100</span></div>
+  <div class="buy">9 cards to buy</div>
+</div>
+
+<div class="deck">
+  <div class="d-top"><span class="d-name">Hashaton, Scarab's Fist</span>
+    <span class="src local">LOCAL</span></div>
+  <div class="d-meta">Commander · 1 card</div>
+  <div class="cov"><div class="bar"><i class="have" style="width:100%"></i></div>
+    <span class="cov-txt"><b>1</b>/1</span></div>
+  <div class="buy none">Nothing to buy</div>
+</div>
+
+<div class="toast" id="t"></div>
+<script>
+  let timer;
+  function say(m){const t=document.getElementById('t');t.textContent=m;
+    t.classList.add('on');clearTimeout(timer);
+    timer=setTimeout(()=>t.classList.remove('on'),2800);}
+  function first(){
+    const d=document.getElementById('d1');
+    d.innerHTML='<div class="d-top"><span class="dot ok"></span>'+
+      '<span class="d-name">I Am Iron Man</span><span class="src mox">MOXFIELD</span></div>'+
+      '<div class="d-meta">Commander · synced just now</div>'+
+      '<div class="cov"><div class="bar"><i class="have" style="width:87%"></i>'+
+      '<i class="need" style="width:13%"></i></div>'+
+      '<span class="cov-txt"><b>87</b>/100</span></div>'+
+      '<div class="buy">13 cards to buy</div>';
+    say('Added 100 cards · 62 used printings you own');
+  }
+</script>
+</body></html>
