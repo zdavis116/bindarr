@@ -41,10 +41,17 @@ test('MFX-TC2: the diff ignores printing AND finish', () => {
   //
   // If the sync is allowed to choose the finish, the finish cannot be part of
   // the identity it diffs on.
-  assert.match(syncSrc, /function oracleKey\(oracleId, board\)/,
-    'the key is card + board, nothing else');
+  // The key was (oracle_id, board) until Zach sharpened the rule: "if deck does
+  // exist in Bindarr then all moxfield should be doing is making sure the card
+  // name is there and ignore printing and foil diff."
+  //
+  // Board had to go too. See MFX-TC16.
+  assert.match(syncSrc, /function oracleKey\(oracleId\) \{/,
+    'identity is the card, and only the card');
   assert.doesNotMatch(syncSrc, /oracleKey\([^)]*finish[^)]*\)/,
     'a finish the sync can change must not be part of its identity');
+  assert.doesNotMatch(syncSrc, /oracleKey\([^)]*board[^)]*\)/,
+    'nor the board, or an ordinary Moxfield edit destroys his printing');
 });
 
 test('MFX-TC3: an unknown card is reported, never invented', () => {
@@ -184,4 +191,70 @@ test('MFX-TC15: the summary carries Moxfield\'s own change stamp', () => {
                         boards: { mainboard: { cards: { a: card('x') } } } });
   assert.equal(s.last_updated_at, '2026-01-01T00:00:00Z');
   assert.equal(s.total_cards, 1);
+});
+
+test('MFX-TC16: a board move keeps the row, the printing and the finish', () => {
+  // Zach: "if deck does exist in Bindarr then all moxfield should be doing is
+  // making sure the card name is there and ignore printing and foil diff."
+  //
+  // THE HOLE THIS CLOSES: the diff keyed on (oracle_id, board), so moving a
+  // card maybeboard -> mainboard in Moxfield -- the most ordinary edit there is
+  // -- read as REMOVE from one board plus ADD to the other. The add then
+  // re-picked a printing, destroying his choice. Normal use, silent damage.
+  //
+  // A board difference is now a MOVE: same row id, same desired_card_id, same
+  // finish, only the board column changes.
+  // The GUARD, not just the push. Disabling `if (have.board !== w.board)` left
+  // the moveBoard code present and unreachable -- the mutation passed while a
+  // board move silently became remove + add again. Existence is not
+  // reachability; this project's oldest lesson.
+  assert.match(syncSrc, /if \(have\.board !== w\.board\) \{/,
+    'a board difference must be detected');
+  assert.match(syncSrc, /moveBoard\.push\(\{ deck_card_id: have\.id/,
+    'and produce a move, not a remove plus an add');
+  assert.match(syncSrc,
+    /UPDATE deck_cards SET board = \?, quantity = \? WHERE id = \? AND deck_id = \?/,
+    'the update touches board and quantity only');
+
+  // The critical part: the move statement must not write printing or finish.
+  const stmt = syncSrc.slice(syncSrc.indexOf('for (const m of plan.moveBoard)'),
+                             syncSrc.indexOf('for (const r of plan.requantify)'));
+  assert.doesNotMatch(stmt, /desired_card_id/,
+    'a move must never rewrite the printing');
+  assert.doesNotMatch(stmt, /desired_finish/,
+    'nor the finish');
+});
+
+test('MFX-TC17: requantify never rewrites printing or finish either', () => {
+  // Same rule, the other path Moxfield is allowed to touch.
+  // Strip comments before matching: the comment inside this block EXPLAINS that
+  // desired_card_id is preserved, so the test matched its own documentation and
+  // failed on correct code. Third time today. Comments are not code.
+  const stmt = syncSrc
+    .slice(syncSrc.indexOf('for (const r of plan.requantify)'),
+           syncSrc.indexOf('for (const r of plan.remove)'))
+    .replace(/\/\/[^\n]*/g, '');
+  assert.match(stmt, /UPDATE deck_cards SET quantity = \? WHERE id = \?/,
+    'quantity only');
+  assert.doesNotMatch(stmt, /desired_card_id|desired_finish/,
+    'the card he chose stays the card he chose');
+});
+
+test('MFX-TC18: the printing preference runs on ADDS only', () => {
+  // This is what makes both halves of his rule the same code.
+  //
+  //   FIRST sync  -- every row is an add, so Moxfield "semi controls" the
+  //                  printing: its choice starts, ours wins where we own
+  //                  something free.
+  //   LATER syncs -- only genuinely new cards are adds. Moves, requantifies and
+  //                  unchanged rows never reach preferOwnedPrinting.
+  const apply = syncSrc.slice(syncSrc.indexOf('async function applySync'));
+  const callAt = apply.indexOf('preferOwnedPrinting(userId, row)');
+  const loopAt = apply.indexOf('for (const row of plan.add)');
+  assert.ok(loopAt >= 0 && callAt > loopAt,
+    'the preference is applied while walking plan.add');
+  const moves = apply.slice(apply.indexOf('for (const m of plan.moveBoard)'),
+                            apply.indexOf('for (const r of plan.remove)'));
+  assert.doesNotMatch(moves, /preferOwnedPrinting/,
+    'existing rows are never re-preferenced');
 });
