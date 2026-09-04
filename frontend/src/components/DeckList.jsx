@@ -19,7 +19,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import MoxfieldPanel from './MoxfieldPanel';
-import { Trash2, Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
+import { Trash2, Search, X, Plus, Check, ChevronRight, Download, RefreshCw } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
 import { createBuylistSync } from './buylistSync';
@@ -292,13 +292,18 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         <button
           onClick={() => setMoxfieldOpen(true)}
           style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
             width: '100%', marginTop: '0.7rem', minHeight: 48, cursor: 'pointer',
-            border: '1px dashed var(--border-color)', borderRadius: '12px',
-            background: 'transparent', color: 'var(--text-secondary)',
-            font: 'inherit', fontSize: '0.9rem', fontWeight: 600
+            // SOLID border and primary text: the dashed/muted version read as a
+            // section heading, not a control. "New deck" sits directly below
+            // with a dashed border, so two adjacent dashed boxes made this one
+            // look like a caption for that one.
+            border: '1px solid var(--border-color)', borderRadius: '12px',
+            background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+            font: 'inherit', fontSize: '0.92rem', fontWeight: 600
           }}
         >
+          <RefreshCw size={16} aria-hidden="true" />
           {t('decks.syncMoxfield')}
         </button>
       )}
