@@ -26,7 +26,12 @@ function fmtWhen(iso, t) {
 }
 
 function MoxfieldPanel({ onClose, onDecksChanged, showToast }) {
-  const t = useT();
+  // useT() returns { locale, setLocale, t } -- an OBJECT, not a function. I
+  // assigned the whole object, so every translation call was "t is not a
+  // function" and the panel threw the moment it mounted. Every other component
+  // here destructures; I wrote the shape I expected instead of reading the one
+  // that exists.
+  const { t } = useT();
   const [account, setAccount] = useState(null);
   const [username, setUsername] = useState('');
   const [decks, setDecks] = useState([]);

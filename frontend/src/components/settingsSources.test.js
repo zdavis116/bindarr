@@ -70,11 +70,14 @@ test('SET-TC5: the source states WHAT it syncs, not just that it exists', () => 
     'and the screen must use it');
 });
 
-test('SET-TC6: Moxfield stays hidden until it exists', () => {
-  // Zach: "You can hide the moxfield decks for now until implemented."
-  // A source that cannot be connected invites "why doesn't this work".
-  // Comments may DISCUSS Moxfield -- explaining why it is absent is useful.
-  // What must not exist is a rendered row or a locale string for it.
+test('SET-TC6: Moxfield is not duplicated into Settings', () => {
+  // This test used to assert Moxfield did not exist at all -- Zach: "You can
+  // hide the moxfield decks for now until implemented." It is implemented now,
+  // reachable from the deck list, so that condition is gone.
+  //
+  // What still holds: there must not be a SECOND Moxfield surface. The entry
+  // point belongs with the decks, and Zach dislikes redundant UI. A settings
+  // row would be a rival place to do the same job.
   const code = src
     // JSX {/* ... */} blocks, then // lines. A comment EXPLAINING why Moxfield
     // is absent is exactly what should be allowed; a rendered row is not.
@@ -85,6 +88,10 @@ test('SET-TC6: Moxfield stays hidden until it exists', () => {
     .join('\n');
   assert.doesNotMatch(code, /[Mm]oxfield/,
     'no Moxfield row in rendered code until the integration is real');
-  assert.ok(!Object.keys(en).some(k => /moxfield/i.test(k)),
-    'and no Moxfield locale keys, which would imply a shipped feature');
+  // Locale keys are expected now (37 of them). What must not appear is a
+  // settings-specific one, which would mean a second surface.
+  const settingsKeys = Object.keys(en).filter(
+    k => /moxfield/i.test(k) && k.startsWith('settings.'));
+  assert.deepEqual(settingsKeys, [],
+    'no settings.*moxfield* keys: the entry point lives with the decks');
 });
