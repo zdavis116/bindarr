@@ -74,3 +74,32 @@ test('BLP-TC5: only basics are pooled; everything else stays exact', () => {
   assert.match(body, /card_id = \? AND finish = \?/,
     'the exact-identity path must remain for non-basics');
 });
+
+test('BLP-TC6: the deck LIST query pools basics too', () => {
+  // Zach: "the count of cards we have out of 100 is wrong. Says ur dragon is 97
+  // out of 100 but when I go into deck it's 100 out of 100."
+  //
+  // The list query reimplements deckIdentity's rule in SQL for speed -- one
+  // query for every deck instead of a round trip each. It therefore has to
+  // learn every exception deckIdentity learns, and this is the SECOND copy of
+  // the rule, which is exactly how the coverage bug happened.
+  //
+  // Two surfaces disagreeing about one deck is worse than either being wrong:
+  // it tells him the app does not know.
+  const route = fs.readFileSync(
+    path.join(__dirname, '../src/routes/decks.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !l.trim().startsWith('--') && !l.trim().startsWith('//'))
+    .join('\n');
+  const i = route.indexOf("router.get('/'");
+  const listQuery = route.slice(i, route.indexOf('ORDER BY d.created_at', i));
+
+  assert.match(listQuery, /dcc\.type_line LIKE 'Basic Land%'/,
+    'the list query must apply the basic-land pool');
+  assert.match(listQuery, /LEFT JOIN card_cache dcc/,
+    'and must join the catalogue row it tests');
+  // Supply AND claims, or two decks are covered by the same cardboard.
+  const occurrences = (listQuery.match(/type_line LIKE 'Basic Land%'/g) || []).length;
+  assert.ok(occurrences >= 3,
+    `expected pooling in both the owned and claimed subqueries, found ${occurrences}`);
+});

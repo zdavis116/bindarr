@@ -174,23 +174,36 @@ router.get('/', async (req, res) => {
         COALESCE(SUM(
           CASE WHEN dc.board != 'considering' THEN
             MIN(dc.quantity, MAX(0,
+              -- BASIC LANDS POOL. A Mountain is a Mountain: every printing,
+              -- every set, both finishes count as one supply. Mirrors
+              -- deckIdentity.ownedQuantity -- if these two ever disagree the
+              -- deck list and the deck view report different completion.
               (SELECT COALESCE(SUM(uc.quantity), 0)
                  FROM collection uc
+                 JOIN card_cache ucc ON ucc.id = uc.card_id
                 WHERE uc.user_id = d.user_id
-                  AND uc.card_id = dc.desired_card_id
-                  AND uc.finish = dc.desired_finish
-                  AND uc.list_type = 'collection')
+                  AND uc.list_type = 'collection'
+                  AND (CASE WHEN dcc.type_line LIKE 'Basic Land%'
+                            THEN ucc.name = dcc.name AND ucc.type_line LIKE 'Basic Land%'
+                            ELSE uc.card_id = dc.desired_card_id
+                                 AND uc.finish = dc.desired_finish END))
               -
               -- Claimed by a HIGHER-priority requirement. Priority is
               -- deck_cards.id ascending: assigned at insert, never changes.
               (SELECT COALESCE(SUM(o.quantity), 0)
                  FROM deck_cards o
                  JOIN decks od ON od.id = o.deck_id
+                 JOIN card_cache occ ON occ.id = o.desired_card_id
                 WHERE od.user_id = d.user_id
-                  AND o.desired_card_id = dc.desired_card_id
-                  AND o.desired_finish = dc.desired_finish
                   AND o.board != 'considering'
-                  AND o.id < dc.id)
+                  AND o.id < dc.id
+                  -- Basics compete as a pool here too. Pooling supply without
+                  -- pooling claims would let two decks be "covered" by the same
+                  -- cardboard.
+                  AND (CASE WHEN dcc.type_line LIKE 'Basic Land%'
+                            THEN occ.name = dcc.name AND occ.type_line LIKE 'Basic Land%'
+                            ELSE o.desired_card_id = dc.desired_card_id
+                                 AND o.desired_finish = dc.desired_finish END))
             ))
           ELSE 0 END
         ), 0) AS owned_cards,
@@ -221,6 +234,9 @@ router.get('/', async (req, res) => {
         ), 0) AS deck_value
       FROM decks d
       LEFT JOIN deck_cards dc ON d.id = dc.deck_id
+      -- The requirement's own catalogue row, so the pooling CASE can ask
+      -- whether this line is a basic land.
+      LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
       WHERE d.user_id = ?
       GROUP BY d.id
       ORDER BY d.created_at DESC

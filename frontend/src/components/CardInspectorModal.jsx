@@ -44,6 +44,11 @@ function CardInspectorModal({
   deckName = null,
 }) {
   const { t } = useT();
+
+  // Basic lands are fungible across printings (see deckIdentity), so set,
+  // number and finish are cosmetic for them -- and showing a set beside a
+  // pooled count states something false.
+  const isBasicLand = String(card?.type_line || '').startsWith('Basic Land');
   const [mode, setMode] = useState('view');
   const [locations, setLocations] = useState([]);
   const [q, setQ] = useState(1);
@@ -761,7 +766,13 @@ function CardInspectorModal({
                   that specific printing -- it said "The List #CON-31 ... x1
                   owned" for a printing Zach does not own. Same shape as the
                   deck-quantity bug: a true number under the wrong label. */}
-              {deckUse ? ` • ${t('inspector.owned', { count: deckUse.ownedThisPrinting ?? 0 })}` : ''}
+              {/* BASIC LANDS COUNT THE WHOLE POOL.
+                  A Mountain is a Mountain: the deck draws from all 44, so the
+                  per-printing figure is the misleading one here. deckUse.owned
+                  is the oracle-wide total the Decks tab already trusts. */}
+              {deckUse ? ` • ${t('inspector.owned', {
+                count: (isBasicLand ? deckUse.owned : deckUse.ownedThisPrinting) ?? 0
+              })}` : ''}
             </p>
 
             {/* THREE TABS. Each answers a different question, which is the

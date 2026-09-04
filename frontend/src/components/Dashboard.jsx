@@ -194,6 +194,13 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
                   }}>
                     {deck.name}
                   </span>
+                  {/* WHICH DECKS MIRROR MOXFIELD.
+                      Only the Moxfield ones are badged: marking every local
+                      deck would be noise on the common case. Reuses the deck
+                      list's badge so the two screens cannot drift apart. */}
+                  {deck.moxfield_public_id ? (
+                    <span className="deck-source-badge">{t('decks.moxfieldBadge')}</span>
+                  ) : null}
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     {deck.pct >= 100
                       ? t('dash.deckReady')

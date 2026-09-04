@@ -738,9 +738,16 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                             where display_name is deliberately null. */}
                         {card.display_name || card.name}
                       </span>
-                      <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        {card.set_name}
-                      </span>
+                      {/* BASIC LANDS SHOW NO SET.
+                          Zach: "it's confusing because I don't actually own 6
+                          of the one msh set". The owned count comes from the
+                          whole pool, so naming one printing beside it states
+                          something false. */}
+                      {!String(card.type_line || '').startsWith('Basic Land') && (
+                        <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {card.set_name}
+                        </span>
+                      )}
                     </span>
                   </button>
                   {/* CONSIDERING ROWS SHOW THE SAME BADGE WHEN UNOWNED.
