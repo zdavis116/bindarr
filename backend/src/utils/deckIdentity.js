@@ -287,7 +287,7 @@ async function availabilityForDeck(database, deckId, userId) {
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
      WHERE dc.deck_id = ?
-     ORDER BY dc.id ASC`,
+     ORDER BY cc.name COLLATE NOCASE ASC, dc.id ASC`,
     [deckId]
   );
 

@@ -513,7 +513,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           collection different ones. Neither is wrong -- they disagree, and the
           deck then reports a card missing while a copy sits on the shelf.
           Appears only when there is something to fix, and goes once fixed. */}
-      {repoint && repoint.auto_applicable > 0 && (
+      {repoint && repoint.auto_applicable > 0 && counts.missing > 0 && (
         <div style={{
           background: 'rgba(74,222,128,0.10)',
           border: '1px solid rgba(74,222,128,0.28)',
@@ -743,7 +743,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                       </span>
                     </span>
                   </button>
-                  {missing > 0 && (
+                  {/* CONSIDERING ROWS SHOW THE SAME BADGE WHEN UNOWNED.
+                      deckIdentity sets quantity_missing = 0 for considering --
+                      correct, since a card he is merely weighing is not a gap
+                      in the deck, and the buy-list reads that same field. The
+                      badge therefore needs its own rule here: on the
+                      considering board, show the price when he owns none.
+                      Zach: "that way at a quick glance I can tell what I own". */}
+                  {(missing > 0
+                    || (card.board === 'considering' && !(card.quantity_owned > 0))) && (
                     <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.5rem',
                                    borderRadius: 20, flexShrink: 0,
                                    background: 'rgba(255,159,10,.16)', color: 'var(--accent-yellow)' }}>

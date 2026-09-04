@@ -575,6 +575,7 @@
   "deck.vaultTitle": "Bóveda de mazos",
   "decks.fromMoxfield": "Este mazo refleja tu mazo de Moxfield",
   "decks.moxfieldBadge": "Moxfield",
+  "decks.notInBindarr": "En Moxfield · aún no está en Bindarr",
   "decks.syncMoxfield": "Sincronizar desde Moxfield",
   "demo.unavailableBody": "El escáner de cartas y la búsqueda en vivo necesitan el backend de Bindarr (reconocimiento por cámara, base de datos de cartas, consulta de precios). Esta es una vista previa estática y de solo lectura de la aplicación. Monta tu propia instancia para añadir cartas.",
   "demo.unavailableTitle": "No disponible en la demo",

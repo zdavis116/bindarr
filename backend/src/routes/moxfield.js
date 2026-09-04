@@ -4,6 +4,21 @@ const { authenticateToken } = require('../middleware/auth');
 const mox = require('../utils/moxfieldApi');
 const { planSync, applySync } = require('../utils/moxfieldSync');
 
+
+// Moxfield sends lowercase format strings ('commander'); Bindarr stores them
+// capitalised, matching what NewDeckModal writes.
+function normaliseFormat(raw) {
+  const f = String(raw || '').trim().toLowerCase();
+  if (!f) return 'Standard';
+  return f.charAt(0).toUpperCase() + f.slice(1);
+}
+
+// A commander deck is 100 cards including the commander. Derived from the
+// format rather than counted from the payload, which changes as he edits.
+function targetSizeFor(format) {
+  return String(format).toLowerCase() === 'commander' ? 100 : 60;
+}
+
 const router = express.Router();
 router.use(authenticateToken);
 
@@ -125,9 +140,17 @@ router.post('/moxfield/decks/:publicId/sync', async (req, res) => {
 
     let created = false;
     if (!deck) {
+      // FORMAT AND SIZE COME FROM MOXFIELD.
+      //
+      // Inserting only (user_id, name, moxfield_public_id) left format and
+      // target_size on their column defaults -- 'Standard' and 60 -- so a
+      // commander deck read "100 out of 60 cards".
+      const format = normaliseFormat(payload.format);
       const r = await db.run(
-        `INSERT INTO decks (user_id, name, moxfield_public_id) VALUES (?, ?, ?)`,
-        [req.user.id, payload.name || 'Untitled', req.params.publicId]);
+        `INSERT INTO decks (user_id, name, moxfield_public_id, format, target_size)
+         VALUES (?, ?, ?, ?, ?)`,
+        [req.user.id, payload.name || 'Untitled', req.params.publicId,
+         format, targetSizeFor(format)]);
       deck = { id: r.lastID };
       created = true;
     }

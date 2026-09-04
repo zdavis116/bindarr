@@ -555,6 +555,7 @@
   "deck.vaultTitle": "套牌保险库",
   "decks.fromMoxfield": "此套牌与你的 Moxfield 套牌同步",
   "decks.moxfieldBadge": "Moxfield",
+  "decks.notInBindarr": "在 Moxfield 上 · 尚未加入 Bindarr",
   "decks.syncMoxfield": "从 Moxfield 同步",
   "demo.unavailableBody": "卡牌扫描和实时搜索需要 Bindarr 后端（摄像头识别、卡牌数据库、价格查询）。这里是应用的静态只读预览。想添加卡牌，请自行运行一个实例。",
   "demo.unavailableTitle": "演示版中不可用",

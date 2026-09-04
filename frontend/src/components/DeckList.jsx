@@ -51,11 +51,13 @@ function Ring({ pct, size = 42 }) {
   );
 }
 
-function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToast }) {
+function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToast,
+                   onDecksChanged, moxfieldAvailable = [] }) {
   const { t } = useT();
 
   const [query, setQuery] = useState('');
   const [moxfieldOpen, setMoxfieldOpen] = useState(false);
+  const [syncing, setSyncing] = useState(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [exportOpen, setExportOpen] = useState(false);
@@ -285,6 +287,63 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         </div>
       )}
 
+      {/* DECKS YOU COULD SYNC.
+          Zach: "I shouldn't have to hit the sync moxfield button to see the
+          decks I can sync ... they should all just show in the list with a sync
+          button next to them."
+
+          These are placeholders, not decks: no id, nothing stored, and each one
+          disappears the moment it is synced because the real deck replaces it.
+          Visually quieter than a real row so the difference is legible without
+          reading the label. */}
+      {!selecting && moxfieldAvailable.map(deck => (
+        <div key={deck.public_id} style={{
+          display: 'flex', alignItems: 'center', gap: '0.85rem', width: '100%',
+          padding: '0.7rem 0.85rem', marginTop: '0.5rem', minHeight: 56,
+          border: '1px dashed var(--border-color)', borderRadius: '12px',
+          background: 'transparent'
+        }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap',
+                             overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {deck.name}
+              </span>
+              <span className="deck-source-badge">{t('decks.moxfieldBadge')}</span>
+            </span>
+            <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-muted)',
+                           marginTop: '0.1rem' }}>
+              {t('decks.notInBindarr')}
+            </span>
+          </span>
+          <button
+            className="btn btn-primary"
+            style={{ flexShrink: 0 }}
+            disabled={syncing === deck.public_id}
+            onClick={async () => {
+              setSyncing(deck.public_id);
+              try {
+                const res = await fetch(`/api/moxfield/decks/${deck.public_id}/sync`,
+                  { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const body = await res.json();
+                if (!res.ok) throw new Error(body.error || t('moxfield.syncFailed'));
+                showToast?.(t('moxfield.syncedSummary', {
+                  added: body.added, removed: body.removed,
+                  moved: body.moved, preferred: body.printing_preferred
+                }));
+                onDecksChanged?.();
+              } catch (err) {
+                showToast?.(err.message);
+              } finally {
+                setSyncing(null);
+              }
+            }}
+          >
+            {syncing === deck.public_id ? t('moxfield.syncing') : t('moxfield.sync')}
+          </button>
+        </div>
+      ))}
+
       {/* MOXFIELD SYNC: decks arrive here too, so the entry point sits with
           "new deck" rather than in Settings. Without this the panel would be
           unreachable -- renders fine, wired correctly, and worth nothing. */}
@@ -407,6 +466,10 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         <MoxfieldPanel
           onClose={() => setMoxfieldOpen(false)}
           showToast={showToast}
+          // Without this the panel's onDecksChanged?.() is a no-op and a freshly
+          // synced deck stays invisible until a manual refresh. Optional props
+          // fail silently, which is why it looked wired.
+          onDecksChanged={onDecksChanged}
         />
       ) : null}
     </div>
