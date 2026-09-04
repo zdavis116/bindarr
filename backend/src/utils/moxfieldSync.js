@@ -19,19 +19,27 @@ const { summarise } = require('./moxfieldPayload');
 //
 // Local decks (moxfield_public_id IS NULL) are never touched by any of this.
 
-// Match on ORACLE identity: not the printing, and NOT THE FINISH.
+// IDENTITY IS THE CARD, AND ONLY THE CARD.
 //
-// "Is this card still in the deck?" is a question about the CARD. Keying on
-// desired_card_id would make a printing change look like a removal plus an
-// addition -- which is how his choices would get destroyed.
+// Zach: "if deck does exist in Bindarr then all moxfield should be doing is
+// making sure the card name is there and ignore printing and foil diff."
 //
-// The finish is excluded for the same reason, learned the hard way: the first
-// version keyed on it, preferOwnedPrinting swapped two cards to FOIL promos he
-// owns, and every subsequent sync then read those rows as "remove the nonfoil,
-// add the foil". Two rows churned forever. If the sync is allowed to choose the
-// finish, the finish cannot be part of the identity it diffs on.
-function oracleKey(oracleId, board) {
-  return `${oracleId}|${board}`;
+// So the diff key is the oracle id -- not the printing, not the finish, and
+// NOT THE BOARD. Each was tried and each was wrong:
+//
+//   desired_card_id -- a printing change reads as remove + add, and the add
+//                      re-picks a printing. His choice is destroyed.
+//   finish          -- preferOwnedPrinting swapped two cards to foil promos he
+//                      owns, so those rows stopped matching Moxfield's key and
+//                      churned on EVERY sync, forever.
+//   board           -- moving a card maybeboard -> mainboard, the most ordinary
+//                      Moxfield edit there is, read as remove + add. Same
+//                      destruction, triggered by normal use.
+//
+// A board difference is a MOVE: same row, same desired_card_id, same finish,
+// only the board column changes.
+function oracleKey(oracleId) {
+  return String(oracleId);
 }
 
 // Work out what would change, without changing anything.
@@ -76,28 +84,40 @@ async function planSync(userId, deckId, payload) {
 
   const haveByKey = new Map();
   for (const e of existing) {
-    haveByKey.set(oracleKey(e.oracle_id, e.board), e);
+    haveByKey.set(oracleKey(e.oracle_id), e);
   }
   const wantByKey = new Map();
   for (const w of wanted) {
-    wantByKey.set(oracleKey(w.oracle_id, w.board), w);
+    wantByKey.set(oracleKey(w.oracle_id), w);
   }
 
   const add = [];
   const requantify = [];
+  const moveBoard = [];
   const unchanged = [];
 
   for (const [key, w] of wantByKey) {
     const have = haveByKey.get(key);
     if (!have) {
       add.push(w);
+      continue;
+    }
+
+    // THE CARD IS STILL HERE, SO HIS PRINTING AND FINISH STAND.
+    // Only quantity and board may follow Moxfield.
+    const keeps = { set_id: have.set_id, number: have.number,
+                    finish: have.desired_finish };
+
+    if (have.board !== w.board) {
+      moveBoard.push({ deck_card_id: have.id, name: have.name,
+                       from_board: have.board, to_board: w.board,
+                       quantity: w.quantity, from_quantity: have.quantity,
+                       keeps_printing: keeps });
     } else if (have.quantity !== w.quantity) {
       requantify.push({ ...w, deck_card_id: have.id, from: have.quantity, to: w.quantity,
-                        keeps_printing: { set_id: have.set_id, number: have.number } });
+                        keeps_printing: keeps });
     } else {
-      // THE CARD IS STILL HERE, SO HIS PRINTING STANDS.
-      unchanged.push({ name: have.name, board: have.board,
-                       keeps_printing: { set_id: have.set_id, number: have.number } });
+      unchanged.push({ name: have.name, board: have.board, keeps_printing: keeps });
     }
   }
 
@@ -119,8 +139,8 @@ async function planSync(userId, deckId, payload) {
   return {
     deck: { name: summary.name, format: summary.format,
             public_id: summary.public_id, last_updated_at: summary.last_updated_at },
-    add, remove, requantify, unchanged, skipped,
-    changes: add.length + remove.length + requantify.length
+    add, remove, requantify, moveBoard, unchanged, skipped,
+    changes: add.length + remove.length + requantify.length + moveBoard.length
   };
 }
 
@@ -128,6 +148,13 @@ async function planSync(userId, deckId, payload) {
 //
 // Zach: "when we sync it should automatically use the printing of the card we
 // have 1 available."
+//
+// This runs for ADDS ONLY, which is what makes the two halves of his rule the
+// same code. On a FIRST sync every row is an add, so Moxfield "semi controls"
+// the printing -- its choice is the starting point and ours wins wherever we
+// own something free. On LATER syncs only genuinely new cards are adds;
+// existing rows are moves, requantifies or unchanged, and none of those touch
+// printing or finish.
 //
 // alternativesForRequirement already answers exactly this, using
 // deckIdentity's claim rule -- owned AND not spoken for by another deck. Asking
@@ -166,7 +193,7 @@ async function preferOwnedPrinting(userId, row) {
 // available." Existing rows keep the printing they already have, because the
 // card is still in the deck and that choice was his.
 async function applySync(userId, deckId, plan) {
-  const applied = { added: 0, removed: 0, requantified: 0, printing_preferred: 0 };
+  const applied = { added: 0, removed: 0, requantified: 0, moved: 0, printing_preferred: 0 };
 
   // Resolve preferred printings BEFORE opening the transaction: each lookup
   // runs its own queries, and holding a write transaction open across them
@@ -192,6 +219,18 @@ async function applySync(userId, deckId, plan) {
         [deckId, a.oracle_id, a.final_card_id, a.final_finish, a.board, a.quantity]);
       applied.added += 1;
       if (a.swapped) applied.printing_preferred += 1;
+    }
+
+    // A BOARD MOVE KEEPS EVERYTHING ELSE.
+    //
+    // Zach moves a card maybeboard -> mainboard in Moxfield. The row stays: same
+    // desired_card_id, same finish, same id. Only the board changes, and the
+    // quantity follows Moxfield because that is part of the card list.
+    for (const m of plan.moveBoard) {
+      await db.run(
+        `UPDATE deck_cards SET board = ?, quantity = ? WHERE id = ? AND deck_id = ?`,
+        [m.to_board, m.quantity, m.deck_card_id, deckId]);
+      applied.moved += 1;
     }
 
     for (const r of plan.requantify) {
