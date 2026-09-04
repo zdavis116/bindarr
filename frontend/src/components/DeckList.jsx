@@ -51,6 +51,24 @@ function Ring({ pct, size = 42 }) {
   );
 }
 
+
+// Both timestamp shapes appear in this column: Moxfield's ISO string on decks
+// synced since the format fix, and SQLite's '2026-09-04 12:04:21' on older
+// rows. Safari -- which is what Zach reads this on -- returns NaN for the
+// space form, so it is normalised before parsing rather than trusted.
+function relativeTime(raw, t) {
+  if (!raw) return '';
+  const iso = String(raw).includes('T') ? raw : String(raw).replace(' ', 'T') + 'Z';
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return '';
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return t('moxfield.justNow');
+  if (mins < 60) return t('moxfield.minsAgo', { count: mins });
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return t('moxfield.hoursAgo', { count: hrs });
+  return t('moxfield.daysAgo', { count: Math.round(hrs / 24) });
+}
+
 function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToast,
                    onDecksChanged, moxfieldAvailable = [] }) {
   const { t } = useT();
@@ -268,6 +286,19 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                       </span>
                     ) : null}
                   </span>
+                  {/* LAST SYNC, on Moxfield decks only.
+                      Zach: "each deck from moxfield should display its last
+                      sync time". It also makes the background poll visible --
+                      the drift badge only appears when something changed, so
+                      without this the feature looks like it is not running. */}
+                  {deck.moxfield_public_id ? (
+                    <span style={{ display: 'block', fontSize: '0.72rem',
+                                   color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                      {deck.moxfield_synced_at
+                        ? t('decks.lastSynced', { when: relativeTime(deck.moxfield_synced_at, t) })
+                        : t('decks.neverSynced')}
+                    </span>
+                  ) : null}
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                     {/* ONE dollar figure: what the deck is worth. Zach: "I
                         didn't want 2 dollar amounts just the total cost".
