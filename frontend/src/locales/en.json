@@ -536,6 +536,7 @@
   "deck.missingWithCost": "{count} missing · {cost}",
   "deck.moveToConsidering": "Move to Considering",
   "deck.moveToDeck": "Move into the deck",
+  "deck.moxfieldDrifted": "Moxfield has changes that are not in this deck yet.",
   "deck.multiBuylistCancel": "Cancel buylist",
   "deck.multiBuylistCovers.one": "Covers {count} deck: {names}",
   "deck.multiBuylistCovers.other": "Covers {count} decks: {names}",

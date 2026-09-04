@@ -490,6 +490,7 @@
   "deck.missingWithCost": "{count} missing · {cost}",
   "deck.moveToConsidering": "Move to considering",
   "deck.moveToDeck": "Move into the deck",
+  "deck.moxfieldDrifted": "Moxfield 有尚未同步到此套牌的更改。",
   "deck.namePlaceholder": "例如：喷火龙 ex 引擎，或 Atarka Red...",
   "deck.needed": "Needed",
   "deck.newDeck": "New deck",

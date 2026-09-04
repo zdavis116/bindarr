@@ -506,6 +506,7 @@
   "deck.missingWithCost": "{count} missing · {cost}",
   "deck.moveToConsidering": "Move to considering",
   "deck.moveToDeck": "Move into the deck",
+  "deck.moxfieldDrifted": "Moxfield tiene cambios que aún no están en este mazo.",
   "deck.namePlaceholder": "p. ej. Motor de Charizard ex o Atarka Red...",
   "deck.needed": "Needed",
   "deck.newDeck": "New deck",

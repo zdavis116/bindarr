@@ -83,6 +83,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   const { t } = useT();
 
   const [tab, setTab] = useState('all');
+  const [syncingMoxfield, setSyncingMoxfield] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -567,6 +568,53 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         </div>
       )}
+
+      {/* MOXFIELD HAS MOVED SINCE WE LAST SYNCED.
+          The deck row badges this, and until now that was a dead end: he was
+          told the deck was stale on a screen with no way to act. Sync lives
+          here, where he already is.
+
+          Still not automatic -- he presses it. A decklist changing under him
+          with nothing to point at is the silent state change he has ruled
+          out. */}
+      {deck?.moxfield_public_id && deck?.moxfield_changed ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.7rem',
+          padding: '0.7rem 0.85rem', marginBottom: '0.8rem',
+          borderRadius: '12px', background: 'rgba(210, 153, 34, 0.12)',
+          border: '1px solid rgba(210, 153, 34, 0.32)'
+        }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: '0.84rem' }}>
+            {t('deck.moxfieldDrifted')}
+          </span>
+          <button
+            className="btn btn-primary"
+            style={{ flexShrink: 0 }}
+            disabled={syncingMoxfield}
+            onClick={async () => {
+              setSyncingMoxfield(true);
+              try {
+                const res = await fetch(
+                  `/api/moxfield/decks/${deck.moxfield_public_id}/sync`,
+                  { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const body = await res.json();
+                if (!res.ok) throw new Error(body.error || t('moxfield.syncFailed'));
+                showToast?.(t('moxfield.syncedSummary', {
+                  added: body.added, removed: body.removed,
+                  moved: body.moved, preferred: body.printing_preferred
+                }));
+                onChanged?.();
+              } catch (err) {
+                showToast?.(err.message);
+              } finally {
+                setSyncingMoxfield(false);
+              }
+            }}
+          >
+            {syncingMoxfield ? t('moxfield.syncing') : t('moxfield.sync')}
+          </button>
+        </div>
+      ) : null}
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: 2, marginBottom: '0.75rem' }}>
