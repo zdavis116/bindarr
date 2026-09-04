@@ -57,7 +57,11 @@ async function checkAccount(account) {
     return summary;
   }
 
-  const byPublicId = new Map(remote.map(d => [d.public_id, d]));
+  // MOXFIELD'S OWN KEYS. getAuthorDeckSummaries returns raw API rows, so the
+  // fields are publicId and lastUpdatedAtUtc -- not the snake_case Bindarr
+  // uses. Keying on public_id made every lookup miss and the poll reported
+  // "checked 0" as success.
+  const byPublicId = new Map(remote.map(d => [d.publicId, d]));
 
   // Only decks Bindarr already mirrors. A deck he has never synced is not
   // "changed" -- it is simply not his problem yet, and offering it as a change
@@ -81,7 +85,7 @@ async function checkAccount(account) {
     summary.checked += 1;
 
     const seen = deck.moxfield_updated_at;
-    const now = upstream.last_updated_at;
+    const now = upstream.lastUpdatedAtUtc;
     if (seen && now && seen === now) continue;   // unchanged, no fetch needed
 
     // The timestamp moved, so ask what actually differs. A Moxfield edit can
@@ -110,6 +114,9 @@ async function checkAccount(account) {
     // Record the timestamp we have now RECONCILED AGAINST, whether or not it
     // produced changes. Otherwise a cosmetic edit re-fetches the full deck on
     // every tick forever.
+    // Record the upstream stamp we have now RECONCILED AGAINST -- in Moxfield's
+    // format, because moxfield_synced_at holds the same kind of value and the
+    // two are compared to each other.
     await db.run(
       `UPDATE decks SET moxfield_updated_at = ? WHERE id = ?`,
       [now, deck.id]

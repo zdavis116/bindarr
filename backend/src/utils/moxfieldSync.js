@@ -302,10 +302,16 @@ async function applySync(userId, deckId, plan) {
     }
 
     await db.run(
-      `UPDATE decks SET moxfield_synced_at = CURRENT_TIMESTAMP,
+      // BOTH COLUMNS HOLD THE SAME KIND OF VALUE, because the deck list and the
+      // panel compare them to each other to answer "has Moxfield moved since we
+      // synced?". CURRENT_TIMESTAMP wrote SQLite's '2026-09-04 12:04:21' while
+      // the other side holds Moxfield's '2026-09-03T16:09:06.33Z' -- comparing
+      // those as strings is meaningless, and on the same day ' ' vs 'T'
+      // inverts the answer.
+      `UPDATE decks SET moxfield_synced_at = ?,
                         moxfield_updated_at = ?
         WHERE id = ? AND user_id = ?`,
-      [plan.deck.last_updated_at, deckId, userId]);
+      [plan.deck.last_updated_at, plan.deck.last_updated_at, deckId, userId]);
 
     await db.run('COMMIT');
   } catch (err) {
