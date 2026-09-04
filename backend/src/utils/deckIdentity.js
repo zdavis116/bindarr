@@ -107,8 +107,54 @@ async function oracleIdentityForCard(database, cardId, finish) {
 //
 // Scoped to list_type='collection' so wishlist rows -- cards the user wants but
 // does not have -- can never be reported as owned.
+// BASIC LANDS POOL ACROSS PRINTINGS AND FINISHES.
+//
+// Zach: "if we need 6 basic land mountains as long as we have 6 of them
+// regardless of set it counts", and "it should be a pool ... it can just kind
+// of pick at random till all 14 are taken".
+//
+// THIS IS THE FIRST EXCEPTION TO EXACT IDENTITY, and it is deliberate.
+// Exactness exists so a $10,000 Cavern of Souls cannot be silently covered by a
+// $50 one. Basics are the one case where the opposite error dominates: telling
+// him to buy Mountains while 44 sit in his binder.
+//
+// The test is his rule verbatim -- a type line beginning "Basic Land". That
+// includes Wastes ('Basic Land') and EXCLUDES Snow-Covered Mountain
+// ('Basic Snow Land — Mountain'), a genuinely different card.
+const BASIC_LAND_PREFIX = 'Basic Land';
+
+function isBasicLandTypeLine(typeLine) {
+  return String(typeLine || '').startsWith(BASIC_LAND_PREFIX);
+}
+
 async function ownedQuantity(database, userId, identity) {
-  const row = await client(database).get(
+  const db = client(database);
+
+  // Asked of the catalogue, never inferred from the name: "Mountain" is also a
+  // creature type, and Snow-Covered Mountain shares the word.
+  const card = await db.get(
+    `SELECT name, type_line FROM card_cache WHERE id = ?`,
+    [identity.desired_card_id]
+  );
+
+  if (card && isBasicLandTypeLine(card.type_line)) {
+    // Every printing, every set, both finishes, counted once into one pool.
+    // Scoped to list_type='collection' exactly as the exact path is, so a
+    // wishlist Mountain is still never reported as owned.
+    const row = await db.get(
+      `SELECT COALESCE(SUM(col.quantity), 0) AS owned
+         FROM collection col
+         JOIN card_cache cc ON cc.id = col.card_id
+        WHERE col.user_id = ?
+          AND col.list_type = 'collection'
+          AND cc.name = ?
+          AND cc.type_line LIKE 'Basic Land%'`,
+      [userId, card.name]
+    );
+    return row ? row.owned : 0;
+  }
+
+  const row = await db.get(
     `SELECT COALESCE(SUM(quantity), 0) AS owned
      FROM collection
      WHERE user_id = ? AND card_id = ? AND finish = ? AND list_type = 'collection'`,
@@ -127,6 +173,41 @@ async function ownedQuantity(database, userId, identity) {
 // date, quantity) would let an unrelated edit silently move a physical card
 // from one deck to another.
 async function requirementsForVariant(database, userId, identity, { excludeDeckId = null } = {}) {
+  // BASICS COMPETE AS A POOL, matching how ownedQuantity counts them.
+  //
+  // If ownership pools but claims do not, Ur-Dragon's 7 Mountains (MSH #293)
+  // and Iron Man's 6 (AKH #266) never see each other: each reads all 44 as
+  // free, and the app promises 13 lands out of a pool it never decremented.
+  // Two decks covered by the same cardboard -- the double-count failure.
+  const basic = await client(database).get(
+    `SELECT name FROM card_cache WHERE id = ? AND type_line LIKE 'Basic Land%'`,
+    [identity.desired_card_id]
+  );
+
+  if (basic) {
+    const params = [userId, basic.name];
+    let sql = `
+      SELECT dc.id, dc.deck_id, dc.quantity, dc.board, d.name AS deck_name
+      FROM deck_cards dc
+      JOIN decks d ON dc.deck_id = d.id
+      JOIN card_cache cc ON cc.id = dc.desired_card_id
+      WHERE d.user_id = ?
+        AND cc.name = ?
+        AND cc.type_line LIKE 'Basic Land%'
+        AND dc.board IN (${RESERVING_BOARDS.map(() => '?').join(',')})
+    `;
+    params.push(...RESERVING_BOARDS);
+    if (excludeDeckId !== null && excludeDeckId !== undefined) {
+      sql += ` AND dc.deck_id != ?`;
+      params.push(excludeDeckId);
+    }
+    // Same ordering rule as the exact path: lower deck_cards.id claims first,
+    // which is what "pick at random till all 14 are taken" means in practice --
+    // a stable, explicable order rather than an actually random one.
+    sql += ` ORDER BY dc.id ASC`;
+    return client(database).all(sql, params);
+  }
+
   const params = [userId, identity.desired_card_id, identity.desired_finish];
   let sql = `
     SELECT dc.id, dc.deck_id, dc.quantity, dc.board, d.name AS deck_name
