@@ -24,27 +24,32 @@ const PREFERENCE_BOARDS = new Set(['commander', 'mainboard', 'sideboard']);
 //
 // Local decks (moxfield_public_id IS NULL) are never touched by any of this.
 
-// IDENTITY IS THE CARD, AND ONLY THE CARD.
+// IDENTITY IS THE CARD ON ITS BOARD; A RELOCATION IS DETECTED SEPARATELY.
 //
 // Zach: "if deck does exist in Bindarr then all moxfield should be doing is
 // making sure the card name is there and ignore printing and foil diff."
 //
-// So the diff key is the oracle id -- not the printing, not the finish, and
-// NOT THE BOARD. Each was tried and each was wrong:
+// Neither the printing nor the finish is part of identity. Both were tried:
 //
 //   desired_card_id -- a printing change reads as remove + add, and the add
 //                      re-picks a printing. His choice is destroyed.
 //   finish          -- preferOwnedPrinting swapped two cards to foil promos he
 //                      owns, so those rows stopped matching Moxfield's key and
 //                      churned on EVERY sync, forever.
-//   board           -- moving a card maybeboard -> mainboard, the most ordinary
-//                      Moxfield edit there is, read as remove + add. Same
-//                      destruction, triggered by normal use.
 //
-// A board difference is a MOVE: same row, same desired_card_id, same finish,
-// only the board column changes.
-function oracleKey(oracleId) {
-  return String(oracleId);
+// The BOARD is different. I removed it too, and that was wrong: his Ur-Dragon
+// has Dracogenesis in the mainboard (TDM #105) AND the maybeboard (PTDM #105p).
+// Keying on the card alone collapsed two Moxfield rows into one Bindarr row,
+// the mainboard copy VANISHED, and a 100-card deck silently became 99.
+//
+// So the board is back in the key, and relocation is handled as its own case
+// (see planSync): when a card sits on exactly one board on each side and those
+// differ, it is a move -- the row keeps its printing and finish. When it sits
+// on several boards there is no single true answer about which row moved, so we
+// do not guess; add and remove are correct because those are distinct
+// requirements.
+function oracleKey(oracleId, board) {
+  return `${oracleId}|${board}`;
 }
 
 // Work out what would change, without changing anything.
@@ -89,11 +94,11 @@ async function planSync(userId, deckId, payload) {
 
   const haveByKey = new Map();
   for (const e of existing) {
-    haveByKey.set(oracleKey(e.oracle_id), e);
+    haveByKey.set(oracleKey(e.oracle_id, e.board), e);
   }
   const wantByKey = new Map();
   for (const w of wanted) {
-    wantByKey.set(oracleKey(w.oracle_id), w);
+    wantByKey.set(oracleKey(w.oracle_id, w.board), w);
   }
 
   const add = [];
@@ -113,12 +118,9 @@ async function planSync(userId, deckId, payload) {
     const keeps = { set_id: have.set_id, number: have.number,
                     finish: have.desired_finish };
 
-    if (have.board !== w.board) {
-      moveBoard.push({ deck_card_id: have.id, name: have.name,
-                       from_board: have.board, to_board: w.board,
-                       quantity: w.quantity, from_quantity: have.quantity,
-                       keeps_printing: keeps });
-    } else if (have.quantity !== w.quantity) {
+    // No board test here: the board is part of the key, so a matched pair is
+    // always on the same board. Relocation is paired up after this loop.
+    if (have.quantity !== w.quantity) {
       requantify.push({ ...w, deck_card_id: have.id, from: have.quantity, to: w.quantity,
                         keeps_printing: keeps });
     } else {
@@ -137,8 +139,48 @@ async function planSync(userId, deckId, payload) {
       continue;
     }
     remove.push({ deck_card_id: have.id, name: have.name, board: have.board,
-                  quantity: have.quantity,
-                  printing: { set_id: have.set_id, number: have.number } });
+                  oracle_id: have.oracle_id, quantity: have.quantity,
+                  printing: { set_id: have.set_id, number: have.number,
+                              finish: have.desired_finish } });
+  }
+
+  // PAIR UP RELOCATIONS.
+  //
+  // A card that left one board and appeared on another is the same requirement
+  // moved, not a deletion plus a purchase -- and his printing must survive it.
+  // Only unambiguous pairs qualify: one removal and one addition of the same
+  // card. With the card on several boards there is no single true answer about
+  // which row moved, and a wrong guess silently rewrites a printing.
+  const removedByCard = new Map();
+  for (const r of remove) {
+    const list = removedByCard.get(r.oracle_id) || [];
+    list.push(r);
+    removedByCard.set(r.oracle_id, list);
+  }
+  const addedByCard = new Map();
+  for (const a of add) {
+    const list = addedByCard.get(a.oracle_id) || [];
+    list.push(a);
+    addedByCard.set(a.oracle_id, list);
+  }
+
+  for (const [oracleId, removals] of removedByCard) {
+    const additions = addedByCard.get(oracleId) || [];
+    if (removals.length !== 1 || additions.length !== 1) continue;
+    const from = removals[0];
+    const to = additions[0];
+    moveBoard.push({
+      deck_card_id: from.deck_card_id,
+      name: from.name,
+      from_board: from.board,
+      to_board: to.board,
+      quantity: to.quantity,
+      from_quantity: from.quantity,
+      keeps_printing: { set_id: from.printing.set_id, number: from.printing.number,
+                        finish: from.printing.finish }
+    });
+    remove.splice(remove.indexOf(from), 1);
+    add.splice(add.indexOf(to), 1);
   }
 
   return {
