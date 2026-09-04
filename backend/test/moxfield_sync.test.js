@@ -46,12 +46,10 @@ test('MFX-TC2: the diff ignores printing AND finish', () => {
   // name is there and ignore printing and foil diff."
   //
   // Board had to go too. See MFX-TC16.
-  assert.match(syncSrc, /function oracleKey\(oracleId\) \{/,
-    'identity is the card, and only the card');
+  assert.match(syncSrc, /function oracleKey\(oracleId, board\) \{/,
+    'identity is the card on its board');
   assert.doesNotMatch(syncSrc, /oracleKey\([^)]*finish[^)]*\)/,
     'a finish the sync can change must not be part of its identity');
-  assert.doesNotMatch(syncSrc, /oracleKey\([^)]*board[^)]*\)/,
-    'nor the board, or an ordinary Moxfield edit destroys his printing');
 });
 
 test('MFX-TC3: an unknown card is reported, never invented', () => {
@@ -208,10 +206,14 @@ test('MFX-TC16: a board move keeps the row, the printing and the finish', () => 
   // the moveBoard code present and unreachable -- the mutation passed while a
   // board move silently became remove + add again. Existence is not
   // reachability; this project's oldest lesson.
-  assert.match(syncSrc, /if \(have\.board !== w\.board\) \{/,
-    'a board difference must be detected');
-  assert.match(syncSrc, /moveBoard\.push\(\{ deck_card_id: have\.id/,
-    'and produce a move, not a remove plus an add');
+  // Relocation is paired up AFTER the diff now, because the board is part of
+  // the key again -- see MFX-TC19 for why it had to be.
+  assert.match(syncSrc, /for \(const \[oracleId, removals\] of removedByCard\)/,
+    'removals and additions are paired by card');
+  assert.match(syncSrc, /if \(removals\.length !== 1 \|\| additions\.length !== 1\) continue;/,
+    'only an unambiguous one-to-one pair counts as a move');
+  assert.match(syncSrc, /moveBoard\.push\(\{\s*deck_card_id: from\.deck_card_id/,
+    'a move reuses the existing row');
   assert.match(syncSrc,
     /UPDATE deck_cards SET board = \?, quantity = \? WHERE id = \? AND deck_id = \?/,
     'the update touches board and quantity only');
@@ -257,4 +259,43 @@ test('MFX-TC18: the printing preference runs on ADDS only', () => {
                             apply.indexOf('for (const r of plan.remove)'));
   assert.doesNotMatch(moves, /preferOwnedPrinting/,
     'existing rows are never re-preferenced');
+});
+
+test('MFX-TC19: a card on two boards keeps two rows', () => {
+  // Zach's Ur-Dragon has Dracogenesis in the mainboard (TDM #105) AND the
+  // maybeboard (PTDM #105p) -- he runs one and is considering the promo.
+  //
+  // Keying the diff on the card alone collapsed those two Moxfield rows into
+  // one Bindarr row: the MAINBOARD COPY VANISHED and a 100-card deck silently
+  // became 99. The worst class of bug in this app -- a missing card in a deck
+  // he believes is complete.
+  assert.match(syncSrc, /return `\$\{oracleId\}\|\$\{board\}`/,
+    'the board is part of the key, so two boards means two rows');
+
+  // And the pairing must not re-collapse them: a card on several boards has no
+  // single true answer about which row moved.
+  assert.match(syncSrc, /removals\.length !== 1 \|\| additions\.length !== 1/,
+    'ambiguous cases are left as add + remove rather than guessed');
+});
+
+test('MFX-TC20: considering rows keep Moxfield\'s printing', () => {
+  // Zach: "they shouldn't change to printings I own if available they should
+  // stay as what they are in moxfield."
+  //
+  // A considering row is a NOTE about a card he is thinking about, not a claim
+  // on cardboard. Substituting his copy makes an open question look decided --
+  // and 'considering' is exactly the board deckIdentity excludes from
+  // RESERVING_BOARDS, so it claims nothing.
+  assert.match(syncSrc,
+    /const PREFERENCE_BOARDS = new Set\(\['commander', 'mainboard', 'sideboard'\]\)/,
+    'the preference applies only to boards that require the card');
+  assert.match(syncSrc, /PREFERENCE_BOARDS\.has\(row\.board\)\s*\?\s*await preferOwnedPrinting/,
+    'and is gated on the board, not applied to every add');
+
+  // The set must match deckIdentity's, or the two will drift and disagree about
+  // the same card.
+  const identitySrc = fs.readFileSync(
+    path.join(__dirname, '../src/utils/deckIdentity.js'), 'utf8');
+  assert.match(identitySrc, /RESERVING_BOARDS = \['commander', 'mainboard', 'sideboard'\]/,
+    'deckIdentity still names the same three boards');
 });
