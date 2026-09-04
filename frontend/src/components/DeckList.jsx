@@ -258,6 +258,15 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                         {t('decks.moxfieldBadge')}
                       </span>
                     ) : null}
+                    {/* UPSTREAM DRIFT, found by the background poll.
+                        Never applied automatically -- a decklist rewriting
+                        itself overnight is the silent state change Zach has
+                        ruled out. The row says so; he chooses when to sync. */}
+                    {deck.moxfield_changed ? (
+                      <span className="deck-drift-badge" title={t('decks.moxfieldChangedHint')}>
+                        {t('decks.moxfieldChanged')}
+                      </span>
+                    ) : null}
                   </span>
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                     {/* ONE dollar figure: what the deck is worth. Zach: "I

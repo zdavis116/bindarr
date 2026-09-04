@@ -227,6 +227,41 @@ db.initDb()
       setTimeout(runCatalogueRefresh, 60000);
       setInterval(runCatalogueRefresh, 1000 * 60 * 60 * 24);
     }
+
+    // MOXFIELD BACKGROUND POLL.
+    //
+    // Zach builds decks in Moxfield and wants Bindarr to notice on its own.
+    // This DETECTS drift and records it; it never applies a change. A decklist
+    // rewriting itself overnight is the silent state change he has ruled out --
+    // he would open a curated deck, find it different, and have nothing to
+    // point at.
+    //
+    // Cheap by design: one author-list request covers every deck, and a deck is
+    // only fetched in full when Moxfield's own lastUpdatedAtUtc has moved.
+    //
+    // MOXFIELD_POLL=off disables it. MOXFIELD_POLL_HOURS overrides the interval
+    // for anyone who edits Moxfield constantly and wants a tighter loop.
+    if (process.env.MOXFIELD_POLL !== 'off') {
+      const { runPoll } = require('./utils/moxfieldPoll');
+      const hours = Number(process.env.MOXFIELD_POLL_HOURS) || 6;
+      const tick = () => {
+        runPoll().then((results) => {
+          for (const r of results) {
+            if (r.unreachable) {
+              // Not logged as an error: Moxfield being down is not a Bindarr
+              // fault, and treating it as one trains an operator to ignore this
+              // line when something genuinely breaks.
+              console.log(`Moxfield poll: ${r.username} unreachable (${r.error})`);
+            } else if (r.changed.length) {
+              console.log(`Moxfield poll: ${r.changed.length} deck(s) changed upstream ` +
+                          `for ${r.username}`);
+            }
+          }
+        }).catch(err => console.error('Moxfield poll failed:', err.message));
+      };
+      setTimeout(tick, 90000);
+      setInterval(tick, 1000 * 60 * 60 * hours);
+    }
   })
   .catch(err => {
     console.error('Failed to initialize database:', err);

@@ -156,6 +156,17 @@ router.get('/', async (req, res) => {
         -- Which decks mirror Moxfield. NULL means built here, and sync never
         -- looks at it -- Zach: "decks built locally will be untouched".
         d.moxfield_public_id, d.moxfield_updated_at, d.moxfield_synced_at,
+        -- HAS MOXFIELD MOVED SINCE WE LAST SYNCED?
+        --
+        -- Answered from the database, not from Moxfield: the background poll
+        -- records what it has seen, so this stays correct and instant even when
+        -- Moxfield is unreachable. Asking the network here would make the deck
+        -- list depend on a third party being up.
+        CASE WHEN d.moxfield_public_id IS NOT NULL
+              AND d.moxfield_updated_at IS NOT NULL
+              AND d.moxfield_synced_at IS NOT NULL
+              AND d.moxfield_updated_at > d.moxfield_synced_at
+             THEN 1 ELSE 0 END AS moxfield_changed,
         COUNT(CASE WHEN dc.board != 'considering' THEN dc.id END) AS total_card_types,
         COALESCE(SUM(CASE WHEN dc.board != 'considering' THEN dc.quantity ELSE 0 END), 0) AS total_cards,
         COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards,

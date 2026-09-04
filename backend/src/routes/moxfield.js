@@ -157,6 +157,14 @@ router.post('/moxfield/decks/:publicId/sync', async (req, res) => {
 
     const plan = await planSync(req.user.id, deck.id, payload);
     const applied = await applySync(req.user.id, deck.id, plan);
+
+    // Record what this sync reconciled against. Without it, every surface that
+    // asks "has Moxfield moved since?" compares against null forever.
+    const stamp = plan.deck.last_updated_at || null;
+    await db.run(
+      `UPDATE decks SET moxfield_updated_at = ?, moxfield_synced_at = ? WHERE id = ?`,
+      [stamp, stamp, deck.id]);
+
     res.json({ bindarr_deck_id: deck.id, created, ...applied, skipped: plan.skipped });
   } catch (err) {
     const status = err.status === 403 ? 503 : (err.status === 404 ? 404 : 500);
