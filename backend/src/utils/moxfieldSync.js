@@ -2,6 +2,11 @@ const db = require('../db');
 const { alternativesForRequirement } = require('./deckRepoint');
 const { summarise } = require('./moxfieldPayload');
 
+// Boards where a card is genuinely REQUIRED, and so where preferring a copy he
+// owns is meaningful. Mirrors deckIdentity's RESERVING_BOARDS: 'considering' is
+// excluded there too, because a card he is only thinking about claims nothing.
+const PREFERENCE_BOARDS = new Set(['commander', 'mainboard', 'sideboard']);
+
 // RECONCILE A BINDARR DECK AGAINST ITS MOXFIELD SOURCE.
 //
 // Zach: "Moxfield owns the card list and when we sync it should automatically
@@ -200,7 +205,14 @@ async function applySync(userId, deckId, plan) {
   // would serialize every other request on the instance.
   const additions = [];
   for (const row of plan.add) {
-    const better = await preferOwnedPrinting(userId, row);
+    // Only boards that actually require the card. A considering row is a note
+    // about something he is thinking about, so it keeps Moxfield's printing --
+    // his words: "they should stay as what they are in moxfield". It is also
+    // the board deckIdentity excludes from RESERVING_BOARDS, so substituting a
+    // copy would imply a claim the row deliberately does not make.
+    const better = PREFERENCE_BOARDS.has(row.board)
+      ? await preferOwnedPrinting(userId, row)
+      : null;
     additions.push({
       ...row,
       final_card_id: better ? better.card_id : row.card_id,
