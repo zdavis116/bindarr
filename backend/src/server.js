@@ -239,11 +239,16 @@ db.initDb()
     // Cheap by design: one author-list request covers every deck, and a deck is
     // only fetched in full when Moxfield's own lastUpdatedAtUtc has moved.
     //
-    // MOXFIELD_POLL=off disables it. MOXFIELD_POLL_HOURS overrides the interval
-    // for anyone who edits Moxfield constantly and wants a tighter loop.
+    // MOXFIELD_POLL=off disables it. MOXFIELD_POLL_MINUTES overrides the
+    // interval for anyone who wants a looser loop; the floor is 1 minute.
     if (process.env.MOXFIELD_POLL !== 'off') {
       const { runPoll } = require('./utils/moxfieldPoll');
-      const hours = Number(process.env.MOXFIELD_POLL_HOURS) || 6;
+      // Minutes, because six hours meant he could edit a deck at breakfast and
+      // still not see it in Bindarr at lunch. One tick is a single request to
+      // the author deck list -- decks are only fetched individually when their
+      // upstream timestamp has actually moved -- so five minutes is ~288
+      // requests on a quiet day.
+      const minutes = Math.max(1, Number(process.env.MOXFIELD_POLL_MINUTES) || 5);
       const tick = () => {
         runPoll().then((results) => {
           for (const r of results) {
@@ -260,7 +265,7 @@ db.initDb()
         }).catch(err => console.error('Moxfield poll failed:', err.message));
       };
       setTimeout(tick, 90000);
-      setInterval(tick, 1000 * 60 * 60 * hours);
+      setInterval(tick, 1000 * 60 * minutes);
     }
   })
   .catch(err => {

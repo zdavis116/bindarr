@@ -81,3 +81,19 @@ test('MXP-TC6: the poll is scheduled, disablable, and cannot crash the server', 
   assert.match(server, /\.catch\(err => console\.error\('Moxfield poll failed/,
     'a background job must never take the process down');
 });
+
+test('MXP-TC7: the poll interval is minutes, and defaults to five', () => {
+  // Zach: "6 hrs is way to long can it be every 5 mins?"
+  //
+  // The interval used to be expressed in HOURS. A units slip here is silent --
+  // 1000 * 60 * 60 * minutes still runs, just sixty times too slowly, and
+  // nothing fails except that he stops seeing his edits.
+  assert.match(server, /MOXFIELD_POLL_MINUTES\) \|\| 5/,
+    'the default must be five minutes');
+  assert.match(server, /setInterval\(tick, 1000 \* 60 \* minutes\)/,
+    'and the interval must be minutes, not hours');
+  assert.doesNotMatch(server, /1000 \* 60 \* 60 \* minutes/,
+    'an hours multiplier would make "every 5 minutes" mean every 5 hours');
+  assert.match(server, /Math\.max\(1, Number\(process\.env\.MOXFIELD_POLL_MINUTES\)/,
+    'a floor stops a stray 0 turning this into a tight loop against Moxfield');
+});
