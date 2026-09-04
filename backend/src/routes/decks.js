@@ -153,6 +153,9 @@ router.get('/', async (req, res) => {
       SELECT
         d.id, d.name, d.description, d.format, d.category, d.accent_color,
         d.target_size, d.created_at, d.checked_out, d.checked_out_at,
+        -- Which decks mirror Moxfield. NULL means built here, and sync never
+        -- looks at it -- Zach: "decks built locally will be untouched".
+        d.moxfield_public_id, d.moxfield_updated_at, d.moxfield_synced_at,
         COUNT(CASE WHEN dc.board != 'considering' THEN dc.id END) AS total_card_types,
         COALESCE(SUM(CASE WHEN dc.board != 'considering' THEN dc.quantity ELSE 0 END), 0) AS total_cards,
         COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards,

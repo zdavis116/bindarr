@@ -18,6 +18,7 @@
 // out.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import MoxfieldPanel from './MoxfieldPanel';
 import { Trash2, Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
@@ -54,6 +55,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   const { t } = useT();
 
   const [query, setQuery] = useState('');
+  const [moxfieldOpen, setMoxfieldOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [exportOpen, setExportOpen] = useState(false);
@@ -240,8 +242,20 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 )}
 
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontWeight: 600, fontSize: '0.98rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {deck.name}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.98rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {deck.name}
+                    </span>
+                    {/* WHERE THIS DECK COMES FROM.
+                        Only Moxfield decks are badged: labelling every local
+                        deck "LOCAL" would add noise to the common case to
+                        describe the exception. The dot carries sync state so
+                        the row answers "has Moxfield changed?" at a glance. */}
+                    {deck.moxfield_public_id ? (
+                      <span className="deck-source-badge" title={t('decks.fromMoxfield')}>
+                        {t('decks.moxfieldBadge')}
+                      </span>
+                    ) : null}
                   </span>
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                     {/* ONE dollar figure: what the deck is worth. Zach: "I
@@ -269,6 +283,24 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
             );
           })}
         </div>
+      )}
+
+      {/* MOXFIELD SYNC: decks arrive here too, so the entry point sits with
+          "new deck" rather than in Settings. Without this the panel would be
+          unreachable -- renders fine, wired correctly, and worth nothing. */}
+      {!selecting && (
+        <button
+          onClick={() => setMoxfieldOpen(true)}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
+            width: '100%', marginTop: '0.7rem', minHeight: 48, cursor: 'pointer',
+            border: '1px dashed var(--border-color)', borderRadius: '12px',
+            background: 'transparent', color: 'var(--text-secondary)',
+            font: 'inherit', fontSize: '0.9rem', fontWeight: 600
+          }}
+        >
+          {t('decks.syncMoxfield')}
+        </button>
       )}
 
       {/* NEW DECK: a full-width action under the list, as in the mock. */}
@@ -366,6 +398,12 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         showToast={showToast}
       />
 
+      {moxfieldOpen ? (
+        <MoxfieldPanel
+          onClose={() => setMoxfieldOpen(false)}
+          showToast={showToast}
+        />
+      ) : null}
     </div>
   );
 }
