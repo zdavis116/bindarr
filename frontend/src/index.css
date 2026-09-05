@@ -2975,3 +2975,14 @@ button, input, select, textarea {
   background: rgba(210, 153, 34, 0.16); color: #d29922;
   border: 1px solid rgba(210, 153, 34, 0.32);
 }
+
+/* DRIFT BREAKDOWN, matching sketches/015. */
+.mfx-group-label {
+  font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted); margin: 0.7rem 0 0.35rem;
+}
+.mfx-owned-tag {
+  font-size: 0.68rem; padding: 0.12rem 0.4rem; border-radius: 5px;
+  background: rgba(63, 185, 80, 0.13); color: #3fb950; white-space: nowrap;
+  flex-shrink: 0;
+}

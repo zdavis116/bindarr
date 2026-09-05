@@ -79,11 +79,32 @@ const QTY_BTN = {
   display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0,
 };
 
+
+// Both timestamp shapes appear in moxfield_synced_at: Moxfield's ISO string on
+// decks synced since the format fix, and SQLite's '2026-09-04 12:04:21' on
+// older rows. Safari returns NaN for the space form, so it is normalised rather
+// than trusted. Same rule as DeckList's copy; duplicated deliberately rather
+// than exported, because these two files share no util module today.
+function relativeSync(raw, t) {
+  if (!raw) return '';
+  const iso = String(raw).includes('T') ? raw : String(raw).replace(' ', 'T') + 'Z';
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return '';
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return t('moxfield.justNow');
+  if (mins < 60) return t('moxfield.minsAgo', { count: mins });
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return t('moxfield.hoursAgo', { count: hrs });
+  return t('moxfield.daysAgo', { count: Math.round(hrs / 24) });
+}
+
 function DeckView({ deck, onBack, onChanged, showToast }) {
   const { t } = useT();
 
   const [tab, setTab] = useState('all');
   const [syncingMoxfield, setSyncingMoxfield] = useState(false);
+  const [moxPlan, setMoxPlan] = useState(null);
+  const [moxDetail, setMoxDetail] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -194,6 +215,27 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // gave the collection different ones. Neither is wrong, they disagree.
   //
   // Read-only. Nothing changes until he taps.
+  // WHAT THE SYNC WOULD DO, fetched when the deck has drifted.
+  //
+  // The banner's counts and breakdown come from the plan endpoint, not from
+  // anything computed here: the preview must name the same printings the apply
+  // will store, and planSync now resolves the owned-copy preference so the two
+  // agree by construction.
+  useEffect(() => {
+    if (!deck?.moxfield_public_id || !deck?.moxfield_changed) {
+      setMoxPlan(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/moxfield/decks/${deck.moxfield_public_id}/plan`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(body => { if (!cancelled && body) setMoxPlan(body); })
+      // A Moxfield outage must not blank the deck. The banner still offers
+      // Sync now; only the breakdown is unavailable.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [deck?.moxfield_public_id, deck?.moxfield_changed, deck?.moxfield_synced_at]);
+
   useEffect(() => {
     if (!deck?.id) return;
     let cancelled = false;
@@ -453,7 +495,16 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </h2>
       )}
       <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2, marginBottom: '0.9rem' }}>
-        {[deck.format, t('deck.cardCount', { count: target })].filter(Boolean).join(' · ')}
+        {[deck.format,
+          t('deck.cardCount', { count: target }),
+          // Mock: "Commander · 100 cards · last synced 2 minutes ago". Only on
+          // Moxfield decks -- a local deck has no sync to report.
+          deck.moxfield_public_id
+            ? (deck.moxfield_synced_at
+                ? t('deck.lastSynced', { when: relativeSync(deck.moxfield_synced_at, t) })
+                : t('decks.neverSynced'))
+            : null
+        ].filter(Boolean).join(' · ')}
       </div>
 
       {/* PROGRESS + RULES: one block answers "how close am I" and "is anything
@@ -569,50 +620,126 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </div>
       )}
 
-      {/* MOXFIELD HAS MOVED SINCE WE LAST SYNCED.
-          The deck row badges this, and until now that was a dead end: he was
-          told the deck was stale on a screen with no way to act. Sync lives
-          here, where he already is.
+      {/* MOXFIELD HAS CHANGES -- built to sketches/015, which he approved.
+          Detection lives on the deck row; the ACTION has to live here, or the
+          badge is a dead end: told the deck is stale on a screen with no way
+          forward.
 
-          Still not automatic -- he presses it. A decklist changing under him
+          Never automatic. He presses Sync now. A decklist changing under him
           with nothing to point at is the silent state change he has ruled
           out. */}
       {deck?.moxfield_public_id && deck?.moxfield_changed ? (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '0.7rem',
-          padding: '0.7rem 0.85rem', marginBottom: '0.8rem',
-          borderRadius: '12px', background: 'rgba(210, 153, 34, 0.12)',
-          border: '1px solid rgba(210, 153, 34, 0.32)'
+          background: 'linear-gradient(180deg, rgba(210,153,34,.10), rgba(210,153,34,.04))',
+          border: '1px solid rgba(210,153,34,.32)', borderRadius: '12px',
+          padding: '0.9rem', marginBottom: '0.9rem'
         }}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: '0.84rem' }}>
+          <div style={{ fontWeight: 650, fontSize: '0.92rem', marginBottom: '0.25rem' }}>
+            {t('deck.moxfieldDriftedTitle')}
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
             {t('deck.moxfieldDrifted')}
-          </span>
-          <button
-            className="btn btn-primary"
-            style={{ flexShrink: 0 }}
-            disabled={syncingMoxfield}
-            onClick={async () => {
-              setSyncingMoxfield(true);
-              try {
-                const res = await fetch(
-                  `/api/moxfield/decks/${deck.moxfield_public_id}/sync`,
-                  { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-                const body = await res.json();
-                if (!res.ok) throw new Error(body.error || t('moxfield.syncFailed'));
-                showToast?.(t('moxfield.syncedSummary', {
-                  added: body.added, removed: body.removed,
-                  moved: body.moved, preferred: body.printing_preferred
-                }));
-                onChanged?.();
-              } catch (err) {
-                showToast?.(err.message);
-              } finally {
-                setSyncingMoxfield(false);
-              }
-            }}
-          >
-            {syncingMoxfield ? t('moxfield.syncing') : t('moxfield.sync')}
-          </button>
+          </div>
+
+          {/* COUNTS. Only chips with a non-zero count, so the row says what
+              changed rather than listing every category every time. */}
+          {moxPlan ? (
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.65rem 0' }}>
+              {moxPlan.add.length ? (
+                <span className="mfx-chip add">
+                  <b>+{moxPlan.add.length}</b> {t('deck.driftAdded')}
+                </span>
+              ) : null}
+              {moxPlan.remove.length ? (
+                <span className="mfx-chip rm">
+                  <b>&minus;{moxPlan.remove.length}</b> {t('deck.driftRemoved')}
+                </span>
+              ) : null}
+              {moxPlan.moveBoard.length ? (
+                <span className="mfx-chip mv">
+                  <b>{moxPlan.moveBoard.length}</b> {t('deck.driftMoved')}
+                </span>
+              ) : null}
+              {moxPlan.requantify.length ? (
+                <span className="mfx-chip qty">
+                  <b>{moxPlan.requantify.length}</b> {t('deck.driftRequantified')}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* THE REASSURANCE LINE. The single most important sentence in this
+              banner: his repointing survives a sync, and he has asked about
+              that more than once. */}
+          {moxPlan ? (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+              {t('deck.driftPrintingsKept', { count: moxPlan.uses_owned || 0 })}
+            </div>
+          ) : null}
+
+          <div style={{ display: 'flex', gap: '0.45rem', marginTop: '0.65rem' }}>
+            <button
+              className="btn btn-primary"
+              disabled={syncingMoxfield}
+              onClick={async () => {
+                setSyncingMoxfield(true);
+                try {
+                  const res = await fetch(
+                    `/api/moxfield/decks/${deck.moxfield_public_id}/sync`,
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                  const body = await res.json();
+                  if (!res.ok) throw new Error(body.error || t('moxfield.syncFailed'));
+                  showToast?.(t('moxfield.syncedSummary', {
+                    added: body.added, removed: body.removed,
+                    moved: body.moved, preferred: body.printing_preferred
+                  }));
+                  setMoxPlan(null);
+                  setMoxDetail(false);
+                  onChanged?.();
+                } catch (err) {
+                  showToast?.(err.message);
+                } finally {
+                  setSyncingMoxfield(false);
+                }
+              }}
+            >
+              {syncingMoxfield ? t('moxfield.syncing') : t('deck.driftSyncNow')}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setMoxDetail(v => !v)}>
+              {moxDetail ? t('deck.driftHideChanges') : t('deck.driftSeeChanges')}
+            </button>
+          </div>
+
+          {/* WHAT ACTUALLY CHANGES, grouped as in the mock. Every field here
+              comes from the plan endpoint -- set_id, number, board, and the
+              owned-copy flag planSync now resolves -- rather than being
+              inferred in the client. */}
+          {moxDetail && moxPlan ? (
+            <div style={{ marginTop: '0.5rem' }}>
+              {[['add', t('deck.driftGroupAdding')],
+                ['remove', t('deck.driftGroupRemoving')],
+                ['moveBoard', t('deck.driftGroupMoving')]].map(([key, label]) => (
+                  moxPlan[key].length ? (
+                    <div key={key}>
+                      <div className="mfx-group-label">{label}</div>
+                      {moxPlan[key].map((row, i) => (
+                        <div className="mfx-row" key={`${key}${i}`}>
+                          <span className="mfx-row-name">{row.name}</span>
+                          <span className="mfx-row-meta">
+                            {key === 'moveBoard'
+                              ? `${String(row.keeps_printing?.set_id || '').toUpperCase()} #${row.keeps_printing?.number} · ${row.from_board} → ${row.to_board}`
+                              : `${String((row.owned_printing?.set_id ?? row.set_id) || '').toUpperCase()} #${row.owned_printing?.number ?? row.number} · ${row.board}`}
+                          </span>
+                          {row.uses_owned_copy ? (
+                            <span className="mfx-owned-tag">{t('deck.driftUsingYourCopy')}</span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null
+                ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

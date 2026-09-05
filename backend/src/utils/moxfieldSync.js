@@ -183,11 +183,30 @@ async function planSync(userId, deckId, payload) {
     add.splice(add.indexOf(to), 1);
   }
 
+  // WHICH ADDS WILL USE A COPY HE ALREADY OWNS.
+  //
+  // Resolved here, not just in applySync, so the preview names the printing
+  // that will actually be stored. Otherwise he approves a plan showing C20 #253
+  // and ends up with MSH #80 -- a preview that disagrees with its own outcome.
+  for (const row of add) {
+    const better = PREFERENCE_BOARDS.has(row.board)
+      ? await preferOwnedPrinting(userId, row)
+      : null;
+    if (better) {
+      row.uses_owned_copy = true;
+      row.owned_printing = { set_id: better.set_id, number: better.number,
+                             finish: better.finish, card_id: better.card_id };
+    }
+  }
+
   return {
     deck: { name: summary.name, format: summary.format,
             public_id: summary.public_id, last_updated_at: summary.last_updated_at },
     add, remove, requantify, moveBoard, unchanged, skipped,
-    changes: add.length + remove.length + requantify.length + moveBoard.length
+    changes: add.length + remove.length + requantify.length + moveBoard.length,
+    // For the banner's reassurance line: "N of the added cards will use copies
+    // you already own."
+    uses_owned: add.filter(r => r.uses_owned_copy).length
   };
 }
 

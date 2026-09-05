@@ -130,3 +130,56 @@ test('MXP-TC9: the deck view can act on the drift it reports', () => {
   assert.match(view, /deck\?\.moxfield_public_id && deck\?\.moxfield_changed/,
     'and show the control only when there is something to sync');
 });
+
+test('MXP-TC10: the drift banner carries every element of the approved mock', () => {
+  // Zach: "this is what your mock looked like and this is what I expected."
+  //
+  // I shipped a one-line strip where sketches/015 has a title, subtitle, three
+  // count chips, the printings-stay reassurance, two actions, and a
+  // collapsible breakdown grouped Adding / Removing / Moving board.
+  //
+  // He has said an approved mockup means pixel and label fidelity, not "same
+  // spirit". This pins the elements so the next edit cannot quietly drop one.
+  const view = fs.readFileSync(
+    path.join(__dirname, '../../frontend/src/components/DeckView.jsx'), 'utf8');
+  const en = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../../frontend/src/locales/en.json'), 'utf8'));
+
+  for (const key of ['deck.moxfieldDriftedTitle', 'deck.moxfieldDrifted',
+                     'deck.driftAdded', 'deck.driftRemoved', 'deck.driftMoved',
+                     'deck.driftPrintingsKept', 'deck.driftSyncNow',
+                     'deck.driftSeeChanges', 'deck.driftGroupAdding',
+                     'deck.driftGroupRemoving', 'deck.driftGroupMoving',
+                     'deck.driftUsingYourCopy', 'deck.lastSynced']) {
+    assert.ok(view.includes(`t('${key}'`), `the banner must render ${key}`);
+    assert.ok(key in en, `${key} must have an English string`);
+  }
+
+  // The mock's exact words, because a paraphrase is what he objected to.
+  assert.equal(en['deck.moxfieldDriftedTitle'], 'Moxfield has changes');
+  assert.equal(en['deck.moxfieldDrifted'],
+    'You edited this deck on Moxfield after the last sync.');
+  assert.equal(en['deck.driftSyncNow'], 'Sync now');
+  assert.equal(en['deck.driftSeeChanges'], 'See what changes');
+  assert.equal(en['deck.driftGroupMoving'], 'Moving board — printing kept');
+});
+
+test('MXP-TC11: the preview names the printing the sync will actually store', () => {
+  // The mock tags adds "using your copy". Only applySync used to know which
+  // adds get substituted, so the preview showed MOXFIELD's printing and the
+  // apply stored a different one -- he would approve a plan naming C20 #253 and
+  // get MSH #80. A preview that disagrees with its own outcome is the
+  // wrong-record failure with an extra step.
+  const sync = fs.readFileSync(
+    path.join(__dirname, '../src/utils/moxfieldSync.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  const i = sync.indexOf('async function planSync');
+  const body = sync.slice(i, sync.indexOf('\nasync function', i + 10));
+  assert.match(body, /preferOwnedPrinting/,
+    'planSync must resolve the owned-printing preference, not just applySync');
+  assert.match(body, /uses_owned_copy = true/,
+    'and mark which adds use a copy he already owns');
+  assert.match(body, /uses_owned:/,
+    'and total them for the banner\'s reassurance line');
+});
