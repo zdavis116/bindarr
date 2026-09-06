@@ -37,34 +37,58 @@ test('DC-TC2: the list endpoint actually returns ownership', () => {
     'GET /api/decks must return owned_cards');
 });
 
+// THE RULES BELOW SURVIVED A REWRITE, AND THAT IS THE POINT.
+//
+// DC-TC3/4/5 originally asserted the SQL text of the old correlated-subquery
+// query ("uc.card_id = dc.desired_card_id", "o.id < dc.id"). When the deck list
+// was rewritten for performance (691ms -> 15ms) all three failed while the
+// behaviour was provably unchanged -- tools/equiv-probe.js diffed every field
+// of every row at 2,438 and 10,000 collection rows and found them identical.
+//
+// A test that fails on a correct refactor is measuring spelling, not rules. It
+// trains you to edit the test until it goes green, which is how a guard quietly
+// stops guarding. These now assert the RULES, wherever they live.
+const identity = route.slice(route.indexOf('req AS ('), route.indexOf('AS owned_cards'));
+
 test('DC-TC3: ownership uses the same rule as the deck view', () => {
   // deckIdentity.js: exact printing AND finish, collection list only. If the
   // list and the detail view disagree, one of them is lying to Zach and he
   // cannot tell which.
-  const sql = route.slice(route.indexOf('AS owned_cards') - 1400,
-                          route.indexOf('AS owned_cards'));
-  assert.match(sql, /uc\.card_id = dc\.desired_card_id/, 'must match the exact printing');
-  assert.match(sql, /uc\.finish = dc\.desired_finish/, 'must match the finish');
-  assert.match(sql, /uc\.list_type = 'collection'/, 'wishlist rows are not owned cards');
+  //
+  // Basics are the documented exception -- a Mountain is a Mountain across
+  // printings and finishes -- so the identity key is exact:card_id:finish for
+  // everything else and basic:name for basic lands.
+  assert.match(identity, /'exact:' \|\| dc\.desired_card_id \|\| ':' \|\| COALESCE\(dc\.desired_finish/,
+    'a requirement must be keyed on the exact printing AND finish');
+  assert.match(identity, /'exact:' \|\| uc\.card_id \|\| ':' \|\| COALESCE\(uc\.finish/,
+    'and the owned supply must be keyed identically, or the two halves disagree');
+  assert.match(identity, /uc\.list_type = 'collection'/,
+    'wishlist rows are not owned cards');
 });
 
 test('DC-TC4: a copy claimed by another deck is not counted twice', () => {
   // Owning one Sol Ring while two decks require it means the second deck is
   // missing one. Without this, both decks report it owned and both look ready.
-  const sql = route.slice(route.indexOf('AS owned_cards') - 1400,
-                          route.indexOf('AS owned_cards'));
-  assert.match(sql, /o\.id < dc\.id/,
-    'higher-priority requirements must reserve the copy first');
+  //
+  // Priority is deck_cards.id ascending, assigned at insert and never changed.
+  // The old query expressed this as a correlated "o.id < dc.id"; it is now an
+  // exclusive window over the same ordering. Same rule, one pass.
+  assert.match(identity, /claims AS \(/, 'claims must be resolved before ownership');
+  assert.match(identity, /PARTITION BY identity/,
+    'claims compete within one identity -- pooled for basics, exact otherwise');
+  assert.match(identity, /ORDER BY dc_id/,
+    'priority is deck_cards.id ascending');
+  assert.match(identity, /ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING/,
+    'EXCLUSIVE: a requirement must not reserve a copy against itself');
+  assert.match(identity, /- COALESCE\(c\.claimed_before, 0\)/,
+    'and the claimed copies must actually be subtracted from supply');
 });
 
 test('DC-TC5: a spare copy cannot push a deck over its requirement', () => {
-  // Anchored on the subquery, not a byte offset: the pooling change made this
-  // SQL longer and a fixed 1400-char window stopped covering the cap, failing
-  // on correct code.
-  const start = route.indexOf("COALESCE(SUM(\n          CASE WHEN dc.board != 'considering' THEN");
-  const sql = route.slice(start, route.indexOf('AS owned_cards'));
-  assert.match(sql, /MIN\(dc\.quantity/,
+  assert.match(identity, /MIN\(r\.quantity/,
     'owned is capped at the quantity the deck actually needs');
+  assert.match(identity, /MAX\(0,/,
+    'and floored at zero -- over-claimed supply is not negative ownership');
 });
 
 test('DC-TC6: an unknown price is not reported as free', () => {

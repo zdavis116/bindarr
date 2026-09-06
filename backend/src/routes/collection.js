@@ -1837,8 +1837,16 @@ router.get('/collection', async (req, res) => {
         cc.price_normal,
         cc.price_holofoil,
         cc.price_reverse_holofoil,
-        cc.tcgplayer_url,
-        cc.cardmarket_url,
+        -- MARKETPLACE URLS ARE NOT SENT WITH THE LIST.
+        --
+        -- They were 663 KB of the 3.6 MB this endpoint returns -- 23% of the
+        -- payload -- and NOTHING consumes them: utils/marketplaceLinks.js is
+        -- the only reader and it has no callers, falling back to a name search
+        -- when the field is absent anyway. Measured, not assumed: grep for
+        -- tcgplayerUrl/cardmarketUrl across frontend/src returns no call sites.
+        --
+        -- Re-add them to the per-card detail endpoint if a buy link ever lands,
+        -- not to the list: one row needs them, 10,000 rows do not.
         l.id as location_id,
         l.name as location_name,
         l.type as location_type,
@@ -1877,7 +1885,47 @@ router.get('/collection', async (req, res) => {
         : ''
     }));
 
-    res.json(formatted);
+    // PAGINATION, opt-in.
+    //
+    // Zach: the app must "handle 10k cards". This endpoint accepted `page` and
+    // `limit` and then IGNORED them -- limit=1, limit=200 and page=99 all
+    // returned the same 2,438 rows and the same 3,595,959 bytes. Parameters
+    // that are accepted and discarded are worse than absent ones: they read as
+    // a working contract.
+    //
+    // OPT-IN rather than a default page size, deliberately. Four screens fetch
+    // this list and filter it CLIENT-SIDE (CollectionList, DeckBuilder's
+    // browse, LocationManager, CheckoutWizard). Silently truncating to 50 rows
+    // would make every one of them quietly wrong -- a collection that looks
+    // complete while omitting most of it, which is the wrong-record failure
+    // this project keeps guarding against. So a caller that asks for a page
+    // gets one; a caller that asks for nothing still gets everything, and
+    // moving those screens onto paging is a separate, testable change.
+    //
+    // The envelope only appears WHEN PAGING IS REQUESTED, so existing callers
+    // keep receiving the bare array they already parse.
+    const rawLimit = Number(req.query.limit);
+    const rawPage = Number(req.query.page);
+    const paging = Number.isFinite(rawLimit) && rawLimit > 0;
+    const limit = paging ? Math.min(rawLimit, 500) : null;
+    const page = paging ? Math.max(1, Number.isFinite(rawPage) ? rawPage : 1) : 1;
+
+    if (!paging) {
+      return res.json(formatted);
+    }
+
+    // Counted from the formatted rows, not from a second COUNT(*) query: the
+    // route splits stacked entries into one row per physical card, so a SQL
+    // count would disagree with what the caller is actually paging through.
+    const total = formatted.length;
+    const start = (page - 1) * limit;
+    res.json({
+      cards: formatted.slice(start, start + limit),
+      page,
+      limit,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / limit))
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch collection' });
