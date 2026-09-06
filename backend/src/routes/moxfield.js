@@ -3,6 +3,7 @@ const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const mox = require('../utils/moxfieldApi');
 const { planSync, applySync } = require('../utils/moxfieldSync');
+const { checkAccount } = require('../utils/moxfieldPoll');
 
 
 // Moxfield sends lowercase format strings ('commander'); Bindarr stores them
@@ -111,6 +112,39 @@ router.get('/moxfield/decks', async (req, res) => {
   } catch (err) {
     const status = err.status === 403 ? 503 : 500;
     res.status(status).json({ error: err.message });
+  }
+});
+
+// CHECK NOW. Runs the same poll the timer runs, for this user only.
+//
+// The poller existed but was reachable ONLY from the server's five-minute
+// timer, so "did Moxfield change?" was a question the UI could not ask. That
+// makes the Settings source a read-only plaque rather than a control.
+//
+// It DETECTS, it does not apply -- same contract as the background tick. The
+// per-deck sync stays an explicit action, because a decklist that rewrites
+// itself is the silent state change Zach has ruled out.
+router.post('/moxfield/check', async (req, res) => {
+  try {
+    const acct = await db.get(
+      `SELECT id, user_id, username FROM moxfield_accounts WHERE user_id = ?`,
+      [req.user.id]);
+    if (!acct) return res.status(400).json({ error: 'No Moxfield account linked' });
+
+    const summary = await checkAccount(acct);
+    // UNREACHABLE IS NOT SUCCESS. checkAccount never throws -- it records the
+    // failure and returns -- so reporting 200 here would show "checked just
+    // now" over a check that never happened.
+    if (summary.unreachable) {
+      return res.status(503).json({ error: summary.error, unreachable: true });
+    }
+    res.json({
+      checked: summary.checked,
+      changed: summary.changed.length,
+      error: summary.error || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not check Moxfield', message: err.message });
   }
 });
 

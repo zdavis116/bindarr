@@ -183,3 +183,40 @@ test('MXP-TC11: the preview names the printing the sync will actually store', ()
   assert.match(body, /uses_owned:/,
     'and total them for the banner\'s reassurance line');
 });
+
+test('MXP-TC15: Check now runs the real poll, for one user only', () => {
+  // The poller existed but was reachable ONLY from the five-minute timer, so
+  // the UI could not ask "did anything change?". Settings > Moxfield > Check
+  // now needs a route, and it must run the SAME code the timer runs -- a second
+  // implementation would be a rival answer to the same question.
+  const routes = read('routes/moxfield.js');
+  assert.match(routes, /router\.post\('\/moxfield\/check'/,
+    'a check endpoint must exist');
+  assert.match(routes, /checkAccount/,
+    'and it must call the poller, not reimplement it');
+
+  // ONE USER. checkAccount takes an account row; runPoll walks every linked
+  // account. Zach's box is single-user today, so calling runPoll here would
+  // look identical and silently check other users' decks the day it is not.
+  const block = routes.slice(routes.indexOf("'/moxfield/check'"),
+                             routes.indexOf("'/moxfield/decks/:publicId/plan'"));
+  assert.doesNotMatch(block, /applySync/, 'checking must never apply a sync');
+  assert.match(block, /WHERE user_id = \?/,
+    'the account must be scoped to the requesting user');
+  assert.doesNotMatch(block, /runPoll/,
+    'runPoll walks every account -- wrong scope for a per-user button');
+});
+
+test('MXP-TC16: an unreachable Moxfield is not reported as a successful check', () => {
+  // checkAccount NEVER THROWS -- it records the failure and returns a summary
+  // with unreachable:true. A route that just forwards that as 200 would show
+  // "checked just now" over a check that never happened, which is the stale
+  // timestamp shown as current that Zach rules out.
+  const routes = read('routes/moxfield.js');
+  const block = routes.slice(routes.indexOf("'/moxfield/check'"),
+                             routes.indexOf("'/moxfield/decks/:publicId/plan'"));
+  assert.match(block, /summary\.unreachable/,
+    'the route must inspect the unreachable flag');
+  assert.match(block, /status\(503\)/,
+    'and answer with an error status, not 200');
+});

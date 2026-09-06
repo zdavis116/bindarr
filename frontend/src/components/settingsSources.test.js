@@ -70,28 +70,48 @@ test('SET-TC5: the source states WHAT it syncs, not just that it exists', () => 
     'and the screen must use it');
 });
 
-test('SET-TC6: Moxfield is not duplicated into Settings', () => {
-  // This test used to assert Moxfield did not exist at all -- Zach: "You can
-  // hide the moxfield decks for now until implemented." It is implemented now,
-  // reachable from the deck list, so that condition is gone.
+test('SET-TC6: Moxfield is a data source in Settings, expanding like Scryfall', () => {
+  // HISTORY, because this test has now asserted three different things and the
+  // reason matters more than the assertion.
   //
-  // What still holds: there must not be a SECOND Moxfield surface. The entry
-  // point belongs with the decks, and Zach dislikes redundant UI. A settings
-  // row would be a rival place to do the same job.
-  const code = src
-    // JSX {/* ... */} blocks, then // lines. A comment EXPLAINING why Moxfield
-    // is absent is exactly what should be allowed; a rendered row is not.
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter(l => !l.trim().startsWith('//'))
-    .join('\n');
-  assert.doesNotMatch(code, /[Mm]oxfield/,
-    'no Moxfield row in rendered code until the integration is real');
-  // Locale keys are expected now (37 of them). What must not appear is a
-  // settings-specific one, which would mean a second surface.
-  const settingsKeys = Object.keys(en).filter(
-    k => /moxfield/i.test(k) && k.startsWith('settings.'));
-  assert.deepEqual(settingsKeys, [],
-    'no settings.*moxfield* keys: the entry point lives with the decks');
+  // v1: Moxfield must not appear at all -- Zach: "You can hide the moxfield
+  //     decks for now until implemented."
+  // v2: Moxfield must not appear in Settings, because I had put the entry point
+  //     on the deck list and wanted to stop a second surface appearing.
+  // v3 (this): Zach, having used it: "I like that the decks automatically show
+  //     up in the deck list with a sync button ... so I think that moxfield
+  //     sync button is unneeded. But I would like to see the moxfield sync data
+  //     in settings. Because technically there is 2 syncs with moxfield. The
+  //     deck list sync and then the individual deck syncs."
+  //
+  // v2 was me locking in my OWN placement call against the mock he approved
+  // (sketches/014-moxfield-settings), which is how the gap survived so long.
+  // The rule now guards HIS split: ACCOUNT-level sync here, DECK-level sync on
+  // the deck list.
+  assert.match(src, /settings\.moxfield/,
+    'Moxfield must be a source row in Settings');
+  assert.match(src, /sourceOpen === 'moxfield'/,
+    'it must expand to its detail, the same pattern as Scryfall');
+  assert.match(src, /setSourceOpen\(sourceOpen === 'moxfield' \? null : 'moxfield'\)/,
+    'tapping an open Moxfield source must close it -- one source open at a time');
+
+  // WHAT IT SYNCS, per SET-TC5's rule applied to the second source.
+  assert.ok('settings.moxSyncs' in en, 'a sync-description string must exist');
+  assert.match(en['settings.moxSyncs'], /[Dd]ecks/,
+    'the Moxfield source must say it syncs DECKS');
+});
+
+test('SET-TC6b: account-level controls live here and only here', () => {
+  // Link, check, unlink are CONFIGURATION. If these ever move back out, the
+  // integration becomes unreachable from a fresh install -- there is no other
+  // place to enter a username.
+  for (const key of ['settings.moxLink', 'settings.moxCheckNow', 'settings.moxUnlink']) {
+    assert.match(src, new RegExp(key.replace('.', '\\.')),
+      `${key} must render on the Settings screen`);
+  }
+  // A sync must never be offered here. Zach's split is account-level in
+  // Settings, deck-level on the deck list; a Sync button here would rebuild the
+  // duplicate surface this change removed.
+  assert.doesNotMatch(src, /moxfield\/decks\/[^']*\/sync/,
+    'Settings must not apply a deck sync -- that action belongs to the deck list');
 });

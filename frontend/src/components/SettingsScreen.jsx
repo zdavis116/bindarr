@@ -14,7 +14,7 @@
 // this screen. A settings page that reports a guessed catalogue size is worse
 // than one that says nothing: it is the page you check when you suspect the
 // catalogue is stale.
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
@@ -108,6 +108,48 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [saving, setSaving] = useState(false);
 
+  // MOXFIELD, the second data source.
+  //
+  // Zach: "there is technically 2 syncs with moxfield. The deck list sync and
+  // then the individual deck syncs." The ACCOUNT-level sync is configuration --
+  // which account, how often, check now -- and belongs here. The DECK-level
+  // sync stays on the deck list, where the deck is.
+  const [mox, setMox] = useState({ account: null, decks: [], loading: true, error: null });
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [moxUser, setMoxUser] = useState('');
+  const [moxBusy, setMoxBusy] = useState(null);   // 'link' | 'check' | 'unlink'
+
+  // useCallback so the mount effect can depend on it honestly rather than
+  // silencing the lint rule. A stale closure here would show a linked account's
+  // decks after an unlink.
+  const loadMoxfield = useCallback(async () => {
+    try {
+      const res = await fetch('/api/moxfield/account');
+      const body = await res.json().catch(() => ({}));
+      if (!body.account) {
+        setMox({ account: null, decks: [], loading: false, error: null });
+        return;
+      }
+      // The deck list is a live Moxfield call and can fail on its own while the
+      // account is perfectly fine. Those are different problems, so the row
+      // must not report one as the other -- and must never show an empty list
+      // as though the account genuinely had no decks.
+      let decks = [];
+      let error = null;
+      try {
+        const dres = await fetch('/api/moxfield/decks');
+        const dbody = await dres.json().catch(() => ({}));
+        if (dres.ok) decks = dbody.decks || [];
+        else error = dbody.error || t('settings.moxUnreachable');
+      } catch {
+        error = t('settings.moxUnreachable');
+      }
+      setMox({ account: body.account, decks, loading: false, error });
+    } catch {
+      setMox({ account: null, decks: [], loading: false, error: t('settings.moxUnreachable') });
+    }
+  }, [t]);
+
 
   const changePassword = async () => {
     if (!pw.current || !pw.next) {
@@ -147,13 +189,14 @@ function SettingsScreen({ user, onNavigate, showToast }) {
 
   useEffect(() => {
     loadCatalogue();
+    loadMoxfield();
     (async () => {
       try {
         const res = await fetch('/api/settings/version');
         if (res.ok) setVersion(await res.json());
       } catch { /* About shows the dash */ }
     })();
-  }, []);
+  }, [loadMoxfield]);
 
   const checkUpdate = async () => {
     try {
@@ -171,6 +214,67 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     // A plain navigation, so the browser handles the download rather than the
     // app buffering a whole collection in memory.
     window.location.href = '/api/export?format=csv';
+  };
+
+  const linkMoxfield = async () => {
+    const name = moxUser.trim();
+    if (!name) return;
+    setMoxBusy('link');
+    try {
+      const res = await fetch('/api/moxfield/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: name }),
+      });
+      const body = await res.json().catch(() => ({}));
+      // A 503 is Cloudflare blocking us, a 404 is a username that does not
+      // exist. Opposite reactions, so the message has to say which.
+      if (!res.ok) throw new Error(body.error || t('settings.moxLinkFailed'));
+      setMoxUser('');
+      setLinkOpen(false);
+      await loadMoxfield();
+      showToast(t('settings.moxLinked'), 'success');
+    } catch (err) {
+      showToast(err.message || t('settings.moxLinkFailed'), 'error');
+    } finally {
+      setMoxBusy(null);
+    }
+  };
+
+  const checkMoxfield = async () => {
+    setMoxBusy('check');
+    try {
+      const res = await fetch('/api/moxfield/check', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || t('settings.moxUnreachable'));
+      // Say what was found, including "nothing". A check that reports only on
+      // success trains him to distrust the silence.
+      showToast(body.changed
+        ? t('settings.moxCheckedChanged', { count: body.changed })
+        : t('settings.moxCheckedClean', { count: body.checked }));
+      await loadMoxfield();
+    } catch (err) {
+      showToast(err.message || t('settings.moxUnreachable'), 'error');
+    } finally {
+      setMoxBusy(null);
+    }
+  };
+
+  const unlinkMoxfield = async () => {
+    // Destructive-sounding but not destructive: the decks stay. Saying so is
+    // the point -- an unexplained "Unlink" reads like "delete my decks".
+    if (!window.confirm(t('settings.moxUnlinkConfirm'))) return;
+    setMoxBusy('unlink');
+    try {
+      const res = await fetch('/api/moxfield/account', { method: 'DELETE' });
+      if (!res.ok) throw new Error(t('settings.moxUnlinkFailed'));
+      await loadMoxfield();
+      showToast(t('settings.moxUnlinked'));
+    } catch (err) {
+      showToast(err.message || t('settings.moxUnlinkFailed'), 'error');
+    } finally {
+      setMoxBusy(null);
+    }
   };
 
   return (
@@ -232,6 +336,91 @@ function SettingsScreen({ user, onNavigate, showToast }) {
                 }
               }}
             />
+          </div>
+        )}
+
+        {/* MOXFIELD, the second source. Same expand pattern as Scryfall,
+            because Zach's own rule was "each data source should have a drop
+            down showing details of what it's syncing. Scryfall being cards and
+            moxfield being decks as the example."
+
+            ACCOUNT-level sync only. The per-deck sync lives on the deck list --
+            two syncs, two homes, no third surface. */}
+        <Row
+          icon={Link2}
+          label={t('settings.moxfield')}
+          detail={mox.loading
+            ? t('settings.loading')
+            : mox.account
+              ? t('settings.moxSyncs', { count: mox.decks.length })
+              : t('settings.moxNotLinked')}
+          expanded={sourceOpen === 'moxfield'}
+          onClick={() => setSourceOpen(sourceOpen === 'moxfield' ? null : 'moxfield')}
+        />
+
+        {sourceOpen === 'moxfield' && (
+          <div style={{ background: 'var(--surface-2)' }}>
+            {!mox.account ? (
+              <>
+                {/* THE ONLY PLACE AN ACCOUNT CAN BE LINKED. The deck-list modal
+                    used to own this; deleting it without this row would leave
+                    the integration unreachable from a fresh install. */}
+                <Row
+                  indent
+                  label={t('settings.moxLink')}
+                  detail={t('settings.moxLinkDetail')}
+                  onClick={() => setLinkOpen(true)}
+                />
+              </>
+            ) : (
+              <>
+                <Row
+                  indent
+                  label={t('settings.moxAccount')}
+                  value={mox.account.display_name || mox.account.username}
+                />
+                {/* LAST CHECKED, and the error if the last check failed. A
+                    stale timestamp shown as current is the silent state change
+                    he rules out -- last_error is why the number is old. */}
+                <Row
+                  indent
+                  label={t('settings.moxLastChecked')}
+                  detail={mox.account.last_error
+                    ? t('settings.moxLastError', { error: mox.account.last_error })
+                    : undefined}
+                  value={when(mox.account.last_checked_at, t)}
+                />
+                <Row
+                  indent
+                  label={t('settings.moxAutomatic')}
+                  detail={t('settings.moxAutomaticDetail')}
+                  value={t('settings.on')}
+                />
+                <Row
+                  indent
+                  icon={RefreshCw}
+                  label={moxBusy === 'check' ? t('settings.moxChecking') : t('settings.moxCheckNow')}
+                  detail={t('settings.moxCheckDetail')}
+                  disabled={Boolean(moxBusy)}
+                  onClick={checkMoxfield}
+                />
+                {/* How syncing works -- from the mock. This is the sentence that
+                    stops "will syncing overwrite my printings?" being a
+                    question he has to test to answer. */}
+                <Row indent label={t('settings.moxHowTitle')} detail={t('settings.moxHowDetail')} />
+                {mox.error ? (
+                  <Row indent danger label={t('settings.moxUnreachable')} detail={mox.error} />
+                ) : null}
+                <Row
+                  indent
+                  danger
+                  label={t('settings.moxUnlink')}
+                  detail={t('settings.moxUnlinkDetail')}
+                  disabled={Boolean(moxBusy)}
+                  onClick={unlinkMoxfield}
+                />
+              </>
+            )}
           </div>
         )}
       </Section>
@@ -325,6 +514,58 @@ function SettingsScreen({ user, onNavigate, showToast }) {
                          font: 'inherit', fontWeight: 600,
                          cursor: saving ? 'wait' : 'pointer' }}>
                 {saving ? t('settings.saving') : t('common.save')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* LINK MOXFIELD. Same bottom sheet as Change password, because it is the
+          same job: one field, two buttons, no navigation away. */}
+      {linkOpen && (
+        <>
+          <div onClick={() => setLinkOpen(false)}
+               style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_BACKDROP }} />
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: Z_MODAL,
+                        background: 'var(--surface-1)', borderTopLeftRadius: 20,
+                        borderTopRightRadius: 20, padding: '0.6rem 1rem 1rem',
+                        paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
+            <div style={{ width: 38, height: 4, borderRadius: 2, background: 'var(--surface-3)',
+                          margin: '4px auto 12px' }} />
+            <b style={{ fontSize: '1rem', display: 'block', marginBottom: '0.4rem' }}>
+              {t('settings.moxLink')}
+            </b>
+            {/* Public decks only -- said BEFORE he links, not discovered after
+                his private decks fail to appear. */}
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 0.8rem' }}>
+              {t('settings.moxLinkHelp')}
+            </p>
+            <input
+              value={moxUser}
+              onChange={(e) => setMoxUser(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') linkMoxfield(); }}
+              placeholder={t('settings.moxUsernamePlaceholder')}
+              aria-label={t('settings.moxUsernameLabel')}
+              autoComplete="off"
+              style={{ width: '100%', minHeight: 46, marginBottom: '0.55rem',
+                       padding: '0 0.85rem', borderRadius: 'var(--radius-md)',
+                       border: '1px solid var(--border-glass)', background: 'var(--surface-2)',
+                       color: 'var(--text-primary)', font: 'inherit', fontSize: '0.92rem',
+                       boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+              <button onClick={() => setLinkOpen(false)}
+                style={{ flex: 1, minHeight: 46, border: 0, borderRadius: 'var(--radius-md)',
+                         background: 'var(--surface-3)', color: 'var(--text-primary)',
+                         font: 'inherit', fontWeight: 600, cursor: 'pointer' }}>
+                {t('common.cancel')}
+              </button>
+              <button onClick={linkMoxfield} disabled={moxBusy === 'link' || !moxUser.trim()}
+                style={{ flex: 1, minHeight: 46, border: 0, borderRadius: 'var(--radius-md)',
+                         background: 'var(--accent-blue)', color: '#fff',
+                         font: 'inherit', fontWeight: 600,
+                         cursor: moxBusy === 'link' ? 'wait' : 'pointer' }}>
+                {moxBusy === 'link' ? t('settings.moxLinking') : t('settings.moxLink')}
               </button>
             </div>
           </div>

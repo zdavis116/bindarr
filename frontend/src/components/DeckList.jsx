@@ -18,8 +18,7 @@
 // out.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import MoxfieldPanel from './MoxfieldPanel';
-import { Trash2, Search, X, Plus, Check, ChevronRight, Download, RefreshCw } from 'lucide-react';
+import { Trash2, Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
 import { createBuylistSync } from './buylistSync';
@@ -74,7 +73,6 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
   const { t } = useT();
 
   const [query, setQuery] = useState('');
-  const [moxfieldOpen, setMoxfieldOpen] = useState(false);
   const [syncing, setSyncing] = useState(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
@@ -384,28 +382,17 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         </div>
       ))}
 
-      {/* MOXFIELD SYNC: decks arrive here too, so the entry point sits with
-          "new deck" rather than in Settings. Without this the panel would be
-          unreachable -- renders fine, wired correctly, and worth nothing. */}
-      {!selecting && (
-        <button
-          onClick={() => setMoxfieldOpen(true)}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-            width: '100%', marginTop: '0.7rem', minHeight: 48, cursor: 'pointer',
-            // SOLID border and primary text: the dashed/muted version read as a
-            // section heading, not a control. "New deck" sits directly below
-            // with a dashed border, so two adjacent dashed boxes made this one
-            // look like a caption for that one.
-            border: '1px solid var(--border-color)', borderRadius: '12px',
-            background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-            font: 'inherit', fontSize: '0.92rem', fontWeight: 600
-          }}
-        >
-          <RefreshCw size={16} aria-hidden="true" />
-          {t('decks.syncMoxfield')}
-        </button>
-      )}
+      {/* NO "Sync from Moxfield" BUTTON HERE.
+          Zach: "I like that the decks automatically show up in the deck list
+          with a sync button to sync it to Bindarr so I think that moxfield sync
+          button is unneeded. But I would like to see the moxfield sync data in
+          settings. Because technically there is 2 syncs with moxfield. The deck
+          list sync and then the individual deck syncs."
+
+          ACCOUNT-level sync (link, unlink, check now) is configuration and
+          lives in Settings -> Data sources -> Moxfield. DECK-level sync is the
+          per-deck Sync button above. The old button opened a modal whose deck
+          list duplicated the list already on this screen. */}
 
       {/* NEW DECK: a full-width action under the list, as in the mock. */}
       {!selecting && (
@@ -501,17 +488,6 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         title={t('deck.buylist')}
         showToast={showToast}
       />
-
-      {moxfieldOpen ? (
-        <MoxfieldPanel
-          onClose={() => setMoxfieldOpen(false)}
-          showToast={showToast}
-          // Without this the panel's onDecksChanged?.() is a no-op and a freshly
-          // synced deck stays invisible until a manual refresh. Optional props
-          // fail silently, which is why it looked wired.
-          onDecksChanged={onDecksChanged}
-        />
-      ) : null}
     </div>
   );
 }
