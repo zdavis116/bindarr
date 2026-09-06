@@ -50,10 +50,30 @@ function Ring({ pct, size = 42 }) {
   );
 }
 
-function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToast }) {
+
+// Both timestamp shapes appear in this column: Moxfield's ISO string on decks
+// synced since the format fix, and SQLite's '2026-09-04 12:04:21' on older
+// rows. Safari -- which is what Zach reads this on -- returns NaN for the
+// space form, so it is normalised before parsing rather than trusted.
+function relativeTime(raw, t) {
+  if (!raw) return '';
+  const iso = String(raw).includes('T') ? raw : String(raw).replace(' ', 'T') + 'Z';
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return '';
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return t('moxfield.justNow');
+  if (mins < 60) return t('moxfield.minsAgo', { count: mins });
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return t('moxfield.hoursAgo', { count: hrs });
+  return t('moxfield.daysAgo', { count: Math.round(hrs / 24) });
+}
+
+function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToast,
+                   onDecksChanged, moxfieldAvailable = [] }) {
   const { t } = useT();
 
   const [query, setQuery] = useState('');
+  const [syncing, setSyncing] = useState(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [exportOpen, setExportOpen] = useState(false);
@@ -240,9 +260,43 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 )}
 
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontWeight: 600, fontSize: '0.98rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {deck.name}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.98rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {deck.name}
+                    </span>
+                    {/* WHERE THIS DECK COMES FROM.
+                        Only Moxfield decks are badged: labelling every local
+                        deck "LOCAL" would add noise to the common case to
+                        describe the exception. The dot carries sync state so
+                        the row answers "has Moxfield changed?" at a glance. */}
+                    {deck.moxfield_public_id ? (
+                      <span className="deck-source-badge" title={t('decks.fromMoxfield')}>
+                        {t('decks.moxfieldBadge')}
+                      </span>
+                    ) : null}
+                    {/* UPSTREAM DRIFT, found by the background poll.
+                        Never applied automatically -- a decklist rewriting
+                        itself overnight is the silent state change Zach has
+                        ruled out. The row says so; he chooses when to sync. */}
+                    {deck.moxfield_changed ? (
+                      <span className="deck-drift-badge" title={t('decks.moxfieldChangedHint')}>
+                        {t('decks.moxfieldChanged')}
+                      </span>
+                    ) : null}
                   </span>
+                  {/* LAST SYNC, on Moxfield decks only.
+                      Zach: "each deck from moxfield should display its last
+                      sync time". It also makes the background poll visible --
+                      the drift badge only appears when something changed, so
+                      without this the feature looks like it is not running. */}
+                  {deck.moxfield_public_id ? (
+                    <span style={{ display: 'block', fontSize: '0.72rem',
+                                   color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                      {deck.moxfield_synced_at
+                        ? t('decks.lastSynced', { when: relativeTime(deck.moxfield_synced_at, t) })
+                        : t('decks.neverSynced')}
+                    </span>
+                  ) : null}
                   <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                     {/* ONE dollar figure: what the deck is worth. Zach: "I
                         didn't want 2 dollar amounts just the total cost".
@@ -270,6 +324,75 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           })}
         </div>
       )}
+
+      {/* DECKS YOU COULD SYNC.
+          Zach: "I shouldn't have to hit the sync moxfield button to see the
+          decks I can sync ... they should all just show in the list with a sync
+          button next to them."
+
+          These are placeholders, not decks: no id, nothing stored, and each one
+          disappears the moment it is synced because the real deck replaces it.
+          Visually quieter than a real row so the difference is legible without
+          reading the label. */}
+      {!selecting && moxfieldAvailable.map(deck => (
+        <div key={deck.public_id} style={{
+          display: 'flex', alignItems: 'center', gap: '0.85rem', width: '100%',
+          padding: '0.7rem 0.85rem', marginTop: '0.5rem', minHeight: 56,
+          border: '1px dashed var(--border-color)', borderRadius: '12px',
+          background: 'transparent'
+        }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap',
+                             overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {deck.name}
+              </span>
+              <span className="deck-source-badge">{t('decks.moxfieldBadge')}</span>
+            </span>
+            <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-muted)',
+                           marginTop: '0.1rem' }}>
+              {t('decks.notInBindarr')}
+            </span>
+          </span>
+          <button
+            className="btn btn-primary"
+            style={{ flexShrink: 0 }}
+            disabled={syncing === deck.public_id}
+            onClick={async () => {
+              setSyncing(deck.public_id);
+              try {
+                const res = await fetch(`/api/moxfield/decks/${deck.public_id}/sync`,
+                  { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const body = await res.json();
+                if (!res.ok) throw new Error(body.error || t('moxfield.syncFailed'));
+                showToast?.(t('moxfield.syncedSummary', {
+                  added: body.added, removed: body.removed,
+                  moved: body.moved, preferred: body.printing_preferred
+                }));
+                onDecksChanged?.();
+              } catch (err) {
+                showToast?.(err.message);
+              } finally {
+                setSyncing(null);
+              }
+            }}
+          >
+            {syncing === deck.public_id ? t('moxfield.syncing') : t('moxfield.sync')}
+          </button>
+        </div>
+      ))}
+
+      {/* NO "Sync from Moxfield" BUTTON HERE.
+          Zach: "I like that the decks automatically show up in the deck list
+          with a sync button to sync it to Bindarr so I think that moxfield sync
+          button is unneeded. But I would like to see the moxfield sync data in
+          settings. Because technically there is 2 syncs with moxfield. The deck
+          list sync and then the individual deck syncs."
+
+          ACCOUNT-level sync (link, unlink, check now) is configuration and
+          lives in Settings -> Data sources -> Moxfield. DECK-level sync is the
+          per-deck Sync button above. The old button opened a modal whose deck
+          list duplicated the list already on this screen. */}
 
       {/* NEW DECK: a full-width action under the list, as in the mock. */}
       {!selecting && (
@@ -365,7 +488,6 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
         title={t('deck.buylist')}
         showToast={showToast}
       />
-
     </div>
   );
 }

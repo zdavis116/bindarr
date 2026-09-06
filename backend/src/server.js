@@ -227,6 +227,46 @@ db.initDb()
       setTimeout(runCatalogueRefresh, 60000);
       setInterval(runCatalogueRefresh, 1000 * 60 * 60 * 24);
     }
+
+    // MOXFIELD BACKGROUND POLL.
+    //
+    // Zach builds decks in Moxfield and wants Bindarr to notice on its own.
+    // This DETECTS drift and records it; it never applies a change. A decklist
+    // rewriting itself overnight is the silent state change he has ruled out --
+    // he would open a curated deck, find it different, and have nothing to
+    // point at.
+    //
+    // Cheap by design: one author-list request covers every deck, and a deck is
+    // only fetched in full when Moxfield's own lastUpdatedAtUtc has moved.
+    //
+    // MOXFIELD_POLL=off disables it. MOXFIELD_POLL_MINUTES overrides the
+    // interval for anyone who wants a looser loop; the floor is 1 minute.
+    if (process.env.MOXFIELD_POLL !== 'off') {
+      const { runPoll } = require('./utils/moxfieldPoll');
+      // Minutes, because six hours meant he could edit a deck at breakfast and
+      // still not see it in Bindarr at lunch. One tick is a single request to
+      // the author deck list -- decks are only fetched individually when their
+      // upstream timestamp has actually moved -- so five minutes is ~288
+      // requests on a quiet day.
+      const minutes = Math.max(1, Number(process.env.MOXFIELD_POLL_MINUTES) || 5);
+      const tick = () => {
+        runPoll().then((results) => {
+          for (const r of results) {
+            if (r.unreachable) {
+              // Not logged as an error: Moxfield being down is not a Bindarr
+              // fault, and treating it as one trains an operator to ignore this
+              // line when something genuinely breaks.
+              console.log(`Moxfield poll: ${r.username} unreachable (${r.error})`);
+            } else if (r.changed.length) {
+              console.log(`Moxfield poll: ${r.changed.length} deck(s) changed upstream ` +
+                          `for ${r.username}`);
+            }
+          }
+        }).catch(err => console.error('Moxfield poll failed:', err.message));
+      };
+      setTimeout(tick, 90000);
+      setInterval(tick, 1000 * 60 * minutes);
+    }
   })
   .catch(err => {
     console.error('Failed to initialize database:', err);

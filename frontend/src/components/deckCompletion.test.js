@@ -58,8 +58,11 @@ test('DC-TC4: a copy claimed by another deck is not counted twice', () => {
 });
 
 test('DC-TC5: a spare copy cannot push a deck over its requirement', () => {
-  const sql = route.slice(route.indexOf('AS owned_cards') - 1400,
-                          route.indexOf('AS owned_cards'));
+  // Anchored on the subquery, not a byte offset: the pooling change made this
+  // SQL longer and a fixed 1400-char window stopped covering the cap, failing
+  // on correct code.
+  const start = route.indexOf("COALESCE(SUM(\n          CASE WHEN dc.board != 'considering' THEN");
+  const sql = route.slice(start, route.indexOf('AS owned_cards'));
   assert.match(sql, /MIN\(dc\.quantity/,
     'owned is capped at the quantity the deck actually needs');
 });

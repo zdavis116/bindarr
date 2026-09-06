@@ -3,6 +3,22 @@ const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const mox = require('../utils/moxfieldApi');
 const { planSync, applySync } = require('../utils/moxfieldSync');
+const { checkAccount } = require('../utils/moxfieldPoll');
+
+
+// Moxfield sends lowercase format strings ('commander'); Bindarr stores them
+// capitalised, matching what NewDeckModal writes.
+function normaliseFormat(raw) {
+  const f = String(raw || '').trim().toLowerCase();
+  if (!f) return 'Standard';
+  return f.charAt(0).toUpperCase() + f.slice(1);
+}
+
+// A commander deck is 100 cards including the commander. Derived from the
+// format rather than counted from the payload, which changes as he edits.
+function targetSizeFor(format) {
+  return String(format).toLowerCase() === 'commander' ? 100 : 60;
+}
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -99,6 +115,39 @@ router.get('/moxfield/decks', async (req, res) => {
   }
 });
 
+// CHECK NOW. Runs the same poll the timer runs, for this user only.
+//
+// The poller existed but was reachable ONLY from the server's five-minute
+// timer, so "did Moxfield change?" was a question the UI could not ask. That
+// makes the Settings source a read-only plaque rather than a control.
+//
+// It DETECTS, it does not apply -- same contract as the background tick. The
+// per-deck sync stays an explicit action, because a decklist that rewrites
+// itself is the silent state change Zach has ruled out.
+router.post('/moxfield/check', async (req, res) => {
+  try {
+    const acct = await db.get(
+      `SELECT id, user_id, username FROM moxfield_accounts WHERE user_id = ?`,
+      [req.user.id]);
+    if (!acct) return res.status(400).json({ error: 'No Moxfield account linked' });
+
+    const summary = await checkAccount(acct);
+    // UNREACHABLE IS NOT SUCCESS. checkAccount never throws -- it records the
+    // failure and returns -- so reporting 200 here would show "checked just
+    // now" over a check that never happened.
+    if (summary.unreachable) {
+      return res.status(503).json({ error: summary.error, unreachable: true });
+    }
+    res.json({
+      checked: summary.checked,
+      changed: summary.changed.length,
+      error: summary.error || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not check Moxfield', message: err.message });
+  }
+});
+
 // PREVIEW. Changes nothing.
 router.get('/moxfield/decks/:publicId/plan', async (req, res) => {
   try {
@@ -125,15 +174,24 @@ router.post('/moxfield/decks/:publicId/sync', async (req, res) => {
 
     let created = false;
     if (!deck) {
+      // FORMAT AND SIZE COME FROM MOXFIELD.
+      //
+      // Inserting only (user_id, name, moxfield_public_id) left format and
+      // target_size on their column defaults -- 'Standard' and 60 -- so a
+      // commander deck read "100 out of 60 cards".
+      const format = normaliseFormat(payload.format);
       const r = await db.run(
-        `INSERT INTO decks (user_id, name, moxfield_public_id) VALUES (?, ?, ?)`,
-        [req.user.id, payload.name || 'Untitled', req.params.publicId]);
+        `INSERT INTO decks (user_id, name, moxfield_public_id, format, target_size)
+         VALUES (?, ?, ?, ?, ?)`,
+        [req.user.id, payload.name || 'Untitled', req.params.publicId,
+         format, targetSizeFor(format)]);
       deck = { id: r.lastID };
       created = true;
     }
 
     const plan = await planSync(req.user.id, deck.id, payload);
     const applied = await applySync(req.user.id, deck.id, plan);
+
     res.json({ bindarr_deck_id: deck.id, created, ...applied, skipped: plan.skipped });
   } catch (err) {
     const status = err.status === 403 ? 503 : (err.status === 404 ? 404 : 500);

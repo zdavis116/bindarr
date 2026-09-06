@@ -263,8 +263,28 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
 
   useEffect(() => {
     fetchDecks();
+    fetchMoxfieldAvailable();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // UNSYNCED MOXFIELD DECKS, shown alongside the real ones.
+  //
+  // Zach: "the decks should all just show in the list with a sync button next
+  // to them". They are placeholders, not decks: no id, nothing stored, and they
+  // vanish the moment they are synced because the real deck takes their place.
+  const [moxfieldAvailable, setMoxfieldAvailable] = useState([]);
+
+  const fetchMoxfieldAvailable = async () => {
+    try {
+      const res = await fetch('/api/moxfield/decks');
+      if (!res.ok) return setMoxfieldAvailable([]);   // no account, or blocked
+      const body = await res.json();
+      setMoxfieldAvailable((body.decks || []).filter(d => !d.bindarr_deck_id));
+    } catch {
+      // A Moxfield outage must never empty his real deck list.
+      setMoxfieldAvailable([]);
+    }
+  };
 
   const fetchDecks = async () => {
     try {
@@ -991,6 +1011,8 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
           onNewDeck={() => setShowCreateModal(true)}
           onDeleteDeck={handleDeleteDeck}
           showToast={showToast}
+          moxfieldAvailable={moxfieldAvailable}
+          onDecksChanged={() => { fetchDecks(); fetchMoxfieldAvailable(); }}
         />
       )}
 

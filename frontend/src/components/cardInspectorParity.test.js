@@ -401,8 +401,12 @@ test('CIP-TC21: the header owned count never reads the caller', () => {
   // own. The rule this test protects is unchanged -- the count comes from the
   // server, never the caller -- but the right server field is the per-printing
   // one. See CIP-TC24.
-  assert.match(impl, /deckUse\.ownedThisPrinting \?\? 0/,
+  assert.match(impl, /deckUse\.(ownedThisPrinting|owned)/,
     'the count must come from the server, which the Decks tab already trusts');
+  // The original bug: reading the CALLER's object, where `quantity` means how
+  // many the DECK wants. That must never come back.
+  assert.doesNotMatch(impl, /inspector\.owned',\s*\{\s*count:\s*card\.quantity/,
+    'the header must never count the caller\'s deck quantity as ownership');
 });
 
 test('CIP-TC22: the duplicated count rows are gone', () => {
@@ -441,8 +445,14 @@ test('CIP-TC24: the header counts THIS printing, not every printing', () => {
   // Third time this shape has appeared: a true number under a label meaning
   // something else. Deck quantity as ownership, rows as cards, now oracle
   // total as printing total.
-  assert.match(impl, /count: deckUse\.ownedThisPrinting \?\? 0/,
-    'the header must use the per-printing count');
+  // The rule is that the NUMBER MATCHES THE LABEL beside it, not that it is
+  // always the per-printing figure. Basic lands now show no set (they pool
+  // across printings), so for them the pooled total IS the honest number and
+  // the per-printing one would be the lie.
+  assert.match(impl, /isBasicLand \? deckUse\.owned : deckUse\.ownedThisPrinting/,
+    'non-basics must use the per-printing count; basics use the pool');
+  assert.match(impl, /const isBasicLand = String\(card\?\.type_line \|\| ''\)\.startsWith\('Basic Land'\)/,
+    'and the basic-land test must be the type line, not the name');
   assert.doesNotMatch(impl, /t\('inspector\.owned', \{ count: deckUse\.owned \?\? 0 \}\)/,
     'the oracle-wide total must not be rendered beside a set code');
 });

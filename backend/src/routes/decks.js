@@ -153,6 +153,20 @@ router.get('/', async (req, res) => {
       SELECT
         d.id, d.name, d.description, d.format, d.category, d.accent_color,
         d.target_size, d.created_at, d.checked_out, d.checked_out_at,
+        -- Which decks mirror Moxfield. NULL means built here, and sync never
+        -- looks at it -- Zach: "decks built locally will be untouched".
+        d.moxfield_public_id, d.moxfield_updated_at, d.moxfield_synced_at,
+        -- HAS MOXFIELD MOVED SINCE WE LAST SYNCED?
+        --
+        -- Answered from the database, not from Moxfield: the background poll
+        -- records what it has seen, so this stays correct and instant even when
+        -- Moxfield is unreachable. Asking the network here would make the deck
+        -- list depend on a third party being up.
+        CASE WHEN d.moxfield_public_id IS NOT NULL
+              AND d.moxfield_updated_at IS NOT NULL
+              AND d.moxfield_synced_at IS NOT NULL
+              AND d.moxfield_updated_at > d.moxfield_synced_at
+             THEN 1 ELSE 0 END AS moxfield_changed,
         COUNT(CASE WHEN dc.board != 'considering' THEN dc.id END) AS total_card_types,
         COALESCE(SUM(CASE WHEN dc.board != 'considering' THEN dc.quantity ELSE 0 END), 0) AS total_cards,
         COALESCE(SUM(CASE WHEN dc.board = 'considering' THEN dc.quantity ELSE 0 END), 0) AS considering_cards,
@@ -171,23 +185,36 @@ router.get('/', async (req, res) => {
         COALESCE(SUM(
           CASE WHEN dc.board != 'considering' THEN
             MIN(dc.quantity, MAX(0,
+              -- BASIC LANDS POOL. A Mountain is a Mountain: every printing,
+              -- every set, both finishes count as one supply. Mirrors
+              -- deckIdentity.ownedQuantity -- if these two ever disagree the
+              -- deck list and the deck view report different completion.
               (SELECT COALESCE(SUM(uc.quantity), 0)
                  FROM collection uc
+                 JOIN card_cache ucc ON ucc.id = uc.card_id
                 WHERE uc.user_id = d.user_id
-                  AND uc.card_id = dc.desired_card_id
-                  AND uc.finish = dc.desired_finish
-                  AND uc.list_type = 'collection')
+                  AND uc.list_type = 'collection'
+                  AND (CASE WHEN dcc.type_line LIKE 'Basic Land%'
+                            THEN ucc.name = dcc.name AND ucc.type_line LIKE 'Basic Land%'
+                            ELSE uc.card_id = dc.desired_card_id
+                                 AND uc.finish = dc.desired_finish END))
               -
               -- Claimed by a HIGHER-priority requirement. Priority is
               -- deck_cards.id ascending: assigned at insert, never changes.
               (SELECT COALESCE(SUM(o.quantity), 0)
                  FROM deck_cards o
                  JOIN decks od ON od.id = o.deck_id
+                 JOIN card_cache occ ON occ.id = o.desired_card_id
                 WHERE od.user_id = d.user_id
-                  AND o.desired_card_id = dc.desired_card_id
-                  AND o.desired_finish = dc.desired_finish
                   AND o.board != 'considering'
-                  AND o.id < dc.id)
+                  AND o.id < dc.id
+                  -- Basics compete as a pool here too. Pooling supply without
+                  -- pooling claims would let two decks be "covered" by the same
+                  -- cardboard.
+                  AND (CASE WHEN dcc.type_line LIKE 'Basic Land%'
+                            THEN occ.name = dcc.name AND occ.type_line LIKE 'Basic Land%'
+                            ELSE o.desired_card_id = dc.desired_card_id
+                                 AND o.desired_finish = dc.desired_finish END))
             ))
           ELSE 0 END
         ), 0) AS owned_cards,
@@ -218,6 +245,9 @@ router.get('/', async (req, res) => {
         ), 0) AS deck_value
       FROM decks d
       LEFT JOIN deck_cards dc ON d.id = dc.deck_id
+      -- The requirement's own catalogue row, so the pooling CASE can ask
+      -- whether this line is a basic land.
+      LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
       WHERE d.user_id = ?
       GROUP BY d.id
       ORDER BY d.created_at DESC
@@ -479,7 +509,17 @@ router.get('/:id', async (req, res) => {
     const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
     const { entries } = await deckIdentity.availabilityForDeck(db, deck.id, req.user.id);
     const warnings = await buildDeckWarnings(db, deck, entries);
-    res.json({ ...deck, cards: entries, warnings });
+    // HAS MOXFIELD MOVED SINCE WE LAST SYNCED?
+    //
+    // The deck LIST computes this in SQL; `SELECT *` here returns the columns
+    // but not the derived flag, so the deck view's sync banner was gated on
+    // undefined and could never appear. Derived from the same two columns
+    // rather than copying the CASE expression a third time.
+    const moxfieldChanged = Boolean(
+      deck.moxfield_public_id && deck.moxfield_updated_at && deck.moxfield_synced_at
+      && deck.moxfield_updated_at > deck.moxfield_synced_at);
+    res.json({ ...deck, moxfield_changed: moxfieldChanged ? 1 : 0,
+               cards: entries, warnings });
   } catch (error) {
     sendError(res, error, 'Failed to retrieve deck details');
   }

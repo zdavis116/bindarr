@@ -183,11 +183,30 @@ async function planSync(userId, deckId, payload) {
     add.splice(add.indexOf(to), 1);
   }
 
+  // WHICH ADDS WILL USE A COPY HE ALREADY OWNS.
+  //
+  // Resolved here, not just in applySync, so the preview names the printing
+  // that will actually be stored. Otherwise he approves a plan showing C20 #253
+  // and ends up with MSH #80 -- a preview that disagrees with its own outcome.
+  for (const row of add) {
+    const better = PREFERENCE_BOARDS.has(row.board)
+      ? await preferOwnedPrinting(userId, row)
+      : null;
+    if (better) {
+      row.uses_owned_copy = true;
+      row.owned_printing = { set_id: better.set_id, number: better.number,
+                             finish: better.finish, card_id: better.card_id };
+    }
+  }
+
   return {
     deck: { name: summary.name, format: summary.format,
             public_id: summary.public_id, last_updated_at: summary.last_updated_at },
     add, remove, requantify, moveBoard, unchanged, skipped,
-    changes: add.length + remove.length + requantify.length + moveBoard.length
+    changes: add.length + remove.length + requantify.length + moveBoard.length,
+    // For the banner's reassurance line: "N of the added cards will use copies
+    // you already own."
+    uses_owned: add.filter(r => r.uses_owned_copy).length
   };
 }
 
@@ -302,10 +321,16 @@ async function applySync(userId, deckId, plan) {
     }
 
     await db.run(
-      `UPDATE decks SET moxfield_synced_at = CURRENT_TIMESTAMP,
+      // BOTH COLUMNS HOLD THE SAME KIND OF VALUE, because the deck list and the
+      // panel compare them to each other to answer "has Moxfield moved since we
+      // synced?". CURRENT_TIMESTAMP wrote SQLite's '2026-09-04 12:04:21' while
+      // the other side holds Moxfield's '2026-09-03T16:09:06.33Z' -- comparing
+      // those as strings is meaningless, and on the same day ' ' vs 'T'
+      // inverts the answer.
+      `UPDATE decks SET moxfield_synced_at = ?,
                         moxfield_updated_at = ?
         WHERE id = ? AND user_id = ?`,
-      [plan.deck.last_updated_at, deckId, userId]);
+      [plan.deck.last_updated_at, plan.deck.last_updated_at, deckId, userId]);
 
     await db.run('COMMIT');
   } catch (err) {
