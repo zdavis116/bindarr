@@ -353,6 +353,7 @@
   "deck.deleteDeck": "Supprimer le deck",
   "deck.deleted": "Deck supprimé.",
   "deck.drawOne": "Piocher 1 carte",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "Ce deck est vide. Utilise la barre de recherche ci-dessus pour ajouter des cartes.",
   "deck.errCheckout": "Échec de la sortie : {detail}{extra}",
   "deck.errCheckoutGeneric": "Erreur lors de la sortie du deck.",

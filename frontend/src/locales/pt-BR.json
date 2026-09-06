@@ -353,6 +353,7 @@
   "deck.deleteDeck": "Excluir o deck",
   "deck.deleted": "Deck excluído.",
   "deck.drawOne": "Comprar 1 carta",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "Este deck está vazio. Use a barra de busca acima para adicionar cartas.",
   "deck.errCheckout": "Falha na retirada: {detail}{extra}",
   "deck.errCheckoutGeneric": "Erro ao retirar o deck.",

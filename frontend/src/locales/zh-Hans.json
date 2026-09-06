@@ -438,6 +438,7 @@
   "deck.driftGroupAdding": "新增",
   "deck.driftGroupMoving": "更换区域 — 保留版本",
   "deck.driftGroupRemoving": "移除",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.driftHideChanges": "隐藏更改",
   "deck.driftMoved": "更换区域",
   "deck.driftPrintingsKept": "你的版本保持不变 — 新增卡中有 {count} 张将使用你已拥有的副本。",

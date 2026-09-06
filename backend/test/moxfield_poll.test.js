@@ -220,3 +220,51 @@ test('MXP-TC16: an unreachable Moxfield is not reported as a successful check', 
   assert.match(block, /status\(503\)/,
     'and answer with an error status, not 200');
 });
+
+test('MXP-TC17: every group the chips count has a row in the breakdown', () => {
+  // Zach, from the deployed build: "when I click see changes it doesn't show me
+  // any changes. It looks like it only happens on quantity changes but I should
+  // be able to see all changes. Even if it's a count of 2 going to 1."
+  //
+  // planSync returns add / remove / requantify / moveBoard and counts all four
+  // in `changes`, so the chip said "1 quantity changed" -- but the breakdown
+  // rendered only three of them. A drift made ONLY of quantity changes
+  // announced itself and then opened an EMPTY panel. He could not see what he
+  // was approving, which is the wrong-record failure with the evidence removed.
+  const view = fs.readFileSync(
+    path.join(__dirname, '../../frontend/src/components/DeckView.jsx'), 'utf8');
+  const i = view.indexOf('moxDetail && moxPlan');
+  const raw = view.slice(i, view.indexOf('{/* TABS */}', i));
+  // STRIP COMMENTS FIRST. My first draft of this test passed with the bug
+  // reintroduced, because the word "requantify" survived in the explanatory
+  // comment and in the `key === 'requantify'` formatting branch. It was
+  // measuring prose, not rendering -- the exact failure mode I keep hitting.
+  const block = raw
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+  // The GROUP LIST is what drives rendering: [key, label] pairs fed to .map().
+  const listStart = block.indexOf('[[');
+  const list = block.slice(listStart, block.indexOf('.map(', listStart));
+  for (const group of ['add', 'remove', 'moveBoard', 'requantify']) {
+    assert.match(list, new RegExp(`\\['${group}'`),
+      `the breakdown must render the ${group} group -- the chips count it`);
+  }
+});
+
+test('MXP-TC18: a quantity change states the numbers, not just that it changed', () => {
+  // "1 quantity changed" does not say whether he is gaining or losing a copy.
+  // 2 -> 1 does, and the difference decides whether a card leaves his binder.
+  const view = fs.readFileSync(
+    path.join(__dirname, '../../frontend/src/components/DeckView.jsx'), 'utf8');
+  const i = view.indexOf('moxDetail && moxPlan');
+  const block = view.slice(i, view.indexOf('{/* TABS */}', i))
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  assert.match(block, /\$\{row\.from\}[\s\S]{0,20}\$\{row\.to\}/,
+    'the requantify row must print the from and to quantities');
+
+  // planSync must keep supplying them.
+  assert.match(sync, /from: have\.quantity, to: w\.quantity/,
+    'planSync must carry the before and after quantities');
+});

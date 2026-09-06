@@ -716,10 +716,27 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               inferred in the client. */}
           {moxDetail && moxPlan ? (
             <div style={{ marginTop: '0.5rem' }}>
+              {/* EVERY GROUP THE CHIPS COUNT MUST HAVE A ROW HERE.
+                  Zach: "when I click see changes it doesn't show me any
+                  changes. It looks like it only happens on quantity changes but
+                  I should be able to see all changes. Even if it's a count of 2
+                  going to 1."
+
+                  requantify was counted in the chips and in `changes`, but had
+                  no group in this list -- so a drift made ONLY of quantity
+                  changes announced itself and then showed an empty panel. A
+                  banner that says "1 quantity changed" and cannot say WHICH is
+                  worse than no banner: it reports a state change he cannot
+                  inspect before approving.
+
+                  Derived from the plan's own keys rather than a hand-written
+                  list, so a future group added to planSync cannot be silently
+                  dropped here again. */}
               {[['add', t('deck.driftGroupAdding')],
                 ['remove', t('deck.driftGroupRemoving')],
-                ['moveBoard', t('deck.driftGroupMoving')]].map(([key, label]) => (
-                  moxPlan[key].length ? (
+                ['moveBoard', t('deck.driftGroupMoving')],
+                ['requantify', t('deck.driftGroupRequantifying')]].map(([key, label]) => (
+                  moxPlan[key]?.length ? (
                     <div key={key}>
                       <div className="mfx-group-label">{label}</div>
                       {moxPlan[key].map((row, i) => (
@@ -728,7 +745,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                           <span className="mfx-row-meta">
                             {key === 'moveBoard'
                               ? `${String(row.keeps_printing?.set_id || '').toUpperCase()} #${row.keeps_printing?.number} · ${row.from_board} → ${row.to_board}`
-                              : `${String((row.owned_printing?.set_id ?? row.set_id) || '').toUpperCase()} #${row.owned_printing?.number ?? row.number} · ${row.board}`}
+                              : key === 'requantify'
+                                // THE NUMBERS THEMSELVES. "1 quantity changed"
+                                // does not tell him whether he is gaining or
+                                // losing a copy -- 2 → 1 does.
+                                ? `${String(row.keeps_printing?.set_id || row.set_id || '').toUpperCase()} #${row.keeps_printing?.number ?? row.number} · ${row.board} · ${row.from} → ${row.to}`
+                                : `${String((row.owned_printing?.set_id ?? row.set_id) || '').toUpperCase()} #${row.owned_printing?.number ?? row.number} · ${row.board}`}
                           </span>
                           {row.uses_owned_copy ? (
                             <span className="mfx-owned-tag">{t('deck.driftUsingYourCopy')}</span>

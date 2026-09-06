@@ -358,6 +358,7 @@
   "deck.deleteDeck": "Удалить колоду",
   "deck.deleted": "Колода удалена.",
   "deck.drawOne": "Взять 1 карту",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "Эта колода пуста. Добавьте карты через строку поиска выше.",
   "deck.errCheckout": "Не удалось выдать: {detail}{extra}",
   "deck.errCheckoutGeneric": "Ошибка при выдаче колоды.",

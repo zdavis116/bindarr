@@ -343,6 +343,7 @@
   "deck.deleteDeck": "刪除套牌",
   "deck.deleted": "套牌已刪除。",
   "deck.drawOne": "抽 1 張牌",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "這副套牌是空的。用上面的搜尋列新增卡牌。",
   "deck.errCheckout": "取出失敗：{detail}{extra}",
   "deck.errCheckoutGeneric": "取出套牌時發生錯誤。",

@@ -343,6 +343,7 @@
   "deck.deleteDeck": "デッキを削除",
   "deck.deleted": "デッキを削除しました。",
   "deck.drawOne": "1 枚引く",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "このデッキはまだ空です。上の検索バーからカードを追加してください。",
   "deck.errCheckout": "持ち出しに失敗しました: {detail}{extra}",
   "deck.errCheckoutGeneric": "デッキの持ち出しでエラーが発生しました。",

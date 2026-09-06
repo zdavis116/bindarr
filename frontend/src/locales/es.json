@@ -452,6 +452,7 @@
   "deck.driftGroupAdding": "Añadiendo",
   "deck.driftGroupMoving": "Cambio de sección — se mantiene la edición",
   "deck.driftGroupRemoving": "Quitando",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.driftHideChanges": "Ocultar cambios",
   "deck.driftMoved": "cambian de sección",
   "deck.driftPrintingsKept": "Tus ediciones se mantienen — {count} de las cartas añadidas usarán copias que ya tienes.",

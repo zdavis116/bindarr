@@ -343,6 +343,7 @@
   "deck.deleteDeck": "덱 삭제",
   "deck.deleted": "덱을 삭제했습니다.",
   "deck.drawOne": "카드 1장 뽑기",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "이 덱은 비어 있습니다. 위 검색창으로 카드를 추가하세요.",
   "deck.errCheckout": "대출에 실패했습니다: {detail}{extra}",
   "deck.errCheckoutGeneric": "덱을 대출하는 중 오류가 발생했습니다.",

@@ -469,6 +469,7 @@
   "deck.driftGroupAdding": "Adding",
   "deck.driftGroupMoving": "Moving board — printing kept",
   "deck.driftGroupRemoving": "Removing",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.driftHideChanges": "Hide changes",
   "deck.driftMoved": "moved board",
   "deck.driftPrintingsKept": "Your printings stay as they are — {count} of the added cards will use copies you already own.",

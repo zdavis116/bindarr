@@ -353,6 +353,7 @@
   "deck.deleteDeck": "Elimina il mazzo",
   "deck.deleted": "Mazzo eliminato.",
   "deck.drawOne": "Pesca 1 carta",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "Questo mazzo è vuoto. Usa la barra di ricerca qui sopra per aggiungere carte.",
   "deck.errCheckout": "Prelievo non riuscito: {detail}{extra}",
   "deck.errCheckoutGeneric": "Errore durante il prelievo del mazzo.",

@@ -348,6 +348,7 @@
   "deck.deleteDeck": "Deck löschen",
   "deck.deleted": "Deck gelöscht.",
   "deck.drawOne": "1 Karte ziehen",
+  "deck.driftGroupRequantifying": "Quantity changed — printing kept",
   "deck.emptyDeck": "Dieses Deck ist noch leer. Füge über die Suchleiste oben Karten hinzu.",
   "deck.errCheckout": "Entnahme fehlgeschlagen: {detail}{extra}",
   "deck.errCheckoutGeneric": "Fehler beim Entnehmen des Decks.",
