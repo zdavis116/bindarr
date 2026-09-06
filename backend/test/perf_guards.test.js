@@ -148,12 +148,20 @@ test('CAT-TC-PERF1: the catalogue swap cannot hold the write lock for 25s', () =
   const body = strip(fn);
 
   assert.match(body, /APPLY_BATCH_ROWS/, 'the copy must be batched');
-  assert.match(body, /LIMIT \? OFFSET \?/,
-    'each batch must take a bounded slice of the staging table');
+  assert.match(body, /rowid > \? AND rowid <= \?/,
+    'each batch must take a bounded rowid RANGE');
+  // OFFSET made batch N rescan the table from the start, so the apply was
+  // quadratic and slowest at the end -- the first fix only moved the deck list
+  // from 25s to 15s because of this.
+  assert.doesNotMatch(body, /LIMIT \? OFFSET \?/,
+    'OFFSET pagination rescans from row 0 every batch: seek on rowid instead');
+  assert.match(body, /APPLY_BATCH_PAUSE_MS/,
+    'batches must YIELD between transactions -- db.js serializes queries, so ' +
+    'back-to-back batches leave no gap for a waiting read');
+  assert.match(body, /setTimeout\(resolve, APPLY_BATCH_PAUSE_MS\)/,
+    'and the yield must be a real pause, not a resolved promise');
   assert.match(body, /while \(done < total\)/,
     'and loop until every staged row is applied -- a partial copy is a silent data loss');
-  assert.match(body, /ORDER BY rowid/,
-    'batches must partition the staging table exactly once: no row twice, none skipped');
 
   // The old shape: one unbounded INSERT...SELECT inside a single transaction.
   const txCount = (body.match(/withTransaction/g) || []).length;

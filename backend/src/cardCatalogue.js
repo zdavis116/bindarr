@@ -313,27 +313,56 @@ async function findColourIdentityCorrections() {
 // already-committed swapCommitted flag still reports honestly.
 const APPLY_BATCH_ROWS = 2000;
 
+// Milliseconds of genuine idle between batches.
+//
+// NOT cosmetic. db.js serializes every query, so back-to-back batches leave no
+// gap for a waiting read to be served -- a request that arrives mid-apply
+// queues behind the ENTIRE remaining chain, which is why the first batching
+// attempt only moved the deck list from 25s to 15s. Yielding the event loop
+// between batches is what actually lets reads interleave.
+//
+// The cost is a slower refresh (~53 batches x 25ms = ~1.3s added). A background
+// job taking a second longer is worth an app that stays usable while it runs.
+const APPLY_BATCH_PAUSE_MS = 25;
+
 async function applyStaged(onProgress) {
   const corrections = await findColourIdentityCorrections();
 
   const { total } = await db.get(`SELECT COUNT(*) AS total FROM ${STAGING_TABLE}`);
   let done = 0;
 
-  // Ordered by rowid so the batches partition the staging table exactly once:
-  // no row copied twice, none skipped.
+  // SEEK PAGINATION, not OFFSET.
+  //
+  // LIMIT ? OFFSET ? made every batch rescan the staging table from the start
+  // to find its window, so batch N cost N times batch 1 -- the apply was
+  // quadratic and got slower exactly as it approached the end. Tracking the
+  // last rowid turns each batch into a bounded range scan of constant cost.
+  let lastRowid = 0;
+
   while (done < total) {
+    const batch = await db.all(
+      `SELECT rowid AS rid FROM ${STAGING_TABLE}
+        WHERE rowid > ? ORDER BY rowid LIMIT ?`,
+      [lastRowid, APPLY_BATCH_ROWS]
+    );
+    if (!batch.length) break;
+    const hi = batch[batch.length - 1].rid;
+
     await db.withTransaction(async (tx) => {
       await tx.run(`
         INSERT OR REPLACE INTO card_cache (${CARD_CACHE_COLUMNS.join(', ')}, last_updated)
         SELECT ${CARD_CACHE_COLUMNS.join(', ')}, CURRENT_TIMESTAMP
           FROM ${STAGING_TABLE}
-         ORDER BY rowid
-         LIMIT ? OFFSET ?
-      `, [APPLY_BATCH_ROWS, done]);
+         WHERE rowid > ? AND rowid <= ?
+      `, [lastRowid, hi]);
     }, { timeoutMs: 5 * 60 * 1000 });
 
-    done += APPLY_BATCH_ROWS;
+    lastRowid = hi;
+    done += batch.length;
     onProgress?.(Math.min(done, total), total);
+
+    // Let queued reads through before taking the write lock again.
+    await new Promise((resolve) => setTimeout(resolve, APPLY_BATCH_PAUSE_MS));
   }
 
   return corrections;
