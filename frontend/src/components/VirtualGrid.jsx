@@ -110,11 +110,18 @@ export default function VirtualGrid({
   // list, which would render nothing at all -- a collection that looks empty
   // when it is not. Clamping here rather than in the scroll handler keeps it
   // correct even when no scroll event follows.
+  //
+  // USES `cols`, THE MEASURED COUNT, NOT THE `columns` PROP. The first version
+  // read the prop, which is undefined for the list view and for the responsive
+  // gallery -- so `start + columns` was NaN, `end` was NaN, and slice(0, NaN)
+  // returned NOTHING. The screen rendered its header and total value with an
+  // empty list behind it, and threw no error. Caught by measuring the deployed
+  // build (150 DOM nodes, 0 images), not by reading the diff.
   const safe = useMemo(() => {
     const start = Math.min(range.start, Math.max(0, items.length - 1));
-    const end = Math.min(Math.max(range.end, start + columns), items.length);
+    const end = Math.min(Math.max(range.end, start + cols), items.length);
     return { start, end };
-  }, [range, items.length, columns]);
+  }, [range, items.length, cols]);
 
   const slice = virtualise ? items.slice(safe.start, safe.end) : items;
 
