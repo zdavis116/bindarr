@@ -33,6 +33,7 @@ import CardInspectorModal from './CardInspectorModal';
 import ImportModal from './ImportModal';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import CardTile from './CardTile';
+import VirtualGrid from './VirtualGrid';
 
 // The five MTG colours in WUBRG order -- the order every player and every deck
 // list uses. `label` is what the API stores in color_identity ("Blue"); `code`
@@ -634,8 +635,17 @@ const cardTypesOf = (card) => {
           </div>
         </div>
       ) : viewMode === 'gallery' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.7rem' }}>
-          {shown.map(card => (
+        /* WINDOWED. Measured under phone-like throttling: rendering all 2,438
+           tiles cost 3.35s and built 1,395 <img> elements for a viewport that
+           shows about four. VirtualGrid renders only what is near the screen
+           and reserves the rest as height, so `shown` -- and therefore search,
+           filters, select-all and the value total -- is completely unchanged. */
+        <VirtualGrid
+          items={shown}
+          minTileWidth={150}
+          rowHeight={291}
+          gap={11}
+          renderItem={card => (
             <CardTile
               key={card.entry_id || card.id}
               card={card}
@@ -650,11 +660,14 @@ const cardTypesOf = (card) => {
                 setInspectorCard(card);
               }}
             />
-          ))}
-        </div>
+          )}
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {shown.map(card => (
+        <VirtualGrid
+          items={shown}
+          rowHeight={52}
+          gap={6}
+          renderItem={card => (
             <button
               key={card.entry_id || card.id}
               {...pressHandlers(card.entry_id || card.id)}
@@ -700,8 +713,8 @@ const cardTypesOf = (card) => {
                 ${formatPrice(card.price_trend || 0)}
               </span>
             </button>
-          ))}
-        </div>
+          )}
+        />
       )}
 
       {/* BOTTOM SHEET: one component serves Types, Sets and Sort so the three
