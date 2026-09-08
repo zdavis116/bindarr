@@ -1837,8 +1837,16 @@ router.get('/collection', async (req, res) => {
         cc.price_normal,
         cc.price_holofoil,
         cc.price_reverse_holofoil,
-        cc.tcgplayer_url,
-        cc.cardmarket_url,
+        -- MARKETPLACE URLS ARE NOT SENT WITH THE LIST.
+        --
+        -- They were 663 KB of the 3.6 MB this endpoint returns -- 23% of the
+        -- payload -- and NOTHING consumes them: utils/marketplaceLinks.js is
+        -- the only reader and it has no callers, falling back to a name search
+        -- when the field is absent anyway. Measured, not assumed: grep for
+        -- tcgplayerUrl/cardmarketUrl across frontend/src returns no call sites.
+        --
+        -- Re-add them to the per-card detail endpoint if a buy link ever lands,
+        -- not to the list: one row needs them, 10,000 rows do not.
         l.id as location_id,
         l.name as location_name,
         l.type as location_type,
@@ -1877,7 +1885,47 @@ router.get('/collection', async (req, res) => {
         : ''
     }));
 
-    res.json(formatted);
+    // PAGINATION, opt-in.
+    //
+    // Zach: the app must "handle 10k cards". This endpoint accepted `page` and
+    // `limit` and then IGNORED them -- limit=1, limit=200 and page=99 all
+    // returned the same 2,438 rows and the same 3,595,959 bytes. Parameters
+    // that are accepted and discarded are worse than absent ones: they read as
+    // a working contract.
+    //
+    // OPT-IN rather than a default page size, deliberately. Four screens fetch
+    // this list and filter it CLIENT-SIDE (CollectionList, DeckBuilder's
+    // browse, LocationManager, CheckoutWizard). Silently truncating to 50 rows
+    // would make every one of them quietly wrong -- a collection that looks
+    // complete while omitting most of it, which is the wrong-record failure
+    // this project keeps guarding against. So a caller that asks for a page
+    // gets one; a caller that asks for nothing still gets everything, and
+    // moving those screens onto paging is a separate, testable change.
+    //
+    // The envelope only appears WHEN PAGING IS REQUESTED, so existing callers
+    // keep receiving the bare array they already parse.
+    const rawLimit = Number(req.query.limit);
+    const rawPage = Number(req.query.page);
+    const paging = Number.isFinite(rawLimit) && rawLimit > 0;
+    const limit = paging ? Math.min(rawLimit, 500) : null;
+    const page = paging ? Math.max(1, Number.isFinite(rawPage) ? rawPage : 1) : 1;
+
+    if (!paging) {
+      return res.json(formatted);
+    }
+
+    // Counted from the formatted rows, not from a second COUNT(*) query: the
+    // route splits stacked entries into one row per physical card, so a SQL
+    // count would disagree with what the caller is actually paging through.
+    const total = formatted.length;
+    const start = (page - 1) * limit;
+    res.json({
+      cards: formatted.slice(start, start + limit),
+      page,
+      limit,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / limit))
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch collection' });
@@ -2448,6 +2496,31 @@ const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condit
 // there is one place to change when Magic gains a finish rather than a list per
 // route that silently goes stale.
 const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
+// HOW MANY IDS ONE BULK REQUEST MAY CARRY.
+//
+// Zach: "There should be no cap on delete." Agreed -- it is his collection, and
+// "select all, delete" must work at any size. A 1,000 cap already blocked him
+// once at 2,438 cards, and any replacement number would block him again later.
+//
+// DELETE IS UNCAPPED, and that is safe because it is the one action that
+// actually chunks its SQL: collectionTrash splits the ids into 500-row
+// statements inside a single transaction, so it never binds more parameters
+// than SQLite accepts however many cards are selected.
+//
+// EVERY OTHER ACTION IS STILL BOUNDED, because each builds one `IN (?, ?, ...)`
+// with a parameter per id. That is a real, measured ceiling -- 32,766 binds
+// succeed, 32,767 fails with "too many SQL variables" -- not a policy. Sending
+// more would not be refused politely; it would fail mid-statement with an error
+// that says nothing about what the user did.
+//
+// So the limits below are honest about which is which. If bulk edits ever need
+// to run at collection scale, the fix is to chunk them the way delete is
+// chunked, not to raise this number.
+const SQLITE_MAX_VARIABLES = 32766;
+// Below the ceiling with room for the extra values each statement binds
+// alongside the ids (the new value, plus user_id).
+const BULK_IDS_MAX = SQLITE_MAX_VARIABLES - 1000;
+
 router.post('/collection/bulk', async (req, res) => {
   // `confirm` applies ONLY to add_to_deck: it is the user having seen the
   // pre-flight report and chosen to proceed with the applicable part of their
@@ -2455,7 +2528,13 @@ router.post('/collection/bulk', async (req, res) => {
   const { entry_ids = [], action, value, confirm = false } = req.body;
   let ids;
   try {
-    ids = uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: 1000 });
+    // No maxLength for delete. uniqueIntegerIds still enforces that every entry
+    // is a unique positive integer -- that check is what keeps arbitrary values
+    // out of the parameter list, and it matters at every size.
+    ids = uniqueIntegerIds(entry_ids, {
+      name: 'entry_ids',
+      ...(action === 'delete' ? {} : { maxLength: BULK_IDS_MAX })
+    });
   } catch (error) {
     if (error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });

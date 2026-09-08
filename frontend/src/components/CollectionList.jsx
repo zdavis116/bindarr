@@ -33,6 +33,7 @@ import CardInspectorModal from './CardInspectorModal';
 import ImportModal from './ImportModal';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import CardTile from './CardTile';
+import PagedList from './PagedList';
 
 // The five MTG colours in WUBRG order -- the order every player and every deck
 // list uses. `label` is what the API stores in color_identity ("Blue"); `code`
@@ -171,6 +172,20 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   // Which bottom sheet is open: 'type' | 'set' | 'sort' | null. One piece of
   // state for all three, so two sheets can never be open at once.
   const [sheet, setSheet] = useState(null);
+
+  // SEARCH INSIDE THE SETS SHEET.
+  //
+  // Zach: "for sets filter can we have a search in that drop down because there
+  // is a lot of sets to scroll through." Measured on his collection: 72
+  // distinct sets, which is a long scroll on a phone in a sheet capped at 70vh.
+  //
+  // Sheet-local, and CLEARED whenever the sheet opens or closes. A search left
+  // behind would reopen showing a filtered list that looks like the whole one,
+  // so a set he owns would appear to be missing -- the kind of quiet wrongness
+  // that gets read as data loss rather than a stale text box.
+  const [sheetSearch, setSheetSearch] = useState('');
+  const openSheet = (which) => { setSheetSearch(''); setSheet(which); };
+  const closeSheet = () => { setSheetSearch(''); setSheet(null); };
   // Focused by the add menu's "Search for a card".
   const searchRef = useRef(null);
 
@@ -330,6 +345,23 @@ const cardTypesOf = (card) => {
     () => shown.reduce((sum, c) => sum + (c.price_trend || 0) * (c.quantity || 1), 0),
     [shown]);
 
+  // HOW MANY CARDS THAT VALUE IS.
+  //
+  // Zach: "Can we add card count next to dollar amount in the collection."
+  //
+  // PHYSICAL CARDS, not tiles. `shown` is grouped for display -- four Forests
+  // are one tile carrying quantity 4 -- so counting rows would report 1,395
+  // where the dashboard says 2,438 and he would have two numbers for the same
+  // collection. Summed the same way the value is, over the same array, so the
+  // count and the price always describe exactly the same cards.
+  //
+  // It follows the FILTERS, deliberately. Filter to Green and it says how many
+  // green cards you own and what they are worth -- the pair answers "what am I
+  // looking at", which is the question the line is next to.
+  const totalCount = useMemo(
+    () => shown.reduce((sum, c) => sum + (c.quantity || 1), 0),
+    [shown]);
+
   const activeFilters = colorFilters.size + typeFilters.size + setFilters.size;
 
   const openStorage = () => onNavigate && onNavigate('storage');
@@ -436,7 +468,7 @@ const cardTypesOf = (card) => {
             effect, whereas a filter may not be. Icon-only to keep the search
             box wide on a phone; the sheet names the current order. */}
         <button
-          onClick={() => setSheet('sort')}
+          onClick={() => openSheet('sort')}
           title={t('collection.sortBy')}
           aria-label={t('collection.sortBy')}
           style={{
@@ -472,8 +504,8 @@ const cardTypesOf = (card) => {
             </button>
           );
         })}
-        <DropButton label={t('collection.types')} count={typeFilters.size} onClick={() => setSheet('type')} />
-        <DropButton label={t('collection.sets')} count={setFilters.size} onClick={() => setSheet('set')} />
+        <DropButton label={t('collection.types')} count={typeFilters.size} onClick={() => openSheet('type')} />
+        <DropButton label={t('collection.sets')} count={setFilters.size} onClick={() => openSheet('set')} />
         {activeFilters > 0 && (
           <button
             onClick={() => { setColorFilters(new Set()); setTypeFilters(new Set()); setSetFilters(new Set()); }}
@@ -489,6 +521,8 @@ const cardTypesOf = (card) => {
           change WHICH cards are shown. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.8rem' }}>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          {t('collection.cardCount', { count: totalCount })}
+          {' · '}
           {t('collection.totalValue')} <strong style={{ color: 'var(--text-primary)' }}>${formatPrice(totalValue)}</strong>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -634,8 +668,17 @@ const cardTypesOf = (card) => {
           </div>
         </div>
       ) : viewMode === 'gallery' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.7rem' }}>
-          {shown.map(card => (
+        /* PAGED APPEND. Rendering all 2,438 tiles cost 3.35s on a phone and
+           built 1,395 <img> elements for a viewport showing four. This renders
+           24 at a time and appends as you reach the bottom -- Zach's design,
+           which has no estimated row heights and so cannot drift the way the
+           spacer-based version did. `shown` is untouched, so search, filters,
+           select-all and the value total all still see the whole collection. */
+        <PagedList
+          items={shown}
+          minTileWidth={150}
+          gap={11}
+          renderItem={card => (
             <CardTile
               key={card.entry_id || card.id}
               card={card}
@@ -650,11 +693,13 @@ const cardTypesOf = (card) => {
                 setInspectorCard(card);
               }}
             />
-          ))}
-        </div>
+          )}
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {shown.map(card => (
+        <PagedList
+          items={shown}
+          gap={6}
+          renderItem={card => (
             <button
               key={card.entry_id || card.id}
               {...pressHandlers(card.entry_id || card.id)}
@@ -700,54 +745,126 @@ const cardTypesOf = (card) => {
                 ${formatPrice(card.price_trend || 0)}
               </span>
             </button>
-          ))}
-        </div>
+          )}
+        />
       )}
 
       {/* BOTTOM SHEET: one component serves Types, Sets and Sort so the three
           cannot drift apart. */}
       {sheet && (
         <>
-          <div onClick={() => setSheet(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: Z_BACKDROP }} />
+          <div onClick={closeSheet} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: Z_BACKDROP }} />
           <div style={{
             position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: Z_MODAL,
             background: 'var(--surface-1)', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-            maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+            // FIXED HEIGHT ON THE SEARCHABLE SHEET, not max-height.
+            //
+            // Zach: "When I search the set selection list moves further down my
+            // screen. Tbh it's just a mess." He was right, and this was the
+            // worst of it: the sheet is anchored to the BOTTOM and was sized to
+            // its contents, so narrowing 72 sets to 8 shrank the panel upward
+            // and slid everything he was reading down the screen. Measured: the
+            // sheet's top edge moved 328px -> 390px on one keystroke. Every
+            // letter typed moved the target.
+            //
+            // A fixed height means the panel is the same size whether it lists
+            // 72 sets or one, so only the list inside it changes. The other
+            // sheets keep max-height: they have no search, nothing about them
+            // resizes mid-interaction, and a short list should not be forced to
+            // fill the screen.
+            ...(sheet === 'set'
+              ? { height: '70vh' }
+              : { maxHeight: '70vh' }),
+            display: 'flex', flexDirection: 'column',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}>
             <div style={{ width: 38, height: 4, borderRadius: 2, background: 'var(--surface-3)', margin: '10px auto 4px' }} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 1rem 0.6rem' }}>
               <b style={{ fontSize: '1rem' }}>{sheetTitle}</b>
-              <button onClick={() => setSheet(null)}
+              <button onClick={closeSheet}
                       style={{ border: 0, background: 'transparent', color: 'var(--accent-blue)', font: 'inherit', fontWeight: 600, cursor: 'pointer', minHeight: 44, padding: '0 0.4rem' }}>
                 {t('common.close')}
               </button>
             </div>
-            <div style={{ overflowY: 'auto', padding: '0 0.5rem 1rem' }}>
+            {/* SEARCH, PINNED. Outside the scroller, so it stays on screen
+                while the list moves under it.
+                
+                It used to live inside the scrolling area: scrolling down to
+                find a set carried the box off the top of the screen (measured:
+                its top went 328px -> -272px), so the moment you needed to
+                refine a search the box was gone.
+                
+                Sets only. 72 sets is a long scroll on a phone; six card types
+                is not, and a search box over six options is clutter pretending
+                to help. Sort is a fixed short list for the same reason. */}
+            {sheet === 'set' && (
+              <div style={{ padding: '0 1rem 0.6rem', flexShrink: 0 }}>
+                <input
+                  value={sheetSearch}
+                  onChange={(e) => setSheetSearch(e.target.value)}
+                  placeholder={t('collection.searchSets')}
+                  aria-label={t('collection.searchSets')}
+                  autoComplete="off"
+                  style={{
+                    width: '100%', minHeight: 44, padding: '0 0.85rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-glass)',
+                    background: 'var(--surface-2)', color: 'var(--text-primary)',
+                    font: 'inherit', fontSize: '0.92rem', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            )}
+            {/* flex: 1 with minHeight 0 -- the scroller takes the space the
+                pinned header leaves and no more. Without minHeight a flex child
+                refuses to shrink below its content, and the list would push the
+                sheet taller than its own height. */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 0.5rem 1rem' }}>
               {sheet === 'sort'
                 ? SORT_OPTIONS.map(opt => (
-                    <button key={opt} onClick={() => { setSortBy(opt); setSheet(null); }}
+                    <button key={opt} onClick={() => { setSortBy(opt); closeSheet(); }}
                             style={{ ...SHEET_ROW, color: sortBy === opt ? 'var(--accent-blue)' : 'var(--text-primary)' }}>
                       <span>{t(`collection.sort.${opt}`)}</span>
                       {sortBy === opt && <Check size={17} />}
                     </button>
                   ))
-                : (sheet === 'type' ? uniqueTypes : uniqueSets).map(opt => {
+                : (() => {
+                    // A SELECTED SET ALWAYS STAYS VISIBLE, even when the search
+                    // does not match it. Otherwise typing hides a filter that is
+                    // still active, and the collection appears to be filtered by
+                    // nothing -- the user cannot see, or untick, what is doing
+                    // it. Options are never removed from view, only reordered by
+                    // relevance.
+                    const source = sheet === 'type' ? uniqueTypes : uniqueSets;
                     const sel = sheet === 'type' ? typeFilters : setFilters;
-                    const on = sel.has(opt);
-                    return (
-                      <button
-                        key={opt}
-                        onClick={() => (sheet === 'type'
-                          ? setTypeFilters(toggleIn(typeFilters, opt))
-                          : setSetFilters(toggleIn(setFilters, opt)))}
-                        style={{ ...SHEET_ROW, color: on ? 'var(--accent-blue)' : 'var(--text-primary)' }}
-                      >
-                        <span>{opt}</span>
-                        {on && <Check size={17} />}
-                      </button>
-                    );
-                  })}
+                    const q = sheet === 'set' ? sheetSearch.trim().toLowerCase() : '';
+                    const options = q
+                      ? source.filter(o => o.toLowerCase().includes(q) || sel.has(o))
+                      : source;
+                    if (options.length === 0) {
+                      return (
+                        <div style={{ padding: '1.2rem 1rem', textAlign: 'center',
+                                      fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          {t('collection.noSetsMatch')}
+                        </div>
+                      );
+                    }
+                    return options.map(opt => {
+                      const on = sel.has(opt);
+                      return (
+                        <button
+                          key={opt}
+                          onClick={() => (sheet === 'type'
+                            ? setTypeFilters(toggleIn(typeFilters, opt))
+                            : setSetFilters(toggleIn(setFilters, opt)))}
+                          style={{ ...SHEET_ROW, color: on ? 'var(--accent-blue)' : 'var(--text-primary)' }}
+                        >
+                          <span>{opt}</span>
+                          {on && <Check size={17} />}
+                        </button>
+                      );
+                    });
+                  })()}
             </div>
           </div>
         </>

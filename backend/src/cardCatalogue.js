@@ -288,15 +288,82 @@ async function findColourIdentityCorrections() {
 // Rows that Scryfall no longer publishes are deliberately left in place. They
 // are what someone's collection or deck points at; removing them would be a
 // silent state change against physical cards the user still owns.
-async function applyStaged() {
+// CHUNKED, so the swap cannot freeze the app.
+//
+// Zach saw the deck list take 24.99 SECONDS during a refresh and reasonably
+// read it as "the app is stuck". Measured: idle 711ms, ~1.5s throughout the
+// import, then a single 25s stall at this swap.
+//
+// The cause was one INSERT OR REPLACE ... SELECT over all ~105,000 staged rows
+// inside ONE transaction. SQLite takes a single write lock for a transaction's
+// whole life, and db.js serializes every query behind it, so for those 25
+// seconds nothing else in the app could run -- not a deck open, not a health
+// check.
+//
+// Now the copy runs in batches, each its own transaction, yielding the lock
+// between them. Total work is the same; the difference is that other queries
+// interleave rather than queue behind a single 25-second holder.
+//
+// WHAT THIS COSTS, stated plainly: the swap is no longer atomic. A crash
+// mid-way leaves the catalogue PART updated. That is acceptable here and would
+// not be for user data -- every row is an UPSERT of Scryfall's own facts keyed
+// by the same primary key, so a partial apply is a catalogue where some cards
+// are fresher than others, and the next refresh completes it. No row is
+// deleted, nothing a collection or deck points at can vanish, and the
+// already-committed swapCommitted flag still reports honestly.
+const APPLY_BATCH_ROWS = 2000;
+
+// Milliseconds of genuine idle between batches.
+//
+// NOT cosmetic. db.js serializes every query, so back-to-back batches leave no
+// gap for a waiting read to be served -- a request that arrives mid-apply
+// queues behind the ENTIRE remaining chain, which is why the first batching
+// attempt only moved the deck list from 25s to 15s. Yielding the event loop
+// between batches is what actually lets reads interleave.
+//
+// The cost is a slower refresh (~53 batches x 25ms = ~1.3s added). A background
+// job taking a second longer is worth an app that stays usable while it runs.
+const APPLY_BATCH_PAUSE_MS = 25;
+
+async function applyStaged(onProgress) {
   const corrections = await findColourIdentityCorrections();
 
-  await db.withTransaction(async (tx) => {
-    await tx.run(`
-      INSERT OR REPLACE INTO card_cache (${CARD_CACHE_COLUMNS.join(', ')}, last_updated)
-      SELECT ${CARD_CACHE_COLUMNS.join(', ')}, CURRENT_TIMESTAMP FROM ${STAGING_TABLE}
-    `);
-  }, { timeoutMs: 30 * 60 * 1000 });
+  const { total } = await db.get(`SELECT COUNT(*) AS total FROM ${STAGING_TABLE}`);
+  let done = 0;
+
+  // SEEK PAGINATION, not OFFSET.
+  //
+  // LIMIT ? OFFSET ? made every batch rescan the staging table from the start
+  // to find its window, so batch N cost N times batch 1 -- the apply was
+  // quadratic and got slower exactly as it approached the end. Tracking the
+  // last rowid turns each batch into a bounded range scan of constant cost.
+  let lastRowid = 0;
+
+  while (done < total) {
+    const batch = await db.all(
+      `SELECT rowid AS rid FROM ${STAGING_TABLE}
+        WHERE rowid > ? ORDER BY rowid LIMIT ?`,
+      [lastRowid, APPLY_BATCH_ROWS]
+    );
+    if (!batch.length) break;
+    const hi = batch[batch.length - 1].rid;
+
+    await db.withTransaction(async (tx) => {
+      await tx.run(`
+        INSERT OR REPLACE INTO card_cache (${CARD_CACHE_COLUMNS.join(', ')}, last_updated)
+        SELECT ${CARD_CACHE_COLUMNS.join(', ')}, CURRENT_TIMESTAMP
+          FROM ${STAGING_TABLE}
+         WHERE rowid > ? AND rowid <= ?
+      `, [lastRowid, hi]);
+    }, { timeoutMs: 5 * 60 * 1000 });
+
+    lastRowid = hi;
+    done += batch.length;
+    onProgress?.(Math.min(done, total), total);
+
+    // Let queued reads through before taking the write lock again.
+    await new Promise((resolve) => setTimeout(resolve, APPLY_BATCH_PAUSE_MS));
+  }
 
   return corrections;
 }

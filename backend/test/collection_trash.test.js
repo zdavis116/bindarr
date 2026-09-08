@@ -81,7 +81,14 @@ test('TRASH-TC6: every trash query is scoped to the user', () => {
   for (const fn of fns) {
     const start = trashSrc.indexOf(`async function ${fn}`);
     assert.ok(start > 0, `${fn} must exist`);
-    const body = trashSrc.slice(start, trashSrc.indexOf('\n}', start));
+    // STRIP COMMENTS BEFORE LOOKING FOR SQL. This scans for backtick-quoted
+    // strings containing a SQL keyword, and a prose comment can contain both:
+    // an explanation mentioning `IN (?, ?, ...)` and the word DELETE was picked
+    // up as an unguarded statement and failed a correctly-guarded function.
+    // A guard that fires on English is one you learn to edit rather than trust.
+    const body = trashSrc.slice(start, trashSrc.indexOf('\n}', start))
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
 
     // EVERY statement in the function, not just one. My first version matched
     // a single user_id clause anywhere in the body -- so removing the guard
