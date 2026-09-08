@@ -466,8 +466,18 @@ test('CIP-TC25: the own-none hint is conditional', () => {
 
 test('CIP-TC26: an owned printing is marked and reachable', () => {
   // Zach: "I would like a way to switch to that card in that view."
-  assert.match(impl, /t\('inspector\.youOwn', \{ count: pr\.owned_qty \}\)/,
-    'an owned printing must say so on its row');
+  //
+  // THE LABEL MOVED, THE RULE DID NOT. This asserted the exact literal
+  // `t('inspector.youOwn', { count: pr.owned_qty })`, which stopped existing
+  // when the row learned to distinguish owned from AVAILABLE -- Zach: "one of
+  // those own printings could be used in another deck ... What it should show
+  // is that I own it but it's used in another deck if it technically isn't
+  // available." The row still says how many he owns; it now also says how many
+  // are free. Asserting the spelling would have made a correct improvement look
+  // like a regression, so this asserts the requirement instead: an owned
+  // printing is labelled with its count.
+  assert.match(impl, /t\('inspector\.youOwn', \{ count: (pr\.owned_qty|owned) \}\)/,
+    'an owned printing must say how many he owns on its row');
   // The tap now CHOOSES rather than only viewing: from a deck it repoints the
   // decklist, from the collection it shows the printing. Zach: "just tapping
   // the row should choose that printing." See RP-TC12.
