@@ -149,6 +149,19 @@ function CardInspectorModal({
   const ownedCopies = (deckUse?.owned_entries || [])
     .reduce((n, e) => n + (e.quantity || 0), 0) || (card?.quantity ?? 0);
 
+  // HOW MANY OF *THIS* PRINTING ARE ACTUALLY FREE.
+  //
+  // Read from the server's printings list rather than recomputed: it already
+  // derives committed_qty and quantity_available from deck_cards, and a second
+  // calculation here would be a second opinion about physical cards. That is
+  // exactly how the completion ring and missing_cost drifted apart earlier in
+  // this project -- two rules for one question, both plausible, one wrong.
+  const thisPrinting = (deckUse?.printings || [])
+    .find(p => p.id === (deckUse?.card_id || catalogueId)) || null;
+  const thisPrintingCommitted = thisPrinting?.committed_qty || 0;
+  const thisPrintingAvailable = thisPrinting?.quantity_available
+    ?? Math.max(0, ownedCopies - thisPrintingCommitted);
+
   useEffect(() => {
     fetch('/api/locations')
       .then(r => r.ok ? r.json() : [])
@@ -1022,6 +1035,26 @@ function CardInspectorModal({
                     [t('inspector.value'), card.price_trend && ownedCopies
                       ? `$${(Number(card.price_trend) * ownedCopies).toFixed(2)}`
                       : null],
+                    // AVAILABILITY OF *THIS* PRINTING, on the tab that claims
+                    // to describe what he owns.
+                    //
+                    // The other-printings list below now distinguishes owned
+                    // from available, and this panel is the same question about
+                    // the printing the sheet is actually open on -- so leaving
+                    // it out would mean the row for a printing is more honest
+                    // than the panel about it. Zach's AKH Mountain: 6 owned, 6
+                    // sleeved, 0 free.
+                    //
+                    // Rendered only when something IS committed. On a card with
+                    // nothing in a deck the row would state a fact with no
+                    // consequence, and this tab is already dense.
+                    ...(thisPrintingCommitted > 0
+                      ? [[t('inspector.availableToUse'),
+                          thisPrintingAvailable > 0
+                            ? t('inspector.availableOfOwned', {
+                                available: thisPrintingAvailable, owned: ownedCopies })
+                            : t('inspector.allInDecks', { count: thisPrintingCommitted })]]
+                      : []),
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{
                       display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
@@ -1114,14 +1147,68 @@ function CardInspectorModal({
                               </span>
                               <span style={{ display: 'flex', alignItems: 'center',
                                              gap: '0.5rem', flexShrink: 0 }}>
-                                {(pr.owned_qty || 0) > 0 && (
-                                  <span style={{
-                                    fontSize: '0.68rem', fontWeight: 700,
-                                    color: 'var(--accent-blue)', whiteSpace: 'nowrap'
-                                  }}>
-                                    {t('inspector.youOwn', { count: pr.owned_qty })}
-                                  </span>
-                                )}
+                                {(pr.owned_qty || 0) > 0 && (() => {
+                                  // OWNED IS NOT THE SAME AS AVAILABLE.
+                                  //
+                                  // Zach: "one of those own printings could be
+                                  // used in another deck which can cause
+                                  // confusion. What it should show is that I
+                                  // own it but it's used in another deck if it
+                                  // technically isn't available."
+                                  //
+                                  // This said "You own 6" for his AKH Mountain
+                                  // while all 6 were sleeved in decks. Reading
+                                  // that in a deck he is building means picking
+                                  // a printing he cannot actually put in it --
+                                  // and he only finds out at the table, against
+                                  // cardboard. A wrong record costs a recount;
+                                  // this was the app producing one.
+                                  //
+                                  // quantity_available is the server's own
+                                  // owned - committed, the same figure the deck
+                                  // view reserves against. Computing it here
+                                  // instead would be a second opinion about
+                                  // physical cards, which is how two screens
+                                  // start disagreeing.
+                                  const owned = pr.owned_qty || 0;
+                                  const avail = pr.quantity_available ?? owned;
+                                  const spoken = Math.max(0, owned - avail);
+                                  if (spoken === 0) {
+                                    return (
+                                      <span style={{
+                                        fontSize: '0.68rem', fontWeight: 700,
+                                        color: 'var(--accent-blue)', whiteSpace: 'nowrap'
+                                      }}>
+                                        {t('inspector.youOwn', { count: owned })}
+                                      </span>
+                                    );
+                                  }
+                                  // NONE FREE reads differently from SOME FREE,
+                                  // because the decisions differ: one means buy
+                                  // another copy, the other means you have one
+                                  // to spare. A single "3 in decks" line would
+                                  // make him do that subtraction himself, every
+                                  // time, on a phone.
+                                  return (
+                                    <span style={{
+                                      fontSize: '0.68rem', fontWeight: 700,
+                                      whiteSpace: 'nowrap', textAlign: 'right',
+                                      color: avail > 0 ? 'var(--accent-blue)' : 'var(--text-muted)'
+                                    }}>
+                                      <span style={{ display: 'block' }}>
+                                        {t('inspector.youOwn', { count: owned })}
+                                      </span>
+                                      <span style={{
+                                        display: 'block', fontWeight: 600,
+                                        color: avail > 0 ? 'var(--text-muted)' : 'var(--accent-orange, #ff9f0a)'
+                                      }}>
+                                        {avail > 0
+                                          ? t('inspector.someInDecks', { count: avail })
+                                          : t('inspector.allInDecks', { count: spoken })}
+                                      </span>
+                                    </span>
+                                  );
+                                })()}
                                 <span style={{ color: 'var(--text-muted)' }}>
                                 {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}
                               </span>
