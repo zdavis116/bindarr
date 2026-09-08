@@ -33,7 +33,7 @@ import CardInspectorModal from './CardInspectorModal';
 import ImportModal from './ImportModal';
 import { useMultiSelect } from '../utils/useMultiSelect';
 import CardTile from './CardTile';
-import VirtualGrid from './VirtualGrid';
+import PagedList from './PagedList';
 
 // The five MTG colours in WUBRG order -- the order every player and every deck
 // list uses. `label` is what the API stores in color_identity ("Blue"); `code`
@@ -635,15 +635,15 @@ const cardTypesOf = (card) => {
           </div>
         </div>
       ) : viewMode === 'gallery' ? (
-        /* WINDOWED. Measured under phone-like throttling: rendering all 2,438
-           tiles cost 3.35s and built 1,395 <img> elements for a viewport that
-           shows about four. VirtualGrid renders only what is near the screen
-           and reserves the rest as height, so `shown` -- and therefore search,
-           filters, select-all and the value total -- is completely unchanged. */
-        <VirtualGrid
+        /* PAGED APPEND. Rendering all 2,438 tiles cost 3.35s on a phone and
+           built 1,395 <img> elements for a viewport showing four. This renders
+           24 at a time and appends as you reach the bottom -- Zach's design,
+           which has no estimated row heights and so cannot drift the way the
+           spacer-based version did. `shown` is untouched, so search, filters,
+           select-all and the value total all still see the whole collection. */
+        <PagedList
           items={shown}
           minTileWidth={150}
-          rowHeight={291}
           gap={11}
           renderItem={card => (
             <CardTile
@@ -663,9 +663,8 @@ const cardTypesOf = (card) => {
           )}
         />
       ) : (
-        <VirtualGrid
+        <PagedList
           items={shown}
-          rowHeight={52}
           gap={6}
           renderItem={card => (
             <button
