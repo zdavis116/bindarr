@@ -104,21 +104,25 @@ async function main() {
     // F10-TC5: every entry-id batch endpoint accepts only unique positive
     // integer IDs and rejects before location/collection reads.
     //
-    // TWO DIFFERENT CAPS, deliberately. The storage routes place cards into
-    // compartments and keep their 1,000 bound. POST /collection/bulk allows
-    // BULK_IDS_MAX (20,000), because Zach could not delete his own 2,438-card
-    // collection: "I get an error that there is more than 1k ids in the
-    // collection." 1,000 was never a real limit -- SQLite's measured parameter
-    // ceiling is 32,766 -- so the bound now clears the 10k he is planning for.
+    // THREE DIFFERENT RULES, deliberately, because the routes are not alike:
+    //   storage routes      keep a 1,000 bound -- they place cards into
+    //                       compartments, where a batch that size is a
+    //                       different proposition
+    //   bulk, non-delete    bounded near SQLite's measured 32,766 parameter
+    //                       ceiling: each builds one `IN (?, ?, ...)`
+    //   bulk delete         UNCAPPED. Zach: "There should be no cap on delete."
+    //                       collectionTrash chunks its statements, so no
+    //                       selection can exceed the ceiling.
     const oversizedIds = Array.from({ length: 1001 }, (_, i) => i + 1);
-    const bulkOversized = Array.from({ length: 20001 }, (_, i) => i + 1);
+    const bulkOversized = Array.from({ length: 32001 }, (_, i) => i + 1);
     const malformedLists = ['1', ['1'], [1.5], [1, 1]];
     for (const entry_ids of malformedLists) {
       await expectStatus(base, token, '/api/collection/bulk', { entry_ids, action: 'delete' }, 400);
       await expectStatus(base, token, '/api/locations/999999/recommend-batch', { entry_ids }, 400);
       await expectStatus(base, token, '/api/locations/999999/apply-all', { entry_ids }, 400);
     }
-    await expectStatus(base, token, '/api/collection/bulk', { entry_ids: bulkOversized, action: 'delete' }, 413);
+    await expectStatus(base, token, '/api/collection/bulk',
+      { entry_ids: bulkOversized, action: 'condition', value: 'Near Mint' }, 413);
     await expectStatus(base, token, '/api/locations/999999/recommend-batch', { entry_ids: oversizedIds }, 413);
     await expectStatus(base, token, '/api/locations/999999/apply-all', { entry_ids: oversizedIds }, 413);
     assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM collection')).count, initialCollection + 1);

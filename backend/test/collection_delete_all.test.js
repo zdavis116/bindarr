@@ -34,18 +34,29 @@ const strip = s => s
 const trash = read('utils/collectionTrash.js');
 const route = read('routes/collection.js');
 
-test('DEL-TC1: a full-collection delete is not refused by an arbitrary cap', () => {
+test('DEL-TC1: delete is UNCAPPED; the other bulk actions are not', () => {
   const code = strip(route);
   assert.doesNotMatch(code, /entry_ids', maxLength: 1000/,
     'the 1,000 cap made "select all, delete" impossible past 1,000 cards');
-  assert.match(code, /BULK_IDS_MAX/,
-    'the limit must be a named constant that explains itself');
-  // Above his stated 10k target, below SQLite's measured 32,766 ceiling.
-  const m = strip(route).match(/const BULK_IDS_MAX = (\d+)/);
-  assert.ok(m, 'BULK_IDS_MAX must be defined');
-  const cap = Number(m[1]);
-  assert.ok(cap >= 10000, `the cap must clear the 10,000 cards he is planning for (got ${cap})`);
-  assert.ok(cap < 32766, `and stay under SQLite's parameter ceiling (got ${cap})`);
+
+  // Zach: "There should be no cap on delete." The bound must be skipped for
+  // delete specifically -- not raised to a bigger number that blocks him later.
+  assert.match(code, /action === 'delete' \? \{\} : \{ maxLength: BULK_IDS_MAX \}/,
+    'delete must carry NO length bound at all');
+
+  // The other actions keep one, because they are NOT chunked: each builds a
+  // single `IN (?, ?, ...)` and would fail mid-statement past SQLite's limit
+  // with an error that says nothing about what the user did.
+  assert.match(code, /const SQLITE_MAX_VARIABLES = 32766/,
+    'the real ceiling must be named, not folded into a magic number');
+  assert.match(code, /const BULK_IDS_MAX = SQLITE_MAX_VARIABLES - \d+/,
+    'the bound must be derived from that ceiling, so the reason survives');
+
+  // Uniqueness and integer checks still apply at EVERY size. That check is what
+  // keeps arbitrary values out of the parameter list; dropping the length bound
+  // must not drop it.
+  assert.match(code, /uniqueIntegerIds\(entry_ids, \{/,
+    'ids must still be validated as unique positive integers');
 });
 
 test('DEL-TC2: the delete chunks its statements', () => {

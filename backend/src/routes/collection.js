@@ -2498,21 +2498,28 @@ const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condit
 const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
 // HOW MANY IDS ONE BULK REQUEST MAY CARRY.
 //
-// Zach: "The issue I'm having is being able to delete my entire collection. I
-// get an error that there is more than 1k ids in the collection." Selecting all
-// 2,438 of his cards hit a 1,000 cap that existed to stop an unbounded request
-// body, not because 1,000 was a real limit anywhere.
+// Zach: "There should be no cap on delete." Agreed -- it is his collection, and
+// "select all, delete" must work at any size. A 1,000 cap already blocked him
+// once at 2,438 cards, and any replacement number would block him again later.
 //
-// The REAL ceiling is SQLite's parameter limit, measured rather than assumed:
-// `IN (?, ?, ...)` binds one parameter per id and fails at 32,767 with "too
-// many SQL variables" (32,766 succeeds). So this is set well below that, with
-// room for the handful of extra bound values each statement adds, and above the
-// 10,000 cards he has said he is planning for.
+// DELETE IS UNCAPPED, and that is safe because it is the one action that
+// actually chunks its SQL: collectionTrash splits the ids into 500-row
+// statements inside a single transaction, so it never binds more parameters
+// than SQLite accepts however many cards are selected.
 //
-// The DELETE path does not depend on this number at all -- collectionTrash
-// chunks its statements, so it would work at any size. The cap remains because
-// an unbounded array in a request body is still worth refusing.
-const BULK_IDS_MAX = 20000;
+// EVERY OTHER ACTION IS STILL BOUNDED, because each builds one `IN (?, ?, ...)`
+// with a parameter per id. That is a real, measured ceiling -- 32,766 binds
+// succeed, 32,767 fails with "too many SQL variables" -- not a policy. Sending
+// more would not be refused politely; it would fail mid-statement with an error
+// that says nothing about what the user did.
+//
+// So the limits below are honest about which is which. If bulk edits ever need
+// to run at collection scale, the fix is to chunk them the way delete is
+// chunked, not to raise this number.
+const SQLITE_MAX_VARIABLES = 32766;
+// Below the ceiling with room for the extra values each statement binds
+// alongside the ids (the new value, plus user_id).
+const BULK_IDS_MAX = SQLITE_MAX_VARIABLES - 1000;
 
 router.post('/collection/bulk', async (req, res) => {
   // `confirm` applies ONLY to add_to_deck: it is the user having seen the
@@ -2521,7 +2528,13 @@ router.post('/collection/bulk', async (req, res) => {
   const { entry_ids = [], action, value, confirm = false } = req.body;
   let ids;
   try {
-    ids = uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: BULK_IDS_MAX });
+    // No maxLength for delete. uniqueIntegerIds still enforces that every entry
+    // is a unique positive integer -- that check is what keeps arbitrary values
+    // out of the parameter list, and it matters at every size.
+    ids = uniqueIntegerIds(entry_ids, {
+      name: 'entry_ids',
+      ...(action === 'delete' ? {} : { maxLength: BULK_IDS_MAX })
+    });
   } catch (error) {
     if (error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });

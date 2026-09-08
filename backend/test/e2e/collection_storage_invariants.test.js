@@ -2618,36 +2618,36 @@ test('F11-TC54', 'T54 every batch entry point enforces its request bound', async
     'a refused bulk-add must insert nothing'
   );
 
-  // POST /collection/bulk sanitises entry_ids: bounded length AND unique
-  // positive integers. Both halves matter. The length bound is the availability
-  // guard; the integer check is what keeps a caller from putting arbitrary
-  // values into the `id IN (...)` parameter list, where SQLite's type affinity
-  // decides what they mean.
+  // POST /collection/bulk sanitises entry_ids: unique positive integers, and a
+  // length bound on every action EXCEPT delete. Both halves matter. The integer
+  // check is what keeps a caller from putting arbitrary values into the
+  // `id IN (...)` parameter list, where SQLite's type affinity decides what
+  // they mean.
   //
-  // THE BOUND IS NO LONGER 1,000. Zach could not delete his own 2,438-card
-  // collection: "I get an error that there is more than 1k ids in the
-  // collection." 1,000 was never a real limit -- SQLite's measured ceiling is
-  // 32,766 parameters -- so the bulk route now allows BULK_IDS_MAX (20,000),
-  // above the 10k he is planning for and below what SQLite refuses. The storage
-  // routes above keep their own 1,000 cap: they place cards into compartments,
-  // where a batch that size is a different proposition.
-  const bulkOverBound = Array.from({ length: 20001 }, (_, i) => i + 1);
+  // DELETE IS UNCAPPED. Zach: "There should be no cap on delete." It is the one
+  // action that chunks its SQL (collectionTrash, 500 rows per statement inside
+  // one transaction), so it cannot exceed SQLite's parameter ceiling however
+  // many cards are selected. Verified against a copy of his real database at
+  // 10,000 and 40,000 rows -- the latter past the 32,766 ceiling.
+  //
+  // The non-delete actions each build one `IN (?, ?, ...)` and keep their bound.
+  const bulkOverBound = Array.from({ length: 32001 }, (_, i) => i + 1);
   const bulkTooMany = await api(attacker.token, '/api/collection/bulk', {
+    method: 'POST',
+    body: { entry_ids: bulkOverBound, action: 'condition', value: 'Near Mint' }
+  });
+  assert.strictEqual(bulkTooMany.status, 413,
+    `an unchunked bulk action must enforce its entry_ids bound, got ${bulkTooMany.status}`);
+
+  // AND THE SAME OVERSIZED LIST MUST BE ACCEPTED FOR DELETE. A bound test that
+  // only checks refusal cannot tell a working limit from one that blocks the
+  // user -- which is the bug being fixed.
+  const bulkDeleteHuge = await api(attacker.token, '/api/collection/bulk', {
     method: 'POST',
     body: { entry_ids: bulkOverBound, action: 'delete' }
   });
-  assert.strictEqual(bulkTooMany.status, 413, `bulk must enforce its entry_ids bound, got ${bulkTooMany.status}`);
-
-  // AND THE NEW BOUND MUST ACTUALLY BE USABLE. A cap that refuses his real
-  // collection is the bug being fixed, so this asserts the size he hit is
-  // accepted rather than merely that some larger number is refused.
-  const realisticSelection = Array.from({ length: 2438 }, (_, i) => i + 1);
-  const bulkRealistic = await api(attacker.token, '/api/collection/bulk', {
-    method: 'POST',
-    body: { entry_ids: realisticSelection, action: 'delete' }
-  });
-  assert.notStrictEqual(bulkRealistic.status, 413,
-    'a whole-collection delete must not be refused by the request bound');
+  assert.notStrictEqual(bulkDeleteHuge.status, 413,
+    'delete must not be refused by a length bound at any size');
 
   const ownEntry = await addEntry(attacker.id, cardId);
   const bulkBadIds = await api(attacker.token, '/api/collection/bulk', {
@@ -2672,7 +2672,15 @@ async function main() {
   );
 
   const app = express();
-  app.use(express.json());
+  // MATCH THE REAL SERVER'S BODY LIMIT (server.js: '15mb').
+  //
+  // The default is express.json()'s 100KB, smaller than the app actually
+  // accepts -- so a request the real server would have handled is rejected by
+  // the HARNESS, before any route sees it, and the test reports a limit the
+  // code does not have. Surfaced when the delete bound was removed: a 32,001-id
+  // body is ~170KB, so an uncapped delete "failed" against a cap that only
+  // existed in this file. Same fix already applied in request_bounds.test.js.
+  app.use(express.json({ limit: '15mb' }));
   app.use('/api', collectionRoutes);
   app.use('/api', storageRoutes);
   const server = await new Promise(resolve => {
