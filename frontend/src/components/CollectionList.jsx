@@ -757,7 +757,25 @@ const cardTypesOf = (card) => {
           <div style={{
             position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: Z_MODAL,
             background: 'var(--surface-1)', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-            maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+            // FIXED HEIGHT ON THE SEARCHABLE SHEET, not max-height.
+            //
+            // Zach: "When I search the set selection list moves further down my
+            // screen. Tbh it's just a mess." He was right, and this was the
+            // worst of it: the sheet is anchored to the BOTTOM and was sized to
+            // its contents, so narrowing 72 sets to 8 shrank the panel upward
+            // and slid everything he was reading down the screen. Measured: the
+            // sheet's top edge moved 328px -> 390px on one keystroke. Every
+            // letter typed moved the target.
+            //
+            // A fixed height means the panel is the same size whether it lists
+            // 72 sets or one, so only the list inside it changes. The other
+            // sheets keep max-height: they have no search, nothing about them
+            // resizes mid-interaction, and a short list should not be forced to
+            // fill the screen.
+            ...(sheet === 'set'
+              ? { height: '70vh' }
+              : { maxHeight: '70vh' }),
+            display: 'flex', flexDirection: 'column',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}>
             <div style={{ width: 38, height: 4, borderRadius: 2, background: 'var(--surface-3)', margin: '10px auto 4px' }} />
@@ -768,29 +786,40 @@ const cardTypesOf = (card) => {
                 {t('common.close')}
               </button>
             </div>
-            <div style={{ overflowY: 'auto', padding: '0 0.5rem 1rem' }}>
-              {/* SEARCH, on the sets sheet only.
-                  72 sets is a long scroll on a phone; six card types is not, and
-                  a search box over six options is clutter pretending to help.
-                  Sort is a fixed short list for the same reason. */}
-              {sheet === 'set' && (
-                <div style={{ padding: '0 0.5rem 0.6rem' }}>
-                  <input
-                    value={sheetSearch}
-                    onChange={(e) => setSheetSearch(e.target.value)}
-                    placeholder={t('collection.searchSets')}
-                    aria-label={t('collection.searchSets')}
-                    autoComplete="off"
-                    style={{
-                      width: '100%', minHeight: 44, padding: '0 0.85rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-glass)',
-                      background: 'var(--surface-2)', color: 'var(--text-primary)',
-                      font: 'inherit', fontSize: '0.92rem', boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              )}
+            {/* SEARCH, PINNED. Outside the scroller, so it stays on screen
+                while the list moves under it.
+                
+                It used to live inside the scrolling area: scrolling down to
+                find a set carried the box off the top of the screen (measured:
+                its top went 328px -> -272px), so the moment you needed to
+                refine a search the box was gone.
+                
+                Sets only. 72 sets is a long scroll on a phone; six card types
+                is not, and a search box over six options is clutter pretending
+                to help. Sort is a fixed short list for the same reason. */}
+            {sheet === 'set' && (
+              <div style={{ padding: '0 1rem 0.6rem', flexShrink: 0 }}>
+                <input
+                  value={sheetSearch}
+                  onChange={(e) => setSheetSearch(e.target.value)}
+                  placeholder={t('collection.searchSets')}
+                  aria-label={t('collection.searchSets')}
+                  autoComplete="off"
+                  style={{
+                    width: '100%', minHeight: 44, padding: '0 0.85rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-glass)',
+                    background: 'var(--surface-2)', color: 'var(--text-primary)',
+                    font: 'inherit', fontSize: '0.92rem', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            )}
+            {/* flex: 1 with minHeight 0 -- the scroller takes the space the
+                pinned header leaves and no more. Without minHeight a flex child
+                refuses to shrink below its content, and the list would push the
+                sheet taller than its own height. */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 0.5rem 1rem' }}>
               {sheet === 'sort'
                 ? SORT_OPTIONS.map(opt => (
                     <button key={opt} onClick={() => { setSortBy(opt); closeSheet(); }}
