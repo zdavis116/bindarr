@@ -88,6 +88,45 @@ test('SS-TC3: a search that matches nothing says so', () => {
   assert.ok('collection.noSetsMatch' in en, 'the string must exist');
 });
 
+test('SS-TC5: the sheet does not resize as the search narrows results', () => {
+  // Zach: "When I search the set selection list moves further down my screen.
+  // Tbh it's just a mess." He was right.
+  //
+  // The sheet is anchored to the BOTTOM of the screen and was sized to its
+  // contents, so narrowing 72 sets to 8 shrank the panel upward and slid
+  // everything he was reading DOWN the screen. Measured before: the sheet's top
+  // edge moved 328px -> 390px on a single keystroke. Every letter moved the
+  // target he was aiming at.
+  //
+  // Measured after, across '', 't', 'ta', 'tar', 'tarkir', 'zzzznomatch':
+  // sheet_top 253 and height 591 on every one, while rows went 72 -> 0.
+  assert.match(code, /\.\.\.\(sheet === 'set'\s*\n?\s*\? \{ height: '70vh' \}/,
+    'the searchable sheet must have a FIXED height, not max-height');
+  assert.match(code, /: \{ maxHeight: '70vh' \}\)/,
+    'the other sheets keep max-height -- nothing about them resizes mid-use');
+});
+
+test('SS-TC6: the search box is pinned, not scrolled away with the list', () => {
+  // It lived INSIDE the scrolling area: scrolling down to find a set carried
+  // the box off the top of the screen (measured: input_top 328 -> -272), so the
+  // moment you needed to refine a search the box was gone.
+  //
+  // Measured after: input_top 331 before scrolling and 331 after scrolling
+  // 900px, with the list still scrolling underneath.
+  const sheetBlock = code.slice(code.indexOf('{sheet && ('));
+  const inputAt = sheetBlock.indexOf("placeholder={t('collection.searchSets')}");
+  const scrollerAt = sheetBlock.indexOf('overflowY: \'auto\'');
+  assert.ok(inputAt > 0 && scrollerAt > 0, 'both the input and the scroller must exist');
+  assert.ok(inputAt < scrollerAt,
+    'the search must render BEFORE the scrolling container, outside it');
+
+  // The scroller must claim the leftover space rather than growing the sheet.
+  assert.match(code, /flex: 1, minHeight: 0, overflowY: 'auto'/,
+    'the list must flex into the space the pinned header leaves; minHeight 0 is '
+    + 'what lets a flex child shrink below its content instead of pushing the '
+    + 'sheet taller than its own height');
+});
+
 test('SS-TC4: the search clears when the sheet opens or closes', () => {
   // A search left behind would reopen showing a filtered list that looks like
   // the whole one -- a set he owns appearing to be missing, which reads as data
