@@ -2623,11 +2623,31 @@ test('F11-TC54', 'T54 every batch entry point enforces its request bound', async
   // guard; the integer check is what keeps a caller from putting arbitrary
   // values into the `id IN (...)` parameter list, where SQLite's type affinity
   // decides what they mean.
+  //
+  // THE BOUND IS NO LONGER 1,000. Zach could not delete his own 2,438-card
+  // collection: "I get an error that there is more than 1k ids in the
+  // collection." 1,000 was never a real limit -- SQLite's measured ceiling is
+  // 32,766 parameters -- so the bulk route now allows BULK_IDS_MAX (20,000),
+  // above the 10k he is planning for and below what SQLite refuses. The storage
+  // routes above keep their own 1,000 cap: they place cards into compartments,
+  // where a batch that size is a different proposition.
+  const bulkOverBound = Array.from({ length: 20001 }, (_, i) => i + 1);
   const bulkTooMany = await api(attacker.token, '/api/collection/bulk', {
     method: 'POST',
-    body: { entry_ids: tooMany, action: 'delete' }
+    body: { entry_ids: bulkOverBound, action: 'delete' }
   });
   assert.strictEqual(bulkTooMany.status, 413, `bulk must enforce its entry_ids bound, got ${bulkTooMany.status}`);
+
+  // AND THE NEW BOUND MUST ACTUALLY BE USABLE. A cap that refuses his real
+  // collection is the bug being fixed, so this asserts the size he hit is
+  // accepted rather than merely that some larger number is refused.
+  const realisticSelection = Array.from({ length: 2438 }, (_, i) => i + 1);
+  const bulkRealistic = await api(attacker.token, '/api/collection/bulk', {
+    method: 'POST',
+    body: { entry_ids: realisticSelection, action: 'delete' }
+  });
+  assert.notStrictEqual(bulkRealistic.status, 413,
+    'a whole-collection delete must not be refused by the request bound');
 
   const ownEntry = await addEntry(attacker.id, cardId);
   const bulkBadIds = await api(attacker.token, '/api/collection/bulk', {

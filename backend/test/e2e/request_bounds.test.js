@@ -42,7 +42,14 @@ async function main() {
   );
 
   const app = express();
-  app.use(express.json());
+  // MATCH THE REAL SERVER'S BODY LIMIT (server.js: '15mb').
+  //
+  // The default here is express.json()'s 100KB, which is smaller than the app
+  // actually accepts -- so a request the real server would have handled was
+  // rejected by the harness with an HTML 413 before any route saw it. That made
+  // this file test the harness rather than the code, and it surfaced the moment
+  // the bulk bound rose to 20,000 ids (a 106KB body).
+  app.use(express.json({ limit: '15mb' }));
   app.use('/api', collectionRoutes);
   app.use('/api', storageRoutes);
   const server = await new Promise(resolve => {
@@ -95,15 +102,23 @@ async function main() {
     console.log('PASS: F10-TC4');
 
     // F10-TC5: every entry-id batch endpoint accepts only unique positive
-    // integer IDs, capped at 1000, and rejects before location/collection reads.
+    // integer IDs and rejects before location/collection reads.
+    //
+    // TWO DIFFERENT CAPS, deliberately. The storage routes place cards into
+    // compartments and keep their 1,000 bound. POST /collection/bulk allows
+    // BULK_IDS_MAX (20,000), because Zach could not delete his own 2,438-card
+    // collection: "I get an error that there is more than 1k ids in the
+    // collection." 1,000 was never a real limit -- SQLite's measured parameter
+    // ceiling is 32,766 -- so the bound now clears the 10k he is planning for.
     const oversizedIds = Array.from({ length: 1001 }, (_, i) => i + 1);
+    const bulkOversized = Array.from({ length: 20001 }, (_, i) => i + 1);
     const malformedLists = ['1', ['1'], [1.5], [1, 1]];
     for (const entry_ids of malformedLists) {
       await expectStatus(base, token, '/api/collection/bulk', { entry_ids, action: 'delete' }, 400);
       await expectStatus(base, token, '/api/locations/999999/recommend-batch', { entry_ids }, 400);
       await expectStatus(base, token, '/api/locations/999999/apply-all', { entry_ids }, 400);
     }
-    await expectStatus(base, token, '/api/collection/bulk', { entry_ids: oversizedIds, action: 'delete' }, 413);
+    await expectStatus(base, token, '/api/collection/bulk', { entry_ids: bulkOversized, action: 'delete' }, 413);
     await expectStatus(base, token, '/api/locations/999999/recommend-batch', { entry_ids: oversizedIds }, 413);
     await expectStatus(base, token, '/api/locations/999999/apply-all', { entry_ids: oversizedIds }, 413);
     assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM collection')).count, initialCollection + 1);

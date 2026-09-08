@@ -2496,6 +2496,24 @@ const BULK_ACTIONS = ['delete', 'move', 'trade', 'untrade', 'list_type', 'condit
 // there is one place to change when Magic gains a finish rather than a list per
 // route that silently goes stale.
 const BULK_CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
+// HOW MANY IDS ONE BULK REQUEST MAY CARRY.
+//
+// Zach: "The issue I'm having is being able to delete my entire collection. I
+// get an error that there is more than 1k ids in the collection." Selecting all
+// 2,438 of his cards hit a 1,000 cap that existed to stop an unbounded request
+// body, not because 1,000 was a real limit anywhere.
+//
+// The REAL ceiling is SQLite's parameter limit, measured rather than assumed:
+// `IN (?, ?, ...)` binds one parameter per id and fails at 32,767 with "too
+// many SQL variables" (32,766 succeeds). So this is set well below that, with
+// room for the handful of extra bound values each statement adds, and above the
+// 10,000 cards he has said he is planning for.
+//
+// The DELETE path does not depend on this number at all -- collectionTrash
+// chunks its statements, so it would work at any size. The cap remains because
+// an unbounded array in a request body is still worth refusing.
+const BULK_IDS_MAX = 20000;
+
 router.post('/collection/bulk', async (req, res) => {
   // `confirm` applies ONLY to add_to_deck: it is the user having seen the
   // pre-flight report and chosen to proceed with the applicable part of their
@@ -2503,7 +2521,7 @@ router.post('/collection/bulk', async (req, res) => {
   const { entry_ids = [], action, value, confirm = false } = req.body;
   let ids;
   try {
-    ids = uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: 1000 });
+    ids = uniqueIntegerIds(entry_ids, { name: 'entry_ids', maxLength: BULK_IDS_MAX });
   } catch (error) {
     if (error instanceof RequestBoundsError) {
       return res.status(error.status).json({ error: error.message });

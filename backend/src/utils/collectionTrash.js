@@ -34,28 +34,55 @@ async function trashEntries(entryIds, userId) {
   const ids = (entryIds || []).map(Number).filter(Number.isInteger);
   if (ids.length === 0) return { batchId: null, moved: 0 };
 
-  const placeholders = ids.map(() => '?').join(',');
   const batchId = newBatchId();
 
-  // Copy, then delete. Scoped by user_id on BOTH statements: a client can post
-  // any id, and the copy must not be able to read another user's row even if
-  // the delete would have refused it.
-  await db.run(
-    `INSERT INTO collection_trash
-       (entry_id, batch_id, user_id, ${CARRIED.join(', ')})
-     SELECT id, ?, user_id, ${CARRIED.join(', ')}
-       FROM collection
-      WHERE id IN (${placeholders}) AND user_id = ?`,
-    [batchId, ...ids, userId]
-  );
+  // CHUNKED, because `IN (?, ?, ...)` binds one parameter per id and SQLite
+  // refuses past 32,766 of them ("too many SQL variables"). Zach hit the
+  // route's own 1,000 cap first, selecting his whole 2,438-card collection:
+  // "The issue I'm having is being able to delete my entire collection. I get
+  // an error that there is more than 1k ids in the collection."
+  //
+  // Chunking rather than raising the cap. A higher number is still a number,
+  // and it fails again the day the collection outgrows it -- at 10k cards,
+  // which is the size he has explicitly said he is planning for.
+  //
+  // ONE TRANSACTION AROUND EVERY CHUNK. This is the part that matters more
+  // than the batching: the copy and the delete must both happen or neither.
+  // A failure between them would either destroy rows with no trash entry to
+  // undo from, or leave rows in both tables -- a card that is deleted and
+  // still counted. Per-chunk transactions would leave a half-deleted
+  // selection on a crash, which is a silent state change against physical
+  // cardboard.
+  const CHUNK = 500;
+  let moved = 0;
 
-  const del = await db.run(
-    `DELETE FROM collection WHERE id IN (${placeholders}) AND user_id = ?`,
-    [...ids, userId]
-  );
+  await db.withTransaction(async (tx) => {
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const placeholders = slice.map(() => '?').join(',');
+
+      // Copy, then delete. Scoped by user_id on BOTH statements: a client can
+      // post any id, and the copy must not be able to read another user's row
+      // even if the delete would have refused it.
+      await tx.run(
+        `INSERT INTO collection_trash
+           (entry_id, batch_id, user_id, ${CARRIED.join(', ')})
+         SELECT id, ?, user_id, ${CARRIED.join(', ')}
+           FROM collection
+          WHERE id IN (${placeholders}) AND user_id = ?`,
+        [batchId, ...slice, userId]
+      );
+
+      const del = await tx.run(
+        `DELETE FROM collection WHERE id IN (${placeholders}) AND user_id = ?`,
+        [...slice, userId]
+      );
+      moved += del.changes;
+    }
+  });
 
   await purgeOldBatches(userId);
-  return { batchId, moved: del.changes };
+  return { batchId, moved };
 }
 
 // Keep the most recent KEEP_BATCHES for this user; drop the rest.
