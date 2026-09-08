@@ -14,10 +14,11 @@
 // this screen. A settings page that reports a guessed catalogue size is worse
 // than one that says nothing: it is the page you check when you suspect the
 // catalogue is stale.
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
+import ImportModal from './ImportModal';
 
 // One row. Everything on this screen is a row: label, optional detail line,
 // and either a chevron (opens something) or a value (states a fact).
@@ -103,7 +104,9 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   // Which source has its detail open. One at a time -- a phone screen
   // cannot show two expanded sources usefully.
   const [sourceOpen, setSourceOpen] = useState(null);
-  const importRef = useRef(null);
+  // Opens the shared ImportModal. Was a hidden <input> whose file went to a
+  // navigation callback that could not receive it -- see the render below.
+  const [importOpen, setImportOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [saving, setSaving] = useState(false);
@@ -430,7 +433,7 @@ function SettingsScreen({ user, onNavigate, showToast }) {
           icon={Upload}
           label={t('settings.importCards')}
           detail={t('settings.importDetail')}
-          onClick={() => importRef.current?.click()}
+          onClick={() => setImportOpen(true)}
         />
         <Row
           icon={Download}
@@ -572,17 +575,33 @@ function SettingsScreen({ user, onNavigate, showToast }) {
         </>
       )}
 
-      <input
-        ref={importRef}
-        type="file"
-        accept=".csv,.txt"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onNavigate && onNavigate('import', file);
-          e.target.value = '';
-        }}
-      />
+      {/* IMPORT. Opens the SAME modal the Collection screen uses.
+          
+          This used to be a hidden file input that called
+          onNavigate('import', file). Two things were wrong with that: App's
+          Settings is wired to setActiveTab, a plain state setter that takes ONE
+          argument, so the file was silently dropped -- and there is no 'import'
+          tab for it to switch to anyway. Zach: "the import cards from the
+          settings doesn't work either. It pops up the files screen but nothing
+          imports." The picker was the file input opening; nothing was ever
+          going to happen after it.
+          
+          Rendering the real modal here rather than repairing the navigation:
+          the import flow already exists, works, and has a pre-flight review. A
+          second path into it is a second thing to keep correct. */}
+      {importOpen && (
+        <ImportModal
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
+            // Settings has no collection list of its own to refresh, so this
+            // is the toast confirming the write actually landed -- the modal
+            // reports its own counts before this fires.
+            showToast && showToast(t('settings.importDone'));
+          }}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }
