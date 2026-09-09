@@ -2158,6 +2158,10 @@ router.post('/:id/buylist/price', async (req, res) => {
     const cards = items.map((i) => ({
       set_code: i.set_id,
       collector_number: i.number,
+      // Needed only for the "any printing" mode, which identifies the card by
+      // Scryfall id rather than by set and number.
+      card_id: i.desired_card_id,
+      allow_any_printing: Boolean(i.allow_any_printing),
       finish: i.finish,
       quantity: i.quantity,
       name: i.name,
@@ -2191,6 +2195,79 @@ router.post('/:id/buylist/price', async (req, res) => {
       return res.status(502).json({ error: error.message, code: 'MANAPOOL_AUTH' });
     }
     sendError(res, error, 'Failed to price the buylist');
+  }
+});
+
+// WILL HE ACCEPT ANOTHER PRINTING OF THIS CARD WHEN BUYING IT?
+//
+// Zach: "I would like the ability to specify each card for exact printing or
+// not... The choice can persist."
+//
+// Stored on deck_cards because it is a fact about that card IN THAT DECK: he
+// may not care which Sol Ring arrives for one deck and care very much for
+// another. It is consulted ONLY when buying -- it does not change what the deck
+// requires, what he owns, or any price on any screen.
+router.patch('/:id/cards/:cardId/printing-preference', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const allow = req.body?.allow_any_printing;
+    if (typeof allow !== 'boolean') {
+      return res.status(400).json({ error: 'allow_any_printing must be true or false' });
+    }
+    // Scoped to the deck so one user cannot flip a preference on another's row.
+    const result = await db.run(
+      `UPDATE deck_cards SET allow_any_printing = ?
+        WHERE deck_id = ? AND desired_card_id = ?`,
+      [allow ? 1 : 0, deck.id, req.params.cardId]
+    );
+    if (!result.changes) {
+      return res.status(404).json({ error: 'That card is not in this deck' });
+    }
+    res.json({ card_id: req.params.cardId, allow_any_printing: allow });
+  } catch (error) {
+    sendError(res, error, 'Failed to save the printing preference');
+  }
+});
+
+// SEND THE PRICED CART TO MANA POOL.
+//
+// Zach: "is there a way to send my choice to mana pool and have it go to cart?"
+//
+// Takes the cart the optimizer just chose rather than re-deriving one: ordering
+// a different set of listings than the ones he was quoted would be a silent
+// substitution at the worst possible moment.
+//
+// STOPS AT A PENDING ORDER. Mana Pool has a /purchase endpoint that completes
+// the sale and Bindarr does not call it -- he reviews and pays on their site. A
+// bug here would cost money rather than a recount.
+router.post('/:id/buylist/cart', async (req, res) => {
+  try {
+    await requireOwnedDeck(db, req.params.id, req.user.id);
+
+    if (!manaPoolBuylist.isConfigured()) {
+      return res.status(503).json({
+        error: 'Mana Pool is not connected on this server',
+        code: 'MANAPOOL_NOT_CONFIGURED',
+      });
+    }
+    const cart = req.body?.cart;
+    if (!Array.isArray(cart) || cart.length === 0) {
+      return res.status(400).json({
+        error: 'Price the buylist before sending it',
+        code: 'NO_QUOTE',
+      });
+    }
+
+    const order = await manaPoolBuylist.sendToCart(cart);
+    res.json(order);
+  } catch (error) {
+    if (error instanceof manaPoolBuylist.ManaPoolRateLimitError) {
+      return res.status(429).json({ error: error.message, code: 'MANAPOOL_RATE_LIMIT' });
+    }
+    if (error instanceof manaPoolBuylist.ManaPoolAuthError) {
+      return res.status(502).json({ error: error.message, code: 'MANAPOOL_AUTH' });
+    }
+    sendError(res, error, 'Failed to send the cart to Mana Pool');
   }
 });
 

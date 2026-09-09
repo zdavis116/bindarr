@@ -738,6 +738,22 @@ async function initDb() {
         CHECK(board IN ('commander', 'mainboard', 'sideboard', 'considering')),
       quantity INTEGER NOT NULL CHECK(quantity > 0),
       checked_out INTEGER NOT NULL DEFAULT 0,
+      -- WILL HE ACCEPT ANOTHER PRINTING OF THIS CARD WHEN BUYING IT?
+      --
+      -- Zach: "I would like the ability to specify each card for exact printing
+      -- or not... The choice can persist."
+      --
+      -- DEFAULTS TO 0 (exact) because that is the safe direction: Bindarr's
+      -- whole identity model is exact printings, and he has been bitten by four
+      -- "identical" Tony Starks priced $6.50 to $76.94. Opting IN to
+      -- substitution is a decision; being opted in silently is a surprise that
+      -- arrives as cardboard.
+      --
+      -- Only ever consulted when BUYING. It does not affect what the deck
+      -- requires, what he owns, or any price shown on a screen -- those stay on
+      -- the exact printing. Widening the buy is not the same as widening the
+      -- deck.
+      allow_any_printing INTEGER NOT NULL DEFAULT 0,
       UNIQUE(deck_id, oracle_id, desired_card_id, desired_finish, board),
       FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE,
       FOREIGN KEY(desired_card_id) REFERENCES card_cache(id)
@@ -841,6 +857,14 @@ async function initDb() {
   // every read of price_source_order throws on Zach's actual database while
   // passing on a fresh test one. That exact shape of bug (schema added to the
   // CREATE but not the ALTER) has already bitten this project once.
+  // allow_any_printing on deck_cards. Existing databases have no such column
+  // and CREATE TABLE IF NOT EXISTS will not add one -- without this every read
+  // throws on Zach's real database while passing on a fresh test one.
+  const deckCardCols = await all(`PRAGMA table_info(deck_cards)`);
+  if (deckCardCols.length && !deckCardCols.some(c => c.name === 'allow_any_printing')) {
+    await run(`ALTER TABLE deck_cards ADD COLUMN allow_any_printing INTEGER NOT NULL DEFAULT 0`);
+  }
+
   // Condition columns on source_prices. The table already exists on dev, so the
   // CREATE above will not add these -- without the ALTER every read throws on
   // the real database while passing on a fresh test one.

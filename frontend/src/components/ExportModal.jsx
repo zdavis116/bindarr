@@ -8,7 +8,7 @@
 // so you could not see what you were about to paste. One component now, because
 // two copies of an export dialog is exactly how that drift happened.
 import { useState, useMemo } from 'react';
-import { X, Download, Receipt } from 'lucide-react';
+import { X, Download, Receipt, ShoppingCart, Lock, Unlock } from 'lucide-react';
 import { buildDeckExport } from '../utils/deckText';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
@@ -42,6 +42,74 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState(null);
   const [model, setModel] = useState('lowest_price');
+
+  // PER-CARD: will he take another printing when buying this one?
+  //
+  // Zach: "Some cards I would be fine with a substitute and some I wouldn't just
+  // would depend so would probably be ideal for it to be toggleable like I want
+  // this printing exactly or not."
+  //
+  // Seeded from the server (the choice persists on deck_cards) and written back
+  // immediately, so the toggle is the source of truth rather than a local
+  // overlay that disagrees with the next quote.
+  const [anyPrinting, setAnyPrinting] = useState({});
+  const [showLines, setShowLines] = useState(false);
+  const [cart, setCart] = useState(null);
+  const [sending, setSending] = useState(false);
+
+  // Server state wins on open; a stale local map would price differently than
+  // the screen claims.
+  useMemo(() => {
+    const seed = {};
+    for (const c of cards || []) {
+      const id = c.desired_card_id || c.card_id;
+      if (id) seed[id] = Boolean(c.allow_any_printing);
+    }
+    setAnyPrinting(seed);
+    return null;
+  }, [cards]);
+
+  const togglePrinting = async (cardId, next) => {
+    if (!deckId || !cardId) return;
+    // Optimistic, then reconciled: the checkbox must feel instant, but a failed
+    // write must not leave the UI claiming a preference the server does not have.
+    setAnyPrinting(prev => ({ ...prev, [cardId]: next }));
+    setQuote(null);
+    setCart(null);
+    try {
+      const res = await fetch(`/api/decks/${deckId}/cards/${cardId}/printing-preference`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_any_printing: next }),
+      });
+      if (!res.ok) throw new Error('save failed');
+    } catch {
+      setAnyPrinting(prev => ({ ...prev, [cardId]: !next }));
+      showToast(t('deck.mpPrefFailed'), 'error');
+    }
+  };
+
+  const sendToCart = async () => {
+    if (!deckId || !quote?.cart?.length || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch(`/api/decks/${deckId}/buylist/cart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart: quote.cart }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || t('deck.mpCartFailed'), 'error');
+        return;
+      }
+      setCart(data);
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const priceIt = async () => {
     if (!deckId || quoting) return;
@@ -141,6 +209,60 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           {text || t('deck.nothingToExport')}
         </pre>
 
+        {/* PER-CARD: EXACT PRINTING, OR ANY?
+            A collapsed list so the sheet stays readable for a 49-card buylist,
+            but every card is reachable. Locked = exact, which is the default. */}
+        {deckId && text && cards.length > 0 && (
+          <div style={{ padding: '0 1rem 0.6rem' }}>
+            <button onClick={() => setShowLines(v => !v)}
+              style={{ width: '100%', minHeight: 34, borderRadius: 'var(--radius-sm)',
+                       border: '1px solid var(--border-glass)', background: 'transparent',
+                       color: 'var(--text-secondary)', font: 'inherit', fontSize: '0.76rem',
+                       cursor: 'pointer' }}>
+              {showLines
+                ? t('deck.mpHidePrintings')
+                : t('deck.mpEditPrintings', {
+                    count: cards.filter(c => anyPrinting[c.desired_card_id || c.card_id]).length,
+                  })}
+            </button>
+
+            {showLines && (
+              <div style={{ maxHeight: 190, overflow: 'auto', marginTop: '0.45rem',
+                            border: '1px solid var(--border-glass)',
+                            borderRadius: 'var(--radius-sm)' }}>
+                {cards.map((c) => {
+                  const id = c.desired_card_id || c.card_id;
+                  const any = Boolean(anyPrinting[id]);
+                  return (
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                           padding: '0.4rem 0.6rem',
+                                           borderBottom: '1px solid var(--border-glass)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.78rem', whiteSpace: 'nowrap',
+                                      overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {c.name}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>
+                          {(c.set_id || '').toUpperCase()} #{c.number}
+                          {any ? ` · ${t('deck.mpAnyPrinting')}` : ` · ${t('deck.mpExactPrinting')}`}
+                        </div>
+                      </div>
+                      <button onClick={() => togglePrinting(id, !any)}
+                        aria-label={any ? t('deck.mpAnyPrinting') : t('deck.mpExactPrinting')}
+                        style={{ flexShrink: 0, width: 34, height: 30, borderRadius: 'var(--radius-sm)',
+                                 border: 0, background: any ? 'rgba(255,159,10,.16)' : 'var(--surface-3)',
+                                 color: any ? 'var(--accent-amber, #ff9f0a)' : 'var(--text-secondary)',
+                                 display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+                        {any ? <Unlock size={14} /> : <Lock size={14} />}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* PRICE IT ON MANA POOL. Only when there is a deck to price and
             something to buy. */}
         {deckId && text && (
@@ -188,6 +310,42 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
                   {t('deck.mpSellers', { count: quote.sellerCount })}
                 </div>
+
+                {/* SEND IT. Creates a PENDING order on Mana Pool -- Bindarr
+                    never completes a purchase. He reviews and pays there. */}
+                {!cart && (
+                  <button onClick={sendToCart} disabled={sending || !quote.cart?.length}
+                    style={{ width: '100%', minHeight: 40, marginTop: '0.6rem',
+                             borderRadius: 'var(--radius-sm)', border: 0,
+                             background: 'var(--accent-blue)', color: '#fff',
+                             font: 'inherit', fontSize: '0.85rem', fontWeight: 600,
+                             display: 'flex', alignItems: 'center', justifyContent: 'center',
+                             gap: '0.4rem', cursor: sending ? 'default' : 'pointer' }}>
+                    <ShoppingCart size={15} />
+                    {sending ? t('deck.mpSending') : t('deck.mpSendToCart')}
+                  </button>
+                )}
+
+                {cart && (
+                  <div style={{ marginTop: '0.6rem', padding: '0.6rem',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'rgba(48,209,88,.12)',
+                                border: '1px solid rgba(48,209,88,.3)' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                      {t('deck.mpCartReady', { count: cart.lines })}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                      {t('deck.mpCartReview')}
+                    </div>
+                    <a href={cart.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'block', marginTop: '0.5rem', textAlign: 'center',
+                               minHeight: 38, lineHeight: '38px', borderRadius: 'var(--radius-sm)',
+                               background: 'var(--surface-3)', color: 'var(--accent-blue)',
+                               fontSize: '0.82rem', fontWeight: 600, textDecoration: 'none' }}>
+                      {t('deck.mpOpenOnManaPool')}
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 

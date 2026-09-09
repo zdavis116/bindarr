@@ -69,25 +69,48 @@ function isConfigured() {
 // IDENTIFIED BY SET CODE + COLLECTOR NUMBER, not by Scryfall id: card_id 409s
 // on this endpoint even for cards that are demonstrably in stock. Bindarr has
 // both fields for every card, so this costs nothing.
+//
+// EXACT PRINTING BY DEFAULT, WIDENED ONLY WHEN HE SAYS SO.
+//
+// Zach: "I would like the ability to specify each card for exact printing or
+// not. Because I get a different number when doing any printing."
+//
+// Sending set_code + collector_number pins the printing. Sending card_id alone
+// lets Mana Pool substitute any interchangeable printing -- which is cheaper,
+// and is the right trade for a Sol Ring but not for a card he chose for its
+// art. The default stays exact because a substitution he did not ask for
+// arrives as the wrong cardboard.
+//
+// NOTE the asymmetry: card_id does not work as an EXACT identifier on this
+// endpoint (it 409s), but it is the only way to express "any printing". So the
+// two modes genuinely use different fields.
 function toCartLine(card) {
   const finish = FINISH_ID[card.finish || 'nonfoil'] || 'NF';
-  return {
+  const base = {
     type: 'mtg_single',
-    set_code: String(card.set_code || '').toUpperCase(),
-    collector_number: String(card.collector_number),
     quantity_requested: Math.max(1, Number(card.quantity) || 1),
     language_ids: LANGUAGE_IDS,
     finish_ids: [finish],
     condition_ids: CONDITION_IDS,
   };
+  if (card.allow_any_printing && card.card_id) {
+    // Any interchangeable printing. Requires the Scryfall id, which Bindarr
+    // always has for a deck card.
+    return { ...base, card_id: card.card_id };
+  }
+  return {
+    ...base,
+    set_code: String(card.set_code || '').toUpperCase(),
+    collector_number: String(card.collector_number),
+  };
 }
 
-function request(body) {
+function requestTo(path, body) {
   const { email, token } = credentials();
   const payload = JSON.stringify(body);
   return new Promise((resolve, reject) => {
     const req = https.request({
-      hostname: HOST, path: PATH, method: 'POST',
+      hostname: HOST, path, method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
@@ -143,7 +166,7 @@ async function priceBuylist(cards, { model = 'lowest_price' } = {}) {
   }
   lastCallAt = Date.now();
 
-  const { status, data } = await request({
+  const { status, data } = await requestTo(PATH, {
     cart: cards.map(toCartLine),
     model,
     destination_country: 'US',
@@ -204,8 +227,80 @@ async function priceBuylist(cards, { model = 'lowest_price' } = {}) {
   };
 }
 
+/**
+ * Turn a priced solution into a real pending order on Mana Pool.
+ *
+ * Zach: "is there a way to send my choice to mana pool and have it go to cart?"
+ *
+ * The optimizer already returns exactly what the order endpoint wants --
+ * { inventory_id, quantity_selected } per line -- so this hands over the cart it
+ * just chose rather than re-deriving one. Re-deriving would risk ordering a
+ * different set of listings than the ones he was quoted.
+ *
+ * DELIBERATELY STOPS AT THE PENDING ORDER. There is a
+ * POST /buyer/orders/pending-orders/{id}/purchase that would complete the sale,
+ * and Bindarr will not call it. A bug in a hobby app that can spend real money
+ * costs money, not a recount. He reviews and pays on Mana Pool's own site.
+ */
+async function sendToCart(cartLines) {
+  if (!Array.isArray(cartLines) || cartLines.length === 0) {
+    throw new Error('Nothing to send');
+  }
+  const line_items = cartLines
+    .filter(l => l && l.inventory_id && l.quantity_selected > 0)
+    .map(l => ({
+      inventory_id: l.inventory_id,
+      quantity_selected: l.quantity_selected,
+    }));
+  if (line_items.length === 0) {
+    throw new Error('The quote contained no purchasable lines');
+  }
+
+  const since = Date.now() - lastCallAt;
+  if (since < MIN_CALL_SPACING_MS) {
+    await new Promise(r => setTimeout(r, MIN_CALL_SPACING_MS - since));
+  }
+  lastCallAt = Date.now();
+
+  const { status, data } = await requestTo('/buyer/orders/pending-orders', { line_items });
+
+  if (status === 401 || status === 403) {
+    throw new ManaPoolAuthError('Mana Pool rejected the API key');
+  }
+  if (status === 429) {
+    throw new ManaPoolRateLimitError('Mana Pool is rate limiting us; try again in a minute');
+  }
+  if (status !== 200 && status !== 201) {
+    let msg = `Mana Pool returned HTTP ${status}`;
+    try {
+      const body = JSON.parse(data);
+      if (body?.message) msg = `${msg}: ${body.message}`;
+      if (Array.isArray(body?.details)) msg += ` (${body.details.slice(0, 3).join('; ')})`;
+    } catch { /* keep the status-only message */ }
+    throw new Error(msg);
+  }
+
+  let order;
+  try { order = JSON.parse(data); } catch { order = null; }
+  if (!order?.id) throw new Error('Mana Pool did not return an order id');
+
+  const t = order.totals || {};
+  return {
+    orderId: order.id,
+    status: order.status || null,
+    lines: line_items.length,
+    items: (t.subtotal_cents || 0) / 100,
+    shipping: (t.shipping_cents || 0) / 100,
+    total: (t.total_cents || 0) / 100,
+    // Where he goes to review and pay. Built from the order id rather than
+    // guessed at: a wrong link on a money screen is worse than no link.
+    url: `https://manapool.com/orders/${order.id}`,
+  };
+}
+
 module.exports = {
   priceBuylist,
+  sendToCart,
   isConfigured,
   parseSolutionStream,
   toCartLine,

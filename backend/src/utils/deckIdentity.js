@@ -389,6 +389,7 @@ async function availabilityForDeck(database, deckId, userId) {
             CASE WHEN dc.desired_finish IN ('foil', 'etched')
                  THEN mp.condition_foil ELSE mp.condition
             END AS price_condition,
+            dc.allow_any_printing,
             mp.url AS price_url
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
@@ -708,6 +709,9 @@ async function buylistForDeck(database, deckId, userId) {
       image_url: entry.image_url,
       rarity: entry.rarity,
       board: entry.board,
+      // Buying preference, not a deck fact: whether he will take another
+      // printing of this card when purchasing it.
+      allow_any_printing: entry.allow_any_printing ? 1 : 0,
       quantity: entry.quantity_missing,
       quantity_required: entry.quantity_required,
       // Reported so a line can be honest about the difference between "I have
