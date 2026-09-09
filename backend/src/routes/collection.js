@@ -922,65 +922,6 @@ router.post('/scan-match', searchLimiter, async (req, res) => {
 
 // --- PR 8: collector-number OCR and the scan review queue -------------------
 
-// Persist one unresolved scan. SERVER-SIDE ON PURPOSE: the queue must survive a
-// page reload and a session end. Zach scans stacks of hundreds; losing the
-// queue to a dropped connection or a backgrounded Safari tab would be worse
-// than prompting inline, which is the design this replaces.
-//
-// The candidate list is SNAPSHOTTED as JSON rather than recomputed on read. It
-// is stored already sorted owned-first, so the queue renders in the order that
-// makes the common case a single tap without re-querying ownership per entry.
-async function enqueueScanReview({ userId, matchedName, reason, ocr, candidates, crop }) {
-  // Only the fields the review UI needs. Storing whole card_cache rows would
-  // bloat the table and, worse, freeze prices into it.
-  const slim = (candidates || []).map(c => ({
-    id: c.id,
-    name: c.name,
-    set_id: c.set_id,
-    set_name: c.set_name,
-    number: c.number,
-    image_url: c.image_url,
-    finishes: c.finishes,
-    owned_qty: c.owned_qty || 0,
-  }));
-  const result = await db.run(
-    `INSERT INTO scan_review_queue
-      (user_id, matched_name, reason, ocr_number, ocr_set, ocr_confident, ocr_raw, candidates_json, crop_data_url, dump_file)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      userId, matchedName, reason,
-      ocr?.number ?? null,
-      // SHOW THE SET CODE THE CATALOGUE BELIEVES, NOT THE RAW FIRST TOKEN.
-      //
-      // Zach: "the queue had MSHEN as the set code that wasn't right."
-      //
-      // `ocr.set` is whatever set-shaped token appeared FIRST on the strip. For
-      // 'MSH*EN' that is 'mshen' -- the set code fused with the language code,
-      // which is not a real set and never was. The parser knows this: it also
-      // returns 'msh' in setCandidates, and every resolution path tries those
-      // candidates against the catalogue.
-      //
-      // Storing the raw first token made the queue display a set code that does
-      // not exist, so a row the resolver had understood perfectly well looked
-      // like a failed read. Reporting our best VALIDATED reading instead means
-      // the queue shows Zach what the scanner actually concluded.
-      //
-      // Purely a display concern -- ocr_raw still carries the unedited text, so
-      // nothing diagnostic is lost.
-      await pickDisplaySet(ocr),
-      ocr?.confident ? 1 : 0,
-      (ocr?.raw ?? '').slice(0, 500),
-      JSON.stringify(slim),
-      crop || null,
-      // PIN THE CAPTURE TO THE ROW, not to whatever was scanned most recently.
-      // Resolving 18 queued cards after a session would otherwise write all 18
-      // labels onto the last image scanned.
-      lastDumpName,
-    ]
-  );
-  return { id: result.lastID };
-}
-
 // Resolve one scanned card.
 //
 // Scanning must not stop to ask questions. Zach, 2026-08-20: "maybe when
@@ -1191,107 +1132,13 @@ router.post('/scan-resolve', async (req, res) => {
   }
 });
 
-// The pending queue, oldest first — the order he scanned the stack in, which is
-// the order the physical pile is still in.
-router.get('/scan-queue', async (req, res) => {
-  try {
-    const rows = await db.all(
-      `SELECT * FROM scan_review_queue WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
-      [req.user.id]
-    );
-    res.json({
-      entries: rows.map(r => ({
-        id: r.id,
-        matched_name: r.matched_name,
-        reason: r.reason,
-        ocr: { number: r.ocr_number, set: r.ocr_set, confident: !!r.ocr_confident, raw: r.ocr_raw },
-        candidates: JSON.parse(r.candidates_json || '[]'),
-        crop: r.crop_data_url || null,
-        created_at: r.created_at,
-      })),
-    });
-  } catch (error) {
-    console.error('scan-queue failed:', error);
-    res.status(500).json({ error: 'Failed to load review queue' });
-  }
-});
-
-// Resolve one entry: Zach picked a printing (and a finish, explicitly).
+// THE /scan-queue ROUTES ARE GONE, with enqueueScanReview below.
 //
-// The card moves from the queue INTO the collection through the SAME
-// addCardToCollection path a manual add uses, so placement, finish
-// canonicalisation and the capacity invariants all apply identically. The queue
-// row is deleted in the same transaction-shaped sequence, so a card is never in
-// both states and never in neither.
-router.post('/scan-queue/:id/resolve', async (req, res) => {
-  try {
-    // Route params are strings; parse before validating. A non-numeric id is a
-    // client bug, not a missing row, so it is a 400 rather than a 404.
-    const id = Number.parseInt(req.params.id, 10);
-    if (!Number.isSafeInteger(id) || id < 1) {
-      return res.status(400).json({ error: 'id must be a positive integer' });
-    }
-    const entry = await db.get(
-      `SELECT * FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-    if (!entry) return res.status(404).json({ error: 'Queue entry not found' });
-
-    const { card_id } = req.body || {};
-    if (!card_id) return res.status(400).json({ error: 'card_id is required' });
-
-    // The chosen printing must be one the queue actually offered. Without this
-    // the endpoint would add ANY card id a client sent while claiming it came
-    // from a scan.
-    const offered = JSON.parse(entry.candidates_json || '[]').map(c => c.id);
-    if (offered.length && !offered.includes(card_id)) {
-      return res.status(400).json({ error: 'Chosen printing was not among the scanned candidates' });
-    }
-
-    const added = await addCardToCollection(req.user, { ...req.body, card_id });
-    // GROUND TRUTH: he just told us what the card really is by picking it.
-    // The queue row carries the raw OCR that produced the mistake, so the
-    // sidecar records both the truth and what the scanner had believed.
-    const truthRow = await db.get(
-      `SELECT name, set_id, number FROM card_cache WHERE id = ?`, [card_id]);
-    await labelCapture(entry.dump_file || null, {
-      source: 'queue-resolve',
-      truth: truthRow || { card_id },
-      scanner_said: { matched_name: entry.matched_name || null, reason: entry.reason || null },
-      ocr: {
-        number: entry.ocr_number ?? null,
-        set: entry.ocr_set ?? null,
-        raw: entry.ocr_raw ?? null,
-      },
-    });
-    await db.run(`DELETE FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-    res.json({ resolved: true, entry_id: added.id, card_id });
-  } catch (error) {
-    if (error instanceof AddCardError || error instanceof RequestBoundsError
-        || error instanceof InvariantError || error instanceof FinishError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error('scan-queue resolve failed:', error);
-    res.status(500).json({ error: 'Failed to resolve queue entry' });
-  }
-});
-
-// Discard an entry: it was a misscan, or he does not want the card. Deleting
-// from the queue is safe precisely BECAUSE the queue is not the collection —
-// nothing is removed from what he owns.
-router.delete('/scan-queue/:id', async (req, res) => {
-  try {
-    const id = Number.parseInt(req.params.id, 10);
-    if (!Number.isSafeInteger(id) || id < 1) {
-      return res.status(400).json({ error: 'id must be a positive integer' });
-    }
-    const result = await db.run(
-      `DELETE FROM scan_review_queue WHERE id = ? AND user_id = ?`, [id, req.user.id]);
-    if (!result.changes) return res.status(404).json({ error: 'Queue entry not found' });
-    res.json({ discarded: true });
-  } catch (error) {
-    console.error('scan-queue delete failed:', error);
-    res.status(500).json({ error: 'Failed to discard queue entry' });
-  }
-});
+// The scanner rebuild merged the review queue into one Scanned list; rows are
+// resolved inline there. Nothing has called these since -- enqueueScanReview
+// had zero call sites and the frontend never fetched /api/scan-queue. Deleting
+// rather than leaving them: three live endpoints that read and DELETE from a
+// table no code writes are an invitation to wire something to them again.
 
 // --- THE SCAN STAGING AREA -------------------------------------------------
 //

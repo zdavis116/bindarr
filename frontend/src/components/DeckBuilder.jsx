@@ -52,8 +52,6 @@ const TONE_STYLES = {
 function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
-  // Written by runResultsSource / refreshResultsPanel, which are reachable
-  // from loadDeckDetails -- the deck view's onChanged refresh.
   const [activeDeck, setActiveDeck] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
@@ -133,29 +131,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // open the same search panel the create modal uses rather than growing a
   // second one. // { replacing } | null
   
-  // Card Search States inside editor
-  const deckSearchGame = 'mtg';
 
-  // WHAT THE RESULTS PANEL IS CURRENTLY SHOWING (PR 6I items 1 and 4b).
-  //
-  // null = nothing open. { mode: 'browse' } = the Browse Collection listing.
-  // { mode: 'search', query } = a catalogue search.
-  //
-  // Two things need this, and neither could be done without it:
-  //
-  //  1. STALE COUNTS (item 1). After a deck mutation the open panel still shows
-  //     pre-mutation "In Deck" and "Available" figures. To re-read them from the
-  //     server the app has to know which request produced the list. Nudging the
-  //     numbers locally instead was explicitly rejected: availability now spans
-  //     every deck, its reservations and its allocations, so a client-side
-  //     adjustment would be a SECOND implementation of that rule and would drift
-  //     from the real one. Re-fetching keeps exactly one implementation, on the
-  //     server, where all the inputs live.
-  //
-  //  2. CLOSING THE PANEL (item 4b). "Is the browse panel open" was previously
-  //     only implied by searchResults being non-empty, so there was nothing to
-  //     set to closed — which is precisely why the button could not toggle.
-  const resultsSource = null;
 
   // Deck Selection Menu Controls
   // Kept as a constant: filteredDecks still reads it, but the control that
@@ -435,7 +411,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
         // Not awaited: the deck itself is already on screen and correct, and
         // blocking the whole view on a secondary panel's fetch would make every
         // delete feel slower than it is.
-        refreshResultsPanel();
         // THE BUYLIST IS REFRESHED FROM THE SAME CHOKE POINT, and for the same
         // reason: every deck mutation already ends here, so "the buylist is
         // current after any change that can move a shortfall" is true by
@@ -593,54 +568,14 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
 
   // Run whatever the results panel is showing, and put the answer on screen.
   //
-  // Split out of handleSearchCards so the SAME request can be re-issued after a
-  // mutation without going through the event handler. That is what makes item 1
-  // a re-read rather than a local fixup: the panel is refilled from the server's
-  // answer, so its In Deck and Available figures are the server's current ones
-  // by construction.
-  const runResultsSource = async (source) => {
-    if (!source) return;
-    if (source.mode === 'browse') {
-      const res = await fetch(`/api/collection?game=${deckSearchGame}`);
-      if (!res.ok) throw new Error('browse failed');
-      return;
-    }
-    const response = await fetch(
-      `/api/search?name=${encodeURIComponent(source.query)}&scope=database&game=${deckSearchGame}`
-    );
-    if (!response.ok) {
-      const err = new Error('search failed');
-      err.status = response.status;
-      throw err;
-    }
-  };
-
-  // Re-read the open results panel from the server (PR 6I item 1).
+  // BROWSE COLLECTION IS GONE. DeckView replaced the in-builder results panel
+  // during the UI overhaul, and adding cards now happens through the card
+  // inspector's "Add to deck". runResultsSource / refreshResultsPanel /
+  // closeResultsPanel were the panel's plumbing; `resultsSource` had been a
+  // `const = null` with no setter since c8572ab, so none of it could run.
   //
-  // Called after EVERY mutation that can change availability. It is deliberately
-  // a no-op when nothing is open, so callers do not each have to check — a
-  // condition repeated at nine call sites is a condition that will be forgotten
-  // at the tenth.
-  //
-  // SILENT ON FAILURE, and that is a considered choice rather than laziness: the
-  // mutation itself already succeeded and reported. A toast here would tell the
-  // user their delete failed when it did not. The visible consequence of a
-  // failed refresh is a panel showing figures that are one step behind, which is
-  // exactly the state they were in before this fix — no worse, and recoverable
-  // by searching again.
-  const refreshResultsPanel = async () => {
-    if (!resultsSource) return;
-    try {
-      await runResultsSource(resultsSource);
-    } catch (err) {
-      console.error('Could not refresh the open results panel:', err);
-    }
-  };
-
-
-  // Dismiss the results panel (PR 6I item 4b). Clearing the rows AND the source
-  // together, so "nothing is showing" is one fact rather than two that can
-  // disagree.
+  // Deleted rather than left in place: unreachable code that looks live is what
+  // made deckPolish.test.js assert a feature the app no longer has.
 
   // --- CHECKOUT / RETURN ---
 
