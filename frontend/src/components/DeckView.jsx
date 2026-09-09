@@ -1163,6 +1163,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         cards={missingCards}
         title={t('deck.buylist')}
         showToast={showToast}
+        deckId={deck?.id || null}
       />
 
     </div>

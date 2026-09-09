@@ -173,19 +173,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // the fetch failed" and is deliberately distinct from a loaded-but-empty
   // list, which is the positive claim "you own every card in this deck".
   const [buylist, setBuylist] = useState(null);
-  // WHAT THE BUYLIST WOULD ACTUALLY COST, DELIVERED.
-  //
-  // Zach: "being able to send buy list to mana pool". Kept separate from the
-  // per-card prices on every other screen because delivered cost is a property
-  // of an ORDER: his four-card cart is $130.95 across 4 sellers on lowest_price
-  // and $150.32 from one seller on fewest_packages. Neither is "the" price.
-  //
-  // null until he asks. A quote is a snapshot of live inventory that costs a
-  // rate-limited API call, so it is never fetched speculatively.
-  const [quote, setQuote] = useState(null);
-  const [quoting, setQuoting] = useState(false);
-  const [quoteError, setQuoteError] = useState(null);
-  const [quoteModel, setQuoteModel] = useState('lowest_price');
   const [importText, setImportText] = useState('');
   const [importComparison, setImportComparison] = useState(null);
   // The server's copy-level accounting for the previewed paste. Kept beside the
@@ -666,39 +653,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   // once on the server (deckIdentity.buylistForDeck). Re-deriving it here
   // would create a second answer to "must I buy this card", and the one the
   // user acts on would depend on which screen they happened to open.
-  const priceBuylist = async (model) => {
-    if (!activeDeck?.id || quoting) return;
-    setQuoting(true);
-    setQuoteError(null);
-    try {
-      const res = await fetch(`/api/decks/${activeDeck.id}/buylist/price`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // EVERY FAILURE IS NAMED. A quote that silently returns nothing would
-        // read as "this deck is free", and a 409 in particular means Mana Pool
-        // could not source specific cards -- which he needs to SEE, not have
-        // quietly dropped from the order.
-        setQuote(null);
-        if (data.code === 'MANAPOOL_NO_STOCK') {
-          setQuoteError({ kind: 'stock', unavailable: data.unavailable || [] });
-        } else {
-          setQuoteError({ kind: 'error', message: data.error || `Request failed (${res.status})` });
-        }
-        return;
-      }
-      setQuote(data);
-    } catch (e) {
-      setQuote(null);
-      setQuoteError({ kind: 'error', message: e.message });
-    } finally {
-      setQuoting(false);
-    }
-  };
-
   const refreshBuylist = async (deckId) => {
     if (!deckId) return;
     try {
@@ -1252,81 +1206,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
               style={{ width: '100%', height: '220px', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical' }}
               value={handleExportDeckText()}
             />
-            {/* WHAT THIS SHOPPING LIST ACTUALLY COSTS, DELIVERED.
-                Only on the buylist format -- it is the only view where the
-                question means anything. */}
-            {effectiveExportFormat === 'buylist' && (
-              <div style={{
-                marginTop: '0.85rem', padding: '0.85rem', borderRadius: 10,
-                background: 'var(--surface-2)', border: '1px solid var(--border-glass)',
-              }}>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <select
-                    className="input-control"
-                    style={{ flex: 1, fontSize: '0.8rem' }}
-                    value={quoteModel}
-                    onChange={(e) => { setQuoteModel(e.target.value); setQuote(null); setQuoteError(null); }}
-                  >
-                    <option value="lowest_price">{t('deck.mpLowestPrice')}</option>
-                    <option value="fewest_packages">{t('deck.mpFewestPackages')}</option>
-                    <option value="balanced">{t('deck.mpBalanced')}</option>
-                  </select>
-                  <button
-                    className="btn btn-primary"
-                    style={{ flexShrink: 0 }}
-                    disabled={quoting}
-                    onClick={() => priceBuylist(quoteModel)}
-                  >
-                    {quoting ? t('deck.mpPricing') : t('deck.mpPriceIt')}
-                  </button>
-                </div>
-
-                {quote && (
-                  <div style={{ marginTop: '0.75rem', fontSize: '0.82rem' }}>
-                    {[[t('deck.mpItems'), quote.items],
-                      [t('deck.mpShipping'), quote.shipping],
-                      [t('deck.mpFee'), quote.buyerFee]].map(([label, v]) => (
-                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.15rem 0' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                        <span>${Number(v || 0).toFixed(2)}</span>
-                      </div>
-                    ))}
-                    <div style={{
-                      display: 'flex', justifyContent: 'space-between',
-                      padding: '0.4rem 0 0', marginTop: '0.35rem',
-                      borderTop: '1px solid var(--border-glass)', fontWeight: 700,
-                    }}>
-                      <span>{t('deck.mpTotal')}</span>
-                      <span>${Number(quote.total || 0).toFixed(2)}</span>
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '0.3rem' }}>
-                      {t('deck.mpSellers', { count: quote.sellerCount })}
-                    </div>
-                  </div>
-                )}
-
-                {/* A CARD MANA POOL CANNOT SOURCE IS NAMED, never dropped from
-                    the order in silence. */}
-                {quoteError?.kind === 'stock' && (
-                  <div style={{ marginTop: '0.7rem', fontSize: '0.78rem' }}>
-                    <div style={{ color: 'var(--accent-amber, #ff9f0a)', fontWeight: 600 }}>
-                      {t('deck.mpNoStock')}
-                    </div>
-                    {quoteError.unavailable.map((u, i) => (
-                      <div key={i} style={{ color: 'var(--text-secondary)', fontSize: '0.74rem' }}>
-                        {(u.set_code || '').toUpperCase()} #{u.collector_number}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {quoteError?.kind === 'error' && (
-                  <div style={{ marginTop: '0.7rem', fontSize: '0.78rem', color: 'var(--accent-red, #ff453a)' }}>
-                    {quoteError.message}
-                  </div>
-                )}
-              </div>
-            )}
-
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowExportModal(false)}>{t('common.close')}</button>
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleCopyExportText}>{t('deck.copyClipboard')}</button>
