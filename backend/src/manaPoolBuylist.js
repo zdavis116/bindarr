@@ -309,9 +309,18 @@ async function sendToCart(cartLines, shippingAddress) {
     items: (t.subtotal_cents || 0) / 100,
     shipping: (t.shipping_cents || 0) / 100,
     total: (t.total_cents || 0) / 100,
-    // Where he goes to review and pay. Built from the order id rather than
-    // guessed at: a wrong link on a money screen is worse than no link.
-    url: `https://manapool.com/orders/${order.id}`,
+    // WHERE HE GOES TO REVIEW AND PAY.
+    //
+    // /cart is the real page and it resolves (200). I first built
+    // manapool.com/orders/<id> from the order id, which looked plausible and
+    // 404s -- a dead link on a money screen is worse than no link, and I only
+    // caught it by fetching the URL rather than trusting the shape.
+    //
+    // The pending order is attached to his account, so the cart page shows it.
+    url: 'https://manapool.com/cart',
+    // Kept for support: the order IS retrievable through the API by id even
+    // though there is no public page for it.
+    orderApiPath: `/api/v1/buyer/orders/pending-orders/${order.id}`,
   };
 }
 
