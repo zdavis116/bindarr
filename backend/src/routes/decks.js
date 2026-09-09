@@ -7,6 +7,7 @@ const { compartmentLabel } = require('../utils/compartmentSort');
 const { buildDeckWarnings } = require('../utils/deckRules');
 const commanderRules = require('../utils/commanderRules');
 const deckIdentity = require('../utils/deckIdentity');
+const manaPoolBuylist = require('../manaPoolBuylist');
 const { DeckIdentityError } = deckIdentity;
 const { RequestBoundsError, positiveInteger } = require('../utils/requestBounds');
 const { authenticateToken } = require('../middleware/auth');
@@ -2107,6 +2108,89 @@ router.get('/:id/buylist', async (req, res) => {
     });
   } catch (error) {
     sendError(res, error, 'Failed to build buylist');
+  }
+});
+
+// WHAT WOULD IT ACTUALLY COST TO BUY THIS BUYLIST?
+//
+// Zach: "being able to send buy list to mana pool", and later: "I assume the 3
+// calls/min wont be problem if we are just doing 1 buylist at a time."
+//
+// SEPARATE FROM THE CARD PRICES ON EVERY OTHER SCREEN, deliberately. A card's
+// price is a property of a card -- cheapest LP/NM English listing, item only.
+// Delivered cost is a property of an ORDER: the same three cards cost $72.78
+// across three sellers or $82.29 in one parcel, measured. Neither is "the"
+// price, so this is an action he takes rather than a number that appears.
+//
+// POST because it calls a rate-limited external API and the model is an input.
+// It writes nothing.
+router.post('/:id/buylist/price', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+
+    if (!manaPoolBuylist.isConfigured()) {
+      // A missing key is a SETUP problem, not a failure of the deck. Saying so
+      // plainly beats a generic error that sends him looking at his cards.
+      return res.status(503).json({
+        error: 'Mana Pool is not connected on this server',
+        code: 'MANAPOOL_NOT_CONFIGURED',
+      });
+    }
+
+    const model = String(req.body?.model || 'lowest_price');
+    const ALLOWED = ['lowest_price', 'fewest_packages', 'balanced', 'gathered_shipping_only'];
+    if (!ALLOWED.includes(model)) {
+      return res.status(400).json({ error: `Unknown model: ${model}` });
+    }
+
+    // The SAME buylist the screen shows. Recomputing the shortfall here would
+    // be a second implementation of "what do I still need", and this project
+    // has already been bitten by two rules that drifted apart.
+    const buylist = await deckIdentity.buylistForDeck(db, deck.id, req.user.id);
+    const items = buylist.items || [];
+    if (items.length === 0) {
+      return res.status(400).json({
+        error: 'Nothing to buy for this deck',
+        code: 'BUYLIST_EMPTY',
+      });
+    }
+
+    const cards = items.map((i) => ({
+      set_code: i.set_id,
+      collector_number: i.number,
+      finish: i.finish,
+      quantity: i.quantity,
+      name: i.name,
+    }));
+
+    const quote = await manaPoolBuylist.priceBuylist(cards, { model });
+    res.json({
+      deck_id: deck.id,
+      deck_name: deck.name,
+      ...quote,
+      // Echoed so the UI can show WHEN this was true. A delivered quote is a
+      // snapshot of live inventory, not a stored fact -- prices moved $33.73 to
+      // $34.97 inside one afternoon during development.
+      quoted_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error instanceof manaPoolBuylist.ManaPoolStockError) {
+      // NAMED, NOT SWALLOWED. A buylist that quietly drops the cards nobody
+      // stocks is the worst version of this feature: he would order, receive
+      // less than he asked for, and only find out against cardboard.
+      return res.status(409).json({
+        error: error.message,
+        code: 'MANAPOOL_NO_STOCK',
+        unavailable: error.unavailable,
+      });
+    }
+    if (error instanceof manaPoolBuylist.ManaPoolRateLimitError) {
+      return res.status(429).json({ error: error.message, code: 'MANAPOOL_RATE_LIMIT' });
+    }
+    if (error instanceof manaPoolBuylist.ManaPoolAuthError) {
+      return res.status(502).json({ error: error.message, code: 'MANAPOOL_AUTH' });
+    }
+    sendError(res, error, 'Failed to price the buylist');
   }
 });
 
