@@ -8,7 +8,7 @@
 // so you could not see what you were about to paste. One component now, because
 // two copies of an export dialog is exactly how that drift happened.
 import { useState, useMemo } from 'react';
-import { X, Download, Receipt, ShoppingCart, Lock, Unlock } from 'lucide-react';
+import { X, Download, Receipt, ShoppingCart, Check } from 'lucide-react';
 import { buildDeckExport } from '../utils/deckText';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
@@ -53,7 +53,8 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   // immediately, so the toggle is the source of truth rather than a local
   // overlay that disagrees with the next quote.
   const [anyPrinting, setAnyPrinting] = useState({});
-  const [showLines, setShowLines] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [cart, setCart] = useState(null);
   const [sending, setSending] = useState(false);
 
@@ -68,6 +69,44 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     setAnyPrinting(seed);
     return null;
   }, [cards]);
+
+  // Pinned = he wants THAT printing. Counted from the live map so the summary
+  // can never disagree with the checkboxes.
+  const pinnedCount = (cards || [])
+    .filter(c => !anyPrinting[c.desired_card_id || c.card_id]).length;
+
+  const visibleCards = (cards || []).filter(c => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return `${c.name} ${c.set_id} ${c.number}`.toLowerCase().includes(q);
+  });
+
+  // ONE CALL, NOT 49. Zach: "maybe an option to select all for exact printing".
+  // Server-side so a partial sweep cannot leave the deck in a state the screen
+  // does not describe.
+  const bulkPrinting = async (allowAny) => {
+    if (!deckId) return;
+    const prev = anyPrinting;
+    const next = {};
+    for (const c of cards || []) {
+      const id = c.desired_card_id || c.card_id;
+      if (id) next[id] = allowAny;
+    }
+    setAnyPrinting(next);
+    setQuote(null);
+    setCart(null);
+    try {
+      const res = await fetch(`/api/decks/${deckId}/cards/printing-preference`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_any_printing: allowAny }),
+      });
+      if (!res.ok) throw new Error('bulk failed');
+    } catch {
+      setAnyPrinting(prev);
+      showToast(t('deck.mpPrefFailed'), 'error');
+    }
+  };
 
   const togglePrinting = async (cardId, next) => {
     if (!deckId || !cardId) return;
@@ -209,57 +248,122 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           {text || t('deck.nothingToExport')}
         </pre>
 
-        {/* PER-CARD: EXACT PRINTING, OR ANY?
-            A collapsed list so the sheet stays readable for a 49-card buylist,
-            but every card is reachable. Locked = exact, which is the default. */}
+        {/* WHICH CARDS MUST BE THE EXACT PRINTING?
+            Zach: "Printing list is horrible definitely needs a better design...
+            It should default to any printing and I pick the cards I want exact
+            printing."
+
+            The old version was 49 rows of lock icons -- a data dump, not a
+            design. This shows the SUMMARY plus only the cards he has pinned;
+            the full list is one tap away and searchable. The common case
+            (everything flexible) needs no interaction at all. */}
         {deckId && text && cards.length > 0 && (
           <div style={{ padding: '0 1rem 0.6rem' }}>
-            <button onClick={() => setShowLines(v => !v)}
-              style={{ width: '100%', minHeight: 34, borderRadius: 'var(--radius-sm)',
-                       border: '1px solid var(--border-glass)', background: 'transparent',
-                       color: 'var(--text-secondary)', font: 'inherit', fontSize: '0.76rem',
-                       cursor: 'pointer' }}>
-              {showLines
-                ? t('deck.mpHidePrintings')
-                : t('deck.mpEditPrintings', {
-                    count: cards.filter(c => anyPrinting[c.desired_card_id || c.card_id]).length,
-                  })}
-            </button>
-
-            {showLines && (
-              <div style={{ maxHeight: 190, overflow: 'auto', marginTop: '0.45rem',
-                            border: '1px solid var(--border-glass)',
-                            borderRadius: 'var(--radius-sm)' }}>
-                {cards.map((c) => {
-                  const id = c.desired_card_id || c.card_id;
-                  const any = Boolean(anyPrinting[id]);
-                  return (
-                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
-                                           padding: '0.4rem 0.6rem',
-                                           borderBottom: '1px solid var(--border-glass)' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: '0.78rem', whiteSpace: 'nowrap',
-                                      overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {c.name}
-                        </div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>
-                          {(c.set_id || '').toUpperCase()} #{c.number}
-                          {any ? ` · ${t('deck.mpAnyPrinting')}` : ` · ${t('deck.mpExactPrinting')}`}
-                        </div>
-                      </div>
-                      <button onClick={() => togglePrinting(id, !any)}
-                        aria-label={any ? t('deck.mpAnyPrinting') : t('deck.mpExactPrinting')}
-                        style={{ flexShrink: 0, width: 34, height: 30, borderRadius: 'var(--radius-sm)',
-                                 border: 0, background: any ? 'rgba(255,159,10,.16)' : 'var(--surface-3)',
-                                 color: any ? 'var(--accent-amber, #ff9f0a)' : 'var(--text-secondary)',
-                                 display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
-                        {any ? <Unlock size={14} /> : <Lock size={14} />}
-                      </button>
-                    </div>
-                  );
-                })}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)',
+                          background: 'var(--surface-2)' }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: '0.76rem' }}>
+                {pinnedCount === 0
+                  ? t('deck.mpAllFlexible')
+                  : t('deck.mpSomePinned', { count: pinnedCount, total: cards.length })}
               </div>
-            )}
+              <button onClick={() => setPickerOpen(true)}
+                style={{ flexShrink: 0, minHeight: 32, padding: '0 0.7rem',
+                         borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
+                         background: 'transparent', color: 'var(--accent-blue)',
+                         font: 'inherit', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}>
+                {t('deck.mpChoose')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* THE PICKER. A separate full-height sheet so 49 cards have room, with
+            search and the two bulk actions he asked for. */}
+        {pickerOpen && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: Z_MODAL + 1,
+                        background: 'var(--surface-1)', display: 'flex', flexDirection: 'column',
+                        paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.9rem 1rem 0.6rem' }}>
+              <b style={{ fontSize: '1rem' }}>{t('deck.mpExactTitle')}</b>
+              <button onClick={() => setPickerOpen(false)} aria-label={t('common.close')}
+                style={{ width: 34, height: 34, borderRadius: 'var(--radius-sm)', border: 0,
+                         background: 'var(--surface-3)', color: 'var(--text-primary)',
+                         display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '0 1rem 0.5rem', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+              {t('deck.mpExactHint')}
+            </div>
+
+            {/* Bulk actions: "select all for exact printing just in case". */}
+            <div style={{ display: 'flex', gap: '0.4rem', padding: '0 1rem 0.6rem' }}>
+              <button onClick={() => bulkPrinting(false)}
+                style={{ flex: 1, minHeight: 36, borderRadius: 'var(--radius-sm)', border: 0,
+                         background: 'var(--surface-3)', color: 'var(--text-primary)',
+                         font: 'inherit', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                {t('deck.mpPinAll')}
+              </button>
+              <button onClick={() => bulkPrinting(true)}
+                style={{ flex: 1, minHeight: 36, borderRadius: 'var(--radius-sm)', border: 0,
+                         background: 'var(--surface-3)', color: 'var(--text-primary)',
+                         font: 'inherit', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                {t('deck.mpUnpinAll')}
+              </button>
+            </div>
+
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('deck.mpSearchCards')}
+              style={{ margin: '0 1rem 0.6rem', minHeight: 38, borderRadius: 'var(--radius-sm)',
+                       border: '1px solid var(--border-glass)', background: 'var(--surface-2)',
+                       color: 'var(--text-primary)', font: 'inherit', fontSize: '0.85rem',
+                       padding: '0 0.6rem' }}
+            />
+
+            <div style={{ flex: 1, overflow: 'auto', padding: '0 1rem 1rem' }}>
+              {visibleCards.map((c) => {
+                const id = c.desired_card_id || c.card_id;
+                const exact = !anyPrinting[id];
+                return (
+                  <button key={id} onClick={() => togglePrinting(id, exact)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem',
+                             padding: '0.55rem 0.5rem', border: 0, background: 'transparent',
+                             borderBottom: '1px solid var(--border-glass)',
+                             color: 'var(--text-primary)', font: 'inherit', textAlign: 'left',
+                             cursor: 'pointer' }}>
+                    <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6,
+                                   border: `1.5px solid ${exact ? 'var(--accent-blue)' : 'var(--border-glass)'}`,
+                                   background: exact ? 'var(--accent-blue)' : 'transparent',
+                                   display: 'grid', placeItems: 'center', color: '#fff' }}>
+                      {exact && <Check size={13} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.82rem', whiteSpace: 'nowrap',
+                                     overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {c.name}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>
+                        {(c.set_id || '').toUpperCase()} #{c.number}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ padding: '0.8rem 1rem 1rem' }}>
+              <button onClick={() => setPickerOpen(false)}
+                style={{ width: '100%', minHeight: 46, borderRadius: 'var(--radius-md)', border: 0,
+                         background: 'var(--accent-blue)', color: '#fff', font: 'inherit',
+                         fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer' }}>
+                {t('common.done')}
+              </button>
+            </div>
           </div>
         )}
 

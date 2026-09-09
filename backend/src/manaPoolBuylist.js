@@ -234,7 +234,7 @@ async function priceBuylist(cards, { model = 'lowest_price' } = {}) {
  * and Bindarr will not call it. A bug in a hobby app that can spend real money
  * costs money, not a recount. He reviews and pays on Mana Pool's own site.
  */
-async function sendToCart(cartLines) {
+async function sendToCart(cartLines, shippingAddress) {
   if (!Array.isArray(cartLines) || cartLines.length === 0) {
     throw new Error('Nothing to send');
   }
@@ -254,7 +254,13 @@ async function sendToCart(cartLines) {
   }
   lastCallAt = Date.now();
 
-  const { status, data } = await requestTo('/buyer/orders/pending-orders', { line_items });
+  if (!shippingAddress?.line1) {
+    throw new Error('A shipping address is required to create an order');
+  }
+  const { status, data } = await requestTo('/buyer/orders/pending-orders', {
+    line_items,
+    shipping_address: shippingAddress,
+  });
 
   if (status === 401 || status === 403) {
     throw new ManaPoolAuthError('Mana Pool rejected the API key');

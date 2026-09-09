@@ -212,6 +212,73 @@ router.put('/price-sources', authenticateToken, requireAdmin, async (req, res) =
   }
 });
 
+// WHERE HIS CARDS GET SHIPPED.
+//
+// Mana Pool will not create an order without it. Stored once at his choice --
+// "I'm fine with A makes sense" -- rather than retyped per order.
+//
+// GET never returns a partial address as if it were whole: either it is
+// complete and usable, or `configured` is false and the UI asks for it.
+router.get('/shipping', async (req, res) => {
+  try {
+    const row = await db.get(
+      `SELECT ship_line1, ship_city, ship_state, ship_postal_code, ship_country
+         FROM app_settings WHERE id = 1`) || {};
+    const complete = Boolean(row.ship_line1 && row.ship_city
+                          && row.ship_state && row.ship_postal_code);
+    res.json({
+      configured: complete,
+      line1: row.ship_line1 || '',
+      city: row.ship_city || '',
+      state: row.ship_state || '',
+      postal_code: row.ship_postal_code || '',
+      country: row.ship_country || 'US',
+    });
+  } catch (error) {
+    sendError(res, error, 'Failed to read the shipping address');
+  }
+});
+
+router.put('/shipping', async (req, res) => {
+  try {
+    const b = req.body || {};
+    // CLEARING IS EXPLICIT, not a side effect of sending blanks. He should be
+    // able to remove his address from the app deliberately.
+    if (b.clear === true) {
+      await db.run(`UPDATE app_settings SET ship_line1 = NULL, ship_city = NULL,
+                      ship_state = NULL, ship_postal_code = NULL WHERE id = 1`);
+      return res.json({ configured: false });
+    }
+    const line1 = String(b.line1 || '').trim();
+    const city = String(b.city || '').trim();
+    const state = String(b.state || '').trim().toUpperCase();
+    const postal = String(b.postal_code || '').trim();
+    const country = String(b.country || 'US').trim().toUpperCase();
+
+    // A PARTIAL ADDRESS IS REFUSED. Storing three of four fields would let the
+    // send button look ready and then fail at the marketplace.
+    const missing = [];
+    if (!line1) missing.push('line1');
+    if (!city) missing.push('city');
+    if (!state) missing.push('state');
+    if (!postal) missing.push('postal_code');
+    if (missing.length) {
+      return res.status(400).json({
+        error: `Missing: ${missing.join(', ')}`,
+        code: 'INCOMPLETE_ADDRESS',
+      });
+    }
+
+    await db.run(
+      `UPDATE app_settings SET ship_line1 = ?, ship_city = ?, ship_state = ?,
+              ship_postal_code = ?, ship_country = ? WHERE id = 1`,
+      [line1, city, state, postal, country]);
+    res.json({ configured: true, line1, city, state, postal_code: postal, country });
+  } catch (error) {
+    sendError(res, error, 'Failed to save the shipping address');
+  }
+});
+
 module.exports = router;
 // Exported for tests.
 module.exports.isNewer = isNewer;

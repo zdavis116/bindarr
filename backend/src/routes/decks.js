@@ -2248,6 +2248,27 @@ router.patch('/:id/cards/:cardId/printing-preference', async (req, res) => {
   }
 });
 
+// PIN OR UNPIN EVERY CARD AT ONCE.
+//
+// Zach: "maybe an option to select all for exact printing just in case I want
+// all cards to be exact printing." One call rather than 49, which also means
+// one atomic change rather than a half-applied sweep if something fails partway.
+router.patch('/:id/cards/printing-preference', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const allow = req.body?.allow_any_printing;
+    if (typeof allow !== 'boolean') {
+      return res.status(400).json({ error: 'allow_any_printing must be true or false' });
+    }
+    const result = await db.run(
+      `UPDATE deck_cards SET allow_any_printing = ? WHERE deck_id = ?`,
+      [allow ? 1 : 0, deck.id]);
+    res.json({ deck_id: deck.id, allow_any_printing: allow, updated: result.changes });
+  } catch (error) {
+    sendError(res, error, 'Failed to update printing preferences');
+  }
+});
+
 // SEND THE PRICED CART TO MANA POOL.
 //
 // Zach: "is there a way to send my choice to mana pool and have it go to cart?"
@@ -2277,7 +2298,27 @@ router.post('/:id/buylist/cart', async (req, res) => {
       });
     }
 
-    const order = await manaPoolBuylist.sendToCart(cart);
+    // Mana Pool refuses an order without a destination -- shipping cost depends
+    // on it. Read from settings rather than asked for per order.
+    const addr = await db.get(
+      `SELECT ship_line1, ship_city, ship_state, ship_postal_code, ship_country
+         FROM app_settings WHERE id = 1`) || {};
+    if (!addr.ship_line1 || !addr.ship_city || !addr.ship_state || !addr.ship_postal_code) {
+      // NAMED, so the UI can send him to the right screen instead of showing a
+      // marketplace error he cannot act on.
+      return res.status(400).json({
+        error: 'Add a shipping address in Settings before sending a cart',
+        code: 'NO_SHIPPING_ADDRESS',
+      });
+    }
+
+    const order = await manaPoolBuylist.sendToCart(cart, {
+      line1: addr.ship_line1,
+      city: addr.ship_city,
+      state: addr.ship_state,
+      postal_code: addr.ship_postal_code,
+      country: addr.ship_country || 'US',
+    });
     res.json(order);
   } catch (error) {
     if (error instanceof manaPoolBuylist.ManaPoolRateLimitError) {

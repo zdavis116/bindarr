@@ -147,6 +147,12 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   const { t } = useT();
   const [catalogue, setCatalogue] = useState(null);
   const [priceSources, setPriceSources] = useState(null);
+  // WHERE MANA POOL SHIPS TO.
+  //
+  // Required before a cart can be created at all -- their API refuses an order
+  // without a destination. Zach chose to store it once rather than retype it.
+  const [ship, setShip] = useState(null);
+  const [shipSaving, setShipSaving] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [version, setVersion] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -239,6 +245,33 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   // Zach: "Priority order in settings and scryfall last resort." The order is
   // read from the server rather than assumed, so what is shown here is what
   // actually prices his cards.
+  // WHERE MANA POOL SHIPS TO. Required before a cart can be created at all.
+  const loadShipping = useCallback(async () => {
+    try {
+      const r = await fetch('/api/settings/shipping');
+      if (r.ok) setShip(await r.json());
+    } catch { /* the section simply does not render */ }
+  }, []);
+
+  const saveShipping = async (body) => {
+    setShipSaving(true);
+    try {
+      const r = await fetch('/api/settings/shipping', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { showToast(d.error || t('settings.shipSaveFailed'), 'error'); return; }
+      setShip(d);
+      showToast(body.clear ? t('settings.shipCleared') : t('settings.shipSaved'), 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      setShipSaving(false);
+    }
+  };
+
   const loadPriceSources = useCallback(async () => {
     try {
       const res = await fetch('/api/settings/price-sources');
@@ -306,13 +339,14 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     loadCatalogue();
     loadMoxfield();
     loadPriceSources();
+    loadShipping();
     (async () => {
       try {
         const res = await fetch('/api/settings/version');
         if (res.ok) setVersion(await res.json());
       } catch { /* About shows the dash */ }
     })();
-  }, [loadMoxfield, loadCatalogue, loadPriceSources]);
+  }, [loadMoxfield, loadCatalogue, loadPriceSources, loadShipping]);
 
   const checkUpdate = async () => {
     try {
@@ -476,6 +510,61 @@ function SettingsScreen({ user, onNavigate, showToast }) {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* SHIPPING ADDRESS. Beside the price sources because it belongs to
+              the same feature: Mana Pool will not create a cart without a
+              destination, since shipping cost depends on where it goes.
+
+              Real PII in a hobby app. It stays on his hardware, it is sent
+              nowhere except to Mana Pool when HE presses send, and Clear
+              removes it. */}
+          {ship && (
+            <div style={{ marginTop: '0.9rem', paddingTop: '0.8rem',
+                          borderTop: '1px solid var(--border-glass)' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.15rem' }}>
+                {t('settings.shipTitle')}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)',
+                            marginBottom: '0.55rem' }}>
+                {t('settings.shipHint')}
+              </div>
+              <div style={{ display: 'grid', gap: '0.4rem' }}>
+                <input className="input-control" placeholder={t('settings.shipLine1')}
+                  defaultValue={ship.line1} id="ship-line1" style={{ fontSize: '0.82rem' }} />
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <input className="input-control" placeholder={t('settings.shipCity')}
+                    defaultValue={ship.city} id="ship-city"
+                    style={{ flex: 2, minWidth: 0, fontSize: '0.82rem' }} />
+                  <input className="input-control" placeholder={t('settings.shipState')}
+                    defaultValue={ship.state} id="ship-state"
+                    style={{ flex: 1, minWidth: 0, fontSize: '0.82rem' }} />
+                  <input className="input-control" placeholder={t('settings.shipPostal')}
+                    defaultValue={ship.postal_code} id="ship-postal"
+                    style={{ flex: 1, minWidth: 0, fontSize: '0.82rem' }} />
+                </div>
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <button className="btn btn-primary" disabled={shipSaving}
+                    style={{ flex: 1, fontSize: '0.8rem' }}
+                    onClick={() => saveShipping({
+                      line1: document.getElementById('ship-line1')?.value,
+                      city: document.getElementById('ship-city')?.value,
+                      state: document.getElementById('ship-state')?.value,
+                      postal_code: document.getElementById('ship-postal')?.value,
+                      country: 'US',
+                    })}>
+                    {shipSaving ? t('common.saving') : t('common.save')}
+                  </button>
+                  {ship.configured && (
+                    <button className="btn btn-secondary" disabled={shipSaving}
+                      style={{ flexShrink: 0, fontSize: '0.8rem' }}
+                      onClick={() => saveShipping({ clear: true })}>
+                      {t('settings.shipClear')}
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </Section>
