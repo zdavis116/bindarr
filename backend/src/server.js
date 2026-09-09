@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
 const db = require('./db');
+const syncSchedule = require('./utils/syncSchedule');
 const scryfallApi = require('./scryfallApi');
 
 const authRoutes = require('./routes/auth');
@@ -258,16 +259,38 @@ db.initDb()
         }
       };
 
-      // 04:00 local — after Scryfall's daily rebuild, and while Zach is asleep
-      // rather than mid-scan.
-      const nextRun = new Date();
-      nextRun.setHours(4, 0, 0, 0);
-      if (nextRun <= new Date()) nextRun.setDate(nextRun.getDate() + 1);
+      // 04:00 UTC.
+      //
+      // WAS "04:00 local", WHICH WAS NOT LOCAL TO ZACH. Both hosts run Etc/UTC,
+      // so setHours(4) meant 04:00 UTC = MIDNIGHT for him in EDT. Meanwhile
+      // Settings displayed a hardcoded "Nightly at 03:00" that matched neither.
+      // He caught all three: "you say scryfall syncs at 0400 but I see on the
+      // site 0300 hundred is that local time zone adjusted".
+      //
+      // The server now states the schedule once and PUBLISHES the real next-run
+      // timestamp; the UI renders it in the reader's own zone. A time typed into
+      // the UI is a second source of truth, and it had already drifted.
+      const CATALOGUE_HOUR_UTC = 4;
+      const nextCatalogueRun = () => {
+        const d = new Date();
+        d.setUTCHours(CATALOGUE_HOUR_UTC, 0, 0, 0);
+        if (d <= new Date()) d.setUTCDate(d.getUTCDate() + 1);
+        return d;
+      };
+      const nextRun = nextCatalogueRun();
       const msUntilNextRun = nextRun.getTime() - Date.now();
+      syncSchedule.setCatalogueNextRun(nextRun.toISOString());
 
       setTimeout(() => {
         runCatalogueRefresh();
-        setInterval(runCatalogueRefresh, DAY);
+        // RE-PUBLISH after each run, or the countdown freezes at the first
+        // value and quietly becomes wrong — the failure mode this whole change
+        // exists to remove.
+        syncSchedule.setCatalogueNextRun(nextCatalogueRun().toISOString());
+        setInterval(() => {
+          runCatalogueRefresh();
+          syncSchedule.setCatalogueNextRun(nextCatalogueRun().toISOString());
+        }, DAY);
       }, msUntilNextRun);
 
       console.log(
@@ -301,7 +324,15 @@ db.initDb()
       // upstream timestamp has actually moved -- so five minutes is ~288
       // requests on a quiet day.
       const minutes = Math.max(1, Number(process.env.MOXFIELD_POLL_MINUTES) || 5);
+      const MINUTE_MS = 60 * 1000;
+      const publishNextPoll = () =>
+        syncSchedule.setMoxfieldNextRun(
+          new Date(Date.now() + minutes * MINUTE_MS).toISOString());
       const tick = () => {
+        // Published BEFORE the work, not after: a poll that takes a few seconds
+        // should still show the next tick, and a poll that throws must not
+        // leave the countdown stuck on a time that has already passed.
+        publishNextPoll();
         runPoll().then((results) => {
           for (const r of results) {
             if (r.unreachable) {
@@ -316,6 +347,9 @@ db.initDb()
           }
         }).catch(err => console.error('Moxfield poll failed:', err.message));
       };
+      // The first tick is 90s away; publish that, not "now + interval", or the
+      // countdown reads 5 minutes while the poll is actually 90 seconds out.
+      syncSchedule.setMoxfieldNextRun(new Date(Date.now() + 90000).toISOString());
       setTimeout(tick, 90000);
       setInterval(tick, 1000 * 60 * minutes);
     }
