@@ -328,6 +328,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
     // the oracle id, so this is one more query on data in hand.
     const printings = await db.all(
       `SELECT cc.id, cc.set_id, cc.number, cc.set_name, cc.price_trend, cc.finishes,
+              ${MARKETPLACE_PRICE_COLUMNS}
               COALESCE(SUM(col.quantity), 0) AS owned_qty,
               COUNT(col.id)                  AS owned_entries,
               -- Which finish he actually holds it in. A repoint must ask for
@@ -349,6 +350,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
                 ON col.card_id = cc.id
                AND col.user_id = ?
                AND col.list_type = 'collection'
+         ${MARKETPLACE_PRICE_JOIN}
         WHERE cc.oracle_id = ?
         GROUP BY cc.id
         -- Owned first (Zach: "the ones you own filter to the top"), then
@@ -388,10 +390,30 @@ router.get('/card/:cardId/decks', async (req, res) => {
       // `free` is what the per-card repoint may offer. Derived here rather
       // than in the UI: availability is a fact about the whole collection, and
       // no single screen has the information.
-      printings: printings.map(p => ({
-        ...p,
-        quantity_available: Math.max(0, (p.owned_qty || 0) - (p.committed_qty || 0))
-      })),
+      printings: printings.map(p => {
+        // THE PRICE THIS PRINTING WOULD ACTUALLY COST, and where to buy it.
+        //
+        // Zach: "it would be nice as well to have a button that takes you right
+        // to the card in manapool whether the price is clickable or something
+        // else in the card detail."
+        //
+        // The URL comes from the marketplace feed rather than being built from
+        // set code and number: a constructed link that 404s is worse than none,
+        // and Mana Pool ships the canonical one per printing.
+        const priced = resolvePricedCard({ ...p, finish: p.owned_finish || 'nonfoil' });
+        return {
+          ...p,
+          price_trend: priced.price,
+          price_source: priced.source,
+          price_source_label: priced.sourceLabel,
+          price_url: priced.source && priced.source !== 'scryfall' ? p.mp_url : null,
+          // Stock is only meaningful for a marketplace: a price with nothing
+          // behind it is a quote, not an offer.
+          price_available_qty: priced.source && priced.source !== 'scryfall'
+            ? p.mp_available_quantity : null,
+          quantity_available: Math.max(0, (p.owned_qty || 0) - (p.committed_qty || 0))
+        };
+      }),
       owned_entries: ownedRows,
       // The catalogue row, so every tab reads the same card.
       card,

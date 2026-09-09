@@ -1,4 +1,19 @@
 const db = require('../db');
+// NOTE ON PRICES IN THIS FILE.
+//
+// resolveCardPrice here decides where a PHYSICAL card is placed -- which binder
+// page, which slot -- when a location sorts by value. It is deliberately left
+// on the plain helper rather than joined to marketplace prices.
+//
+// Switching the source would silently reorder cardboard Zach has already
+// sleeved: cards would need physically moving to match what the app now
+// believes, with no event telling him why. That is the silent state change he
+// has ruled out, and the cost is a recount against the binder rather than a
+// wrong number on a screen.
+//
+// If value-sorted locations should follow the marketplace price later, it needs
+// to be a deliberate, announced re-sort -- not a side effect of adding a price
+// source.
 const { resolveCardPrice } = require('./priceHelpers');
 
 let setsCache = [];

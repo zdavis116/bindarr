@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Z_MODAL } from '../utils/zLayers';
-import { RefreshCw, X, Trash2, Star, Maximize2 } from 'lucide-react';
+import { RefreshCw, X, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
 import { displayName, secondaryName } from '../utils/cardName';
 import CardImageZoom from './CardImageZoom';
 import CardEntryFields from './CardEntryFields';
@@ -1034,6 +1034,9 @@ function CardInspectorModal({
                       : null],
                     [t('inspector.value'), card.price_trend && ownedCopies
                       ? `$${(Number(card.price_trend) * ownedCopies).toFixed(2)}`
+                        + (thisPrinting?.price_source_label
+                            ? ` · ${thisPrinting.price_source_label}`
+                            : '')
                       : null],
                     // AVAILABILITY OF *THIS* PRINTING, on the tab that claims
                     // to describe what he owns.
@@ -1066,6 +1069,46 @@ function CardInspectorModal({
                     </div>
                   ))}
                 </div>
+
+                {/* BUY THIS CARD. Zach: "it would be nice as well to have a
+                    button that takes you right to the card in manapool whether
+                    the price is clickable or something else in the card
+                    detail."
+
+                    A full-width button rather than only the small icons in the
+                    printings list: this is the printing the sheet is open on,
+                    and it is the one he is most likely to want.
+
+                    Rendered ONLY when the marketplace actually returned a URL
+                    for this printing. A link built from set code and number
+                    would 404 on anything the marketplace does not carry, and a
+                    dead buy button is worse than none. */}
+                {thisPrinting?.price_url && (
+                  <a
+                    href={thisPrinting.price_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      gap: '0.4rem', width: '100%', marginBottom: '0.85rem',
+                      padding: '0.7rem', borderRadius: 10,
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border-glass)',
+                      color: 'var(--accent-blue, #0a84ff)',
+                      fontSize: '0.82rem', fontWeight: 600, textDecoration: 'none',
+                    }}
+                  >
+                    <ExternalLink size={14} />
+                    {t('inspector.buyOn', { source: thisPrinting.price_source_label })}
+                    {/* Stock, because a price with nothing behind it is a quote
+                        rather than an offer. */}
+                    {thisPrinting.price_available_qty > 0 && (
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
+                        · {t('inspector.inStock', { count: thisPrinting.price_available_qty })}
+                      </span>
+                    )}
+                  </a>
+                )}
 
                 {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
                     found four "identical" Tony Starks that were different
@@ -1212,6 +1255,44 @@ function CardInspectorModal({
                                 <span style={{ color: 'var(--text-muted)' }}>
                                 {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}
                               </span>
+                              {/* BUY THIS PRINTING.
+                                  Zach: "a button that takes you right to the
+                                  card in manapool".
+
+                                  A SIBLING, NOT A NESTED LINK. This row is a
+                                  <button> that repoints the deck to this
+                                  printing; an <a> inside it is invalid HTML and
+                                  browsers resolve the double click target
+                                  unpredictably. Rendered as a span with its own
+                                  handler, and stopPropagation so opening the
+                                  marketplace can never silently also change
+                                  which printing his deck asks for. */}
+                              {pr.price_url && (
+                                <span
+                                  role="link"
+                                  tabIndex={0}
+                                  title={t('inspector.buyOn', { source: pr.price_source_label })}
+                                  aria-label={t('inspector.buyOn', { source: pr.price_source_label })}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(pr.price_url, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      window.open(pr.price_url, '_blank', 'noopener,noreferrer');
+                                    }
+                                  }}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center',
+                                    padding: '0.15rem 0.35rem', borderRadius: 6,
+                                    color: 'var(--accent-blue, #0a84ff)', cursor: 'pointer',
+                                  }}
+                                >
+                                  <ExternalLink size={13} />
+                                </span>
+                              )}
                               </span>
                             </button>
                           );
