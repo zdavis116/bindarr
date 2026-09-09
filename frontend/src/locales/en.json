@@ -1210,7 +1210,6 @@
   "settings.adminDetail": "Users, indexes and maintenance",
   "settings.adminPanel": "Administration",
   "settings.automatic": "Automatic",
-  "settings.automaticDetail": "Nightly at 03:00, skipped if Scryfall hasn't rebuilt",
   "settings.automaticOff": "Automatic refresh is switched off",
   "settings.backupHint": "Export your card collection as a CSV or JSON backup, or import a previously exported database. Importing will merge cards into your collection.",
   "settings.backupTitle": "Collection Backup & Data",

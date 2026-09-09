@@ -1098,7 +1098,6 @@
   "settings.adminDetail": "Users, indexes and maintenance",
   "settings.adminPanel": "Administration",
   "settings.automatic": "Automatic",
-  "settings.automaticDetail": "Nightly at 03:00, skipped if Scryfall hasn't rebuilt",
   "settings.automaticOff": "Automatic refresh is switched off",
   "settings.backupHint": "把你的卡牌收藏导出为 CSV 或 JSON 备份，或者导入之前导出的数据库。导入会把卡牌合并到你的收藏中。",
   "settings.backupTitle": "收藏备份与数据",
