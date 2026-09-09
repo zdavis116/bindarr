@@ -39,6 +39,23 @@ const STAGING_TABLE = 'card_cache_staging';
 // times 200 rows is 6000 parameters, comfortably under the 32766 default.
 const INSERT_CHUNK = 200;
 
+// Milliseconds of genuine idle between database batches. Used by BOTH phases:
+// staging the download and swapping it into card_cache.
+//
+// NOT cosmetic. db.js serializes every query, so back-to-back batches leave no
+// gap for a waiting read -- a request arriving mid-refresh queues behind the
+// ENTIRE remaining chain. That is why the first batching attempt only moved the
+// deck list from 25s to 15s, and why staging alone still cost Zach a 26s
+// dashboard after the swap was fixed.
+//
+// One constant rather than one per phase: a refresh that yields in half its
+// work is a refresh that still blocks the app, which is exactly the bug this
+// keeps producing.
+//
+// The cost is a slower refresh (a few seconds across both phases). A background
+// job taking longer is worth an app that stays usable while it runs.
+const APPLY_BATCH_PAUSE_MS = 25;
+
 // Progress is logged every N accepted rows so a first run from empty — the slow
 // case, tens of thousands of cards — looks like work rather than a hang.
 const PROGRESS_EVERY = 10000;
@@ -229,6 +246,34 @@ async function downloadIntoStaging(url, { onProgress } = {}) {
         await insertStagedChunk(batch);
         accepted += batch.length;
         batch = [];
+
+        // YIELD THE EVENT LOOP, exactly as applyStaged does between its batches.
+        //
+        // Zach, right after a deploy: "my dashboard doesn't load and everything
+        // else seems slow to load as well". Measured on dev mid-refresh:
+        //
+        //     /api/stats  26.41s   (0.37s idle)
+        //     /api/decks   2.88s   (0.019s idle)
+        //     /api/health  2.25s   (0.001s idle)
+        //
+        // WHAT ACTUALLY STARVES THE APP HERE IS CPU, NOT THE INSERTS. I built a
+        // probe that hammered reads while running batched 30-column inserts and
+        // it could not reproduce the stall on either machine -- worst read 10ms.
+        // The inserts are not the expensive part. This loop also gunzips a
+        // ~500MB stream and JSON.parses ~117,000 objects, and on the dev box's
+        // TWO cores that parse work occupies the event loop continuously.
+        // Requests are not slow because they wait on SQLite; they are slow
+        // because the loop never gets round to their callbacks.
+        //
+        // So the pause is not about the write queue. It is the only point in a
+        // tight synchronous parse loop where the runtime can run anything else.
+        //
+        // I chunked the SWAP once before and reported 24.99s -> 1.21s. That was
+        // honest but incomplete: the refresh I measured found an unchanged
+        // Scryfall build and skipped this phase entirely. Fixing the half I
+        // could see and calling the problem solved is the mistake worth naming.
+        await new Promise(resolve => setTimeout(resolve, APPLY_BATCH_PAUSE_MS));
+
         if (accepted % PROGRESS_EVERY < INSERT_CHUNK && onProgress) {
           onProgress({ accepted, skipped });
         }
@@ -311,19 +356,33 @@ async function findColourIdentityCorrections() {
 // are fresher than others, and the next refresh completes it. No row is
 // deleted, nothing a collection or deck points at can vanish, and the
 // already-committed swapCommitted flag still reports honestly.
-const APPLY_BATCH_ROWS = 2000;
-
-// Milliseconds of genuine idle between batches.
+// How many staged rows to copy per transaction.
 //
-// NOT cosmetic. db.js serializes every query, so back-to-back batches leave no
-// gap for a waiting read to be served -- a request that arrives mid-apply
-// queues behind the ENTIRE remaining chain, which is why the first batching
-// attempt only moved the deck list from 25s to 15s. Yielding the event loop
-// between batches is what actually lets reads interleave.
+// SIZED BY HOW LONG ONE TRANSACTION BLOCKS A READER, not by throughput.
 //
-// The cost is a slower refresh (~53 batches x 25ms = ~1.3s added). A background
-// job taking a second longer is worth an app that stays usable while it runs.
-const APPLY_BATCH_PAUSE_MS = 25;
+// db.js chains every query onto ONE global operation queue, and
+// withTransaction() takes a single slot for its whole BEGIN..COMMIT block. So
+// while the swap runs, the queue interleaves like this:
+//
+//     [swap txn][stats query 1][swap txn][stats query 2][swap txn]...
+//
+// A request issuing N sequential queries therefore waits N swap transactions,
+// not one. /api/stats issues roughly twenty -- it runs a per-set COUNT in a loop
+// plus a dozen other reads -- which is why the DASHBOARD was the screen Zach
+// could not load while every other screen merely felt slow:
+//
+//     during the swap   /api/stats 28-31s   /api/decks 2.9s   /api/health 2.2s
+//
+// At 2000 rows a transaction took ~1.4s, so twenty queries queued ~28s. At 250
+// it is ~175ms, so the same request waits ~3.5s worst case. More transactions
+// cost more total time; the refresh is a background job and the app is not.
+//
+// THIS IS THE THIRD THING I "FIXED" HERE. The first two -- batching the swap,
+// then yielding during staging -- were aimed at mechanisms I had not measured.
+// Staging holds a steady 2.2s, the colour-identity query takes 20ms, and a
+// 150MB WAL leaves reads at 3ms; all three were ruled out by measurement before
+// this change was written.
+const APPLY_BATCH_ROWS = 250;
 
 async function applyStaged(onProgress) {
   const corrections = await findColourIdentityCorrections();
@@ -641,8 +700,27 @@ async function refreshCatalogue(options = {}) {
   }
 }
 
+// HOW LONG SINCE THE CATALOGUE WAS LAST SUCCESSFULLY IMPORTED.
+//
+// Returns milliseconds, or null when it has never run. Reads the same column
+// Settings > Data sources > Scryfall displays, so "last refreshed" on screen and
+// the scheduler's idea of staleness cannot disagree.
+//
+// This exists so startup can ask "is the catalogue actually stale?" instead of
+// refreshing because a process restarted. See the scheduler in server.js.
+async function msSinceLastRefresh() {
+  const row = await db.get(
+    `SELECT card_catalogue_refreshed_at AS refreshedAt FROM app_settings WHERE id = 1`
+  ).catch(() => null);
+  if (!row || !row.refreshedAt) return null;
+  const then = new Date(`${String(row.refreshedAt).replace(' ', 'T')}Z`).getTime();
+  if (!Number.isFinite(then)) return null;
+  return Date.now() - then;
+}
+
 module.exports = {
   refreshCatalogue,
+  msSinceLastRefresh,
   // Exported for tests and for the manual trigger script.
   fetchBulkInfo,
   isWantedCard,

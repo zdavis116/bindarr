@@ -173,17 +173,38 @@ router.get('/stats', async (req, res) => {
       'sv3pt5': 165, // 151
     };
 
-    const setProgress = [];
-    for (const setId in setCounts) {
-      const userUniqueInSet = await db.get(`
-        SELECT COUNT(DISTINCT card_id) as count
+    // ONE QUERY FOR EVERY SET, NOT ONE QUERY PER SET.
+    //
+    // This was a loop issuing a separate COUNT per set id. Idle that is cheap
+    // and nobody notices. But db.js chains every query onto one global queue,
+    // so during a catalogue refresh each of those queries waits behind a whole
+    // swap transaction -- and the waits ADD UP. Measured on dev mid-refresh:
+    //
+    //     /api/stats   28-31s      /api/decks  2.9s     /api/health  2.2s
+    //
+    // The dashboard was not slow because any one query was slow. It was slow
+    // because it asked twenty times and queued twenty times, which is exactly
+    // why it was the screen Zach could not load while the others merely felt
+    // sluggish. Grouping collapses those twenty waits into one.
+    //
+    // Same numbers by construction: the GROUP BY counts distinct card_id per
+    // set for this user, which is what the per-set query returned. Sets the
+    // user owns nothing from are absent from the result and fall back to 0,
+    // exactly as a COUNT over no rows did.
+    const ownedBySet = new Map();
+    const setRows = await db.all(`
+      SELECT cc.set_id AS setId, COUNT(DISTINCT c.card_id) AS count
         FROM collection c
         JOIN card_cache cc ON c.card_id = cc.id
-        WHERE cc.set_id = ? AND c.user_id = ?
-      `, [setId, req.user.id]);
+       WHERE c.user_id = ?
+       GROUP BY cc.set_id
+    `, [req.user.id]);
+    for (const row of setRows) ownedBySet.set(row.setId, row.count);
 
+    const setProgress = [];
+    for (const setId in setCounts) {
       const size = setSizes[setId] || 150; // default estimate if set not in database
-      const count = userUniqueInSet.count;
+      const count = ownedBySet.get(setId) || 0;
       setProgress.push({
         setId,
         setName: setCounts[setId].name,

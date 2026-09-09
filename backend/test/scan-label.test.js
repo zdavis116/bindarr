@@ -23,25 +23,32 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
 (async () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'collection.js'), 'utf8');
 
-  // 1. The queue row must PERSIST which capture produced it.
-  assert.ok(/INSERT INTO scan_review_queue[\s\S]{0,400}dump_file\)/.test(src),
-    'the queue INSERT must store dump_file');
-  assert.ok(/\n\s*lastDumpName,\n/.test(src),
+  // 1. The staged row must PERSIST which capture produced it.
+  //
+  // THE TABLE IS scan_staging NOW. scan_review_queue and its /scan-queue routes
+  // were deleted once the scanner rebuild merged the review queue into the one
+  // Scanned list; this test kept naming the old table and so went red on main.
+  // The RULE is unchanged and is the reason this test exists: a row must record
+  // its own capture, because wrong labels in the corpus are worse than none --
+  // every future measurement inherits them silently.
+  assert.ok(/INSERT INTO scan_staging[\s\S]{0,600}dump_file\)/.test(src),
+    'the staging INSERT must store dump_file');
+  assert.ok(/\n\s*lastDumpName \|\| null\]\);/.test(src),
     'the capture name must be among the INSERT values');
   pass('FLBL-TC1', 'the queue row records which capture produced it');
 
   // 2. Resolving must label THAT capture, not the most recent one.
-  assert.ok(/labelCapture\(entry\.dump_file \|\| null,/.test(src),
+  assert.ok(/labelCapture\(row\.dump_file \|\| null,/.test(src),
     'labelCapture must use the row\'s own dump_file — using lastDumpName here '
     + 'would put every label from a session onto the last image scanned');
   // The QUEUE path must not use lastDumpName: a queue row is resolved long
   // after its scan, so the "most recent" capture is some other card entirely.
   // The STAGING path is different -- it labels during the scan itself, when
   // lastDumpName IS this card's capture, and no dump_file exists to use.
-  const queueBlock = src.slice(src.indexOf("source: 'queue-resolve'") - 600,
-                               src.indexOf("source: 'queue-resolve'"));
-  assert.ok(!/labelCapture\(lastDumpName/.test(queueBlock),
-    'the queue path must not label using the module-level most-recent name');
+  const resolveBlock = src.slice(src.indexOf("source: 'stage-resolve'") - 600,
+                                 src.indexOf("source: 'stage-resolve'"));
+  assert.ok(!/labelCapture\(lastDumpName/.test(resolveBlock),
+    'the resolve path must not label using the module-level most-recent name');
   pass('FLBL-TC2', 'a resolved card labels its OWN capture, not the newest one');
 
   // 3. The name must be assigned synchronously, before the async write.
@@ -54,8 +61,8 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
 
   // 4. The migration must exist, or dump_file is silently dropped on older DBs.
   const db = fs.readFileSync(path.join(__dirname, '..', 'src', 'db.js'), 'utf8');
-  assert.ok(/scan_review_queue[\s\S]{0,200}dump_file/.test(db)
-    || /ALTER TABLE scan_review_queue ADD COLUMN dump_file TEXT/.test(db),
+  assert.ok(/scan_staging[\s\S]{0,300}dump_file/.test(db)
+    || /ALTER TABLE scan_staging ADD COLUMN dump_file TEXT/.test(db),
     'existing databases need a migration for dump_file');
   pass('FLBL-TC4', 'existing databases get the dump_file column');
 
@@ -75,12 +82,12 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
   //    This is the third time in this project a fix has landed in one path and
   //    not its twin (three copies of the strip lookup; the migration without
   //    the CREATE TABLE). Pinning both call sites rather than trusting myself.
-  assert.ok(/source: 'queue-resolve'/.test(src),
-    'resolving a queued card must label its capture');
+  assert.ok(/source: 'stage-resolve'/.test(src),
+    'resolving a staged card must label its capture');
   assert.ok(/source: 'scan-stage'/.test(src),
     'staging a card must ALSO label its capture — a corpus of only failures '
     + 'cannot show that a change preserved the successes');
-  pass('FLBL-TC6', 'both staged and queue-resolved scans write a label');
+  pass('FLBL-TC6', 'both staged and stage-resolved scans write a label');
 
   console.log(`\nscan-label.test.js: ${passed} cases passed`);
 })().catch((e) => { console.error('FAIL: FLBL', e.message); process.exit(1); });

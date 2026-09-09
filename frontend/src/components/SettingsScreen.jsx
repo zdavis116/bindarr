@@ -96,6 +96,53 @@ function when(iso, t) {
   return Number.isNaN(d.getTime()) ? t('settings.never') : d.toLocaleDateString();
 }
 
+// A COUNTDOWN TO THE NEXT SYNC, plus the clock time it lands at.
+//
+// Zach: "for each sync to show when the next sync to run like a countdown.
+// Because you say scryfall syncs at 0400 but I see on the site 0300 hundred is
+// that local time zone adjusted if so can I also see 0300 est or something."
+//
+// He was reading three different numbers for one schedule. Both halves are here
+// deliberately: the countdown answers "how long until it happens", the clock
+// time answers "at what time", and neither is typed by hand -- they are derived
+// from the timestamp the scheduler published.
+//
+// toLocaleTimeString with timeZoneName renders in the READER's zone and labels
+// it, so "23:00 EST" on his phone and "04:00 UTC" on the server are visibly the
+// same instant rather than two contradictory claims.
+function untilText(iso, serverNow, t) {
+  if (!iso) return null;
+  const target = new Date(iso).getTime();
+  if (Number.isNaN(target)) return null;
+
+  // Measure against the SERVER's clock, not the device's. A phone running a few
+  // minutes fast would otherwise show a countdown that disagrees with when the
+  // sync actually fires, and "why didn't it sync?" becomes unanswerable.
+  const skew = serverNow ? Date.now() - new Date(serverNow).getTime() : 0;
+  const ms = target - (Date.now() - skew);
+
+  // Due but not yet reported as started: say so rather than counting into
+  // negative numbers or freezing at "0m", both of which read as broken.
+  if (ms <= 0) return t('settings.dueNow');
+
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return t('settings.inMinutes', { count: mins });
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem
+    ? t('settings.inHoursMinutes', { hours: hrs, minutes: rem })
+    : t('settings.inHours', { count: hrs });
+}
+
+function clockText(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString([], {
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+  });
+}
+
 function SettingsScreen({ user, onNavigate, showToast }) {
   const { t } = useT();
   const [catalogue, setCatalogue] = useState(null);
@@ -183,12 +230,32 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     }
   };
 
-  const loadCatalogue = async () => {
+  // useCallback so the countdown effect can depend on it without re-subscribing
+  // on every render.
+  const loadCatalogue = useCallback(async () => {
     try {
       const res = await fetch('/api/settings/catalogue');
       if (res.ok) setCatalogue(await res.json());
     } catch { /* the row shows a dash rather than a wrong number */ }
-  };
+  }, []);
+
+  // Re-render every 30s so the countdown actually counts down.
+  //
+  // A number labelled "in 4h 12m" that is really 20 minutes stale is worse than
+  // no countdown -- it looks live and is not. 30s is finer than the minute
+  // resolution displayed, so the text is never visibly behind.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTick(n => n + 1);
+      // Re-read the schedule too, not just re-render. The Moxfield poll fires
+      // every five minutes, so a cached next-run time goes stale fast; without
+      // this the countdown would tick past zero and sit on "due now" forever.
+      loadCatalogue();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [loadCatalogue]);
+
 
   useEffect(() => {
     loadCatalogue();
@@ -199,7 +266,7 @@ function SettingsScreen({ user, onNavigate, showToast }) {
         if (res.ok) setVersion(await res.json());
       } catch { /* About shows the dash */ }
     })();
-  }, [loadMoxfield]);
+  }, [loadMoxfield, loadCatalogue]);
 
   const checkUpdate = async () => {
     try {
@@ -317,8 +384,13 @@ function SettingsScreen({ user, onNavigate, showToast }) {
             <Row
               indent
               label={t('settings.automatic')}
-              detail={t('settings.automaticDetail')}
-              value={t('settings.on')}
+              detail={catalogue?.catalogue_next_run
+                ? t('settings.nextRunAt', { time: clockText(catalogue.catalogue_next_run) })
+                : t('settings.automaticOff')}
+              value={catalogue?.running_since
+                ? t('settings.refreshing')
+                : (untilText(catalogue?.catalogue_next_run, catalogue?.server_now, t)
+                   || t('settings.off'))}
             />
             <Row
               indent
@@ -396,8 +468,11 @@ function SettingsScreen({ user, onNavigate, showToast }) {
                 <Row
                   indent
                   label={t('settings.moxAutomatic')}
-                  detail={t('settings.moxAutomaticDetail')}
-                  value={t('settings.on')}
+                  detail={catalogue?.moxfield_next_run
+                    ? t('settings.nextRunAt', { time: clockText(catalogue.moxfield_next_run) })
+                    : t('settings.moxAutomaticDetail')}
+                  value={untilText(catalogue?.moxfield_next_run, catalogue?.server_now, t)
+                    || t('settings.off')}
                 />
                 <Row
                   indent

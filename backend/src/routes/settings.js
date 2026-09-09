@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const db = require('../db');
+const syncSchedule = require('../utils/syncSchedule');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
@@ -98,6 +99,16 @@ router.get('/catalogue', authenticateToken, async (req, res) => {
       // Non-null while a refresh holds the lock, so the screen can say "running"
       // instead of showing a last-refreshed time that is about to change.
       running_since: meta ? meta.runningSince : null,
+      // WHEN EACH SYNC RUNS NEXT, from the schedulers themselves.
+      //
+      // Zach: "I would like ... for each sync to show when the next sync to run
+      // like a countdown." He asked because the numbers disagreed -- the UI said
+      // 03:00, the scheduler said 04:00 UTC, and 04:00 UTC is midnight for him.
+      //
+      // Reported as ISO timestamps rather than a description, so the client can
+      // render them in the reader's own timezone. null means that scheduler is
+      // switched off, which the UI must state rather than count down to nothing.
+      ...syncSchedule.getSchedule(),
     });
   } catch (error) {
     console.error(error);
