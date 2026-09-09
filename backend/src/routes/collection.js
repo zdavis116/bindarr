@@ -406,6 +406,8 @@ router.get('/card/:cardId/decks', async (req, res) => {
           price_trend: priced.price,
           price_source: priced.source,
           price_source_label: priced.sourceLabel,
+        price_condition: priced.condition || null,
+          price_condition: priced.condition || null,
           price_url: priced.source && priced.source !== 'scryfall' ? p.mp_url : null,
           // Stock is only meaningful for a marketplace: a price with nothing
           // behind it is a quote, not an offer.

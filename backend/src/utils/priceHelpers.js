@@ -65,10 +65,22 @@ function resolvePricedCard(card) {
         : card.mp_price_cents_foil)
     : card.mp_price_cents;
   if (Number.isFinite(cents) && cents > 0) {
+    // WHICH CONDITION THAT PRICE IS FOR.
+    //
+    // Zach: "Lowest condition I would go is lightly played, so if there is
+    // value for lightly played that is what I would like to use if not use near
+    // mint." $32.99 LP and $33.73 NM are different offers; a price with no
+    // condition beside it cannot be judged.
+    const condition = isFoilish
+      ? (finish === 'etched'
+          ? (card.mp_condition_etched || card.mp_condition_foil)
+          : card.mp_condition_foil)
+      : card.mp_condition;
     return {
       price: cents / 100,
       source: card.mp_source || 'manapool',
       sourceLabel: MARKETPLACE_LABELS[card.mp_source || 'manapool'] || 'Marketplace',
+      condition: condition || null,
     };
   }
 
@@ -112,6 +124,9 @@ const MARKETPLACE_PRICE_COLUMNS = `
   mp.price_cents        AS mp_price_cents,
   mp.price_cents_foil   AS mp_price_cents_foil,
   mp.price_cents_etched AS mp_price_cents_etched,
+  mp.condition          AS mp_condition,
+  mp.condition_foil     AS mp_condition_foil,
+  mp.condition_etched   AS mp_condition_etched,
   mp.available_quantity AS mp_available_quantity,
   mp.url                AS mp_url,
   mp.source             AS mp_source,`;

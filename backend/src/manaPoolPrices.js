@@ -1,39 +1,60 @@
-// MANA POOL PRICES.
+// MANA POOL PRICES, FROM THE PER-CONDITION VARIANTS FEED.
 //
-// Zach: "I would like to see price of card from mana pool".
+// Zach: "I only care about LP or NM and English language for exact printing."
 //
-// GET /prices/singles is PUBLIC -- no key, no account. Verified against the
-// live endpoint: 102,929 rows, every one carrying a scryfall_id, and measured
-// coverage of Zach's real data at 1,508/1,508 collection rows and 472/474 deck
-// cards. That clean join on the printing id is what makes this worth doing;
-// name-matching marketplaces is where these integrations usually go wrong.
+// WHY THIS REPLACED /prices/singles. That endpoint returns one summary row per
+// printing, and its numbers DO NOT APPEAR ON MANA POOL'S OWN PAGE. Measured on
+// The Ur-Dragon PF25 #15 foil:
 //
-// (The BUYER side -- POST /buyer/optimizer -- does need an API key, despite the
-// OpenAPI spec declaring no security on it. The live endpoint returns 401
-// "Anonymous API access is not permitted". That half is not built yet.)
+//   /prices/singles   $34.37   <- appears nowhere on their page
+//   their page        $32.99, $33.73, $34.27, $34.29, $34.98, $35.69, $35.99
+//   /prices/variants  $32.99 LP (5 in stock), $33.73 NM (21 in stock)
+//
+// Zach caught it: "it says the value is 34.37 but I don't see any value like
+// that in mana pool". He was right. I had trusted the field name and the docs
+// instead of checking a number against the page it links to. A price Bindarr
+// states that the marketplace contradicts is worse than no price -- he finds out
+// at the point of buying.
+//
+// THE RULE, his words: lowest condition is Lightly Played. Use LP when it
+// exists, otherwise NM, and never anything below. MP/HP/DMG are real rows in
+// this feed (132k/46k/23k of them) and are deliberately ignored -- a Damaged
+// card is not a substitute for the one he is pricing.
+//
+// ENGLISH ONLY. 56,768 keys in this feed differ ONLY by language:
+//   7ED #275 NF MP  Czech   $0.20    1 in stock
+//   7ED #275 NF MP  English $0.15  141 in stock
+// Taking the global minimum would quietly price his collection in Czech.
 const https = require('https');
 const zlib = require('zlib');
 const db = require('./db');
 
 const SOURCE = 'manapool';
 const HOST = 'manapool.com';
-const PATH = '/api/v1/prices/singles';
+const PATH = '/api/v1/prices/variants';
 
-// Same reasoning as the catalogue's INSERT_CHUNK: one round trip per card costs
-// far more than the download, but the bound-parameter count must stay inside
-// SQLite's limit. 7 columns x 300 rows = 2,100 parameters.
-const INSERT_CHUNK = 300;
+// Conditions Zach will accept, best-value first. Order IS the preference: the
+// first one with a real price wins. Anything not in this list is ignored.
+const ACCEPTED_CONDITIONS = ['LP', 'NM'];
+const LANGUAGE = 'EN';
 
-// Milliseconds of idle between batches.
-//
-// NOT COSMETIC, and this project has already paid for learning why. db.js chains
-// every query onto ONE global operation queue, so a long run of back-to-back
-// writes leaves no gap for a waiting read -- that is exactly how the catalogue
-// refresh made Zach's dashboard take 26 seconds. A background price import must
-// not repeat it.
+// finish_id in the feed -> the column it prices.
+const FINISH_COLUMN = { NF: 'nonfoil', FO: 'foil', EF: 'etched' };
+
+// 7 columns x 250 rows = 1,750 bound parameters, inside SQLite's 32,766 limit.
+const INSERT_CHUNK = 250;
+
+// Idle between batches so a background import cannot starve a foreground read.
+// db.js chains every query onto ONE global queue; back-to-back writes are
+// exactly how the catalogue refresh made the dashboard take 26 seconds.
 const BATCH_PAUSE_MS = 25;
 
-function fetchPrices() {
+// The variants feed is ~201MB uncompressed (535,677 rows) against the singles
+// feed's 51MB. A cap well above that turns a runaway response into a clear
+// error instead of an out-of-memory kill.
+const MAX_BYTES = 600 * 1024 * 1024;
+
+function fetchVariants() {
   return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: HOST, path: PATH, method: 'GET',
@@ -41,7 +62,7 @@ function fetchPrices() {
         'User-Agent': 'Bindarr/1.0 (self-hosted collection manager)',
         'Accept-Encoding': 'gzip',
       },
-      timeout: 120000,
+      timeout: 300000,
     }, (res) => {
       if (res.statusCode !== 200) {
         res.resume();
@@ -54,11 +75,9 @@ function fetchPrices() {
       let bytes = 0;
       stream.on('data', (c) => {
         bytes += c.length;
-        // The payload measured ~51MB uncompressed. A cap well above that turns a
-        // runaway response into a clear error instead of an out-of-memory kill.
-        if (bytes > 250 * 1024 * 1024) {
+        if (bytes > MAX_BYTES) {
           req.destroy();
-          return reject(new Error('Mana Pool response exceeded 250MB; refusing it'));
+          return reject(new Error('Mana Pool response exceeded 600MB; refusing it'));
         }
         chunks.push(c);
       });
@@ -77,32 +96,67 @@ function fetchPrices() {
   });
 }
 
-// Which price to take for a row.
+// Fold 535k condition-level rows down to one row per printing.
 //
-// price_cents is Mana Pool's headline number -- the cheapest listing in any
-// condition. price_cents_nm is near-mint only. The headline is what their site
-// leads with and what "what would this cost me" means in practice, so that is
-// what Bindarr shows; NM is deliberately not substituted, because quietly
-// showing a higher number than the marketplace does would make Bindarr look
-// wrong to anyone who clicks through.
-function normalise(row) {
-  if (!row || !row.scryfall_id) return null;
-  const n = (v) => (Number.isFinite(v) && v > 0 ? v : null);
-  const cents = n(row.price_cents);
-  const foil = n(row.price_cents_foil);
-  const etched = n(row.price_cents_etched);
-  // A row with no usable price at all is a miss, not a zero -- storing it would
-  // make the source look like it has an answer when it does not, and the
-  // fallback chain would stop at it.
-  if (cents === null && foil === null && etched === null) return null;
-  return {
-    card_id: row.scryfall_id,
-    price_cents: cents,
-    price_cents_foil: foil,
-    price_cents_etched: etched,
-    available_quantity: Number.isFinite(row.available_quantity) ? row.available_quantity : null,
-    url: typeof row.url === 'string' ? row.url : null,
-  };
+// For each (printing, finish) keep the best ACCEPTED condition: LP if it has a
+// price, else NM. Exported for tests -- this is the whole rule.
+function foldVariants(rows) {
+  const byCard = new Map();
+
+  for (const r of rows) {
+    if (!r || r.language_id !== LANGUAGE) continue;
+    const cardId = r.scryfall_id;
+    if (!cardId) continue;
+
+    const finish = FINISH_COLUMN[r.finish_id];
+    if (!finish) continue;
+
+    const rank = ACCEPTED_CONDITIONS.indexOf(r.condition_id);
+    if (rank < 0) continue;                       // MP / HP / DMG: not offered
+
+    const price = Number(r.low_price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    let entry = byCard.get(cardId);
+    if (!entry) {
+      entry = { card_id: cardId, url: r.url || null, finishes: {} };
+      byCard.set(cardId, entry);
+    }
+    if (!entry.url && r.url) entry.url = r.url;
+
+    const cur = entry.finishes[finish];
+    // BETTER CONDITION WINS, NOT LOWER PRICE. An MP copy can undercut an LP one
+    // and he has ruled that out; within the accepted set, LP is preferred over
+    // NM because it is the cheaper of the two he will accept.
+    if (!cur || rank < cur.rank) {
+      entry.finishes[finish] = {
+        rank,
+        price_cents: Math.round(price),
+        condition: r.condition_id,
+        qty: Number.isFinite(r.available_quantity) ? r.available_quantity : null,
+      };
+    }
+  }
+
+  const out = [];
+  for (const e of byCard.values()) {
+    const nf = e.finishes.nonfoil, fo = e.finishes.foil, ef = e.finishes.etched;
+    if (!nf && !fo && !ef) continue;
+    out.push({
+      card_id: e.card_id,
+      price_cents: nf ? nf.price_cents : null,
+      price_cents_foil: fo ? fo.price_cents : null,
+      price_cents_etched: ef ? ef.price_cents : null,
+      condition: nf ? nf.condition : null,
+      condition_foil: fo ? fo.condition : null,
+      condition_etched: ef ? ef.condition : null,
+      // Stock for whichever finish priced; a price with nothing behind it is a
+      // quote rather than an offer.
+      available_quantity: (nf || fo || ef).qty,
+      url: e.url,
+    });
+  }
+  return out;
 }
 
 async function refreshManaPoolPrices({ onProgress } = {}) {
@@ -115,50 +169,52 @@ async function refreshManaPoolPrices({ onProgress } = {}) {
 
   let payload;
   try {
-    payload = await fetchPrices();
+    payload = await fetchVariants();
   } catch (err) {
-    // RECORD THE FAILURE. A price that is three days old because the fetch has
-    // been failing must be diagnosable in Settings, not just quietly stale.
-    await db.run(
-      `UPDATE source_price_meta SET last_error = ? WHERE source = ?`,
-      [err.message, SOURCE]
-    );
+    // RECORD THE FAILURE so Settings can say WHY a price is stale rather than
+    // just showing an old number.
+    await db.run(`UPDATE source_price_meta SET last_error = ? WHERE source = ?`,
+                 [err.message, SOURCE]);
     throw err;
   }
 
-  const rows = Array.isArray(payload?.data) ? payload.data : [];
-  if (rows.length === 0) {
+  const raw = Array.isArray(payload?.data) ? payload.data : [];
+  if (raw.length === 0) {
     const msg = 'Mana Pool returned no rows; keeping the previous prices';
     await db.run(`UPDATE source_price_meta SET last_error = ? WHERE source = ?`, [msg, SOURCE]);
     throw new Error(msg);
   }
 
-  // UPSERT IN PLACE, never delete-then-insert.
-  //
-  // Emptying the table first would leave every screen showing no Mana Pool price
-  // for the minute the import runs, and a crash mid-import would leave it that
-  // way permanently. Rows for cards that vanish from the feed keep their last
-  // known price and their updated_at stops moving, which is visible as staleness
-  // rather than as a silent disappearance.
+  const priced = foldVariants(raw);
+
+  // UPSERT IN PLACE, never delete-then-insert: emptying the table first would
+  // leave every screen unpriced for the duration of the import, and a crash
+  // mid-run would leave it that way permanently.
   let written = 0;
   let batch = [];
   const flush = async () => {
     if (!batch.length) return;
-    const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').join(', ');
+    const values = batch.map(() =>
+      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').join(', ');
     const params = [];
     for (const r of batch) {
       params.push(SOURCE, r.card_id, r.price_cents, r.price_cents_foil,
-                  r.price_cents_etched, r.available_quantity, r.url);
+                  r.price_cents_etched, r.condition, r.condition_foil,
+                  r.condition_etched, r.available_quantity, r.url);
     }
     await db.run(
       `INSERT INTO source_prices
          (source, card_id, price_cents, price_cents_foil, price_cents_etched,
+          condition, condition_foil, condition_etched,
           available_quantity, url, updated_at)
        VALUES ${values}
        ON CONFLICT(source, card_id) DO UPDATE SET
          price_cents        = excluded.price_cents,
          price_cents_foil   = excluded.price_cents_foil,
          price_cents_etched = excluded.price_cents_etched,
+         condition          = excluded.condition,
+         condition_foil     = excluded.condition_foil,
+         condition_etched   = excluded.condition_etched,
          available_quantity = excluded.available_quantity,
          url                = excluded.url,
          updated_at         = CURRENT_TIMESTAMP`,
@@ -167,13 +223,10 @@ async function refreshManaPoolPrices({ onProgress } = {}) {
     written += batch.length;
     batch = [];
     await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
-    if (onProgress && written % 20000 < INSERT_CHUNK) onProgress(written, rows.length);
+    if (onProgress && written % 20000 < INSERT_CHUNK) onProgress(written, priced.length);
   };
 
-  let skipped = 0;
-  for (const raw of rows) {
-    const r = normalise(raw);
-    if (!r) { skipped++; continue; }
+  for (const r of priced) {
     batch.push(r);
     if (batch.length >= INSERT_CHUNK) await flush();
   }
@@ -186,7 +239,14 @@ async function refreshManaPoolPrices({ onProgress } = {}) {
     [written, SOURCE]
   );
 
-  return { written, skipped, asOf: payload?.meta?.as_of || null };
+  return { written, skipped: raw.length - priced.length,
+           variantRows: raw.length, asOf: payload?.meta?.as_of || null };
 }
 
-module.exports = { refreshManaPoolPrices, normalise, SOURCE };
+module.exports = {
+  refreshManaPoolPrices,
+  foldVariants,
+  ACCEPTED_CONDITIONS,
+  LANGUAGE,
+  SOURCE,
+};

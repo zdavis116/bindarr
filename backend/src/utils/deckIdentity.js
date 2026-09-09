@@ -386,6 +386,9 @@ async function availabilityForDeck(database, deckId, userId) {
                  WHEN cc.price_trend > 0 THEN 'scryfall'
                  ELSE NULL
             END AS price_source,
+            CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                 THEN mp.condition_foil ELSE mp.condition
+            END AS price_condition,
             mp.url AS price_url
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id

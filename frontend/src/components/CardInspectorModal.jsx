@@ -1080,6 +1080,12 @@ function CardInspectorModal({
                       ? `$${(Number(thisPrinting?.price_trend ?? card.price_trend) * ownedCopies).toFixed(2)}`
                         + (thisPrinting?.price_source_label
                             ? ` · ${thisPrinting.price_source_label}`
+                              // The condition the price is FOR. Zach accepts LP
+                              // or NM only, so which one he is looking at
+                              // decides whether the number is worth acting on.
+                              + (thisPrinting.price_condition
+                                  ? ` ${thisPrinting.price_condition}`
+                                  : '')
                             : '')
                       : null],
                     // AVAILABILITY OF *THIS* PRINTING, on the tab that claims

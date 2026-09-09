@@ -606,6 +606,16 @@ async function initDb() {
       price_cents INTEGER,
       price_cents_foil INTEGER,
       price_cents_etched INTEGER,
+      -- WHICH CONDITION EACH PRICE IS FOR.
+      --
+      -- Zach: "I only care about LP or NM and English language for exact
+      -- printing." The price is the cheapest ACCEPTABLE copy, so the screen has
+      -- to be able to say whether that is a Lightly Played or a Near Mint one --
+      -- $32.99 LP and $33.73 NM are different offers, and a number with no
+      -- condition beside it cannot be judged.
+      condition TEXT,
+      condition_foil TEXT,
+      condition_etched TEXT,
       -- What the source says is actually purchasable right now. 0 means the
       -- source knows the card but nobody has it in stock, which is NOT the same
       -- as having no price and must not be shown as if it were buyable.
@@ -831,6 +841,18 @@ async function initDb() {
   // every read of price_source_order throws on Zach's actual database while
   // passing on a fresh test one. That exact shape of bug (schema added to the
   // CREATE but not the ALTER) has already bitten this project once.
+  // Condition columns on source_prices. The table already exists on dev, so the
+  // CREATE above will not add these -- without the ALTER every read throws on
+  // the real database while passing on a fresh test one.
+  const sourcePriceCols = await all(`PRAGMA table_info(source_prices)`);
+  if (sourcePriceCols.length) {
+    for (const col of ['condition', 'condition_foil', 'condition_etched']) {
+      if (!sourcePriceCols.some(c => c.name === col)) {
+        await run(`ALTER TABLE source_prices ADD COLUMN ${col} TEXT`);
+      }
+    }
+  }
+
   if (!appSettingsCols.some(c => c.name === 'price_source_order')) {
     await run(`ALTER TABLE app_settings ADD COLUMN price_source_order TEXT DEFAULT '["manapool"]'`);
   }
