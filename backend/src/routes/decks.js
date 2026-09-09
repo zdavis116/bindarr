@@ -193,10 +193,38 @@ router.get('/', async (req, res) => {
                THEN 'basic:' || dcc.name
                ELSE 'exact:' || dc.desired_card_id || ':' || COALESCE(dc.desired_finish, '')
           END AS identity,
-          COALESCE(dcc.price_trend, 0) AS price_trend
+          -- THE PRICE THE WHOLE DECK SCREEN IS BUILT ON.
+          --
+          -- Zach: "I would like to make sure the deck total amount is using the
+          -- right number as well. Everywhere should be using the mana pool
+          -- lowest price even for collection total because in theory that is
+          -- what I would sell and buy for."
+          --
+          -- deck_value and missing_cost both derive from this single column, so
+          -- correcting it here fixes the card rows AND both totals at once and
+          -- they cannot disagree with each other.
+          --
+          -- Cents to dollars at the boundary; falls through to Scryfall when
+          -- the marketplace has nothing for that printing, per the pinned
+          -- last-resort rule.
+          COALESCE(
+            CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                 THEN mp.price_cents_foil / 100.0
+                 ELSE mp.price_cents / 100.0
+            END,
+            dcc.price_trend, 0) AS price_trend,
+          -- Which source that number came from, so a deck row can say it.
+          CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                          THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
+               THEN 'manapool'
+               WHEN dcc.price_trend > 0 THEN 'scryfall'
+               ELSE NULL
+          END AS price_source
         FROM decks d
         LEFT JOIN deck_cards dc ON d.id = dc.deck_id
         LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
+        LEFT JOIN source_prices mp
+               ON mp.card_id = dcc.id AND mp.source = 'manapool'
         WHERE d.user_id = ?
       ),
 

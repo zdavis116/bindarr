@@ -362,11 +362,35 @@ async function availabilityForDeck(database, deckId, userId) {
             -- not the type line.
             cc.oracle_text,
             -- Price for "cost to finish" and the per-card figure on the Missing
-            -- tab. price_trend is Cardmarket's trend price, the same field the
-            -- collection totals use, so the two screens cannot disagree.
-            cc.price_trend
+            -- tab.
+            --
+            -- Zach: "when I look at cards on don't own in the deck view the
+            -- value not individual card detail that shows 29 cents for the
+            -- antman when value in the card view shows 15 cents... Everywhere
+            -- should be using the mana pool lowest price even for collection
+            -- total because in theory that is what I would sell and buy for."
+            --
+            -- This read cc.price_trend -- Scryfall's number -- so a deck row
+            -- said 29c while the card sheet for the same printing said 15c.
+            -- Now the same chain as everywhere else: marketplace first in
+            -- cents, Scryfall as the pinned last resort.
+            COALESCE(
+              CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                   THEN mp.price_cents_foil / 100.0
+                   ELSE mp.price_cents / 100.0
+              END,
+              cc.price_trend) AS price_trend,
+            CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                            THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
+                 THEN 'manapool'
+                 WHEN cc.price_trend > 0 THEN 'scryfall'
+                 ELSE NULL
+            END AS price_source,
+            mp.url AS price_url
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
+     LEFT JOIN source_prices mp
+            ON mp.card_id = cc.id AND mp.source = 'manapool'
      WHERE dc.deck_id = ?
      ORDER BY cc.name COLLATE NOCASE ASC, dc.id ASC`,
     [deckId]
