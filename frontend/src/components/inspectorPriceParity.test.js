@@ -71,25 +71,31 @@ test('AM-TC3: switchedCardId is declared before the code that reads it', () => {
     `switchedCardId is declared at ${decl} but read at ${use} -- that throws on open`);
 });
 
-test('AM-TC4: the stored price is the CHEAPEST listing, not the market figure', () => {
-  // Mana Pool's page shows price_market as the card's "value" and price_cents
-  // as the cheapest listing. Zach: "I would think we should be showing the
-  // cheapest one."
-  const norm = feed.slice(feed.indexOf('function normalise'),
-                          feed.indexOf('function normalise') + 900);
-  assert.match(norm, /n\(row\.price_cents\)/,
-    'the headline price must be price_cents -- the cheapest listing');
-  assert.doesNotMatch(norm, /price_market/,
-    'price_market is the marketplace\'s average, not what the card costs today');
+test('AM-TC4: the price comes from the per-condition feed, not the summary one', () => {
+  // ORIGINALLY this asserted `normalise()` read row.price_cents from
+  // /prices/singles. That function is gone, and so is that endpoint -- because
+  // Zach proved its numbers appear nowhere on Mana Pool's own page:
+  //
+  //   /prices/singles   $34.37   <- not on their page at all
+  //   /prices/variants  $32.99 LP, $33.73 NM   <- exactly what the page shows
+  //
+  // The rule the old test was protecting -- show what the card actually costs,
+  // not a market average -- still holds. It is now enforced by using the
+  // variants endpoint and by VAR-TC1..TC8. This asserts the endpoint choice,
+  // which is the thing that was wrong.
+  assert.match(feed, /\/api\/v1\/prices\/variants/,
+    'prices must come from the per-condition variants feed');
+  assert.doesNotMatch(feed, /\/api\/v1\/prices\/singles/,
+    'the singles summary feed quotes numbers nobody can buy at');
+  assert.doesNotMatch(feed, /price_market/,
+    'the market average is not what the card costs today');
 });
 
-test('AM-TC5: a card with no usable price is a miss, not a zero', () => {
+test('AM-TC5: a card with no acceptable price is a miss, not a zero', () => {
   // Storing a zero would make the source look like it has an answer, and the
   // fallback chain would stop at it rather than trying Scryfall.
-  const norm = feed.slice(feed.indexOf('function normalise'),
-                          feed.indexOf('function normalise') + 900);
-  assert.match(norm, /if \(cents === null && foil === null && etched === null\) return null/,
-    'a row with no price at all must not be stored as a priced row');
+  assert.match(feed, /if \(!Number\.isFinite\(price\) \|\| price <= 0\) continue;/,
+    'a zero or missing price must not be stored as a priced row');
 });
 
 console.log('ant-man price guards passed');
