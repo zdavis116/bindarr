@@ -90,11 +90,38 @@ function CardInspectorModal({
   // oracle_text and no mana_cost, so the Card tab silently lost its rules text
   // and mana cost from that screen while the deck view showed both.
   //
+  // Which printing the sheet was switched to, if any. Declared HERE rather
+  // than further down because `view` below reads it -- a const used above its
+  // declaration is a temporal dead zone throw on every open, not a warning.
+  const [switchedCardId, setSwitchedCardId] = useState(null);
+
+  // WHAT THE SHEET IS SHOWING.
+  //
   // Server values WIN. A card's rules text is a fact about the card, not about
   // the row that referenced it, so it must not depend on which screen you
   // opened. The caller keeps only what the server cannot know: which
   // collection entry this is, and which deck board it sits on.
-  const view = deckUse?.card ? { ...card, ...deckUse.card } : card;
+  //
+  // WHILE SWITCHING PRINTINGS, `card` IS THE WRONG CARD.
+  //
+  // Zach: "when I click on it 1 the card doesn't update right away I have to
+  // exit card detail and go back in."
+  //
+  // switchPrinting sets switchedCardId and clears deckUse so the fetch reloads.
+  // But `card` is the prop -- still the printing he came FROM -- so between the
+  // click and the response landing, this merge fell back to it and the sheet
+  // showed the old printing's image, set code and price. It looked like nothing
+  // had happened, which is why leaving and re-entering "fixed" it.
+  //
+  // Falling back to a stale card is worse than showing nothing: a sheet that
+  // confidently displays the wrong printing is how someone buys the wrong card.
+  // While a switch is in flight the sheet keeps only the fields the server has
+  // not replaced yet, and the switched-to id, so nothing asserts a fact about
+  // the previous printing.
+  const switching = Boolean(switchedCardId) && deckUse?.card_id !== switchedCardId;
+  const view = deckUse?.card
+    ? { ...card, ...deckUse.card }
+    : (switching ? { ...card, id: switchedCardId, card_id: switchedCardId } : card);
 
   // THE FACE CURRENTLY SHOWN, for a double-faced card.
   //
@@ -230,7 +257,6 @@ function CardInspectorModal({
   //
   // A single value in front of the fetch, rather than a second path -- the
   // sheet has already been bitten twice by two sources of truth for one field.
-  const [switchedCardId, setSwitchedCardId] = useState(null);
   const openedWith = card?.card_id || card?.desired_card_id || card?.id;
   const catalogueId = switchedCardId || openedWith;
 
@@ -1032,8 +1058,26 @@ function CardInspectorModal({
                     [t('inspector.location'), ownedEntry
                       ? (ownedEntry.location_name || t('inspector.notFiled'))
                       : null],
-                    [t('inspector.value'), card.price_trend && ownedCopies
-                      ? `$${(Number(card.price_trend) * ownedCopies).toFixed(2)}`
+                    // THE PRICE MUST COME FROM THE CHAIN, NOT THE RAW CATALOGUE.
+                    //
+                    // Zach: "when I click on it 1 the card doesn't update right
+                    // away... 2 when I go back in the value row says 24 cents.
+                    // When I navigate to mana pool it says value for card is 24
+                    // cents but then it shows cheapest list at 15 cents so I
+                    // feel like we are using 2 different values I would think
+                    // we should be showing the cheapest one."
+                    //
+                    // He was right, and it was two different values. `card` is
+                    // the raw card_cache row -- its price_trend is SCRYFALL's
+                    // number and never passed through resolvePricedCard. So the
+                    // printings list showed Mana Pool's $0.15 while the Value
+                    // row above it showed something else entirely, on the same
+                    // sheet, for the same card.
+                    //
+                    // thisPrinting comes from /card/:id/decks, which prices
+                    // through the chain. One source of truth per sheet.
+                    [t('inspector.value'), (thisPrinting?.price_trend ?? card.price_trend) && ownedCopies
+                      ? `$${(Number(thisPrinting?.price_trend ?? card.price_trend) * ownedCopies).toFixed(2)}`
                         + (thisPrinting?.price_source_label
                             ? ` · ${thisPrinting.price_source_label}`
                             : '')
