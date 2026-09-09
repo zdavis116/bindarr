@@ -468,6 +468,7 @@
   "inspector.forTrade": "Para troca",
   "inspector.fullScreen": "Tela cheia",
   "inspector.inStock": "{count} in stock",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "Listada no fichário de trocas",
   "inspector.locationLabel": "Local:",
   "inspector.markObtained": "Marcar como obtida (mover para a coleção)",

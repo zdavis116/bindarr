@@ -35,34 +35,38 @@ const row = (over = {}) => ({
   ...over,
 });
 
-test('VAR-TC1: Lightly Played wins over Near Mint when both exist', () => {
-  // His rule, verbatim: "if there is value for lightly played that is what I
-  // would like to use if not use near mint".
+test('VAR-TC1: the cheapest ACCEPTABLE copy wins, whatever its condition', () => {
+  // Zach's real Ur-Dragon listings, from Mana Pool's own page:
+  //   Foil MP $29.73  (below his floor)
+  //   Foil NM $33.73  <- cheapest he would accept
+  //   Foil LP $34.29
+  //   Foil LP $34.98
+  //
+  // My first version of this rule preferred LP by rank, so it picked $34.29 --
+  // more money for a worse card. He caught it: "I don't see any LP foil that is
+  // 32.99 on mana pool". He was setting a QUALITY FLOOR, not asking to be sold
+  // played copies.
   const [out] = foldVariants([
+    row({ condition_id: 'MP', low_price: 2973 }),
     row({ condition_id: 'NM', low_price: 3373 }),
-    row({ condition_id: 'LP', low_price: 3299 }),
+    row({ condition_id: 'LP', low_price: 3429 }),
+    row({ condition_id: 'LP', low_price: 3498 }),
   ]);
-  assert.equal(out.price_cents, 3299, 'LP is the cheaper of the two he accepts');
-  assert.equal(out.condition, 'LP', 'and the screen must be able to say so');
+  assert.equal(out.price_cents, 3373,
+    'the cheapest copy at or above the floor, not the cheapest LP');
+  assert.equal(out.condition, 'NM',
+    'and the screen must say which condition that price is for');
 });
 
-test('VAR-TC1b: the CONDITION decides, not the lower number', () => {
-  // The rule is "prefer LP", not "prefer cheapest". They usually agree, which
-  // is why my first version of TC1 passed even with the code picking by price
-  // -- it could not tell the two rules apart. Here they disagree: a seller has
-  // priced their NM copy BELOW the LP one, which happens whenever someone is
-  // clearing stock.
-  //
-  // Taking the cheaper NM would not be wrong for Zach's wallet, but it means
-  // the code is following a rule he did not ask for, and the day a Moderately
-  // Played copy undercuts everything the same logic would take that too.
+test('VAR-TC1b: an LP copy wins when it really is cheaper', () => {
+  // The mirror of TC1. Both are above the floor, so price alone decides -- this
+  // direction proves the fix did not simply become "always prefer NM".
   const [out] = foldVariants([
-    row({ condition_id: 'LP', low_price: 3299 }),
-    row({ condition_id: 'NM', low_price: 2500 }),
+    row({ condition_id: 'NM', low_price: 3373 }),
+    row({ condition_id: 'LP', low_price: 3100 }),
   ]);
-  assert.equal(out.condition, 'LP',
-    'LP is preferred because it is the condition rule, not because it is cheaper');
-  assert.equal(out.price_cents, 3299);
+  assert.equal(out.price_cents, 3100);
+  assert.equal(out.condition, 'LP');
 });
 
 test('VAR-TC2: Near Mint is used when there is no Lightly Played', () => {

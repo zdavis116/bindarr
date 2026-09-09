@@ -474,6 +474,7 @@
   "inspector.forTrade": "На обмен",
   "inspector.fullScreen": "Во весь экран",
   "inspector.inStock": "{count} in stock",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "Размещена в альбоме для обмена",
   "inspector.locationLabel": "Место:",
   "inspector.markObtained": "Отметить как полученную (перенести в коллекцию)",

@@ -468,6 +468,7 @@
   "inspector.forTrade": "Da scambiare",
   "inspector.fullScreen": "Schermo intero",
   "inspector.inStock": "{count} in stock",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "Inserita nel raccoglitore per scambi",
   "inspector.locationLabel": "Posizione:",
   "inspector.markObtained": "Segna come ottenuta (sposta nella collezione)",

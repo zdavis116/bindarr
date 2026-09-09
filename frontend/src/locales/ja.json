@@ -456,6 +456,7 @@
   "inspector.forTrade": "トレード用",
   "inspector.fullScreen": "全画面",
   "inspector.inStock": "{count} in stock",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "トレードバインダーに掲載",
   "inspector.locationLabel": "場所:",
   "inspector.markObtained": "入手済みにする（コレクションへ移動）",

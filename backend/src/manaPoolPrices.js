@@ -33,8 +33,23 @@ const SOURCE = 'manapool';
 const HOST = 'manapool.com';
 const PATH = '/api/v1/prices/variants';
 
-// Conditions Zach will accept, best-value first. Order IS the preference: the
-// first one with a real price wins. Anything not in this list is ignored.
+// Conditions Zach will accept. A QUALITY FLOOR, not a preference order.
+//
+// He said: "Lowest condition I would go is lightly played, so if there is value
+// for lightly played that is what I would like to use if not use near mint."
+//
+// I FIRST BUILT THAT AS "PREFER LP, FALL BACK TO NM" AND IT WAS WRONG. On his
+// own Ur-Dragon the real listings are:
+//
+//   Foil MP  $29.73     <- below his floor, ignored
+//   Foil NM  $33.73     <- CHEAPEST acceptable copy
+//   Foil LP  $34.29
+//   Foil LP  $34.98
+//
+// "Prefer LP" picks $34.29 -- more money for a worse card. He was setting a
+// minimum acceptable condition, not asking to be sold played copies. So the
+// rule is: among LP and NM, take the CHEAPEST. Nothing below LP is ever
+// considered, which is the part that actually mattered to him.
 const ACCEPTED_CONDITIONS = ['LP', 'NM'];
 const LANGUAGE = 'EN';
 
@@ -112,7 +127,7 @@ function foldVariants(rows) {
     if (!finish) continue;
 
     const rank = ACCEPTED_CONDITIONS.indexOf(r.condition_id);
-    if (rank < 0) continue;                       // MP / HP / DMG: not offered
+    if (rank < 0) continue;                       // MP / HP / DMG: below the floor
 
     const price = Number(r.low_price);
     if (!Number.isFinite(price) || price <= 0) continue;
@@ -125,12 +140,14 @@ function foldVariants(rows) {
     if (!entry.url && r.url) entry.url = r.url;
 
     const cur = entry.finishes[finish];
-    // BETTER CONDITION WINS, NOT LOWER PRICE. An MP copy can undercut an LP one
-    // and he has ruled that out; within the accepted set, LP is preferred over
-    // NM because it is the cheaper of the two he will accept.
-    if (!cur || rank < cur.rank) {
+    // CHEAPEST ACCEPTABLE COPY WINS.
+    //
+    // Both LP and NM are above his floor, so between them the only thing that
+    // matters is price. Preferring LP by rank would pay $34.29 for a played
+    // copy when a Near Mint one is listed at $33.73 -- which is what the first
+    // version of this did, and what he caught.
+    if (!cur || Math.round(price) < cur.price_cents) {
       entry.finishes[finish] = {
-        rank,
         price_cents: Math.round(price),
         condition: r.condition_id,
         qty: Number.isFinite(r.available_quantity) ? r.available_quantity : null,

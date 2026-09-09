@@ -1160,6 +1160,27 @@ function CardInspectorModal({
                   </a>
                 )}
 
+                {/* SAY THAT THIS IS THE ITEM PRICE.
+                    Zach found a $32.99 LP copy sitting below a $33.73 NM one on
+                    Mana Pool's own page, because the LP seller charges $5.99
+                    shipping and the NM seller includes it. Both numbers are
+                    real; they answer different questions.
+
+                    Neither public price feed carries shipping (13 fields, none
+                    of them shipping-related), so the honest thing is to label
+                    what this number IS rather than imply it is what he will
+                    pay. Delivered cost depends on the whole order and comes
+                    from the optimizer. */}
+                {thisPrinting?.price_source && thisPrinting.price_source !== 'scryfall' && (
+                  <div style={{
+                    marginTop: '-0.5rem', marginBottom: '0.85rem',
+                    fontSize: '0.68rem', color: 'var(--text-tertiary)',
+                    textAlign: 'center',
+                  }}>
+                    {t('inspector.itemPrice')}
+                  </div>
+                )}
+
                 {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
                     found four "identical" Tony Starks that were different
                     printings between $6.50 and $76.94. Telling them apart is

@@ -692,6 +692,7 @@
   "inspector.fullScreen": "Pantalla completa",
   "inspector.inStock": "{count} in stock",
   "inspector.inYourDecks": "En tus mazos",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "Publicada en la carpeta de intercambio",
   "inspector.location": "Ubicación",
   "inspector.locationLabel": "Sitio:",

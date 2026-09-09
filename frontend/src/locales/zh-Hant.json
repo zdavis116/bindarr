@@ -456,6 +456,7 @@
   "inspector.forTrade": "可交換",
   "inspector.fullScreen": "全螢幕",
   "inspector.inStock": "{count} in stock",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "已列入交換冊",
   "inspector.locationLabel": "位置：",
   "inspector.markObtained": "標記為已入手（移到收藏）",

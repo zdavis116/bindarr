@@ -729,6 +729,7 @@
   "inspector.fullScreen": "Full Screen",
   "inspector.inStock": "{count} in stock",
   "inspector.inYourDecks": "In your decks",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "Listed in Trade Binder",
   "inspector.location": "Location",
   "inspector.locationLabel": "Location:",

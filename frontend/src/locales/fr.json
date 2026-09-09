@@ -468,6 +468,7 @@
   "inspector.forTrade": "À échanger",
   "inspector.fullScreen": "Plein écran",
   "inspector.inStock": "{count} in stock",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "Listée dans le classeur d'échange",
   "inspector.locationLabel": "Emplacement :",
   "inspector.markObtained": "Marquer comme obtenue (déplacer dans la collection)",

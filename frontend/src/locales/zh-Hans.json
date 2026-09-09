@@ -672,6 +672,7 @@
   "inspector.fullScreen": "全屏",
   "inspector.inStock": "{count} in stock",
   "inspector.inYourDecks": "在你的套牌中",
+  "inspector.itemPrice": "item price, before shipping",
   "inspector.listedInTrade": "已列入交换册",
   "inspector.location": "位置",
   "inspector.locationLabel": "位置：",
