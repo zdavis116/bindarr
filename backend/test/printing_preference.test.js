@@ -97,17 +97,21 @@ test('PREF-TC9: Bindarr never completes a purchase', () => {
   // Mana Pool has POST /pending-orders/{id}/purchase. A bug in a hobby app that
   // can spend real money costs money, not a recount.
   //
-  // Matched against the REQUEST CALLS only, not the whole file: my first version
-  // of this test regex-matched the safety comment that names the endpoint, so it
-  // failed on correct code. A guard that fires on a comment teaches you to
-  // ignore it.
-  const calls = [...buylist.matchAll(/requestTo\(\s*['"`]([^'"`]+)/g)].map(m => m[1]);
-  assert.ok(calls.length > 0, 'the module must make at least one request');
-  for (const path of calls) {
-    assert.ok(!/purchase/.test(path),
-      `Bindarr must never call a purchase endpoint (found ${path})`);
+  // Checks the declared path CONSTANTS, not the whole file. Two earlier versions
+  // of this test were wrong in opposite directions: the first regex-matched the
+  // safety comment that names the endpoint (failed on correct code), the second
+  // matched literal strings inside requestTo() and broke when the paths moved
+  // into constants. The constants are the real surface -- every request is built
+  // from them.
+  const paths = [...buylist.matchAll(/^const \w*PATH \w*=?\s*'([^']+)'/gm)].map(m => m[1]);
+  const declared = [...buylist.matchAll(/^const (\w+_PATH) = '([^']+)'/gm)].map(m => m[2]);
+  const all = [...paths, ...declared];
+  assert.ok(all.length > 0, 'the module must declare its request paths');
+  for (const p of all) {
+    assert.ok(!/purchase/.test(p),
+      `Bindarr must never call a purchase endpoint (found ${p})`);
   }
-  assert.ok(calls.some(p => p.includes('pending-orders')),
+  assert.ok(all.some(p => p.includes('pending-orders')),
     'creating a pending order is as far as it goes');
 });
 

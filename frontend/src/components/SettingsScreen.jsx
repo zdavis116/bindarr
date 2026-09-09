@@ -513,64 +513,108 @@ function SettingsScreen({ user, onNavigate, showToast }) {
             </div>
           )}
 
-          {/* SHIPPING ADDRESS. Beside the price sources because it belongs to
-              the same feature: Mana Pool will not create a cart without a
-              destination, since shipping cost depends on where it goes.
-
-              Real PII in a hobby app. It stays on his hardware, it is sent
-              nowhere except to Mana Pool when HE presses send, and Clear
-              removes it. */}
-          {ship && (
-            <div style={{ marginTop: '0.9rem', paddingTop: '0.8rem',
-                          borderTop: '1px solid var(--border-glass)' }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.15rem' }}>
-                {t('settings.shipTitle')}
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)',
-                            marginBottom: '0.55rem' }}>
-                {t('settings.shipHint')}
-              </div>
-              <div style={{ display: 'grid', gap: '0.4rem' }}>
-                <input className="input-control" placeholder={t('settings.shipLine1')}
-                  defaultValue={ship.line1} id="ship-line1" style={{ fontSize: '0.82rem' }} />
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <input className="input-control" placeholder={t('settings.shipCity')}
-                    defaultValue={ship.city} id="ship-city"
-                    style={{ flex: 2, minWidth: 0, fontSize: '0.82rem' }} />
-                  <input className="input-control" placeholder={t('settings.shipState')}
-                    defaultValue={ship.state} id="ship-state"
-                    style={{ flex: 1, minWidth: 0, fontSize: '0.82rem' }} />
-                  <input className="input-control" placeholder={t('settings.shipPostal')}
-                    defaultValue={ship.postal_code} id="ship-postal"
-                    style={{ flex: 1, minWidth: 0, fontSize: '0.82rem' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <button className="btn btn-primary" disabled={shipSaving}
-                    style={{ flex: 1, fontSize: '0.8rem' }}
-                    onClick={() => saveShipping({
-                      line1: document.getElementById('ship-line1')?.value,
-                      city: document.getElementById('ship-city')?.value,
-                      state: document.getElementById('ship-state')?.value,
-                      postal_code: document.getElementById('ship-postal')?.value,
-                      country: 'US',
-                    })}>
-                    {shipSaving ? t('common.saving') : t('common.save')}
-                  </button>
-                  {ship.configured && (
-                    <button className="btn btn-secondary" disabled={shipSaving}
-                      style={{ flexShrink: 0, fontSize: '0.8rem' }}
-                      onClick={() => saveShipping({ clear: true })}>
-                      {t('settings.shipClear')}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </Section>
       )}
 
       <Section title={t('settings.secDataSources')}>
+        {/* MANA POOL AS A DATA SOURCE.
+            Zach: "Mana pool should exist as a data source and that is where the
+            street address info should go."
+
+            He is right: it syncs ~99k prices every 6 hours exactly like Scryfall
+            syncs the catalogue, and every other source lives here with its own
+            dropdown showing what it is syncing. Bolting its address onto the
+            price-priority card put a form where a preference belonged. */}
+        <Row
+          icon={Link2}
+          label={t('settings.manapool')}
+          detail={priceSources?.sources?.find(x => x.id === 'manapool')?.row_count
+            ? t('settings.manapoolSyncs', {
+                count: fmt(priceSources.sources.find(x => x.id === 'manapool').row_count) })
+            : t('settings.loading')}
+          expanded={sourceOpen === 'manapool'}
+          onClick={() => setSourceOpen(sourceOpen === 'manapool' ? null : 'manapool')}
+        />
+
+        {sourceOpen === 'manapool' && (
+          <div style={{ background: 'var(--surface-2)' }}>
+            <Row
+              indent
+              label={t('settings.lastRefreshed')}
+              value={priceSources?.sources?.find(x => x.id === 'manapool')?.last_success_at
+                ? when(priceSources.sources.find(x => x.id === 'manapool').last_success_at, t)
+                : '—'}
+            />
+            <Row
+              indent
+              label={t('settings.automatic')}
+              detail={t('settings.manapoolEvery6h')}
+              value={t('settings.manapoolPrices')}
+            />
+
+            {/* The address the marketplace needs before it will build a cart. */}
+            {ship && (
+              <div style={{ padding: '0.7rem 1rem 0.9rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.15rem' }}>
+                  {t('settings.shipTitle')}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)',
+                              marginBottom: '0.6rem', lineHeight: 1.4 }}>
+                  {t('settings.shipHint')}
+                </div>
+
+                {/* EVERY FIELD LABELLED AND FULL WIDTH.
+                    The first version put city, state and ZIP on one row at
+                    390px; the ZIP ran off the edge of his screen, so the form
+                    said "saved" while a field he never saw was empty. */}
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                  {[
+                    ['ship-line1', t('settings.shipLine1'), ship.line1, 'street-address'],
+                    ['ship-city', t('settings.shipCity'), ship.city, 'address-level2'],
+                    ['ship-state', t('settings.shipState'), ship.state, 'address-level1'],
+                    ['ship-postal', t('settings.shipPostal'), ship.postal_code, 'postal-code'],
+                  ].map(([id, label, value, auto]) => (
+                    <label key={id} style={{ display: 'block' }}>
+                      <span style={{ display: 'block', fontSize: '0.7rem',
+                                     color: 'var(--text-tertiary)', marginBottom: 3 }}>
+                        {label}
+                      </span>
+                      <input
+                        id={id}
+                        defaultValue={value}
+                        autoComplete={auto}
+                        className="input-control"
+                        style={{ width: '100%', minHeight: 42, fontSize: '0.88rem' }}
+                      />
+                    </label>
+                  ))}
+
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.15rem' }}>
+                    <button className="btn btn-primary" disabled={shipSaving}
+                      style={{ flex: 1, minHeight: 44, fontSize: '0.85rem' }}
+                      onClick={() => saveShipping({
+                        line1: document.getElementById('ship-line1')?.value,
+                        city: document.getElementById('ship-city')?.value,
+                        state: document.getElementById('ship-state')?.value,
+                        postal_code: document.getElementById('ship-postal')?.value,
+                        country: 'US',
+                      })}>
+                      {shipSaving ? t('common.saving') : t('common.save')}
+                    </button>
+                    {ship.configured && (
+                      <button className="btn btn-secondary" disabled={shipSaving}
+                        style={{ flexShrink: 0, minHeight: 44, fontSize: '0.85rem' }}
+                        onClick={() => saveShipping({ clear: true })}>
+                        {t('settings.shipClear')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <Row
           icon={Link2}
           label={t('settings.scryfall')}

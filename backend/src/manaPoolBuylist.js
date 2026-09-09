@@ -29,7 +29,12 @@
 const https = require('https');
 
 const HOST = 'manapool.com';
-const PATH = '/api/v1/buyer/optimizer';
+// Every path is built from this ONE base. A caller passed '/buyer/...' without
+// the /api/v1 prefix and got a 404 that read as "the endpoint does not exist" --
+// two ways to spell a path is one too many.
+const API_BASE = '/api/v1';
+const OPTIMIZER_PATH = '/buyer/optimizer';
+const PENDING_ORDER_PATH = '/buyer/orders/pending-orders';
 
 // Mana Pool's own limit, measured: the 4th call in a burst returns 429 and no
 // rate-limit headers are advertised.
@@ -112,7 +117,7 @@ function requestTo(path, body) {
   const payload = JSON.stringify(body);
   return new Promise((resolve, reject) => {
     const req = https.request({
-      hostname: HOST, path, method: 'POST',
+      hostname: HOST, path: `${API_BASE}${path}`, method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
@@ -170,7 +175,7 @@ async function priceBuylist(cards, { model = 'lowest_price' } = {}) {
     await new Promise(r => setTimeout(r, MIN_CALL_SPACING_MS - since));
   }
 
-  const { status, data } = await requestTo(PATH, {
+  const { status, data } = await requestTo(OPTIMIZER_PATH, {
     cart: cards.map(toCartLine),
     model,
     destination_country: 'US',
@@ -269,7 +274,7 @@ async function sendToCart(cartLines, shippingAddress) {
   if (!shippingAddress?.line1) {
     throw new Error('A shipping address is required to create an order');
   }
-  const { status, data } = await requestTo('/buyer/orders/pending-orders', {
+  const { status, data } = await requestTo(PENDING_ORDER_PATH, {
     line_items,
     shipping_address: shippingAddress,
   });

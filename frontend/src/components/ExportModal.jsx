@@ -271,23 +271,33 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             the full list is one tap away and searchable. The common case
             (everything flexible) needs no interaction at all. */}
         {deckId && text && cards.length > 0 && (
-          <div style={{ padding: '0 1rem 0.6rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem',
-                          padding: '0.6rem 0.7rem', borderRadius: 'var(--radius-sm)',
-                          background: 'var(--surface-2)' }}>
-              <div style={{ flex: 1, minWidth: 0, fontSize: '0.78rem', lineHeight: 1.35 }}>
+          <div style={{ padding: '0.75rem 1rem 0' }}>
+            {/* Label above the control, matching the price block below it. The
+                first version had a bare row with different padding from its
+                neighbours, so nothing lined up down the sheet. */}
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase',
+                          letterSpacing: '0.04em', color: 'var(--text-tertiary)',
+                          marginBottom: '0.4rem' }}>
+              {t('deck.mpPrintingsLabel')}
+            </div>
+            <button onClick={() => setPickerOpen(true)}
+              style={{ width: '100%', display: 'flex', alignItems: 'center',
+                       justifyContent: 'space-between', gap: '0.6rem',
+                       minHeight: 44, padding: '0 0.75rem',
+                       borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
+                       background: 'var(--surface-2)', color: 'var(--text-primary)',
+                       font: 'inherit', fontSize: '0.82rem', textAlign: 'left',
+                       cursor: 'pointer' }}>
+              <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap',
+                             overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {pinnedCount === 0
                   ? t('deck.mpAllFlexible')
                   : t('deck.mpSomePinned', { count: pinnedCount, total: cards.length })}
-              </div>
-              <button onClick={() => setPickerOpen(true)}
-                style={{ flexShrink: 0, minHeight: 32, padding: '0 0.7rem',
-                         borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)',
-                         background: 'transparent', color: 'var(--accent-blue)',
-                         font: 'inherit', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}>
+              </span>
+              <span style={{ flexShrink: 0, color: 'var(--accent-blue)', fontWeight: 600 }}>
                 {t('deck.mpChoose')}
-              </button>
-            </div>
+              </span>
+            </button>
           </div>
         )}
 
@@ -383,7 +393,12 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
         {/* PRICE IT ON MANA POOL. Only when there is a deck to price and
             something to buy. */}
         {deckId && text && (
-          <div style={{ padding: '0.7rem 1rem 0', borderTop: '1px solid var(--border-glass)' }}>
+          <div style={{ padding: '0.75rem 1rem 0' }}>
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase',
+                          letterSpacing: '0.04em', color: 'var(--text-tertiary)',
+                          marginBottom: '0.4rem' }}>
+              {t('deck.mpCostLabel')}
+            </div>
             {/* STACKED, NOT SIDE BY SIDE.
                 On Zach's phone the row squeezed the button until "Pricing..."
                 was clipped and the select had no room for its own label. A
