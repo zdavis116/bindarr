@@ -221,11 +221,63 @@ db.initDb()
           console.error('Card catalogue refresh failed:', err.message);
         });
       };
-      // Catch up shortly after startup. Not forced: if Scryfall has not
-      // rebuilt the file since the last import this costs one small request,
-      // which keeps restarts (and nodemon in dev) cheap.
-      setTimeout(runCatalogueRefresh, 60000);
-      setInterval(runCatalogueRefresh, 1000 * 60 * 60 * 24);
+      // THE SYNC DOES NOT HANG OFF RESTARTS.
+      //
+      // Zach: "I feel like the sync should run independently of the app being
+      // stopped and started."
+      //
+      // It used to catch up 60 seconds after every boot. That made DEPLOYING
+      // the thing that triggered a 4-minute import — so every deploy looked
+      // like it broke the app, twice now, and the second time cost him a
+      // dashboard that would not load. A restart is not new information about
+      // Scryfall; the bulk file changes roughly daily regardless of what this
+      // process is doing.
+      //
+      // Now it runs on a WALL-CLOCK schedule: the next 04:00 local, then every
+      // 24h. Nothing is pulled because a service bounced.
+      //
+      // THE CATCH-UP STILL EXISTS, but only when the catalogue is genuinely
+      // stale — more than a day since the last successful import. A machine
+      // that was off for a week must not wait until 04:00 to notice, and that
+      // is a real gap rather than a restart. It is also deferred well past
+      // boot so it cannot collide with someone opening the app right after a
+      // deploy.
+      const MINUTE = 60 * 1000;
+      const DAY = 24 * 60 * MINUTE;
+      const STALE_CATALOGUE_MS = DAY;
+
+      const startupCatchUp = async () => {
+        try {
+          const age = await cardCatalogue.msSinceLastRefresh();
+          if (age === null || age > STALE_CATALOGUE_MS) {
+            console.log('Card catalogue is stale; running a catch-up refresh.');
+            runCatalogueRefresh();
+          }
+        } catch (err) {
+          console.error('Could not check catalogue age:', err.message);
+        }
+      };
+
+      // 04:00 local — after Scryfall's daily rebuild, and while Zach is asleep
+      // rather than mid-scan.
+      const nextRun = new Date();
+      nextRun.setHours(4, 0, 0, 0);
+      if (nextRun <= new Date()) nextRun.setDate(nextRun.getDate() + 1);
+      const msUntilNextRun = nextRun.getTime() - Date.now();
+
+      setTimeout(() => {
+        runCatalogueRefresh();
+        setInterval(runCatalogueRefresh, DAY);
+      }, msUntilNextRun);
+
+      console.log(
+        `Card catalogue refresh scheduled for ${nextRun.toISOString()} `
+        + `(in ${Math.round(msUntilNextRun / MINUTE)} min), then every 24h.`
+      );
+
+      // Five minutes, not sixty seconds: long enough that a deploy is finished
+      // and anyone testing it has already loaded the screens they care about.
+      setTimeout(startupCatchUp, 5 * MINUTE);
     }
 
     // MOXFIELD BACKGROUND POLL.
