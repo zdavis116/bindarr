@@ -564,6 +564,66 @@ async function initDb() {
   `);
   await run(`CREATE INDEX IF NOT EXISTS idx_price_history_card_time ON price_history(card_id, recorded_at, id)`);
 
+  // PRICES FROM MARKETPLACES, ONE ROW PER (SOURCE, PRINTING).
+  //
+  // Zach: "long term thought is we take in tcg player and card kingdom prices
+  // too... if I say my top 3 card prices should come from 1. Mana pool, then
+  // tcg player then card kingdom".
+  //
+  // So this is keyed by SOURCE rather than being a set of manapool_* columns on
+  // card_cache. Adding TCGplayer later is then new rows, not a migration of the
+  // catalogue table that every screen reads.
+  //
+  // NOT IN card_cache DELIBERATELY. That table is the shared Scryfall catalogue
+  // and a full refresh rewrites all ~105,000 rows of it every night; marketplace
+  // prices are a different source on a different schedule, and folding them in
+  // would mean either the refresh wipes them or the refresh has to know about
+  // every marketplace. Separate table, joined on card_id.
+  //
+  // card_id is the SCRYFALL PRINTING id -- verified against Zach's real data:
+  // every one of Mana Pool's 102,929 rows carries a scryfall_id, and it covered
+  // 1,508/1,508 of his collection and 472/474 of his deck cards.
+  //
+  // Prices are stored in CENTS as integers, exactly as Mana Pool sends them.
+  // Money in a float is a rounding bug waiting for a big enough collection; the
+  // read path divides once at the boundary.
+  await run(`
+    CREATE TABLE IF NOT EXISTS source_prices (
+      source TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      price_cents INTEGER,
+      price_cents_foil INTEGER,
+      price_cents_etched INTEGER,
+      -- What the source says is actually purchasable right now. 0 means the
+      -- source knows the card but nobody has it in stock, which is NOT the same
+      -- as having no price and must not be shown as if it were buyable.
+      available_quantity INTEGER,
+      -- Deep link to the card on that marketplace, so a price is checkable
+      -- rather than something the app merely asserts.
+      url TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (source, card_id)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_source_prices_card ON source_prices(card_id)`);
+
+  // WHEN EACH SOURCE LAST REFRESHED, and how it went.
+  //
+  // Its own table rather than more app_settings columns: sources are added over
+  // time, and a schema that needs a migration per marketplace is a schema that
+  // discourages adding them. Also gives Settings something honest to show --
+  // "last updated" per source, and the error when a fetch failed, so a stale
+  // price is diagnosable instead of just old.
+  await run(`
+    CREATE TABLE IF NOT EXISTS source_price_meta (
+      source TEXT PRIMARY KEY,
+      last_success_at DATETIME,
+      last_attempt_at DATETIME,
+      last_error TEXT,
+      row_count INTEGER
+    )
+  `);
+
   // A deck has NO 'considering' status.
   //
   // PR 6C briefly gave decks a status column with 'active' and 'considering'

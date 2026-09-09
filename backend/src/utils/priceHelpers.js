@@ -21,17 +21,74 @@ function parseSqliteUtc(str) {
 // price_holofoil is Scryfall's usd_foil. Etched has no separate price field, so
 // it uses the foil price -- closer to the truth than the nonfoil price, and the
 // alternative (price_trend) is a blend that is wrong for both.
+//
+// MARKETPLACE PRICES COME FIRST WHEN PRESENT.
+//
+// Zach: "if I say my top 3 card prices should come from 1. Mana pool, then tcg
+// player then card kingdom then what should happen is show me mana pool price
+// if possible then if it can't there fall back to tcg player then card
+// kingdom." Scryfall is the pinned last resort.
+//
+// This is the ONE function every priced screen already goes through -- 57 call
+// sites across collection, decks, stats, storage and the exporters -- so the
+// chain lives here rather than being reimplemented per screen. A second
+// implementation of a pricing rule is how the deck completion ring and
+// missing_cost drifted apart earlier in this project.
+//
+// The marketplace columns arrive by JOIN as mp_price_cents / mp_price_cents_foil
+// / mp_price_cents_etched / mp_source. A row fetched without that join simply
+// has no marketplace price and falls through to Scryfall, so callers that have
+// not been updated keep working and keep showing a real number.
 function resolveCardPrice(card) {
-  if (!card) return 0;
-  const finish = card.finish || (card.printing === 'Foil' ? 'foil' : card.printing === 'Etched' ? 'etched' : 'nonfoil');
-  if ((finish === 'foil' || finish === 'etched') && card.price_holofoil !== null && card.price_holofoil > 0) {
-    return card.price_holofoil;
+  return resolvePricedCard(card).price;
+}
+
+// The same decision, but returning WHERE the number came from.
+//
+// Zach approved this explicitly: "maybe it tells you where that price is coming
+// from" and "showing where the source came from in the total price is a good
+// idea". A price with no attribution is the kind of figure that drifts without
+// anyone being able to argue with it.
+function resolvePricedCard(card) {
+  if (!card) return { price: 0, source: null, sourceLabel: null };
+
+  const finish = card.finish
+    || (card.printing === 'Foil' ? 'foil' : card.printing === 'Etched' ? 'etched' : 'nonfoil');
+  const isFoilish = finish === 'foil' || finish === 'etched';
+
+  // 1. MARKETPLACE, in cents. Etched falls back to the foil price for the same
+  //    reason Scryfall's does: no separate etched market, and the foil number is
+  //    far closer than the nonfoil one.
+  const cents = isFoilish
+    ? (finish === 'etched'
+        ? (card.mp_price_cents_etched ?? card.mp_price_cents_foil)
+        : card.mp_price_cents_foil)
+    : card.mp_price_cents;
+  if (Number.isFinite(cents) && cents > 0) {
+    return {
+      price: cents / 100,
+      source: card.mp_source || 'manapool',
+      sourceLabel: MARKETPLACE_LABELS[card.mp_source || 'manapool'] || 'Marketplace',
+    };
+  }
+
+  // 2. SCRYFALL, the floor.
+  if (isFoilish && card.price_holofoil !== null && card.price_holofoil > 0) {
+    return { price: card.price_holofoil, source: 'scryfall', sourceLabel: 'Scryfall' };
   }
   if (finish === 'nonfoil' && card.price_normal !== null && card.price_normal > 0) {
-    return card.price_normal;
+    return { price: card.price_normal, source: 'scryfall', sourceLabel: 'Scryfall' };
   }
-  return card.price_trend || 0;
+  if (card.price_trend > 0) {
+    return { price: card.price_trend, source: 'scryfall', sourceLabel: 'Scryfall' };
+  }
+
+  // 3. Genuinely unpriced. Reported as such rather than as a $0 card, so a
+  //    missing price can never masquerade as a worthless one.
+  return { price: 0, source: null, sourceLabel: null };
 }
+
+const MARKETPLACE_LABELS = { manapool: 'Mana Pool' };
 
 function parseCardRow(row) {
   if (!row) return row;
@@ -129,6 +186,7 @@ module.exports = {
   markPricesSwept,
   PRICE_SWEEP_INTERVAL_MS,
   resolveCardPrice,
+  resolvePricedCard,
   parseCardRow,
   rebalanceCompartmentPositions,
   isVintageSet,
