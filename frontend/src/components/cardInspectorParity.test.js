@@ -143,8 +143,19 @@ test('CIP-TC9: the two callers cannot supply different card data', () => {
   // The structural guarantee: both screens call the same endpoint and render
   // its response. The caller's object survives only for what the server cannot
   // know -- which collection entry, which deck board.
-  assert.match(impl, /const view = deckUse\?\.card \? \{ \.\.\.card, \.\.\.deckUse\.card \} : card;/,
+  //
+  // ASSERTED AS A RULE, NOT A LINE. This used to match the exact source text
+  // `const view = deckUse?.card ? {...card, ...deckUse.card} : card;` and so it
+  // failed on a correct change: while SWITCHING printings the fallback can no
+  // longer be the bare `card` prop, because that is the printing being switched
+  // away from and the sheet would show it as though nothing happened. What
+  // matters is that the server's card wins the merge -- which is still true.
+  const decl = impl.slice(impl.indexOf('const view = '),
+                          impl.indexOf('const view = ') + 260);
+  assert.match(decl, /\{ \.\.\.card, \.\.\.deckUse\.card \}/,
     'one merged object, server values winning');
+  assert.doesNotMatch(decl, /\{ \.\.\.deckUse\.card, \.\.\.card \}/,
+    'the caller must never override a server fact about the card');
   assert.match(impl, /const ownedEntry = deckUse\?\.owned_entries/,
     'ownership resolved by the server, once');
 });
