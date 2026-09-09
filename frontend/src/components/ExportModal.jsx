@@ -154,11 +154,20 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     if (!deckId || quoting) return;
     setQuoting(true);
     setQuoteError(null);
+    // MANA POOL TAKES ~40 SECONDS ON A 49-CARD CART.
+    //
+    // Zach: "the price it isn't working just keep getting load failed". The
+    // backend was answering correctly; his phone gave up first. A bare fetch
+    // has no timeout of its own and mobile Safari kills a silent request, so
+    // this waits deliberately, up to two minutes, and says so if it runs out.
+    const abort = new AbortController();
+    const bail = setTimeout(() => abort.abort(), 125000);
     try {
       const res = await fetch(`/api/decks/${deckId}/buylist/price`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model }),
+        signal: abort.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -174,8 +183,12 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
       setQuote(data);
     } catch (e) {
       setQuote(null);
-      setQuoteError({ kind: 'error', message: e.message });
+      setQuoteError({
+        kind: 'error',
+        message: e.name === 'AbortError' ? t('deck.mpTimedOut') : e.message,
+      });
     } finally {
+      clearTimeout(bail);
       setQuoting(false);
     }
   };
@@ -259,10 +272,10 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             (everything flexible) needs no interaction at all. */}
         {deckId && text && cards.length > 0 && (
           <div style={{ padding: '0 1rem 0.6rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
-                          padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)',
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem',
+                          padding: '0.6rem 0.7rem', borderRadius: 'var(--radius-sm)',
                           background: 'var(--surface-2)' }}>
-              <div style={{ flex: 1, minWidth: 0, fontSize: '0.76rem' }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: '0.78rem', lineHeight: 1.35 }}>
                 {pinnedCount === 0
                   ? t('deck.mpAllFlexible')
                   : t('deck.mpSomePinned', { count: pinnedCount, total: cards.length })}
@@ -371,29 +384,42 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             something to buy. */}
         {deckId && text && (
           <div style={{ padding: '0.7rem 1rem 0', borderTop: '1px solid var(--border-glass)' }}>
-            <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center' }}>
+            {/* STACKED, NOT SIDE BY SIDE.
+                On Zach's phone the row squeezed the button until "Pricing..."
+                was clipped and the select had no room for its own label. A
+                dropdown and a primary action do not belong on one line at 390px. */}
+            <div style={{ display: 'grid', gap: '0.45rem' }}>
               <select
                 value={model}
                 onChange={(e) => { setModel(e.target.value); setQuote(null); setQuoteError(null); }}
-                style={{ flex: 1, minHeight: 38, borderRadius: 'var(--radius-sm)',
+                style={{ width: '100%', minHeight: 42, borderRadius: 'var(--radius-sm)',
                          border: '1px solid var(--border-glass)', background: 'var(--surface-2)',
-                         color: 'var(--text-primary)', font: 'inherit', fontSize: '0.8rem',
-                         padding: '0 0.5rem' }}>
+                         color: 'var(--text-primary)', font: 'inherit', fontSize: '0.85rem',
+                         padding: '0 0.6rem' }}>
                 <option value="lowest_price">{t('deck.mpLowestPrice')}</option>
                 <option value="fewest_packages">{t('deck.mpFewestPackages')}</option>
                 <option value="balanced">{t('deck.mpBalanced')}</option>
               </select>
               <button onClick={priceIt} disabled={quoting}
-                style={{ minHeight: 38, padding: '0 0.9rem', borderRadius: 'var(--radius-sm)',
-                         border: 0, background: 'var(--surface-3)',
-                         color: 'var(--text-primary)', font: 'inherit',
-                         fontSize: '0.82rem', fontWeight: 600,
-                         display: 'flex', alignItems: 'center', gap: '0.35rem',
-                         cursor: quoting ? 'default' : 'pointer' }}>
-                <Receipt size={14} />
+                style={{ width: '100%', minHeight: 44, borderRadius: 'var(--radius-sm)',
+                         border: 0,
+                         background: quoting ? 'var(--surface-3)' : 'var(--accent-blue)',
+                         color: quoting ? 'var(--text-secondary)' : '#fff', font: 'inherit',
+                         fontSize: '0.88rem', fontWeight: 600,
+                         display: 'flex', alignItems: 'center', justifyContent: 'center',
+                         gap: '0.4rem', cursor: quoting ? 'default' : 'pointer' }}>
+                <Receipt size={15} />
                 {quoting ? t('deck.mpPricing') : t('deck.mpPriceIt')}
               </button>
             </div>
+
+            {/* A 40-SECOND WAIT NEEDS TO LOOK LIKE WORK, NOT A HANG. */}
+            {quoting && (
+              <div style={{ marginTop: '0.55rem', fontSize: '0.74rem',
+                            color: 'var(--text-secondary)' }}>
+                {t('deck.mpPricingSlow')}
+              </div>
+            )}
 
             {quote && (
               <div style={{ marginTop: '0.6rem', fontSize: '0.8rem' }}>

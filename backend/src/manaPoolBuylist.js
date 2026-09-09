@@ -32,10 +32,20 @@ const HOST = 'manapool.com';
 const PATH = '/api/v1/buyer/optimizer';
 
 // Mana Pool's own limit, measured: the 4th call in a burst returns 429 and no
-// rate-limit headers are advertised. One buylist is one call, so this only
-// matters if something loops.
+// rate-limit headers are advertised.
+//
+// THIS IS A CEILING, NOT A DELAY TO PAY UP FRONT. The first version slept 21s
+// before EVERY call, including the first one after minutes of idle -- so a
+// 39-second solve became a 60-second request and Zach's phone gave up with
+// "load failed" before the answer arrived. Now it only waits when calls are
+// genuinely close together.
 const MIN_CALL_SPACING_MS = 21000;
 let lastCallAt = 0;
+
+// How long we are willing to make a person wait before saying so plainly.
+// Mana Pool's optimizer takes ~40s on a 49-card cart; browsers and phones give
+// up silently well before a minute, which reads as "broken" rather than "slow".
+const SOLVE_TIMEOUT_MS = 115000;
 
 // Conditions Zach accepts, sent to the marketplace rather than filtered after.
 // Same floor as the price import: LP or NM, nothing below.
@@ -110,7 +120,7 @@ function requestTo(path, body) {
         'X-ManaPool-Access-Token': token,
         'User-Agent': 'Bindarr/1.0 (self-hosted collection manager)',
       },
-      timeout: 120000,
+      timeout: SOLVE_TIMEOUT_MS,
     }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });
@@ -152,17 +162,20 @@ async function priceBuylist(cards, { model = 'lowest_price' } = {}) {
     throw new Error(`Too many lines for one order: ${cards.length} (max 2000)`);
   }
 
+  // Wait only if the PREVIOUS call finished recently. Stamping the time before
+  // a 40-second solve made every follow-up wait as though the solve had been
+  // instant, stacking 21s of throttle onto a request that was already slow.
   const since = Date.now() - lastCallAt;
-  if (since < MIN_CALL_SPACING_MS) {
+  if (lastCallAt && since < MIN_CALL_SPACING_MS) {
     await new Promise(r => setTimeout(r, MIN_CALL_SPACING_MS - since));
   }
-  lastCallAt = Date.now();
 
   const { status, data } = await requestTo(PATH, {
     cart: cards.map(toCartLine),
     model,
     destination_country: 'US',
   });
+  lastCallAt = Date.now();
 
   if (status === 401 || status === 403) {
     throw new ManaPoolAuthError('Mana Pool rejected the API key');
@@ -249,10 +262,9 @@ async function sendToCart(cartLines, shippingAddress) {
   }
 
   const since = Date.now() - lastCallAt;
-  if (since < MIN_CALL_SPACING_MS) {
+  if (lastCallAt && since < MIN_CALL_SPACING_MS) {
     await new Promise(r => setTimeout(r, MIN_CALL_SPACING_MS - since));
   }
-  lastCallAt = Date.now();
 
   if (!shippingAddress?.line1) {
     throw new Error('A shipping address is required to create an order');
@@ -277,6 +289,8 @@ async function sendToCart(cartLines, shippingAddress) {
     } catch { /* keep the status-only message */ }
     throw new Error(msg);
   }
+
+  lastCallAt = Date.now();
 
   let order;
   try { order = JSON.parse(data); } catch { order = null; }
