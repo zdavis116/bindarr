@@ -311,6 +311,21 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
                   {t('deck.mpSellers', { count: quote.sellerCount })}
                 </div>
 
+                {/* WHICH CARDS WERE SWAPPED. A substitution he cannot see is
+                    the silent state change he has ruled out -- he would find
+                    out when different cardboard arrives. */}
+                {quote.substitutions?.length > 0 && (
+                  <div style={{ marginTop: '0.55rem', fontSize: '0.72rem',
+                                color: 'var(--text-secondary)' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--accent-amber, #ff9f0a)' }}>
+                      {t('deck.mpSwapped', { count: quote.substitutions.length })}
+                    </div>
+                    {quote.substitutions.slice(0, 6).map((sub, i) => (
+                      <div key={i}>{sub.name}: {sub.from} → {sub.to}</div>
+                    ))}
+                  </div>
+                )}
+
                 {/* SEND IT. Creates a PENDING order on Mana Pool -- Bindarr
                     never completes a purchase. He reviews and pays there. */}
                 {!cart && (

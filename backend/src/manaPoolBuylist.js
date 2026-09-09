@@ -66,42 +66,34 @@ function isConfigured() {
 
 // One cart line per card Bindarr wants priced.
 //
-// IDENTIFIED BY SET CODE + COLLECTOR NUMBER, not by Scryfall id: card_id 409s
-// on this endpoint even for cards that are demonstrably in stock. Bindarr has
-// both fields for every card, so this costs nothing.
+// ALWAYS IDENTIFIED BY SET CODE + COLLECTOR NUMBER.
 //
-// EXACT PRINTING BY DEFAULT, WIDENED ONLY WHEN HE SAYS SO.
+// card_id does not work on this endpoint AT ALL. Measured on An Offer You Can't
+// Refuse (FDN #160), a card Mana Pool demonstrably stocks:
 //
-// Zach: "I would like the ability to specify each card for exact printing or
-// not. Because I get a different number when doing any printing."
+//   set_code + collector_number  -> 200, $2.59
+//   card_id = Scryfall printing id -> 409 no_candidates
+//   card_id = Scryfall oracle id   -> 409 no_candidates
 //
-// Sending set_code + collector_number pins the printing. Sending card_id alone
-// lets Mana Pool substitute any interchangeable printing -- which is cheaper,
-// and is the right trade for a Sol Ring but not for a card he chose for its
-// art. The default stays exact because a substitution he did not ask for
-// arrives as the wrong cardboard.
+// So the schema's documented route to substitution ("card_id ... any
+// interchangeable printing may be substituted") is unusable. Every line is
+// therefore an EXACT printing at the API boundary.
 //
-// NOTE the asymmetry: card_id does not work as an EXACT identifier on this
-// endpoint (it 409s), but it is the only way to express "any printing". So the
-// two modes genuinely use different fields.
+// "ANY PRINTING" IS RESOLVED BEFORE WE GET HERE, in chooseCheapestPrinting(),
+// using the price data Bindarr already holds for every printing. That is
+// strictly better than delegating it: Bindarr can apply Zach's LP/NM floor and
+// tell him exactly WHICH printing it swapped to, rather than being surprised by
+// whatever the marketplace picked.
 function toCartLine(card) {
   const finish = FINISH_ID[card.finish || 'nonfoil'] || 'NF';
-  const base = {
+  return {
     type: 'mtg_single',
+    set_code: String(card.set_code || '').toUpperCase(),
+    collector_number: String(card.collector_number),
     quantity_requested: Math.max(1, Number(card.quantity) || 1),
     language_ids: LANGUAGE_IDS,
     finish_ids: [finish],
     condition_ids: CONDITION_IDS,
-  };
-  if (card.allow_any_printing && card.card_id) {
-    // Any interchangeable printing. Requires the Scryfall id, which Bindarr
-    // always has for a deck card.
-    return { ...base, card_id: card.card_id };
-  }
-  return {
-    ...base,
-    set_code: String(card.set_code || '').toUpperCase(),
-    collector_number: String(card.collector_number),
   };
 }
 
@@ -298,9 +290,72 @@ async function sendToCart(cartLines) {
   };
 }
 
+// SUBSTITUTE THE CHEAPEST PRINTING, WHERE HE ALLOWED IT.
+//
+// Zach: "Some cards I would be fine with a substitute and some I wouldn't."
+//
+// Done in Bindarr rather than by the marketplace because card_id -- the API's
+// only substitution mechanism -- returns 409 for every value tested. But doing
+// it here is better anyway:
+//
+//   * it obeys his LP/NM floor, which a marketplace substitution would not
+//   * it can SAY which printing it swapped to, so the buylist he reads matches
+//     the cardboard that arrives
+//   * it uses prices Bindarr already refreshed, so it costs no API call
+//
+// Only ever applied to lines he explicitly unlocked. A line left exact is sent
+// exactly as the deck specifies.
+async function chooseCheapestPrinting(database, card) {
+  if (!card.allow_any_printing || !card.card_id) return card;
+
+  // Every printing of the same card that Mana Pool stocks, cheapest first.
+  // Joined on oracle_id: that is what "another printing of this card" means.
+  const rows = await database.all(
+    `SELECT cc.id, cc.set_id, cc.number, sp.price_cents, sp.price_cents_foil,
+            sp.condition, sp.condition_foil
+       FROM card_cache cc
+       JOIN source_prices sp
+         ON sp.card_id = cc.id AND sp.source = 'manapool'
+      WHERE cc.oracle_id = (SELECT oracle_id FROM card_cache WHERE id = ?)`,
+    [card.card_id]
+  );
+
+  const wantFoil = card.finish === 'foil' || card.finish === 'etched';
+  const priced = rows
+    .map(r => ({
+      set_code: r.set_id,
+      collector_number: r.number,
+      cents: wantFoil ? r.price_cents_foil : r.price_cents,
+      condition: wantFoil ? r.condition_foil : r.condition,
+    }))
+    .filter(r => Number.isFinite(r.cents) && r.cents > 0)
+    .sort((a, b) => a.cents - b.cents);
+
+  // NO CHEAPER OPTION IS NOT AN ERROR. If nothing is stocked, keep the exact
+  // printing and let the optimizer answer for it -- silently dropping the line
+  // would be far worse.
+  if (priced.length === 0) return card;
+
+  const best = priced[0];
+  return {
+    ...card,
+    set_code: best.set_code,
+    collector_number: best.collector_number,
+    // Reported so the UI can show the swap. A substitution he cannot see is the
+    // silent state change he has ruled out.
+    substituted_from: (card.set_code !== best.set_code
+                    || String(card.collector_number) !== String(best.collector_number))
+      ? { set_code: card.set_code, collector_number: card.collector_number }
+      : null,
+    substituted_price: best.cents / 100,
+    substituted_condition: best.condition,
+  };
+}
+
 module.exports = {
   priceBuylist,
   sendToCart,
+  chooseCheapestPrinting,
   isConfigured,
   parseSolutionStream,
   toCartLine,

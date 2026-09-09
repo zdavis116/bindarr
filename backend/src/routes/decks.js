@@ -2167,7 +2167,26 @@ router.post('/:id/buylist/price', async (req, res) => {
       name: i.name,
     }));
 
-    const quote = await manaPoolBuylist.priceBuylist(cards, { model });
+    // Resolve "any printing" BEFORE pricing, using prices Bindarr already holds.
+    // The marketplace cannot do this for us -- card_id 409s -- and doing it here
+    // means the swap obeys his LP/NM floor and is reportable.
+    const resolved = [];
+    for (const c of cards) {
+      resolved.push(await manaPoolBuylist.chooseCheapestPrinting(db, c));
+    }
+
+    const quote = await manaPoolBuylist.priceBuylist(resolved, { model });
+    // Which lines were swapped, so the UI can say so rather than quietly
+    // ordering different cardboard.
+    quote.substitutions = resolved
+      .filter(c => c.substituted_from)
+      .map(c => ({
+        name: c.name,
+        from: `${(c.substituted_from.set_code || '').toUpperCase()} #${c.substituted_from.collector_number}`,
+        to: `${(c.set_code || '').toUpperCase()} #${c.collector_number}`,
+        price: c.substituted_price,
+        condition: c.substituted_condition,
+      }));
     res.json({
       deck_id: deck.id,
       deck_name: deck.name,

@@ -403,6 +403,7 @@
   "deck.mpSendToCart": "Send to Mana Pool cart",
   "deck.mpSending": "Sending…",
   "deck.mpShipping": "Shipping",
+  "deck.mpSwapped": "{count} cards swapped to a cheaper printing:",
   "deck.mpTotal": "Total on Mana Pool",
   "deck.namePlaceholder": "例: リザードン ex エンジン、アタルカレッドなど...",
   "deck.noCardsDrawn": "まだカードを引いていません。",
