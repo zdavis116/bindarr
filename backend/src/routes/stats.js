@@ -1,7 +1,8 @@
 const express = require('express');
 const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
-const { resolveCardPrice, isVintageSet, parseSqliteUtc } = require('../utils/priceHelpers');
+const { resolveCardPrice, resolvePricedCard, isVintageSet, parseSqliteUtc,
+        MARKETPLACE_PRICE_JOIN, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -17,10 +18,12 @@ router.get('/stats', async (req, res) => {
         c.quantity, c.purchase_price, c.added_at, c.printing, c.condition, c.card_id,
         cc.types, cc.subtypes, cc.supertype, cc.rarity, cc.set_name, cc.set_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
         cc.price_avg1, cc.price_avg7, cc.price_avg30,
+        ${MARKETPLACE_PRICE_COLUMNS}
         l.name as location_name
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
+      ${MARKETPLACE_PRICE_JOIN}
       WHERE c.user_id = ?
     `;
     const rows = await db.all(query, statsParams);
@@ -59,9 +62,25 @@ router.get('/stats', async (req, res) => {
     const setCounts = {};
     const locationCounts = {};
 
+    // WHERE THE TOTAL CAME FROM.
+    //
+    // Zach approved this: "showing where the source came from in the total
+    // price is a good idea". A total that blends 1,400 Mana Pool prices with
+    // 108 Scryfall ones is not "the Mana Pool value", and one anonymous figure
+    // invites the reader to believe it is all one thing.
+    const priceSourceCounts = new Map();
+
     rows.forEach(row => {
       const qty = row.quantity || 1;
-      const price = resolveCardPrice(row);
+      const priced = resolvePricedCard(row);
+      const price = priced.price;
+      if (priced.source) {
+        const e = priceSourceCounts.get(priced.source)
+          || { source: priced.source, label: priced.sourceLabel, count: 0, total: 0 };
+        e.count += qty;
+        e.total += qty * price;
+        priceSourceCounts.set(priced.source, e);
+      }
       const addedTime = row.added_at ? parseSqliteUtc(row.added_at).getTime() : now;
 
       totalCards += qty;
@@ -248,6 +267,14 @@ router.get('/stats', async (req, res) => {
         totalCards,
         uniqueCards,
         totalValue: parseFloat(totalValue.toFixed(2)),
+        // WHICH SOURCES MADE UP THAT TOTAL, largest contributor first.
+        //
+        // Sent as data rather than a sentence so the UI can render it in the
+        // user's own words and the API stays honest about a blended figure.
+        priceSources: [...priceSourceCounts.values()]
+          .sort((a, b) => b.count - a.count)
+          .map(e => ({ source: e.source, label: e.label, count: e.count,
+                       total: parseFloat(e.total.toFixed(2)) })),
         totalSpent: parseFloat(totalSpent.toFixed(2)),
         roi,
         avgCardValue,

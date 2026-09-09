@@ -346,7 +346,19 @@ async function initDb() {
       public_base_url TEXT DEFAULT '',
       mtg_prices_swept_at DATETIME,
       card_catalogue_updated_at TEXT,
-      card_catalogue_refreshed_at DATETIME
+      card_catalogue_refreshed_at DATETIME,
+      -- WHICH PRICE SOURCE WINS, as an ordered JSON array of source ids.
+      --
+      -- Zach: "if I say my top 3 card prices should come from 1. Mana pool,
+      -- then tcg player then card kingdom then what should happen is show me
+      -- mana pool price if possible then if it can't there fall back to tcg
+      -- player then card kingdom."
+      --
+      -- Scryfall is NOT stored here. It is appended as the last resort by
+      -- normaliseOrder(), so it cannot be reordered above a marketplace or
+      -- removed -- it is the only source with near-total coverage, and losing
+      -- the floor would let a card silently have no value at all.
+      price_source_order TEXT DEFAULT '["manapool"]'
     )
   `);
   await run(`INSERT OR IGNORE INTO app_settings (id, public_base_url) VALUES (1, '')`);
@@ -813,6 +825,14 @@ async function initDb() {
   }
   if (!appSettingsCols.some(c => c.name === 'card_catalogue_refresh_owner')) {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refresh_owner TEXT`);
+  }
+  // The price-source priority order. An existing database has no such column,
+  // and CREATE TABLE IF NOT EXISTS will not add one -- without this migration
+  // every read of price_source_order throws on Zach's actual database while
+  // passing on a fresh test one. That exact shape of bug (schema added to the
+  // CREATE but not the ALTER) has already bitten this project once.
+  if (!appSettingsCols.some(c => c.name === 'price_source_order')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN price_source_order TEXT DEFAULT '["manapool"]'`);
   }
 
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);

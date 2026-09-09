@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const db = require('../db');
 const syncSchedule = require('../utils/syncSchedule');
+const priceSources = require('../utils/priceSources');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
@@ -134,6 +135,80 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// PRICE SOURCES: the order, and how fresh each one is.
+//
+// Zach: "Priority order in settings and scryfall last resort."
+//
+// GET returns every known source, the current order, and per-source freshness
+// so a stale price is diagnosable in the UI rather than merely old.
+router.get('/price-sources', authenticateToken, async (req, res) => {
+  try {
+    const row = await db.get(`SELECT price_source_order AS order_json FROM app_settings WHERE id = 1`);
+    let stored = [];
+    try { stored = JSON.parse(row?.order_json || '[]'); } catch { stored = []; }
+    const order = priceSources.normaliseOrder(stored);
+
+    const meta = await db.all(`SELECT * FROM source_price_meta`);
+    const byId = new Map(meta.map(m => [m.source, m]));
+
+    res.json({
+      order,
+      fallback: priceSources.FALLBACK_SOURCE,
+      sources: order.map(id => {
+        const def = priceSources.SOURCES[id] || { id, label: id };
+        const m = byId.get(id) || {};
+        return {
+          id,
+          label: def.label,
+          kind: def.kind,
+          // Scryfall cannot be dragged: it is the floor. The UI must show WHY
+          // rather than silently refusing the drag.
+          reorderable: def.reorderable !== false,
+          last_success_at: m.last_success_at || null,
+          last_error: m.last_error || null,
+          row_count: m.row_count ?? null,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to read price sources' });
+  }
+});
+
+router.put('/price-sources', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const requested = Array.isArray(req.body?.order) ? req.body.order : null;
+    if (!requested) return res.status(400).json({ error: 'order must be an array of source ids' });
+
+    // REJECT UNKNOWN IDS RATHER THAN DROPPING THEM.
+    //
+    // normaliseOrder() silently discards anything it does not recognise, which
+    // is right for reading a possibly-corrupt stored value but wrong for a
+    // write: saving ["manpool"] would report success, drop the typo, and leave
+    // him wondering why nothing changed.
+    const unknown = requested.filter(id => !priceSources.SOURCES[id]);
+    if (unknown.length) {
+      return res.status(400).json({ error: `Unknown price source: ${unknown.join(', ')}` });
+    }
+    if (requested.includes(priceSources.FALLBACK_SOURCE)) {
+      return res.status(400).json({
+        error: `${priceSources.SOURCES[priceSources.FALLBACK_SOURCE].label} is always the last resort and cannot be reordered`,
+      });
+    }
+
+    const order = priceSources.normaliseOrder(requested);
+    // Stored WITHOUT the appended fallback: the floor is a rule, not a user
+    // choice, and writing it into the setting would make it look editable.
+    await db.run(`UPDATE app_settings SET price_source_order = ? WHERE id = 1`,
+                 [JSON.stringify(requested)]);
+    res.json({ order });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to save price sources' });
   }
 });
 
