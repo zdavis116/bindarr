@@ -9,7 +9,8 @@ const scanMatch = require('../scanMatch');
 const setIndex = require('../setIndex');
 
 const { authenticateToken, searchLimiter } = require('../middleware/auth');
-const { resolveCardPrice, parseCardRow, recordPrice } = require('../utils/priceHelpers');
+const { resolveCardPrice, resolvePricedCard, parseCardRow, recordPrice,
+        MARKETPLACE_PRICE_JOIN, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
 const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
@@ -1684,6 +1685,7 @@ router.get('/collection', async (req, res) => {
         cc.price_normal,
         cc.price_holofoil,
         cc.price_reverse_holofoil,
+        ${MARKETPLACE_PRICE_COLUMNS}
         -- MARKETPLACE URLS ARE NOT SENT WITH THE LIST.
         --
         -- They were 663 KB of the 3.6 MB this endpoint returns -- 23% of the
@@ -1704,6 +1706,7 @@ router.get('/collection', async (req, res) => {
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
       LEFT JOIN compartments cp ON c.compartment_id = cp.id
+      ${MARKETPLACE_PRICE_JOIN}
       ${filterSql}
       ORDER BY c.added_at DESC
     `;
@@ -1716,21 +1719,39 @@ router.get('/collection', async (req, res) => {
     // on the search route would leave it wrong exactly where it was seen.
     const inDeck = await inDeckQuantities(req.user.id);
 
-    const formatted = rows.map(row => ({
-      ...parseCardRow(row),
-      price_trend: resolveCardPrice(row),
-      checked_out_qty: alloc.get(row.entry_id) || 0,
-      // Keyed on (card_id, finish): the app's deck identity. A committed foil
-      // must not make the nonfoil of the same printing read as spoken for --
-      // they are different physical objects.
-      in_deck_qty: inDeck.get(`${row.card_id}|${row.finish || 'nonfoil'}`) || 0,
-      compartment_display_label: row.compartment_id
-        ? compartmentLabel({ idx: row.compartment_idx, label: row.compartment_label }, row.location_type)
-        : null,
-      sub_location: row.compartment_id
-        ? `${row.location_type === 'Binder' ? 'Page' : 'Row'} ${row.compartment_idx}`
-        : ''
-    }));
+    const formatted = rows.map(row => {
+      // PRICE AND ITS SOURCE TOGETHER.
+      //
+      // Zach: "maybe it tells you where that price is coming from". price_trend
+      // keeps its name because 57 call sites and the whole frontend read it;
+      // renaming the field to prove a point would be a large diff that changes
+      // no behaviour. What it now CARRIES is the chain's answer, and
+      // price_source says which source produced it.
+      const priced = resolvePricedCard(row);
+      return {
+        ...parseCardRow(row),
+        price_trend: priced.price,
+        price_source: priced.source,
+        price_source_label: priced.sourceLabel,
+        // Only meaningful for a marketplace price: how many are actually buyable
+        // right now, and where to check it. A price nobody stocks is a quote,
+        // not an offer, and the screen should be able to say so.
+        price_available_qty: priced.source && priced.source !== 'scryfall'
+          ? row.mp_available_quantity : null,
+        price_url: priced.source && priced.source !== 'scryfall' ? row.mp_url : null,
+        checked_out_qty: alloc.get(row.entry_id) || 0,
+        // Keyed on (card_id, finish): the app's deck identity. A committed foil
+        // must not make the nonfoil of the same printing read as spoken for --
+        // they are different physical objects.
+        in_deck_qty: inDeck.get(`${row.card_id}|${row.finish || 'nonfoil'}`) || 0,
+        compartment_display_label: row.compartment_id
+          ? compartmentLabel({ idx: row.compartment_idx, label: row.compartment_label }, row.location_type)
+          : null,
+        sub_location: row.compartment_id
+          ? `${row.location_type === 'Binder' ? 'Page' : 'Row'} ${row.compartment_idx}`
+          : ''
+      };
+    });
 
     // PAGINATION, opt-in.
     //

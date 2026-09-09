@@ -90,6 +90,33 @@ function resolvePricedCard(card) {
 
 const MARKETPLACE_LABELS = { manapool: 'Mana Pool' };
 
+// THE JOIN THAT BRINGS MARKETPLACE PRICES INTO A QUERY.
+//
+// One definition, used by every priced read, so the columns resolvePricedCard
+// looks for can never be spelled differently in two places. Add TCGplayer later
+// and this is where the priority is expressed -- not in each route.
+//
+// TODAY IT IS HARDCODED TO MANA POOL, and that is a deliberate first step
+// rather than the finished shape. The stored priority order is honoured by the
+// SETTINGS UI work that follows; wiring the SQL to a user-ordered list means
+// building the join dynamically, which is worth doing once the order is
+// actually configurable rather than guessing at it now.
+//
+// LEFT JOIN, always: a card the marketplace does not stock must still appear
+// with its Scryfall price, never vanish from the listing.
+const MARKETPLACE_PRICE_JOIN = `
+  LEFT JOIN source_prices mp
+         ON mp.card_id = cc.id AND mp.source = 'manapool'`;
+
+const MARKETPLACE_PRICE_COLUMNS = `
+  mp.price_cents        AS mp_price_cents,
+  mp.price_cents_foil   AS mp_price_cents_foil,
+  mp.price_cents_etched AS mp_price_cents_etched,
+  mp.available_quantity AS mp_available_quantity,
+  mp.url                AS mp_url,
+  mp.source             AS mp_source,`;
+
+
 function parseCardRow(row) {
   if (!row) return row;
   return {
@@ -187,6 +214,8 @@ module.exports = {
   PRICE_SWEEP_INTERVAL_MS,
   resolveCardPrice,
   resolvePricedCard,
+  MARKETPLACE_PRICE_JOIN,
+  MARKETPLACE_PRICE_COLUMNS,
   parseCardRow,
   rebalanceCompartmentPositions,
   isVintageSet,
