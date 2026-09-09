@@ -356,7 +356,33 @@ async function findColourIdentityCorrections() {
 // are fresher than others, and the next refresh completes it. No row is
 // deleted, nothing a collection or deck points at can vanish, and the
 // already-committed swapCommitted flag still reports honestly.
-const APPLY_BATCH_ROWS = 2000;
+// How many staged rows to copy per transaction.
+//
+// SIZED BY HOW LONG ONE TRANSACTION BLOCKS A READER, not by throughput.
+//
+// db.js chains every query onto ONE global operation queue, and
+// withTransaction() takes a single slot for its whole BEGIN..COMMIT block. So
+// while the swap runs, the queue interleaves like this:
+//
+//     [swap txn][stats query 1][swap txn][stats query 2][swap txn]...
+//
+// A request issuing N sequential queries therefore waits N swap transactions,
+// not one. /api/stats issues roughly twenty -- it runs a per-set COUNT in a loop
+// plus a dozen other reads -- which is why the DASHBOARD was the screen Zach
+// could not load while every other screen merely felt slow:
+//
+//     during the swap   /api/stats 28-31s   /api/decks 2.9s   /api/health 2.2s
+//
+// At 2000 rows a transaction took ~1.4s, so twenty queries queued ~28s. At 250
+// it is ~175ms, so the same request waits ~3.5s worst case. More transactions
+// cost more total time; the refresh is a background job and the app is not.
+//
+// THIS IS THE THIRD THING I "FIXED" HERE. The first two -- batching the swap,
+// then yielding during staging -- were aimed at mechanisms I had not measured.
+// Staging holds a steady 2.2s, the colour-identity query takes 20ms, and a
+// 150MB WAL leaves reads at 3ms; all three were ruled out by measurement before
+// this change was written.
+const APPLY_BATCH_ROWS = 250;
 
 async function applyStaged(onProgress) {
   const corrections = await findColourIdentityCorrections();
