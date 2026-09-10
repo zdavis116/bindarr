@@ -404,6 +404,7 @@
   "deck.mpFewestPackages": "Fewest packages",
   "deck.mpHidePrintings": "Hide printing choices",
   "deck.mpItems": "Items",
+  "deck.mpLinesReady": "{count} cards ready to copy",
   "deck.mpLowestPrice": "Cheapest overall",
   "deck.mpNoStock": "Mana Pool has no stock for:",
   "deck.mpOpenMassEntry": "Copy list & open Mana Pool",

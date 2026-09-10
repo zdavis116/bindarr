@@ -29,6 +29,12 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   const { t } = useT();
   const [formatId, setFormatId] = useState(EXPORT_FORMATS[0].id);
 
+  // Zach: "I think we should only see manapool stuff when on the manapool
+  // selection." The printing picker, the cost estimate and the Mass Entry
+  // button are all Mana Pool concepts -- showing them while he is copying a
+  // Moxfield list is noise about a marketplace he is not using.
+  const onManaPool = formatId === 'parens';
+
   // WHAT THIS LIST WOULD COST, FROM PRICES WE ALREADY HAVE.
   //
   // Zach: "I would rather when I go to export tell me what the cost would be if
@@ -216,14 +222,16 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           })}
         </div>
 
-        {/* THE TEXT IS VISIBLE BEFORE IT IS COPIED. Zach reviewed this in the
-            mockup; it is also what the deck list was missing. */}
-        <pre style={{ flex: 1, overflow: 'auto', margin: 0, padding: '0.8rem 1rem',
-                      background: 'var(--surface-2)', fontSize: '0.78rem', lineHeight: 1.55,
-                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        {/* THE LIST ITSELF IS NOT SHOWN.
+            It used to fill the sheet, from a much older decision that he should
+            see the text before copying it. He does not: "I'm gonna use the copy
+            button anyway to copy so seeing that top screen is useless because I
+            won't manually copy." What matters is the count, the cost and the
+            two actions -- so the sheet now shows those and nothing else. */}
+        <div style={{ padding: '0 1rem 0.2rem', fontSize: '0.78rem',
                       color: 'var(--text-secondary)' }}>
-          {text || t('deck.nothingToExport')}
-        </pre>
+          {text ? t('deck.mpLinesReady', { count }) : t('deck.nothingToExport')}
+        </div>
 
         {/* WHICH CARDS MUST BE THE EXACT PRINTING?
             Zach: "Printing list is horrible definitely needs a better design...
@@ -234,7 +242,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             design. This shows the SUMMARY plus only the cards he has pinned;
             the full list is one tap away and searchable. The common case
             (everything flexible) needs no interaction at all. */}
-        {deckId && text && cards.length > 0 && (
+        {onManaPool && deckId && text && cards.length > 0 && (
           <div style={{ padding: '0.75rem 1rem 0' }}>
             {/* Label above the control, matching the price block below it. The
                 first version had a bare row with different padding from its
@@ -359,7 +367,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             Bindarr refreshes every 6 hours. It states that shipping is excluded,
             because shipping genuinely cannot be known until checkout -- it
             depends on how the order splits across sellers. */}
-        {deckId && estimate && estimate.lines > 0 && (
+        {onManaPool && deckId && estimate && estimate.lines > 0 && (
           <div style={{ padding: '0.75rem 1rem 0' }}>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase',
                           letterSpacing: '0.04em', color: 'var(--text-tertiary)',
@@ -412,7 +420,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
 
         <div style={{ padding: '0.8rem 1rem 1rem', display: 'grid', gap: '0.5rem' }}>
           {/* Straight to Mass Entry with the list on the clipboard. */}
-          {deckId && text && (
+          {onManaPool && deckId && text && (
             <button onClick={copyAndOpen}
               style={{ width: '100%', minHeight: 48, borderRadius: 'var(--radius-md)',
                        border: 0, background: 'var(--accent-blue)', color: '#fff',

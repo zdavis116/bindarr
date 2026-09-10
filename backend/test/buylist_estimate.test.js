@@ -68,6 +68,25 @@ test('EST-TC3: a card with no price is NAMED, not costed at zero', () => {
     'and the UI must show them');
 });
 
+test('EST-TC3b: a PINNED card keeps its marketplace price', () => {
+  // Zach: "When choosing some cards for exact printing the deck as it says
+  // manapool doesn't have a price which I know is wrong."
+  //
+  // He was right. availabilityForDeck resolves a marketplace price for every
+  // row, but buylistForDeck built its line WITHOUT copying price_trend across.
+  // Flexible cards hid it, because substitution looks the price up again --
+  // only PINNED cards arrived priceless and were reported as "Mana Pool has no
+  // price for", which is a claim about the marketplace that was simply false.
+  const identity = readFileSync(
+    new URL('../src/utils/deckIdentity.js', import.meta.url), 'utf8');
+  const line = identity.slice(identity.indexOf('byVariant.set(key, {'),
+                              identity.indexOf('byVariant.set(key, {') + 1800);
+  assert.match(line, /price_trend: entry\.price_trend/,
+    'the buylist line must carry the resolved price');
+  assert.match(line, /price_source: entry\.price_source/,
+    'and its provenance, so a price is never anonymous');
+});
+
 test('EST-TC4: the estimate states that shipping is excluded', () => {
   // Shipping genuinely cannot be known until checkout -- it depends on how the
   // order splits across sellers. Presenting this as a final price would be the
