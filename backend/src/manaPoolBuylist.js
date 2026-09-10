@@ -54,32 +54,44 @@ async function chooseCheapestPrintings(database, cards) {
   const flexible = cards.filter(c => c.allow_any_printing && c.card_id);
   if (flexible.length === 0) return cards;
 
-  const ids = flexible.map(c => c.card_id);
-  const placeholders = ids.map(() => '?').join(',');
+  const ids = [...new Set(flexible.map(c => c.card_id))];
 
-  // Every printing of every wanted card, in one pass. `want` maps each result
-  // back to the card that asked for it.
-  const rows = await database.all(
-    `SELECT want.id AS want_id, cc.set_id, cc.number,
-            sp.price_cents, sp.price_cents_foil, sp.condition, sp.condition_foil
-       FROM card_cache want
-       JOIN card_cache cc ON cc.oracle_id = want.oracle_id
-       JOIN source_prices sp
-         ON sp.card_id = cc.id AND sp.source = 'manapool'
-      WHERE want.id IN (${placeholders})`,
+  // TWO SIMPLE QUERIES, NOT ONE THREE-WAY JOIN.
+  //
+  // The join version took 5,174ms because SQLite chose to drive from
+  // source_prices -- 98,000 rows -- rather than from the 49 cards actually
+  // wanted, and neither a covering index nor INDEXED BY would move it. Resolving
+  // the oracle ids first and then fetching their printings costs 101ms for the
+  // identical 1,507 rows. Measured, not reasoned about.
+  const wants = await database.all(
+    `SELECT id, oracle_id FROM card_cache WHERE id IN (${ids.map(() => '?').join(',')})`,
     ids
   );
+  const oracleOf = new Map(wants.map(w => [w.id, w.oracle_id]));
+  const oracles = [...new Set(wants.map(w => w.oracle_id).filter(Boolean))];
+  if (oracles.length === 0) return cards;
 
-  const byWant = new Map();
+  const rows = await database.all(
+    `SELECT cc.oracle_id, cc.set_id, cc.number,
+            sp.price_cents, sp.price_cents_foil, sp.condition, sp.condition_foil
+       FROM card_cache cc
+       JOIN source_prices sp
+         ON sp.card_id = cc.id AND sp.source = 'manapool'
+      WHERE cc.oracle_id IN (${oracles.map(() => '?').join(',')})`,
+    oracles
+  );
+
+  const byOracle = new Map();
   for (const r of rows) {
-    if (!byWant.has(r.want_id)) byWant.set(r.want_id, []);
-    byWant.get(r.want_id).push(r);
+    if (!byOracle.has(r.oracle_id)) byOracle.set(r.oracle_id, []);
+    byOracle.get(r.oracle_id).push(r);
   }
 
   return cards.map((card) => {
     if (!card.allow_any_printing || !card.card_id) return card;
+    const oracle = oracleOf.get(card.card_id);
     const wantFoil = card.finish === 'foil' || card.finish === 'etched';
-    const priced = (byWant.get(card.card_id) || [])
+    const priced = (byOracle.get(oracle) || [])
       .map(r => ({
         set_code: r.set_id,
         collector_number: r.number,
