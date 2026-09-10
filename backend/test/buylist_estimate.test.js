@@ -118,11 +118,19 @@ test('EST-TC6: substitution is one query for the whole list, not one per card', 
 
 test('EST-TC7: every swap is reported', () => {
   // Any printing is now the DEFAULT, so a card he never touched can be swapped.
-  // This list is the only thing standing between him and different cardboard.
+  // This is the only thing standing between him and different cardboard.
+  //
+  // The swaps USED to be listed in a summary block under the total. He called
+  // that out as duplication -- "Why the fuck are both lists back I only wanted
+  // one" -- because each row already shows its own swap. So the rule did not
+  // change, only where it is satisfied: every row states the printing it
+  // resolved to and what it was before.
   assert.match(decks, /substitutions\.push\(/);
   assert.match(decks, /substitutions,/, 'and they must reach the response');
-  assert.match(modal, /estimate\.substitutions\?\.length > 0/,
-    'and the screen must render them');
+  assert.match(modal, /estimate\?\.substitutions\?\.find/,
+    'each row must look up its own swap');
+  assert.match(modal, /mpSwappedFrom/,
+    'and say what the printing was before');
 });
 
 test('EST-TC8: Mass Entry opens only after the list is on the clipboard', () => {
