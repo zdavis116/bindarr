@@ -719,7 +719,22 @@ async function buylistForDeck(database, deckId, userId) {
       // Without it a user looking at his own binder would think the app was
       // wrong.
       quantity_owned: entry.quantity_owned,
-      quantity_allocated_elsewhere: entry.quantity_allocated_elsewhere
+      quantity_allocated_elsewhere: entry.quantity_allocated_elsewhere,
+      // THE PRICE, CARRIED THROUGH.
+      //
+      // Zach: "When choosing some cards for exact printing the deck as it says
+      // manapool doesn't have a price which I know is wrong because on card
+      // detail view it shows a manapool price and manapool site itself shows a
+      // price."
+      //
+      // He was right. availabilityForDeck already resolves the marketplace price
+      // for every row, but this buylist line dropped it -- so a PINNED card
+      // (which cannot be re-priced by substitution) arrived with no price at all
+      // and was reported as "Mana Pool has no price for". Flexible cards hid the
+      // bug because substitution looked their price up again.
+      price_trend: entry.price_trend,
+      price_source: entry.price_source,
+      price_condition: entry.price_condition
     });
   }
 
