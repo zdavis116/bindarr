@@ -2136,16 +2136,11 @@ router.get('/:id/buylist/estimate', async (req, res) => {
     const buylist = await deckIdentity.buylistForDeck(db, deck.id, req.user.id);
     const items = buylist.items || [];
 
-    let total = 0;
-    let priced = 0;
-    const unpriced = [];
-    const substitutions = [];
-
-    for (const i of items) {
-      // Respect his per-card choice: a flexible card is costed at the cheapest
-      // printing Bindarr would actually put in the list, so the estimate matches
-      // the text he exports.
-      const resolved = await manaPoolBuylist.chooseCheapestPrinting(db, {
+    // ONE QUERY FOR THE WHOLE LIST. Calling the chooser per card inside this
+    // loop made a 49-card estimate take 41 seconds, because db.js serialises
+    // every query through one operation queue.
+    const resolved = await manaPoolBuylist.chooseCheapestPrintings(db,
+      items.map(i => ({
         card_id: i.desired_card_id,
         allow_any_printing: Boolean(i.allow_any_printing),
         set_code: i.set_id,
@@ -2153,27 +2148,34 @@ router.get('/:id/buylist/estimate', async (req, res) => {
         finish: i.finish,
         quantity: i.quantity,
         name: i.name,
-      });
-      if (resolved.substituted_from) {
+        listed_price: Number(i.price_trend),
+      })));
+
+    let total = 0;
+    let priced = 0;
+    const unpriced = [];
+    const substitutions = [];
+
+    for (const r of resolved) {
+      if (r.substituted_from) {
         substitutions.push({
-          name: i.name,
-          from: `${(resolved.substituted_from.set_code || '').toUpperCase()} #${resolved.substituted_from.collector_number}`,
-          to: `${(resolved.set_code || '').toUpperCase()} #${resolved.collector_number}`,
-          price: resolved.substituted_price,
-          condition: resolved.substituted_condition,
+          name: r.name,
+          from: `${(r.substituted_from.set_code || '').toUpperCase()} #${r.substituted_from.collector_number}`,
+          to: `${(r.set_code || '').toUpperCase()} #${r.collector_number}`,
+          price: r.substituted_price,
+          condition: r.substituted_condition,
         });
       }
-
-      const unit = Number.isFinite(resolved.substituted_price)
-        ? resolved.substituted_price
-        : Number(i.price_trend);
+      const unit = Number.isFinite(r.substituted_price)
+        ? r.substituted_price
+        : r.listed_price;
       if (Number.isFinite(unit) && unit > 0) {
-        total += unit * (i.quantity || 1);
+        total += unit * (r.quantity || 1);
         priced += 1;
       } else {
         // NAMED, NOT ROUNDED TO ZERO. A card with no price would otherwise make
         // the deck look cheaper than it is.
-        unpriced.push({ name: i.name, set_code: i.set_id, collector_number: i.number });
+        unpriced.push({ name: r.name, set_code: r.set_code, collector_number: r.collector_number });
       }
     }
 
