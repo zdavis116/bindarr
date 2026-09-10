@@ -443,6 +443,8 @@
   "deck.statusReady": "Готова",
   "deck.tableView": "Вид таблицей",
   "deck.targetSize": "Целевой размер",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "Управляйте своими турнирными колодами, собирайте, тестируйте и выдавайте их.",
   "deck.vaultTitle": "Хранилище колод",
   "demo.unavailableBody": "Сканеру карт и живому поиску нужен бэкенд Bindarr (распознавание с камеры, база карт, запросы цен). Это статичная демоверсия только для просмотра. Чтобы добавлять карты, запустите свой экземпляр.",

@@ -588,6 +588,8 @@
   "deck.tableView": "表格视图",
   "deck.targetSize": "目标张数",
   "deck.toFinish": "to finish",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.untitled": "Untitled deck",
   "deck.usedInDecks.one": "{owned} owned, used in {decks} deck",
   "deck.usedInDecks.other": "{owned} owned, used in {decks} decks",

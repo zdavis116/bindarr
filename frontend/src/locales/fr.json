@@ -437,6 +437,8 @@
   "deck.statusReady": "Prêt",
   "deck.tableView": "Vue en tableau",
   "deck.targetSize": "Taille visée",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "Gère, construis, teste et sors tes decks de compétition.",
   "deck.vaultTitle": "Coffre à decks",
   "demo.unavailableBody": "Le scanner de cartes et la recherche en direct ont besoin du backend de Bindarr (reconnaissance par appareil photo, base de données de cartes, relevés de prix). Ceci est un aperçu statique et en lecture seule de l'application. Installe ta propre instance pour ajouter des cartes.",

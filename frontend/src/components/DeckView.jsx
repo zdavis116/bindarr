@@ -163,6 +163,47 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     () => deckCards.reduce((sum, c) => sum + (c.quantity_missing || 0) * (c.price_trend || 0), 0),
     [deckCards]);
 
+  // TWO TOTALS, BOTH TRUE, AND THE DIFFERENCE MADE VISIBLE.
+  //
+  // Zach: "where does that 142.51 come from that is on the deck... but when I go
+  // to buylist it shows 126. Shouldn't it be 126? Or is that 142.51 the total
+  // for the exact printings?"
+  //
+  // He read it correctly, and the two figures reconcile to the cent:
+  //   $142.51 the printings the decklist names
+  //   -$15.26 savings from 25 cheaper printings of the same cards
+  //   =$127.25 the estimate
+  //
+  // The bug was that nothing said so. Two totals for the same 49 cards on
+  // adjacent screens, with no label explaining that they answer different
+  // questions, is the same failure as a price that appears nowhere on the
+  // vendor's page: defensible and still misleading.
+  //
+  // He chose to keep the as-listed figure as the headline and show the saving
+  // rather than silently apply it -- the header answers "can I afford to finish
+  // this deck", and a saving he can see is worth more than one he cannot.
+  const [cheapest, setCheapest] = useState(null);
+  useEffect(() => {
+    if (!deck?.id || counts.missing === 0) { setCheapest(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/decks/${deck.id}/buylist/estimate`);
+        if (r.ok && !cancelled) {
+          const d = await r.json();
+          // Only meaningful when it actually differs: an identical number shown
+          // twice with a "saves $0.00" note is noise.
+          setCheapest(Number.isFinite(d.items) ? d.items : null);
+        }
+      } catch { /* the second line simply does not render */ }
+    })();
+    return () => { cancelled = true; };
+  }, [deck?.id, counts.missing]);
+
+  const savings = (cheapest !== null && costToFinish > cheapest + 0.005)
+    ? costToFinish - cheapest
+    : null;
+
   // Rules to show. Zach cut two: the "short of 100" warning ("the percentage
   // and bar show that already") and the green all-clear ("I can assume that by
   // not seeing any errors/warnings"). What is left only appears when something
@@ -528,8 +569,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                 ${formatPrice(costToFinish)}
               </div>
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                {t('deck.toFinish')}
+                {savings !== null ? t('deck.toFinishAsListed') : t('deck.toFinish')}
               </div>
+              {savings !== null && (
+                <div style={{ fontSize: '0.68rem', color: 'var(--accent-green, #30d158)',
+                              marginTop: 2, whiteSpace: 'nowrap' }}>
+                  {t('deck.toFinishCheapest', {
+                    price: formatPrice(cheapest), saved: formatPrice(savings) })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -871,6 +919,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             {costToFinish > 0 && (
               <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 1 }}>
                 ${formatPrice(costToFinish)}
+                {savings !== null && (
+                  <span style={{ color: 'var(--accent-green, #30d158)' }}>
+                    {' · '}{t('deck.toFinishCheapest', {
+                      price: formatPrice(cheapest), saved: formatPrice(savings) })}
+                  </span>
+                )}
               </div>
             )}
           </div>

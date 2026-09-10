@@ -425,6 +425,8 @@
   "deck.statusReady": "완성",
   "deck.tableView": "표 보기",
   "deck.targetSize": "목표 장수",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "나만의 경기용 덱을 관리하고 구성하고 시험하고 대출하세요.",
   "deck.vaultTitle": "덱 금고",
   "demo.unavailableBody": "카드 스캐너와 실시간 검색에는 Bindarr 백엔드(카메라 인식, 카드 데이터베이스, 가격 조회)가 필요합니다. 이 화면은 앱의 정적 읽기 전용 미리보기입니다. 카드를 추가하려면 직접 인스턴스를 실행하세요.",

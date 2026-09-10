@@ -425,6 +425,8 @@
   "deck.statusReady": "完成",
   "deck.tableView": "テーブル表示",
   "deck.targetSize": "目標枚数",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "自分の競技用デッキを管理・構築・テストし、持ち出します。",
   "deck.vaultTitle": "デッキ保管庫",
   "demo.unavailableBody": "カードスキャナーとライブ検索には Bindarr のバックエンド（カメラ認識、カードデータベース、価格取得）が必要です。これは静的な読み取り専用のプレビューです。カードを追加するには自分でインスタンスを動かしてください。",

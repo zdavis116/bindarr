@@ -425,6 +425,8 @@
   "deck.statusReady": "已完成",
   "deck.tableView": "表格檢視",
   "deck.targetSize": "目標張數",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "管理、建構、測試並取出你的競技套牌。",
   "deck.vaultTitle": "套牌保險庫",
   "demo.unavailableBody": "卡牌掃描和即時搜尋需要 Bindarr 後端（相機辨識、卡牌資料庫、價格查詢）。這裡是應用程式的靜態唯讀預覽。想新增卡牌，請自行執行一個實例。",

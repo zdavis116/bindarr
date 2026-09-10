@@ -607,6 +607,8 @@
   "deck.tableView": "Vista de tabla",
   "deck.targetSize": "Tamaño objetivo",
   "deck.toFinish": "to finish",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.untitled": "Untitled deck",
   "deck.usedInDecks.many": "{owned} owned, used in {decks} decks",
   "deck.usedInDecks.one": "{owned} owned, used in {decks} deck",

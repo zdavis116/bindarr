@@ -431,6 +431,8 @@
   "deck.statusReady": "Fertig",
   "deck.tableView": "Tabellenansicht",
   "deck.targetSize": "Zielgröße",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "Verwalte, baue, teste und entnimm deine eigenen Turnierdecks.",
   "deck.vaultTitle": "Deck-Tresor",
   "demo.unavailableBody": "Kartenscanner und Live-Suche brauchen das Bindarr-Backend (Kameraerkennung, Kartendatenbank, Preisabfragen). Dies ist eine statische Vorschau der App, nur zum Lesen. Betreibe eine eigene Instanz, um Karten hinzuzufügen.",

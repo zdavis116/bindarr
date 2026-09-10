@@ -437,6 +437,8 @@
   "deck.statusReady": "Pronto",
   "deck.tableView": "Vista a tabella",
   "deck.targetSize": "Dimensione obiettivo",
+  "deck.toFinishAsListed": "to finish, as listed",
+  "deck.toFinishCheapest": "${price} cheapest printings · saves ${saved}",
   "deck.vaultSubtitle": "Gestisci, costruisci, prova e preleva i tuoi mazzi da competizione.",
   "deck.vaultTitle": "Caveau dei mazzi",
   "demo.unavailableBody": "Lo scanner di carte e la ricerca in tempo reale richiedono il backend di Bindarr (riconoscimento tramite fotocamera, archivio delle carte, rilevamento dei prezzi). Questa è un'anteprima statica e in sola lettura dell'app. Installa una tua istanza per aggiungere carte.",

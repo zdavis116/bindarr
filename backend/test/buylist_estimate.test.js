@@ -180,6 +180,31 @@ test('EST-TC9: the exported text names the printing we priced', () => {
     + 'built once from the deck printings and never corrected');
 });
 
+test('EST-TC10: the deck header explains its two totals', () => {
+  // Zach: "where does that 142.51 come from that is on the deck... but when I go
+  // to buylist it shows 126. Shouldn't it be 126? Or is that 142.51 the total
+  // for the exact printings?"
+  //
+  // He read it right, and they reconcile to the cent: $142.51 as listed, minus
+  // $15.26 across 25 cheaper printings, is $127.25. Neither figure was wrong --
+  // but two totals for the same 49 cards on adjacent screens with no label is
+  // the same failure as a price that appears nowhere on the vendor's page.
+  //
+  // He chose to keep the as-listed headline and SHOW the saving rather than
+  // silently apply it.
+  const view = readFileSync(
+    new URL('../../frontend/src/components/DeckView.jsx', import.meta.url), 'utf8');
+  assert.match(view, /buylist\/estimate/,
+    'the header must read the same estimate the export sheet uses, not '
+    + 'recompute a second opinion');
+  assert.match(view, /costToFinish > cheapest \+ 0\.005/,
+    'and only claim a saving when there genuinely is one');
+  assert.match(view, /toFinishAsListed/,
+    'the headline figure must say it is the printings the decklist names');
+  assert.match(view, /toFinishCheapest/,
+    'and the cheaper total must be shown beside it');
+});
+
 test('EST-TC8: Mass Entry opens only after the list is on the clipboard', () => {
   // Zach: "I do like the idea of just copying and sending me right to mass
   // entry." Opening the tab when the copy failed would land him on an empty
