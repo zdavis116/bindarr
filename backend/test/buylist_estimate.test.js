@@ -133,6 +133,29 @@ test('EST-TC7: every swap is reported', () => {
     'and say what the printing was before');
 });
 
+test('EST-TC9: the exported text names the printing we priced', () => {
+  // Zach: "when I do the copy and paste it into manapool the set code and number
+  // don't match the cheapest option you show it matches what the deck has like
+  // your copy is just taking what the deck has set not the cheapest option."
+  //
+  // This was the feature failing at its last step. The rows showed the
+  // substitute, the total was computed FROM the substitute, and then the text
+  // was built straight off `cards` -- so the list he pasted into Mass Entry
+  // asked for the deck's printings at prices he had never been shown.
+  //
+  // Everything upstream can be right and the deliverable still wrong. The one
+  // artefact that leaves the app must agree with the screen that described it.
+  const memo = modal.slice(modal.indexOf('const text = useMemo'),
+                           modal.indexOf('const text = useMemo') + 1400);
+  assert.match(memo, /chosen\.priced && estimate\?\.substitutions\?\.length/,
+    'substitutions must be applied on a priced format');
+  assert.match(memo, /set_id: m\[1\], number: m\[2\]/,
+    'and must rewrite the set and collector number');
+  assert.match(memo, /\}, \[cards, formatId, estimate\]\);/,
+    'and the text must recompute when the estimate arrives -- otherwise it is '
+    + 'built once from the deck printings and never corrected');
+});
+
 test('EST-TC8: Mass Entry opens only after the list is on the clipboard', () => {
   // Zach: "I do like the idea of just copying and sending me right to mass
   // entry." Opening the tab when the copy failed would land him on an empty

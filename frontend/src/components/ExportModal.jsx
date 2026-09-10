@@ -181,10 +181,37 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     window.open('https://manapool.com/add-deck', '_blank', 'noopener');
   };
 
+  // THE TEXT HE PASTES MUST NAME THE PRINTING WE PRICED.
+  //
+  // Zach: "when I do the copy and paste it into manapool the set code and
+  // number don't match the cheapest option you show it matches what the deck
+  // has like your copy is just taking what the deck has set not the cheapest
+  // option."
+  //
+  // He is right, and this was the whole point of the feature. The rows on
+  // screen showed the substitute, the total was computed FROM the substitute,
+  // and the exported text was built straight off `cards` -- the deck's own
+  // printings -- so the list he pasted asked for different cardboard at a
+  // different price than the screen he was reading.
+  //
+  // On a priced format the substitutions are applied before the text is built.
+  // On Moxfield or Names only there is nothing to substitute, so the deck's own
+  // printings are correct there.
   const text = useMemo(() => {
     const chosen = EXPORT_FORMATS.find(f => f.id === formatId) || EXPORT_FORMATS[0];
-    return buildDeckExport(cards, chosen.format, { bracketStyle: chosen.bracketStyle });
-  }, [cards, formatId]);
+    const source = (chosen.priced && estimate?.substitutions?.length)
+      ? cards.map((c) => {
+        const swap = estimate.substitutions.find(x => x.name === c.name);
+        if (!swap) return c;
+        // "C20 #259" -> set C20, number 259. Parsed from the same string the
+        // row shows him, so the line he pastes and the row he read cannot
+        // disagree.
+        const m = /^(\S+)\s+#(.+)$/.exec(swap.to || '');
+        return m ? { ...c, set_id: m[1], number: m[2] } : c;
+      })
+      : cards;
+    return buildDeckExport(source, chosen.format, { bracketStyle: chosen.bracketStyle });
+  }, [cards, formatId, estimate]);
 
   if (!open) return null;
 
