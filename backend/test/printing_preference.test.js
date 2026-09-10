@@ -104,13 +104,23 @@ test('PREF-TC6b: the UI calls the routes that actually exist', () => {
   assert.ok(bulk, 'and the bulk buttons must call the bulk route');
 });
 
-test('PREF-TC7: a partial shipping address is refused, not stored', () => {
-  // Storing three of four fields would let the send button look ready and then
-  // fail at the marketplace -- after he has already committed to buying.
-  assert.match(settings, /INCOMPLETE_ADDRESS/,
-    'an incomplete address must be rejected with a named code');
-  assert.match(settings, /if \(!line1\) missing\.push\('line1'\)/,
-    'and it must say which fields are missing');
+test('PREF-TC7: no shipping address is collected or kept', () => {
+  // ORIGINALLY: "a partial shipping address is refused, not stored", guarding a
+  // form that fed send-to-cart.
+  //
+  // That feature is gone, so the address became write-only -- a home address
+  // sitting in the database serving nothing. The guard inverts: the safest
+  // handling of PII for a deleted feature is not to hold it at all.
+  assert.ok(!/\/shipping/.test(settings),
+    'the shipping routes must be gone, not merely unused');
+  assert.ok(!/INCOMPLETE_ADDRESS/.test(settings),
+    'and their validation with them');
+
+  // The columns stay -- dropping a column in SQLite rebuilds the table, which is
+  // a worse risk than leaving five nullable fields -- but the VALUES are wiped.
+  const db = readFileSync(new URL('../src/db.js', import.meta.url), 'utf8');
+  assert.match(db, /UPDATE app_settings\s*\n\s*SET ship_line1 = NULL/,
+    'any stored address must be cleared on boot');
 });
 
 // PREF-TC8 and PREF-TC9 covered the send-to-cart route and the purchase
