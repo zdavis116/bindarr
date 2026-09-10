@@ -321,9 +321,12 @@ db.initDb()
     // together would mean either the catalogue runs four times a day or prices
     // run once.
     if (process.env.MANAPOOL_PRICES !== 'off') {
-      const { refreshManaPoolPrices } = require('./manaPoolPrices');
+      const { refreshManaPoolPrices, msSinceLastRefresh } = require('./manaPoolPrices');
       const MINUTE_MS = 60 * 1000;
       const PRICE_INTERVAL_MS = 6 * 60 * MINUTE_MS;
+      // Half the interval: old enough to be worth 201MB, new enough that a
+      // deploy during the day never triggers one.
+      const PRICE_STALE_MS = 3 * 60 * MINUTE_MS;
 
       const runPriceRefresh = () => {
         refreshManaPoolPrices()
@@ -343,6 +346,35 @@ db.initDb()
           new Date(Date.now() + PRICE_INTERVAL_MS).toISOString());
       };
 
+      // A RESTART IS NOT A REASON TO RE-IMPORT.
+      //
+      // Zach: "where is there a delay in loading total... about a minute later
+      // it updated." Every restart armed this 8-minute timer, so four deploys in
+      // an hour meant four full 201MB imports -- and an import holds the single
+      // database queue, so his reads waited behind it. He opened the export
+      // sheet mid-import and watched it fill in a minute later.
+      //
+      // The catalogue was fixed this way weeks ago ("I feel like the sync should
+      // run independently of the app being stopped and started") and I did not
+      // apply the same rule here. Now a boot only imports if the stored feed is
+      // genuinely old; otherwise it waits for its normal slot.
+      const startupPriceRefresh = async () => {
+        let age = null;
+        try {
+          age = await msSinceLastRefresh();
+        } catch (err) {
+          console.error('Could not read Mana Pool price freshness:', err.message);
+        }
+        // null means it has NEVER succeeded -- that is stale, not fresh.
+        if (age !== null && age < PRICE_STALE_MS) {
+          const mins = Math.round(age / MINUTE_MS);
+          console.log(`Mana Pool prices are ${mins} min old; skipping the startup`
+            + ` import and waiting for the scheduled run.`);
+          return;
+        }
+        runPriceRefresh();
+      };
+
       // Published before the first run so the countdown is right immediately.
       syncSchedule.setManaPoolNextRun(new Date(Date.now() + 8 * MINUTE_MS).toISOString());
 
@@ -356,11 +388,12 @@ db.initDb()
       // claimed it ran after the catalogue check; 3 < 5, so it did not. Checked
       // the numbers rather than trusting the sentence I had just written.)
       setTimeout(() => {
-        runPriceRefresh();
+        startupPriceRefresh();
         setInterval(runPriceRefresh, PRICE_INTERVAL_MS);
       }, 8 * MINUTE_MS);
 
-      console.log('Mana Pool price refresh scheduled: first run in 8 min, then every 6h.');
+      console.log('Mana Pool price refresh scheduled: first check in 8 min'
+        + ' (skipped if prices are under 3h old), then every 6h.');
     }
 
     // MOXFIELD BACKGROUND POLL.

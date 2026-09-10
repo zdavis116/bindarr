@@ -57,6 +57,9 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   // call, no waiting. The version this replaces made him press a button and wait
   // ~40 seconds for an optimizer quote whose cart could not be used at all.
   const [estimate, setEstimate] = useState(null);
+  // Distinct from `estimate === null`: "still asking" and "asked and failed"
+  // must not look the same, and neither may look like a finished answer.
+  const [estimateLoading, setEstimateLoading] = useState(false);
 
   // PER-CARD: will he take another printing when buying this one?
   //
@@ -88,11 +91,14 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   useEffect(() => {
     if (!open || !deckId) return;
     let cancelled = false;
+    setEstimateLoading(true);
     (async () => {
       try {
         const r = await fetch(`/api/decks/${deckId}/buylist/estimate`);
         if (r.ok && !cancelled) setEstimate(await r.json());
-      } catch { /* the estimate simply does not render */ }
+      } catch { /* the estimate simply does not render */ } finally {
+        if (!cancelled) setEstimateLoading(false);
+      }
     })();
     return () => { cancelled = true; };
   }, [open, deckId, anyPrinting]);
@@ -222,6 +228,13 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             The per-card rows below ARE the breakdown -- each already shows its
             printing, its swap and its price -- so a second cost block restating
             them was the same data twice. */}
+        {onManaPool && estimateLoading && !estimate && (
+          <div style={{ padding: '0 1rem 0.7rem', fontSize: '0.8rem',
+                        color: 'var(--text-tertiary)' }}>
+            {t('deck.mpPricingTotal')}
+          </div>
+        )}
+
         {onManaPool && estimate && estimate.lines > 0 && (
           <div style={{ padding: '0 1rem 0.7rem' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
@@ -293,7 +306,22 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
               {t('deck.nothingToExport')}
             </div>
           )}
-          {onManaPool && text && cards.map((c) => {
+          {/* DO NOT SHOW PRINTINGS WE ARE NOT SURE OF.
+              Zach: "I went into the export and it just showed only what the deck
+              wanted and then about a minute later it updated to be what I would
+              expect."
+
+              While the estimate is in flight the rows would render the DECK's
+              printings with no prices -- which looks like a finished answer and
+              is not. He read that as broken, then watched it change. A number
+              that looks settled and later moves is worse than an honest wait. */}
+          {onManaPool && text && estimateLoading && !estimate && (
+            <div style={{ padding: '1.2rem 0', textAlign: 'center',
+                          fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              {t('deck.mpPricingList')}
+            </div>
+          )}
+          {onManaPool && text && estimate && cards.map((c) => {
             const id = c.desired_card_id || c.card_id;
             const swap = estimate?.substitutions?.find(x => x.name === c.name);
             // The printing that will actually be ordered: the substitute when

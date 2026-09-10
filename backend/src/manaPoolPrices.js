@@ -260,8 +260,31 @@ async function refreshManaPoolPrices({ onProgress } = {}) {
            variantRows: raw.length, asOf: payload?.meta?.as_of || null };
 }
 
+// HOW LONG AGO DID THE PRICES LAST LAND?
+//
+// Zach: "where is there a delay in loading total and showing which printing is
+// the cheapest... I went into the export and it just showed only what the deck
+// wanted and then about a minute later it updated."
+//
+// The cause was a 201MB import running while he read the screen. Every restart
+// armed an 8-minute timer, so four deploys in an hour meant four full imports --
+// and an import holds the single database queue, so his reads waited behind it.
+// This is the same pile-up that made the dashboard take 26 seconds, in a new
+// place.
+//
+// Returns null when the source has never succeeded, which callers must treat as
+// "stale" rather than "fresh".
+async function msSinceLastRefresh() {
+  const row = await db.get(
+    `SELECT last_success_at FROM source_price_meta WHERE source = ?`, [SOURCE]);
+  if (!row?.last_success_at) return null;
+  const t = Date.parse(String(row.last_success_at).replace(' ', 'T') + 'Z');
+  return Number.isFinite(t) ? Date.now() - t : null;
+}
+
 module.exports = {
   refreshManaPoolPrices,
+  msSinceLastRefresh,
   foldVariants,
   ACCEPTED_CONDITIONS,
   LANGUAGE,
