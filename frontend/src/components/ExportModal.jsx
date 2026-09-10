@@ -222,15 +222,61 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           })}
         </div>
 
-        {/* THE LIST ITSELF IS NOT SHOWN.
-            It used to fill the sheet, from a much older decision that he should
-            see the text before copying it. He does not: "I'm gonna use the copy
-            button anyway to copy so seeing that top screen is useless because I
-            won't manually copy." What matters is the count, the cost and the
-            two actions -- so the sheet now shows those and nothing else. */}
-        <div style={{ padding: '0 1rem 0.2rem', fontSize: '0.78rem',
-                      color: 'var(--text-secondary)' }}>
-          {text ? t('deck.mpLinesReady', { count }) : t('deck.nothingToExport')}
+        {/* WHAT YOU ARE ACTUALLY BUYING: one row per card, with the exact
+            printing chosen and what it costs.
+
+            Zach: "I liked the preview showing what copy we were picking of each
+            card and it did say the price as well please bring that back I just
+            meant the other preview was redundant."
+
+            I removed the wrong thing. What he did not want was the raw decklist
+            TEXT -- he presses Copy, he never reads it. What he did want is this:
+            proof of which printing each line resolved to. With any printing as
+            the default, this list is how he checks Bindarr's choices before
+            they become cardboard.
+
+            It is also the sheet's only flexible element, so it scrolls and the
+            cost and buttons below it stay reachable. */}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 1rem' }}>
+          {!text && (
+            <div style={{ padding: '1rem 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              {t('deck.nothingToExport')}
+            </div>
+          )}
+          {text && cards.map((c) => {
+            const id = c.desired_card_id || c.card_id;
+            const swap = estimate?.substitutions?.find(x => x.name === c.name);
+            // The printing that will actually be ordered: the substitute when
+            // Bindarr picked one, otherwise the deck's own.
+            const printing = swap ? swap.to : `${(c.set_id || '').toUpperCase()} #${c.number}`;
+            const unit = swap ? swap.price : c.price_trend;
+            const qty = c.quantity_missing || c.quantity || 1;
+            return (
+              <div key={id} style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem',
+                                     padding: '0.4rem 0',
+                                     borderBottom: '1px solid var(--border-glass)' }}>
+                <span style={{ flexShrink: 0, color: 'var(--text-tertiary)',
+                               fontSize: '0.78rem', minWidth: 18 }}>{qty}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: '0.82rem', whiteSpace: 'nowrap',
+                                 overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {c.name}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '0.68rem',
+                                 color: swap ? 'var(--accent-amber, #ff9f0a)' : 'var(--text-tertiary)' }}>
+                    {printing}
+                    {swap && ` · ${t('deck.mpSwappedFrom', { from: swap.from })}`}
+                    {!anyPrinting[id] && ` · ${t('deck.mpExactPrinting')}`}
+                  </span>
+                </span>
+                <span style={{ flexShrink: 0, fontSize: '0.8rem', fontWeight: 600 }}>
+                  {Number.isFinite(Number(unit)) && Number(unit) > 0
+                    ? `$${(Number(unit) * qty).toFixed(2)}`
+                    : '—'}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         {/* WHICH CARDS MUST BE THE EXACT PRINTING?
