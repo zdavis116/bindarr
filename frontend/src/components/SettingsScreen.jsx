@@ -545,11 +545,21 @@ function SettingsScreen({ user, onNavigate, showToast }) {
                 ? when(priceSources.sources.find(x => x.id === 'manapool').last_success_at, t)
                 : '—'}
             />
+            {/* THE COUNTDOWN, like every other source.
+                Zach: "settings has the mana pool sync but their is not countdown
+                until the next sync like all the others."
+
+                The server was already publishing manapool_next_run -- the row
+                just never rendered it, so this source looked like it ran on some
+                unknowable schedule while Scryfall and Moxfield showed theirs. */}
             <Row
               indent
               label={t('settings.automatic')}
-              detail={t('settings.manapoolEvery6h')}
-              value={t('settings.manapoolPrices')}
+              detail={catalogue?.manapool_next_run
+                ? t('settings.nextRunAt', { time: clockText(catalogue.manapool_next_run) })
+                : t('settings.manapoolEvery6h')}
+              value={untilText(catalogue?.manapool_next_run, catalogue?.server_now, t)
+                     || t('settings.manapoolPrices')}
             />
 
             {/* The address the marketplace needs before it will build a cart. */}

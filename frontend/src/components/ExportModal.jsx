@@ -7,8 +7,8 @@
 // before copying; the deck list silently put one fixed format on the clipboard,
 // so you could not see what you were about to paste. One component now, because
 // two copies of an export dialog is exactly how that drift happened.
-import { useState, useMemo } from 'react';
-import { X, Download, Receipt, ShoppingCart, Check } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { X, Download, Check, ExternalLink } from 'lucide-react';
 import { buildDeckExport } from '../utils/deckText';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
@@ -29,19 +29,16 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   const { t } = useT();
   const [formatId, setFormatId] = useState(EXPORT_FORMATS[0].id);
 
-  // WHAT THIS LIST WOULD ACTUALLY COST, DELIVERED.
+  // WHAT THIS LIST WOULD COST, FROM PRICES WE ALREADY HAVE.
   //
-  // Zach: "being able to send buy list to mana pool". Kept out of the per-card
-  // prices deliberately: delivered cost is a property of an ORDER. His measured
-  // four-card cart is $130.95 across 4 sellers on lowest_price and $150.32 from
-  // one seller on fewest_packages -- two correct answers $19.37 apart.
+  // Zach: "I would rather when I go to export tell me what the cost would be if
+  // I was to export for manapool using the cheapest prices you have. Obviously
+  // won't be exact because shipping cost but it gives an idea."
   //
-  // Never fetched speculatively: a quote costs a rate-limited API call (Mana
-  // Pool allows ~3/minute) and is a snapshot of live inventory, not a fact.
-  const [quote, setQuote] = useState(null);
-  const [quoting, setQuoting] = useState(false);
-  const [quoteError, setQuoteError] = useState(null);
-  const [model, setModel] = useState('lowest_price');
+  // Loaded as soon as the sheet opens because it costs nothing: no external
+  // call, no waiting. The version this replaces made him press a button and wait
+  // ~40 seconds for an optimizer quote whose cart could not be used at all.
+  const [estimate, setEstimate] = useState(null);
 
   // PER-CARD: will he take another printing when buying this one?
   //
@@ -55,8 +52,6 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   const [anyPrinting, setAnyPrinting] = useState({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [cart, setCart] = useState(null);
-  const [sending, setSending] = useState(false);
 
   // Server state wins on open; a stale local map would price differently than
   // the screen claims.
@@ -69,6 +64,20 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     setAnyPrinting(seed);
     return null;
   }, [cards]);
+
+  // Reload whenever the sheet opens or a printing choice changes: both change
+  // the answer, and a stale total is worse than none.
+  useEffect(() => {
+    if (!open || !deckId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/decks/${deckId}/buylist/estimate`);
+        if (r.ok && !cancelled) setEstimate(await r.json());
+      } catch { /* the estimate simply does not render */ }
+    })();
+    return () => { cancelled = true; };
+  }, [open, deckId, anyPrinting]);
 
   // Pinned = he wants THAT printing. Counted from the live map so the summary
   // can never disagree with the checkboxes.
@@ -93,8 +102,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
       if (id) next[id] = allowAny;
     }
     setAnyPrinting(next);
-    setQuote(null);
-    setCart(null);
+    setEstimate(null);
     try {
       const res = await fetch(`/api/decks/${deckId}/cards/printing-preference`, {
         method: 'PATCH',
@@ -113,8 +121,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     // Optimistic, then reconciled: the checkbox must feel instant, but a failed
     // write must not leave the UI claiming a preference the server does not have.
     setAnyPrinting(prev => ({ ...prev, [cardId]: next }));
-    setQuote(null);
-    setCart(null);
+    setEstimate(null);
     try {
       const res = await fetch(`/api/decks/${deckId}/cards/${cardId}/printing-preference`, {
         method: 'PATCH',
@@ -128,69 +135,26 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     }
   };
 
-  const sendToCart = async () => {
-    if (!deckId || !quote?.cart?.length || sending) return;
-    setSending(true);
+  // COPY THE LIST AND OPEN MASS ENTRY.
+  //
+  // Zach: "I do like the idea of just copying and sending me right to mass
+  // entry."
+  //
+  // manapool.com/add-deck is their Mass Entry screen -- a `decklist` textarea
+  // that accepts "4 Plains [M20] 261", with an Optimize Price button. It cannot
+  // be prefilled from a URL: eight query parameter names were tried against the
+  // live page and the textarea came back empty every time. So this is clipboard
+  // plus a new tab, and he pastes. A link that LOOKS like it prefills and lands
+  // him on an empty box would be worse than asking for the paste.
+  const copyAndOpen = async () => {
     try {
-      const res = await fetch(`/api/decks/${deckId}/buylist/cart`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart: quote.cart }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showToast(data.error || t('deck.mpCartFailed'), 'error');
-        return;
-      }
-      setCart(data);
-    } catch (e) {
-      showToast(e.message, 'error');
-    } finally {
-      setSending(false);
+      await navigator.clipboard.writeText(text);
+      showToast(t('deck.mpCopiedForMassEntry'), 'success');
+    } catch {
+      showToast(t('deck.buylistCopyFailed'), 'error');
+      return;   // no tab if the list is not on the clipboard
     }
-  };
-
-  const priceIt = async () => {
-    if (!deckId || quoting) return;
-    setQuoting(true);
-    setQuoteError(null);
-    // MANA POOL TAKES ~40 SECONDS ON A 49-CARD CART.
-    //
-    // Zach: "the price it isn't working just keep getting load failed". The
-    // backend was answering correctly; his phone gave up first. A bare fetch
-    // has no timeout of its own and mobile Safari kills a silent request, so
-    // this waits deliberately, up to two minutes, and says so if it runs out.
-    const abort = new AbortController();
-    const bail = setTimeout(() => abort.abort(), 125000);
-    try {
-      const res = await fetch(`/api/decks/${deckId}/buylist/price`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
-        signal: abort.signal,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setQuote(null);
-        // EVERY FAILURE IS NAMED. A 409 means Mana Pool could not source
-        // specific cards -- he needs to SEE which, not have them quietly
-        // dropped from an order he then pays for.
-        setQuoteError(data.code === 'MANAPOOL_NO_STOCK'
-          ? { kind: 'stock', unavailable: data.unavailable || [] }
-          : { kind: 'error', message: data.error || `Request failed (${res.status})` });
-        return;
-      }
-      setQuote(data);
-    } catch (e) {
-      setQuote(null);
-      setQuoteError({
-        kind: 'error',
-        message: e.name === 'AbortError' ? t('deck.mpTimedOut') : e.message,
-      });
-    } finally {
-      clearTimeout(bail);
-      setQuoting(false);
-    }
+    window.open('https://manapool.com/add-deck', '_blank', 'noopener');
   };
 
   const text = useMemo(() => {
@@ -390,146 +354,75 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           </div>
         )}
 
-        {/* PRICE IT ON MANA POOL. Only when there is a deck to price and
-            something to buy. */}
-        {deckId && text && (
+        {/* WHAT IT WOULD COST, FROM PRICES WE ALREADY HAVE.
+            No button and no waiting: arithmetic over the Mana Pool prices
+            Bindarr refreshes every 6 hours. It states that shipping is excluded,
+            because shipping genuinely cannot be known until checkout -- it
+            depends on how the order splits across sellers. */}
+        {deckId && estimate && estimate.lines > 0 && (
           <div style={{ padding: '0.75rem 1rem 0' }}>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase',
                           letterSpacing: '0.04em', color: 'var(--text-tertiary)',
                           marginBottom: '0.4rem' }}>
               {t('deck.mpCostLabel')}
             </div>
-            {/* STACKED, NOT SIDE BY SIDE.
-                On Zach's phone the row squeezed the button until "Pricing..."
-                was clipped and the select had no room for its own label. A
-                dropdown and a primary action do not belong on one line at 390px. */}
-            <div style={{ display: 'grid', gap: '0.45rem' }}>
-              <select
-                value={model}
-                onChange={(e) => { setModel(e.target.value); setQuote(null); setQuoteError(null); }}
-                style={{ width: '100%', minHeight: 42, borderRadius: 'var(--radius-sm)',
-                         border: '1px solid var(--border-glass)', background: 'var(--surface-2)',
-                         color: 'var(--text-primary)', font: 'inherit', fontSize: '0.85rem',
-                         padding: '0 0.6rem' }}>
-                <option value="lowest_price">{t('deck.mpLowestPrice')}</option>
-                <option value="fewest_packages">{t('deck.mpFewestPackages')}</option>
-                <option value="balanced">{t('deck.mpBalanced')}</option>
-              </select>
-              <button onClick={priceIt} disabled={quoting}
-                style={{ width: '100%', minHeight: 44, borderRadius: 'var(--radius-sm)',
-                         border: 0,
-                         background: quoting ? 'var(--surface-3)' : 'var(--accent-blue)',
-                         color: quoting ? 'var(--text-secondary)' : '#fff', font: 'inherit',
-                         fontSize: '0.88rem', fontWeight: 600,
-                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                         gap: '0.4rem', cursor: quoting ? 'default' : 'pointer' }}>
-                <Receipt size={15} />
-                {quoting ? t('deck.mpPricing') : t('deck.mpPriceIt')}
-              </button>
+            <div style={{ padding: '0.7rem 0.75rem', borderRadius: 'var(--radius-sm)',
+                          background: 'var(--surface-2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between',
+                            alignItems: 'baseline' }}>
+                <span style={{ fontSize: '1.05rem', fontWeight: 700 }}>
+                  ${Number(estimate.items || 0).toFixed(2)}
+                </span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                  {t('deck.mpEstCards', { count: estimate.priced })}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                {t('deck.mpEstExcludesShipping')}
+              </div>
+
+              {/* A CARD WITH NO PRICE IS NAMED, never quietly costed at zero. */}
+              {estimate.unpriced?.length > 0 && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.72rem',
+                              color: 'var(--accent-amber, #ff9f0a)' }}>
+                  {t('deck.mpEstUnpriced', { count: estimate.unpriced.length })}
+                </div>
+              )}
+
+              {/* WHICH CARDS BINDARR CHOSE A DIFFERENT PRINTING FOR. With any
+                  printing as the default, this is his only warning that
+                  different cardboard is coming. */}
+              {estimate.substitutions?.length > 0 && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.71rem',
+                              color: 'var(--text-secondary)' }}>
+                  <div style={{ fontWeight: 600 }}>
+                    {t('deck.mpSwapped', { count: estimate.substitutions.length })}
+                  </div>
+                  {estimate.substitutions.slice(0, 5).map((sub, n) => (
+                    <div key={n}>{sub.name}: {sub.from} → {sub.to}</div>
+                  ))}
+                  {estimate.substitutions.length > 5 && (
+                    <div>+{estimate.substitutions.length - 5} more</div>
+                  )}
+                </div>
+              )}
             </div>
-
-            {/* A 40-SECOND WAIT NEEDS TO LOOK LIKE WORK, NOT A HANG. */}
-            {quoting && (
-              <div style={{ marginTop: '0.55rem', fontSize: '0.74rem',
-                            color: 'var(--text-secondary)' }}>
-                {t('deck.mpPricingSlow')}
-              </div>
-            )}
-
-            {quote && (
-              <div style={{ marginTop: '0.6rem', fontSize: '0.8rem' }}>
-                {[[t('deck.mpItems'), quote.items],
-                  [t('deck.mpShipping'), quote.shipping],
-                  [t('deck.mpFee'), quote.buyerFee]].map(([label, v]) => (
-                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.12rem 0' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                    <span>${Number(v || 0).toFixed(2)}</span>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', justifyContent: 'space-between',
-                              paddingTop: '0.35rem', marginTop: '0.3rem',
-                              borderTop: '1px solid var(--border-glass)', fontWeight: 700 }}>
-                  <span>{t('deck.mpTotal')}</span>
-                  <span>${Number(quote.total || 0).toFixed(2)}</span>
-                </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
-                  {t('deck.mpSellers', { count: quote.sellerCount })}
-                </div>
-
-                {/* WHICH CARDS WERE SWAPPED. A substitution he cannot see is
-                    the silent state change he has ruled out -- he would find
-                    out when different cardboard arrives. */}
-                {quote.substitutions?.length > 0 && (
-                  <div style={{ marginTop: '0.55rem', fontSize: '0.72rem',
-                                color: 'var(--text-secondary)' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--accent-amber, #ff9f0a)' }}>
-                      {t('deck.mpSwapped', { count: quote.substitutions.length })}
-                    </div>
-                    {quote.substitutions.slice(0, 6).map((sub, i) => (
-                      <div key={i}>{sub.name}: {sub.from} → {sub.to}</div>
-                    ))}
-                  </div>
-                )}
-
-                {/* SEND IT. Creates a PENDING order on Mana Pool -- Bindarr
-                    never completes a purchase. He reviews and pays there. */}
-                {!cart && (
-                  <button onClick={sendToCart} disabled={sending || !quote.cart?.length}
-                    style={{ width: '100%', minHeight: 40, marginTop: '0.6rem',
-                             borderRadius: 'var(--radius-sm)', border: 0,
-                             background: 'var(--accent-blue)', color: '#fff',
-                             font: 'inherit', fontSize: '0.85rem', fontWeight: 600,
-                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                             gap: '0.4rem', cursor: sending ? 'default' : 'pointer' }}>
-                    <ShoppingCart size={15} />
-                    {sending ? t('deck.mpSending') : t('deck.mpSendToCart')}
-                  </button>
-                )}
-
-                {cart && (
-                  <div style={{ marginTop: '0.6rem', padding: '0.6rem',
-                                borderRadius: 'var(--radius-sm)',
-                                background: 'rgba(48,209,88,.12)',
-                                border: '1px solid rgba(48,209,88,.3)' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
-                      {t('deck.mpCartReady', { count: cart.lines })}
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                      {t('deck.mpCartReview')}
-                    </div>
-                    <a href={cart.url} target="_blank" rel="noopener noreferrer"
-                      style={{ display: 'block', marginTop: '0.5rem', textAlign: 'center',
-                               minHeight: 38, lineHeight: '38px', borderRadius: 'var(--radius-sm)',
-                               background: 'var(--surface-3)', color: 'var(--accent-blue)',
-                               fontSize: '0.82rem', fontWeight: 600, textDecoration: 'none' }}>
-                      {t('deck.mpOpenOnManaPool')}
-                    </a>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {quoteError?.kind === 'stock' && (
-              <div style={{ marginTop: '0.55rem', fontSize: '0.78rem' }}>
-                <div style={{ color: 'var(--accent-amber, #ff9f0a)', fontWeight: 600 }}>
-                  {t('deck.mpNoStock')}
-                </div>
-                {quoteError.unavailable.map((u, i) => (
-                  <div key={i} style={{ color: 'var(--text-secondary)', fontSize: '0.74rem' }}>
-                    {(u.set_code || '').toUpperCase()} #{u.collector_number}
-                  </div>
-                ))}
-              </div>
-            )}
-            {quoteError?.kind === 'error' && (
-              <div style={{ marginTop: '0.55rem', fontSize: '0.78rem', color: 'var(--accent-red, #ff453a)' }}>
-                {quoteError.message}
-              </div>
-            )}
           </div>
         )}
 
-        <div style={{ padding: '0.8rem 1rem 1rem' }}>
+        <div style={{ padding: '0.8rem 1rem 1rem', display: 'grid', gap: '0.5rem' }}>
+          {/* Straight to Mass Entry with the list on the clipboard. */}
+          {deckId && text && (
+            <button onClick={copyAndOpen}
+              style={{ width: '100%', minHeight: 48, borderRadius: 'var(--radius-md)',
+                       border: 0, background: 'var(--accent-blue)', color: '#fff',
+                       font: 'inherit', fontSize: '0.95rem', fontWeight: 600,
+                       display: 'flex', alignItems: 'center', justifyContent: 'center',
+                       gap: '0.45rem', cursor: 'pointer' }}>
+              <ExternalLink size={16} />
+              {t('deck.mpOpenMassEntry')}
+            </button>
+          )}
           <button onClick={copy} disabled={!text}
             style={{ width: '100%', minHeight: 48, borderRadius: 'var(--radius-md)', border: 0,
                      background: text ? 'var(--accent-blue)' : 'var(--surface-3)',

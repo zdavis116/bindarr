@@ -2111,140 +2111,84 @@ router.get('/:id/buylist', async (req, res) => {
   }
 });
 
-// WHAT WOULD IT ACTUALLY COST TO BUY THIS BUYLIST?
+// WHAT WOULD THIS BUYLIST COST, FROM PRICES WE ALREADY HAVE?
 //
-// Zach: "being able to send buy list to mana pool", and later: "I assume the 3
-// calls/min wont be problem if we are just doing 1 buylist at a time."
+// Zach: "I also feel like the price it isn't worth it either. Because you are
+// preparing it for nothing. I would rather when I go to export tell me what the
+// cost would be if I was to export for manapool using the cheapest prices you
+// have. Obviously won't be exact because shipping cost but it gives an idea."
 //
-// SEPARATE FROM THE CARD PRICES ON EVERY OTHER SCREEN, deliberately. A card's
-// price is a property of a card -- cheapest LP/NM English listing, item only.
-// Delivered cost is a property of an ORDER: the same three cards cost $72.78
-// across three sellers or $82.29 in one parcel, measured. Neither is "the"
-// price, so this is an action he takes rather than a number that appears.
+// He is right, and this replaces the optimizer call entirely:
 //
-// POST because it calls a rate-limited external API and the model is an input.
-// It writes nothing.
-router.post('/:id/buylist/price', async (req, res) => {
+//   * the optimizer took ~40s and produced a cart nothing could use -- its
+//     "pending order" is a checkout with a paymentIntent, not a shopping cart,
+//     and Mana Pool exposes no cart API to put items in
+//   * it burned a rate-limited external call to answer a question Bindarr can
+//     answer instantly from the prices it already refreshes every 6 hours
+//   * an ESTIMATE is what he actually wants: shipping depends on how the order
+//     splits across sellers, which cannot be known until checkout anyway
+//
+// So this is arithmetic over stored prices. No network call, no waiting, and it
+// says plainly that shipping is excluded.
+router.get('/:id/buylist/estimate', async (req, res) => {
   try {
     const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
-
-    if (!manaPoolBuylist.isConfigured()) {
-      // A missing key is a SETUP problem, not a failure of the deck. Saying so
-      // plainly beats a generic error that sends him looking at his cards.
-      return res.status(503).json({
-        error: 'Mana Pool is not connected on this server',
-        code: 'MANAPOOL_NOT_CONFIGURED',
-      });
-    }
-
-    const model = String(req.body?.model || 'lowest_price');
-    const ALLOWED = ['lowest_price', 'fewest_packages', 'balanced', 'gathered_shipping_only'];
-    if (!ALLOWED.includes(model)) {
-      return res.status(400).json({ error: `Unknown model: ${model}` });
-    }
-
-    // The SAME buylist the screen shows. Recomputing the shortfall here would
-    // be a second implementation of "what do I still need", and this project
-    // has already been bitten by two rules that drifted apart.
     const buylist = await deckIdentity.buylistForDeck(db, deck.id, req.user.id);
     const items = buylist.items || [];
-    if (items.length === 0) {
-      return res.status(400).json({
-        error: 'Nothing to buy for this deck',
-        code: 'BUYLIST_EMPTY',
+
+    let total = 0;
+    let priced = 0;
+    const unpriced = [];
+    const substitutions = [];
+
+    for (const i of items) {
+      // Respect his per-card choice: a flexible card is costed at the cheapest
+      // printing Bindarr would actually put in the list, so the estimate matches
+      // the text he exports.
+      const resolved = await manaPoolBuylist.chooseCheapestPrinting(db, {
+        card_id: i.desired_card_id,
+        allow_any_printing: Boolean(i.allow_any_printing),
+        set_code: i.set_id,
+        collector_number: i.number,
+        finish: i.finish,
+        quantity: i.quantity,
+        name: i.name,
       });
+      if (resolved.substituted_from) {
+        substitutions.push({
+          name: i.name,
+          from: `${(resolved.substituted_from.set_code || '').toUpperCase()} #${resolved.substituted_from.collector_number}`,
+          to: `${(resolved.set_code || '').toUpperCase()} #${resolved.collector_number}`,
+          price: resolved.substituted_price,
+          condition: resolved.substituted_condition,
+        });
+      }
+
+      const unit = Number.isFinite(resolved.substituted_price)
+        ? resolved.substituted_price
+        : Number(i.price_trend);
+      if (Number.isFinite(unit) && unit > 0) {
+        total += unit * (i.quantity || 1);
+        priced += 1;
+      } else {
+        // NAMED, NOT ROUNDED TO ZERO. A card with no price would otherwise make
+        // the deck look cheaper than it is.
+        unpriced.push({ name: i.name, set_code: i.set_id, collector_number: i.number });
+      }
     }
 
-    const cards = items.map((i) => ({
-      set_code: i.set_id,
-      collector_number: i.number,
-      // Needed only for the "any printing" mode, which identifies the card by
-      // Scryfall id rather than by set and number.
-      card_id: i.desired_card_id,
-      allow_any_printing: Boolean(i.allow_any_printing),
-      finish: i.finish,
-      quantity: i.quantity,
-      name: i.name,
-    }));
-
-    // Resolve "any printing" BEFORE pricing, using prices Bindarr already holds.
-    // The marketplace cannot do this for us -- card_id 409s -- and doing it here
-    // means the swap obeys his LP/NM floor and is reportable.
-    const resolved = [];
-    for (const c of cards) {
-      resolved.push(await manaPoolBuylist.chooseCheapestPrinting(db, c));
-    }
-
-    const quote = await manaPoolBuylist.priceBuylist(resolved, { model });
-    // Which lines were swapped, so the UI can say so rather than quietly
-    // ordering different cardboard.
-    quote.substitutions = resolved
-      .filter(c => c.substituted_from)
-      .map(c => ({
-        name: c.name,
-        from: `${(c.substituted_from.set_code || '').toUpperCase()} #${c.substituted_from.collector_number}`,
-        to: `${(c.set_code || '').toUpperCase()} #${c.collector_number}`,
-        price: c.substituted_price,
-        condition: c.substituted_condition,
-      }));
     res.json({
       deck_id: deck.id,
-      deck_name: deck.name,
-      ...quote,
-      // Echoed so the UI can show WHEN this was true. A delivered quote is a
-      // snapshot of live inventory, not a stored fact -- prices moved $33.73 to
-      // $34.97 inside one afternoon during development.
-      quoted_at: new Date().toISOString(),
+      lines: items.length,
+      priced,
+      items: parseFloat(total.toFixed(2)),
+      unpriced,
+      substitutions,
+      // Stated in the payload so no screen can present this as a final price.
+      excludes_shipping: true,
     });
   } catch (error) {
-    if (error instanceof manaPoolBuylist.ManaPoolStockError) {
-      // NAMED, NOT SWALLOWED. A buylist that quietly drops the cards nobody
-      // stocks is the worst version of this feature: he would order, receive
-      // less than he asked for, and only find out against cardboard.
-      return res.status(409).json({
-        error: error.message,
-        code: 'MANAPOOL_NO_STOCK',
-        unavailable: error.unavailable,
-      });
-    }
-    if (error instanceof manaPoolBuylist.ManaPoolRateLimitError) {
-      return res.status(429).json({ error: error.message, code: 'MANAPOOL_RATE_LIMIT' });
-    }
-    if (error instanceof manaPoolBuylist.ManaPoolAuthError) {
-      return res.status(502).json({ error: error.message, code: 'MANAPOOL_AUTH' });
-    }
-    sendError(res, error, 'Failed to price the buylist');
-  }
-});
-
-// WILL HE ACCEPT ANOTHER PRINTING OF THIS CARD WHEN BUYING IT?
-//
-// Zach: "I would like the ability to specify each card for exact printing or
-// not... The choice can persist."
-//
-// Stored on deck_cards because it is a fact about that card IN THAT DECK: he
-// may not care which Sol Ring arrives for one deck and care very much for
-// another. It is consulted ONLY when buying -- it does not change what the deck
-// requires, what he owns, or any price on any screen.
-router.patch('/:id/cards/:cardId/printing-preference', async (req, res) => {
-  try {
-    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
-    const allow = req.body?.allow_any_printing;
-    if (typeof allow !== 'boolean') {
-      return res.status(400).json({ error: 'allow_any_printing must be true or false' });
-    }
-    // Scoped to the deck so one user cannot flip a preference on another's row.
-    const result = await db.run(
-      `UPDATE deck_cards SET allow_any_printing = ?
-        WHERE deck_id = ? AND desired_card_id = ?`,
-      [allow ? 1 : 0, deck.id, req.params.cardId]
-    );
-    if (!result.changes) {
-      return res.status(404).json({ error: 'That card is not in this deck' });
-    }
-    res.json({ card_id: req.params.cardId, allow_any_printing: allow });
-  } catch (error) {
-    sendError(res, error, 'Failed to save the printing preference');
+    sendError(res, error, 'Failed to estimate the buylist');
   }
 });
 
@@ -2266,68 +2210,6 @@ router.patch('/:id/cards/printing-preference', async (req, res) => {
     res.json({ deck_id: deck.id, allow_any_printing: allow, updated: result.changes });
   } catch (error) {
     sendError(res, error, 'Failed to update printing preferences');
-  }
-});
-
-// SEND THE PRICED CART TO MANA POOL.
-//
-// Zach: "is there a way to send my choice to mana pool and have it go to cart?"
-//
-// Takes the cart the optimizer just chose rather than re-deriving one: ordering
-// a different set of listings than the ones he was quoted would be a silent
-// substitution at the worst possible moment.
-//
-// STOPS AT A PENDING ORDER. Mana Pool has a /purchase endpoint that completes
-// the sale and Bindarr does not call it -- he reviews and pays on their site. A
-// bug here would cost money rather than a recount.
-router.post('/:id/buylist/cart', async (req, res) => {
-  try {
-    await requireOwnedDeck(db, req.params.id, req.user.id);
-
-    if (!manaPoolBuylist.isConfigured()) {
-      return res.status(503).json({
-        error: 'Mana Pool is not connected on this server',
-        code: 'MANAPOOL_NOT_CONFIGURED',
-      });
-    }
-    const cart = req.body?.cart;
-    if (!Array.isArray(cart) || cart.length === 0) {
-      return res.status(400).json({
-        error: 'Price the buylist before sending it',
-        code: 'NO_QUOTE',
-      });
-    }
-
-    // Mana Pool refuses an order without a destination -- shipping cost depends
-    // on it. Read from settings rather than asked for per order.
-    const addr = await db.get(
-      `SELECT ship_line1, ship_city, ship_state, ship_postal_code, ship_country
-         FROM app_settings WHERE id = 1`) || {};
-    if (!addr.ship_line1 || !addr.ship_city || !addr.ship_state || !addr.ship_postal_code) {
-      // NAMED, so the UI can send him to the right screen instead of showing a
-      // marketplace error he cannot act on.
-      return res.status(400).json({
-        error: 'Add a shipping address in Settings before sending a cart',
-        code: 'NO_SHIPPING_ADDRESS',
-      });
-    }
-
-    const order = await manaPoolBuylist.sendToCart(cart, {
-      line1: addr.ship_line1,
-      city: addr.ship_city,
-      state: addr.ship_state,
-      postal_code: addr.ship_postal_code,
-      country: addr.ship_country || 'US',
-    });
-    res.json(order);
-  } catch (error) {
-    if (error instanceof manaPoolBuylist.ManaPoolRateLimitError) {
-      return res.status(429).json({ error: error.message, code: 'MANAPOOL_RATE_LIMIT' });
-    }
-    if (error instanceof manaPoolBuylist.ManaPoolAuthError) {
-      return res.status(502).json({ error: error.message, code: 'MANAPOOL_AUTH' });
-    }
-    sendError(res, error, 'Failed to send the cart to Mana Pool');
   }
 });
 
