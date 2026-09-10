@@ -19,9 +19,17 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 // Not exported: nothing outside this file imports it, and a non-component
 // export here breaks Fast Refresh for the whole module. If another screen ever
 // needs these, they belong in their own file rather than hanging off a modal.
+// `priced` marks a format whose destination Bindarr can attach a per-card price
+// to. Zach: "The only time list should appear if we can associate a price with
+// each card like manapool and if we later add tcgplayer or card kingdom."
+//
+// Moxfield is a deck site, not a shop: a list of printings with no prices beside
+// them tells him nothing he cannot see in the deck itself. Adding TCGplayer or
+// Card Kingdom later means setting this flag, not rewriting the sheet.
 const EXPORT_FORMATS = [
   { id: 'brackets', label: 'Moxfield', format: 'buylist', bracketStyle: 'brackets' },
-  { id: 'parens', label: 'Manapool', format: 'buylist', bracketStyle: 'parentheses' },
+  { id: 'parens', label: 'Manapool', format: 'buylist', bracketStyle: 'parentheses',
+    priced: true, source: 'manapool' },
   { id: 'plain', label: 'Names only', format: 'plain', bracketStyle: 'brackets' },
 ];
 
@@ -33,7 +41,11 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   // selection." The printing picker, the cost estimate and the Mass Entry
   // button are all Mana Pool concepts -- showing them while he is copying a
   // Moxfield list is noise about a marketplace he is not using.
-  const onManaPool = formatId === 'parens';
+  // Does the CURRENT format have prices to show? Drives the row list, the total
+  // and the printing picker together, so they can never disagree about whether
+  // this export is a shopping trip or just a list of names.
+  const activeFormat = EXPORT_FORMATS.find(f => f.id === formatId) || EXPORT_FORMATS[0];
+  const onManaPool = Boolean(activeFormat.priced);
 
   // WHAT THIS LIST WOULD COST, FROM PRICES WE ALREADY HAVE.
   //
@@ -205,6 +217,33 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           </button>
         </div>
 
+        {/* THE TOTAL, AT THE TOP.
+            Zach: "Just give me total price at the top and remove bottom list."
+            The per-card rows below ARE the breakdown -- each already shows its
+            printing, its swap and its price -- so a second cost block restating
+            them was the same data twice. */}
+        {onManaPool && estimate && estimate.lines > 0 && (
+          <div style={{ padding: '0 1rem 0.7rem' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+              <span style={{ fontSize: '1.4rem', fontWeight: 700 }}>
+                ${Number(estimate.items || 0).toFixed(2)}
+              </span>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                {t('deck.mpEstExcludesShipping')}
+              </span>
+            </div>
+            {/* A CARD WITH NO PRICE STILL HAS TO BE SAID OUT LOUD. It is the one
+                thing the row list cannot show by itself: a dash is easy to miss
+                when scrolling 49 lines. */}
+            {estimate.unpriced?.length > 0 && (
+              <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber, #ff9f0a)',
+                            marginTop: 2 }}>
+                {t('deck.mpEstUnpriced', { count: estimate.unpriced.length })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Format chips. */}
         <div style={{ display: 'flex', gap: '0.4rem', padding: '0 1rem 0.7rem', flexWrap: 'wrap' }}>
           {EXPORT_FORMATS.map(f => {
@@ -237,13 +276,24 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
 
             It is also the sheet's only flexible element, so it scrolls and the
             cost and buttons below it stay reachable. */}
+        {/* THE ROW LIST EXISTS ONLY WHERE PRICES DO.
+            On Moxfield or Names only there is nothing to attach to a card, so
+            the sheet is just a count and a Copy button -- which is the whole
+            interaction there. It stays a flex child either way so the sheet
+            keeps one scroll container and the buttons stay reachable. */}
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 1rem' }}>
+          {!onManaPool && text && (
+            <div style={{ padding: '1rem 0', fontSize: '0.82rem',
+                          color: 'var(--text-secondary)' }}>
+              {t('deck.mpPlainReady', { count })}
+            </div>
+          )}
           {!text && (
             <div style={{ padding: '1rem 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               {t('deck.nothingToExport')}
             </div>
           )}
-          {text && cards.map((c) => {
+          {onManaPool && text && cards.map((c) => {
             const id = c.desired_card_id || c.card_id;
             const swap = estimate?.substitutions?.find(x => x.name === c.name);
             // The printing that will actually be ordered: the substitute when
@@ -404,62 +454,6 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
                          fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer' }}>
                 {t('common.done')}
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* WHAT IT WOULD COST, FROM PRICES WE ALREADY HAVE.
-            No button and no waiting: arithmetic over the Mana Pool prices
-            Bindarr refreshes every 6 hours. It states that shipping is excluded,
-            because shipping genuinely cannot be known until checkout -- it
-            depends on how the order splits across sellers. */}
-        {onManaPool && deckId && estimate && estimate.lines > 0 && (
-          <div style={{ padding: '0.75rem 1rem 0' }}>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase',
-                          letterSpacing: '0.04em', color: 'var(--text-tertiary)',
-                          marginBottom: '0.4rem' }}>
-              {t('deck.mpCostLabel')}
-            </div>
-            <div style={{ padding: '0.7rem 0.75rem', borderRadius: 'var(--radius-sm)',
-                          background: 'var(--surface-2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between',
-                            alignItems: 'baseline' }}>
-                <span style={{ fontSize: '1.05rem', fontWeight: 700 }}>
-                  ${Number(estimate.items || 0).toFixed(2)}
-                </span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-                  {t('deck.mpEstCards', { count: estimate.priced })}
-                </span>
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                {t('deck.mpEstExcludesShipping')}
-              </div>
-
-              {/* A CARD WITH NO PRICE IS NAMED, never quietly costed at zero. */}
-              {estimate.unpriced?.length > 0 && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.72rem',
-                              color: 'var(--accent-amber, #ff9f0a)' }}>
-                  {t('deck.mpEstUnpriced', { count: estimate.unpriced.length })}
-                </div>
-              )}
-
-              {/* WHICH CARDS BINDARR CHOSE A DIFFERENT PRINTING FOR. With any
-                  printing as the default, this is his only warning that
-                  different cardboard is coming. */}
-              {estimate.substitutions?.length > 0 && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.71rem',
-                              color: 'var(--text-secondary)' }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {t('deck.mpSwapped', { count: estimate.substitutions.length })}
-                  </div>
-                  {estimate.substitutions.slice(0, 5).map((sub, n) => (
-                    <div key={n}>{sub.name}: {sub.from} → {sub.to}</div>
-                  ))}
-                  {estimate.substitutions.length > 5 && (
-                    <div>+{estimate.substitutions.length - 5} more</div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         )}
