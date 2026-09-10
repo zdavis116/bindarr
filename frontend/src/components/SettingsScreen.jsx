@@ -151,8 +151,6 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   //
   // Required before a cart can be created at all -- their API refuses an order
   // without a destination. Zach chose to store it once rather than retype it.
-  const [ship, setShip] = useState(null);
-  const [shipSaving, setShipSaving] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [version, setVersion] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -246,31 +244,7 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   // read from the server rather than assumed, so what is shown here is what
   // actually prices his cards.
   // WHERE MANA POOL SHIPS TO. Required before a cart can be created at all.
-  const loadShipping = useCallback(async () => {
-    try {
-      const r = await fetch('/api/settings/shipping');
-      if (r.ok) setShip(await r.json());
-    } catch { /* the section simply does not render */ }
-  }, []);
 
-  const saveShipping = async (body) => {
-    setShipSaving(true);
-    try {
-      const r = await fetch('/api/settings/shipping', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { showToast(d.error || t('settings.shipSaveFailed'), 'error'); return; }
-      setShip(d);
-      showToast(body.clear ? t('settings.shipCleared') : t('settings.shipSaved'), 'success');
-    } catch (e) {
-      showToast(e.message, 'error');
-    } finally {
-      setShipSaving(false);
-    }
-  };
 
   const loadPriceSources = useCallback(async () => {
     try {
@@ -339,14 +313,13 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     loadCatalogue();
     loadMoxfield();
     loadPriceSources();
-    loadShipping();
     (async () => {
       try {
         const res = await fetch('/api/settings/version');
         if (res.ok) setVersion(await res.json());
       } catch { /* About shows the dash */ }
     })();
-  }, [loadMoxfield, loadCatalogue, loadPriceSources, loadShipping]);
+  }, [loadMoxfield, loadCatalogue, loadPriceSources]);
 
   const checkUpdate = async () => {
     try {
@@ -562,66 +535,7 @@ function SettingsScreen({ user, onNavigate, showToast }) {
                      || t('settings.manapoolPrices')}
             />
 
-            {/* The address the marketplace needs before it will build a cart. */}
-            {ship && (
-              <div style={{ padding: '0.7rem 1rem 0.9rem' }}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.15rem' }}>
-                  {t('settings.shipTitle')}
-                </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)',
-                              marginBottom: '0.6rem', lineHeight: 1.4 }}>
-                  {t('settings.shipHint')}
-                </div>
 
-                {/* EVERY FIELD LABELLED AND FULL WIDTH.
-                    The first version put city, state and ZIP on one row at
-                    390px; the ZIP ran off the edge of his screen, so the form
-                    said "saved" while a field he never saw was empty. */}
-                <div style={{ display: 'grid', gap: '0.5rem' }}>
-                  {[
-                    ['ship-line1', t('settings.shipLine1'), ship.line1, 'street-address'],
-                    ['ship-city', t('settings.shipCity'), ship.city, 'address-level2'],
-                    ['ship-state', t('settings.shipState'), ship.state, 'address-level1'],
-                    ['ship-postal', t('settings.shipPostal'), ship.postal_code, 'postal-code'],
-                  ].map(([id, label, value, auto]) => (
-                    <label key={id} style={{ display: 'block' }}>
-                      <span style={{ display: 'block', fontSize: '0.7rem',
-                                     color: 'var(--text-tertiary)', marginBottom: 3 }}>
-                        {label}
-                      </span>
-                      <input
-                        id={id}
-                        defaultValue={value}
-                        autoComplete={auto}
-                        className="input-control"
-                        style={{ width: '100%', minHeight: 42, fontSize: '0.88rem' }}
-                      />
-                    </label>
-                  ))}
-
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.15rem' }}>
-                    <button className="btn btn-primary" disabled={shipSaving}
-                      style={{ flex: 1, minHeight: 44, fontSize: '0.85rem' }}
-                      onClick={() => saveShipping({
-                        line1: document.getElementById('ship-line1')?.value,
-                        city: document.getElementById('ship-city')?.value,
-                        state: document.getElementById('ship-state')?.value,
-                        postal_code: document.getElementById('ship-postal')?.value,
-                        country: 'US',
-                      })}>
-                      {shipSaving ? t('common.saving') : t('common.save')}
-                    </button>
-                    {ship.configured && (
-                      <button className="btn btn-secondary" disabled={shipSaving}
-                        style={{ flexShrink: 0, minHeight: 44, fontSize: '0.85rem' }}
-                        onClick={() => saveShipping({ clear: true })}>
-                        {t('settings.shipClear')}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 

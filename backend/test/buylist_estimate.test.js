@@ -18,7 +18,7 @@
 // the parts that can silently lie.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const decks = readFileSync(new URL('../src/routes/decks.js', import.meta.url), 'utf8');
 const buylist = readFileSync(new URL('../src/manaPoolBuylist.js', import.meta.url), 'utf8');
@@ -55,6 +55,30 @@ test('EST-TC2: Bindarr never creates an order or spends money', () => {
         `${forbidden} must not appear in executable ${name} code`);
     }
   }
+});
+
+test('EST-TC2b: no dead strings left behind by removed features', () => {
+  // A locale key that looks live and is not is how a test in this project once
+  // passed while asserting the wrong thing. Removing a feature means removing
+  // its words, in every language -- otherwise the next person wiring up
+  // "Send to Mana Pool cart" finds a ready-made string and assumes it works.
+  const localeDir = new URL('../../frontend/src/locales/', import.meta.url);
+  const en = JSON.parse(readFileSync(new URL('en.json', localeDir), 'utf8'));
+
+  // Every source file, so a key used anywhere counts as live.
+  const srcDir = new URL('../../frontend/src/', import.meta.url);
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((f) => {
+    const p = new URL(f.name + (f.isDirectory() ? '/' : ''), dir);
+    if (f.isDirectory()) return f.name === 'locales' ? [] : walk(p);
+    return /\.jsx?$/.test(f.name) ? [readFileSync(p, 'utf8')] : [];
+  });
+  const all = walk(srcDir).join('\n');
+
+  const orphans = Object.keys(en)
+    .filter(k => /^(deck\.mp|settings\.ship|settings\.manapool)/.test(k))
+    .filter(k => !all.includes(k));
+  assert.deepEqual(orphans, [],
+    `these Mana Pool strings are referenced by nothing: ${orphans.join(', ')}`);
 });
 
 test('EST-TC3: a card with no price is NAMED, not costed at zero', () => {

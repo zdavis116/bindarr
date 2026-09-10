@@ -359,15 +359,17 @@ async function initDb() {
       -- removed -- it is the only source with near-total coverage, and losing
       -- the floor would let a card silently have no value at all.
       price_source_order TEXT DEFAULT '["manapool"]',
-      -- WHERE HIS CARDS GET SHIPPED.
+      -- SHIPPING ADDRESS: RETAINED, UNUSED, AND CLEARED ON BOOT.
       --
-      -- Mana Pool refuses to create a pending order without it: "Either
-      -- shipping_address or tax_address must be provided". Shipping cost
-      -- depends on the destination, so there is no sensible default.
+      -- These backed send-to-cart, which is gone: Mana Pool's "pending order"
+      -- was a checkout, not a cart, and there is no cart API to replace it.
+      -- Nothing reads these columns now.
       --
-      -- Stored once rather than retyped per order, at his choice. This is real
-      -- PII in a hobby app's database: it is on his own hardware, it is sent
-      -- nowhere except to Mana Pool when HE presses send, and Settings clears it.
+      -- Kept rather than dropped because removing a column in SQLite means
+      -- rebuilding the table, and rebuilding his real database to delete five
+      -- nullable fields is a worse risk than leaving them. The VALUES are
+      -- cleared below: his home address stored for a feature that no longer
+      -- exists is the part that actually matters.
       ship_line1 TEXT,
       ship_city TEXT,
       ship_state TEXT,
@@ -874,7 +876,10 @@ async function initDb() {
   // every read of price_source_order throws on Zach's actual database while
   // passing on a fresh test one. That exact shape of bug (schema added to the
   // CREATE but not the ALTER) has already bitten this project once.
-  // Shipping address columns. Added late, so existing databases need them.
+  // Shipping address columns. Added for send-to-cart, which no longer exists.
+  // Still created so existing databases and fresh ones have the same shape, but
+  // any stored address is wiped: it is his home address held for a deleted
+  // feature.
   for (const col of ['ship_line1', 'ship_city', 'ship_state', 'ship_postal_code']) {
     if (!appSettingsCols.some(c => c.name === col)) {
       await run(`ALTER TABLE app_settings ADD COLUMN ${col} TEXT`);
@@ -883,6 +888,10 @@ async function initDb() {
   if (!appSettingsCols.some(c => c.name === 'ship_country')) {
     await run(`ALTER TABLE app_settings ADD COLUMN ship_country TEXT DEFAULT 'US'`);
   }
+  await run(`UPDATE app_settings
+                SET ship_line1 = NULL, ship_city = NULL, ship_state = NULL,
+                    ship_postal_code = NULL
+              WHERE ship_line1 IS NOT NULL OR ship_city IS NOT NULL`);
 
   // allow_any_printing on deck_cards. Existing databases have no such column
   // and CREATE TABLE IF NOT EXISTS will not add one -- without this every read
