@@ -1,0 +1,125 @@
+// AN ESTIMATE HE CAN ACT ON, FROM PRICES WE ALREADY HAVE.
+//
+// Zach killed the optimizer integration himself: "I also feel like the price it
+// isn't worth it either. Because you are preparing it for nothing. I would
+// rather when I go to export tell me what the cost would be if I was to export
+// for manapool using the cheapest prices you have. Obviously won't be exact
+// because shipping cost but it gives an idea."
+//
+// He was right on the facts as well as the feel:
+//   * POST /buyer/orders/pending-orders creates a CHECKOUT with a paymentIntent,
+//     not a cart -- his cart stayed empty, and the only way to finish it is
+//     /purchase, which spends real money
+//   * Mana Pool exposes NO cart API (/buyer/cart, /cart, /buyer/basket,
+//     /buyer/carts all 404; GET /pending-orders is 405)
+//   * the optimizer took ~40s and was capped at ~3 calls/minute
+//
+// This replaces it with arithmetic over stored prices, and these guards cover
+// the parts that can silently lie.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFileSync } from 'node:fs';
+
+const decks = readFileSync(new URL('../src/routes/decks.js', import.meta.url), 'utf8');
+const buylist = readFileSync(new URL('../src/manaPoolBuylist.js', import.meta.url), 'utf8');
+const modal = readFileSync(
+  new URL('../../frontend/src/components/ExportModal.jsx', import.meta.url), 'utf8');
+
+test('EST-TC1: the estimate never calls Mana Pool', () => {
+  // The whole point: it answers instantly from prices refreshed every 6 hours.
+  // A network call here would reintroduce the 40-second wait he rejected.
+  assert.ok(!/https?:\/\/manapool\.com/.test(buylist),
+    'the pricing module must not talk to the marketplace at all');
+  assert.ok(!/require\('https'\)/.test(buylist),
+    'and must not carry HTTP plumbing');
+});
+
+test('EST-TC2: Bindarr never creates an order or spends money', () => {
+  // The pending-order and purchase endpoints are both gone. This is the guard
+  // that must survive every future refactor.
+  //
+  // Checks CODE, not prose. My first version scanned the whole file and failed
+  // on correct code, because the comments explaining WHY those endpoints were
+  // removed necessarily name them. A guard that fires on its own documentation
+  // teaches you to ignore it -- this is the third time on this branch.
+  const strip = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter(l => !l.trim().startsWith('//'))
+    .join('\n');
+
+  for (const [name, src] of [['pricing module', buylist], ['deck routes', decks]]) {
+    const code = strip(src);
+    for (const forbidden of ['pending-orders', 'purchase', 'paymentIntent', 'optimizer']) {
+      assert.ok(!code.includes(forbidden),
+        `${forbidden} must not appear in executable ${name} code`);
+    }
+  }
+});
+
+test('EST-TC3: a card with no price is NAMED, not costed at zero', () => {
+  // Rounding an unpriced card to zero would make the deck look cheaper than it
+  // is -- the same class of lie as a total that hides its source.
+  assert.match(decks, /unpriced\.push\(/,
+    'unpriced cards must be collected');
+  assert.match(decks, /unpriced,/,
+    'and returned to the screen');
+  assert.match(modal, /estimate\.unpriced\?\.length > 0/,
+    'and the UI must show them');
+});
+
+test('EST-TC4: the estimate states that shipping is excluded', () => {
+  // Shipping genuinely cannot be known until checkout -- it depends on how the
+  // order splits across sellers. Presenting this as a final price would be the
+  // same mistake as the $34.37 he could not find on their site.
+  assert.match(decks, /excludes_shipping: true/,
+    'the payload must say so');
+  assert.match(modal, /mpEstExcludesShipping/,
+    'and the screen must render it');
+});
+
+test('EST-TC5: the estimate prices the printing it would actually export', () => {
+  // If the estimate used the deck's listed printing while the exported text used
+  // a cheaper substitute, the number and the list would disagree.
+  assert.match(decks, /chooseCheapestPrintings\(db,/,
+    'substitution must run before the total is computed');
+  assert.match(decks, /Number\.isFinite\(r\.substituted_price\)\s*\?\s*r\.substituted_price/,
+    'and the substituted price must be the one counted');
+});
+
+test('EST-TC6: substitution is one query for the whole list, not one per card', () => {
+  // Calling it per card took 41 seconds, because db.js serialises every query
+  // through a single operation queue. Same mistake as /api/stats' per-set loop.
+  assert.match(buylist, /async function chooseCheapestPrintings\(database, cards\)/,
+    'the chooser must take the whole list');
+  const perCardLoop = /for \(const \w+ of items\)[\s\S]{0,200}await manaPoolBuylist\./;
+  assert.ok(!perCardLoop.test(decks),
+    'the route must not await the chooser inside a loop');
+});
+
+test('EST-TC7: every swap is reported', () => {
+  // Any printing is now the DEFAULT, so a card he never touched can be swapped.
+  // This list is the only thing standing between him and different cardboard.
+  assert.match(decks, /substitutions\.push\(/);
+  assert.match(decks, /substitutions,/, 'and they must reach the response');
+  assert.match(modal, /estimate\.substitutions\?\.length > 0/,
+    'and the screen must render them');
+});
+
+test('EST-TC8: Mass Entry opens only after the list is on the clipboard', () => {
+  // Zach: "I do like the idea of just copying and sending me right to mass
+  // entry." Opening the tab when the copy failed would land him on an empty
+  // textarea with nothing to paste.
+  assert.match(modal, /manapool\.com\/add-deck/,
+    'the Mass Entry screen is the destination');
+  const fn = modal.slice(modal.indexOf('const copyAndOpen'),
+                         modal.indexOf('const copyAndOpen') + 900);
+  const copyAt = fn.indexOf('clipboard.writeText');
+  const openAt = fn.indexOf('window.open');
+  assert.ok(copyAt > -1 && openAt > copyAt,
+    'the clipboard write must happen before the tab opens');
+  assert.match(fn, /return;\s*\/\/ no tab if the list is not on the clipboard/,
+    'and a failed copy must abort before opening the tab');
+});
+
+console.log('buylist estimate guards passed');

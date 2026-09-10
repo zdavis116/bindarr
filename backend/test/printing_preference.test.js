@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { toCartLine } from '../src/manaPoolBuylist.js';
+import pkg from '../src/manaPoolBuylist.js';
+const { CONDITION_IDS } = pkg;
 
 const db = readFileSync(new URL('../src/db.js', import.meta.url), 'utf8');
 const decks = readFileSync(new URL('../src/routes/decks.js', import.meta.url), 'utf8');
@@ -35,27 +36,29 @@ test('PREF-TC2: rows written under the OLD default are corrected exactly once', 
     'and it must actually reset the old rows');
 });
 
-test('PREF-TC3: EVERY cart line is an exact printing at the API boundary', () => {
-  // card_id returns 409 for every value tested -- printing id AND oracle id --
-  // so substitution cannot be delegated to Mana Pool. Sending card_id would make
-  // every line fail, which is exactly what happened the first time.
-  const line = toCartLine({ set_code: 'fdn', collector_number: '160',
-                            card_id: 'a829747f-cf9b-4d81-ba66-9f0630ed4565',
-                            allow_any_printing: true });
-  assert.ok(!('card_id' in line), 'card_id 409s on this endpoint and must never be sent');
-  assert.equal(line.set_code, 'FDN');
-  assert.equal(line.collector_number, '160');
+test('PREF-TC3: substitution is resolved by Bindarr, never delegated', () => {
+  // ORIGINALLY this asserted the cart line sent to Mana Pool used set_code +
+  // collector_number rather than card_id, because card_id 409s for every value
+  // tested (printing id AND oracle id).
+  //
+  // There is no cart line any more -- the optimizer integration is gone. The
+  // rule survives in a stronger form: Bindarr picks the printing itself, from
+  // its own price data, and never asks a marketplace to choose for him.
+  assert.match(buylist, /async function chooseCheapestPrintings/,
+    'Bindarr must resolve the printing itself');
+  assert.ok(!/card_id: card\.card_id/.test(buylist),
+    'card_id must never be sent as a substitution instruction');
 });
 
 test('PREF-TC4: substitution happens in Bindarr, and is reported', () => {
   // A swap he cannot see is the silent state change he has ruled out -- and with
   // "any printing" as the DEFAULT, a card he never touched can be swapped. The
   // swap list is the safety net.
-  assert.match(buylist, /async function chooseCheapestPrinting/,
+  assert.match(buylist, /async function chooseCheapestPrintings/,
     'Bindarr picks the cheapest printing itself');
   assert.match(buylist, /substituted_from/,
     'and records what it swapped away from');
-  assert.match(decks, /quote\.substitutions = resolved/,
+  assert.match(decks, /substitutions\.push\(/,
     'and the quote reports every swap to the screen');
 });
 
@@ -64,6 +67,8 @@ test('PREF-TC5: the condition floor survives substitution', () => {
   // chooseCheapestPrinting reads source_prices, which only ever holds LP/NM.
   assert.match(buylist, /sp\.source = 'manapool'/,
     'substitution prices come from the stored LP/NM feed, not a wider search');
+  assert.deepEqual(CONDITION_IDS, ['LP', 'NM'],
+    'and the floor itself is unchanged');
 });
 
 test('PREF-TC6: one call pins or unpins the whole deck', () => {
@@ -84,35 +89,9 @@ test('PREF-TC7: a partial shipping address is refused, not stored', () => {
     'and it must say which fields are missing');
 });
 
-test('PREF-TC8: sending a cart without an address fails BEFORE calling Mana Pool', () => {
-  // A marketplace error he cannot act on is worse than an app error that names
-  // the screen he needs.
-  assert.match(decks, /NO_SHIPPING_ADDRESS/,
-    'the route must check the address itself');
-  assert.match(buylist, /A shipping address is required to create an order/,
-    'and the module must refuse too, so no caller can bypass it');
-});
-
-test('PREF-TC9: Bindarr never completes a purchase', () => {
-  // Mana Pool has POST /pending-orders/{id}/purchase. A bug in a hobby app that
-  // can spend real money costs money, not a recount.
-  //
-  // Checks the declared path CONSTANTS, not the whole file. Two earlier versions
-  // of this test were wrong in opposite directions: the first regex-matched the
-  // safety comment that names the endpoint (failed on correct code), the second
-  // matched literal strings inside requestTo() and broke when the paths moved
-  // into constants. The constants are the real surface -- every request is built
-  // from them.
-  const paths = [...buylist.matchAll(/^const \w*PATH \w*=?\s*'([^']+)'/gm)].map(m => m[1]);
-  const declared = [...buylist.matchAll(/^const (\w+_PATH) = '([^']+)'/gm)].map(m => m[2]);
-  const all = [...paths, ...declared];
-  assert.ok(all.length > 0, 'the module must declare its request paths');
-  for (const p of all) {
-    assert.ok(!/purchase/.test(p),
-      `Bindarr must never call a purchase endpoint (found ${p})`);
-  }
-  assert.ok(all.some(p => p.includes('pending-orders')),
-    'creating a pending order is as far as it goes');
-});
+// PREF-TC8 and PREF-TC9 covered the send-to-cart route and the purchase
+// endpoint. Both are deleted -- Mana Pool's "pending order" was a checkout, not
+// a cart, and his cart stayed empty. EST-TC2 in buylist_estimate.test.js now
+// owns that rule and checks executable code rather than prose.
 
 console.log('printing-preference and shipping guards passed');
