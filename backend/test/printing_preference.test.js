@@ -71,13 +71,37 @@ test('PREF-TC5: the condition floor survives substitution', () => {
     'and the floor itself is unchanged');
 });
 
-test('PREF-TC6: one call pins or unpins the whole deck', () => {
-  // "maybe an option to select all for exact printing". Server-side so a
-  // partial sweep cannot leave the deck in a state the screen does not describe.
+test('PREF-TC6: BOTH printing-preference routes exist', () => {
+  // "maybe an option to select all for exact printing" -- and the per-card one
+  // he uses far more often.
+  //
+  // THIS TEST EXISTS BECAUSE THE PER-CARD ROUTE WAS SILENTLY DELETED. Removing
+  // the send-to-cart code took a region of decks.js with it; the suite stayed
+  // green, the UI shipped, and every checkbox 404'd until Zach tried one. A
+  // route that disappears without a failing test is exactly the kind of gap
+  // that reaches him instead of me.
+  assert.match(decks, /router\.patch\('\/:id\/cards\/:cardId\/printing-preference'/,
+    'the per-card route must exist');
   assert.match(decks, /router\.patch\('\/:id\/cards\/printing-preference'/,
-    'a bulk endpoint must exist');
+    'the bulk route must exist');
+
+  // And they must not be the same handler: the per-card one is scoped to a card,
+  // the bulk one to the whole deck.
+  assert.match(decks, /WHERE deck_id = \? AND desired_card_id = \?/,
+    'the per-card update must target one card');
   assert.match(decks, /UPDATE deck_cards SET allow_any_printing = \? WHERE deck_id = \?/,
-    'and it must update the whole deck in one statement');
+    'and the bulk update must target the deck');
+});
+
+test('PREF-TC6b: the UI calls the routes that actually exist', () => {
+  // The modal built its URL by hand. If either path drifts, the checkbox fails
+  // at the moment he taps it -- which is how this was found.
+  const modalSrc = readFileSync(
+    new URL('../../frontend/src/components/ExportModal.jsx', import.meta.url), 'utf8');
+  const perCard = modalSrc.match(/decks\/\$\{deckId\}\/cards\/\$\{cardId\}\/printing-preference/);
+  const bulk = modalSrc.match(/decks\/\$\{deckId\}\/cards\/printing-preference/);
+  assert.ok(perCard, 'the picker must call the per-card route');
+  assert.ok(bulk, 'and the bulk buttons must call the bulk route');
 });
 
 test('PREF-TC7: a partial shipping address is refused, not stored', () => {

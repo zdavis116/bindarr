@@ -2194,6 +2194,42 @@ router.get('/:id/buylist/estimate', async (req, res) => {
   }
 });
 
+// WILL HE ACCEPT ANOTHER PRINTING OF THIS ONE CARD?
+//
+// Zach: "I would like the ability to specify each card for exact printing or
+// not... The choice can persist."
+//
+// THIS ROUTE WAS DELETED BY ACCIDENT. Removing the send-to-cart code took a
+// region of this file with it, and this went too -- so every checkbox in the
+// printing picker 404'd: "choosing exact printing doesn't work anymore. When I
+// try and check something it tells me it can't."
+//
+// Stored on deck_cards because it is a fact about that card IN THAT DECK: he may
+// not care which Sol Ring arrives for one deck and care very much for another.
+// Consulted ONLY when buying -- it does not change what the deck requires, what
+// he owns, or any price on any screen.
+router.patch('/:id/cards/:cardId/printing-preference', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const allow = req.body?.allow_any_printing;
+    if (typeof allow !== 'boolean') {
+      return res.status(400).json({ error: 'allow_any_printing must be true or false' });
+    }
+    // Scoped to the deck so one user cannot flip a preference on another's row.
+    const result = await db.run(
+      `UPDATE deck_cards SET allow_any_printing = ?
+        WHERE deck_id = ? AND desired_card_id = ?`,
+      [allow ? 1 : 0, deck.id, req.params.cardId]
+    );
+    if (!result.changes) {
+      return res.status(404).json({ error: 'That card is not in this deck' });
+    }
+    res.json({ card_id: req.params.cardId, allow_any_printing: allow });
+  } catch (error) {
+    sendError(res, error, 'Failed to save the printing preference');
+  }
+});
+
 // PIN OR UNPIN EVERY CARD AT ONCE.
 //
 // Zach: "maybe an option to select all for exact printing just in case I want
