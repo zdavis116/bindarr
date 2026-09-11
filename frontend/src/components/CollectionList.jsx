@@ -345,6 +345,21 @@ const cardTypesOf = (card) => {
     () => shown.reduce((sum, c) => sum + (c.price_trend || 0) * (c.quantity || 1), 0),
     [shown]);
 
+  // WHICH SOURCES PRICED WHAT IS ON SCREEN.
+  //
+  // Zach: "showing where the source came from in the total price is a good
+  // idea." Computed from the SHOWN rows, exactly like the total, so the label
+  // can never describe a different set of cards than the figure beside it.
+  const priceSources = useMemo(() => {
+    const counts = new Map();
+    for (const c of shown) {
+      const label = c.price_source_label;
+      if (!label) continue;
+      counts.set(label, (counts.get(label) || 0) + (c.quantity || 1));
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [shown]);
+
   // HOW MANY CARDS THAT VALUE IS.
   //
   // Zach: "Can we add card count next to dollar amount in the collection."
@@ -524,6 +539,15 @@ const cardTypesOf = (card) => {
           {t('collection.cardCount', { count: totalCount })}
           {' · '}
           {t('collection.totalValue')} <strong style={{ color: 'var(--text-primary)' }}>${formatPrice(totalValue)}</strong>
+          {/* WHERE THAT NUMBER CAME FROM. A blended total shown as one
+              anonymous figure invites the reader to believe it is all one
+              thing; naming the sources makes it arguable. */}
+          {priceSources.length > 0 && (
+            <span style={{ color: 'var(--text-tertiary)' }}>
+              {' · '}
+              {priceSources.map(([label, n]) => `${n} ${label}`).join(', ')}
+            </span>
+          )}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
           {[{ m: 'gallery', Icon: LayoutGrid, label: t('collection.galleryView') },

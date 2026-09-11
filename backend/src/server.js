@@ -303,6 +303,99 @@ db.initDb()
       setTimeout(startupCatchUp, 5 * MINUTE);
     }
 
+    // MANA POOL PRICES.
+    //
+    // Zach: "manapool should sync prices every 6hrs if possible instead of once
+    // a day."
+    //
+    // Six hours is justified by the feed itself, not by preference: its meta
+    // block carries an as_of stamp, and two observations four hours apart read
+    // 03:14:03Z then 07:15:50Z. Mana Pool republishes through the day, so a
+    // daily fetch would show prices up to 24 hours behind what the site shows
+    // when he clicks through -- and a price Bindarr states that the marketplace
+    // contradicts is worse than no price.
+    //
+    // SEPARATE SCHEDULE FROM THE CATALOGUE, deliberately. The Scryfall
+    // catalogue is a 500MB rebuild of the card identity everything joins to;
+    // this is a 51MB price feed that replaces nothing structural. Tying them
+    // together would mean either the catalogue runs four times a day or prices
+    // run once.
+    if (process.env.MANAPOOL_PRICES !== 'off') {
+      const { refreshManaPoolPrices, msSinceLastRefresh } = require('./manaPoolPrices');
+      const MINUTE_MS = 60 * 1000;
+      const PRICE_INTERVAL_MS = 6 * 60 * MINUTE_MS;
+      // Half the interval: old enough to be worth 201MB, new enough that a
+      // deploy during the day never triggers one.
+      const PRICE_STALE_MS = 3 * 60 * MINUTE_MS;
+
+      const runPriceRefresh = () => {
+        refreshManaPoolPrices()
+          .then(({ written, skipped, asOf }) => {
+            console.log(`Mana Pool prices: ${written} rows updated`
+              + `${skipped ? `, ${skipped} skipped` : ''}`
+              + `${asOf ? ` (feed as of ${asOf})` : ''}.`);
+          })
+          .catch((err) => {
+            // Logged, not thrown: a failed price fetch must not take the app
+            // down, and the previous prices are still there. The failure is
+            // recorded in source_price_meta.last_error so Settings can say WHY
+            // a price is stale rather than just showing an old number.
+            console.error('Mana Pool price refresh failed:', err.message);
+          });
+        syncSchedule.setManaPoolNextRun(
+          new Date(Date.now() + PRICE_INTERVAL_MS).toISOString());
+      };
+
+      // A RESTART IS NOT A REASON TO RE-IMPORT.
+      //
+      // Zach: "where is there a delay in loading total... about a minute later
+      // it updated." Every restart armed this 8-minute timer, so four deploys in
+      // an hour meant four full 201MB imports -- and an import holds the single
+      // database queue, so his reads waited behind it. He opened the export
+      // sheet mid-import and watched it fill in a minute later.
+      //
+      // The catalogue was fixed this way weeks ago ("I feel like the sync should
+      // run independently of the app being stopped and started") and I did not
+      // apply the same rule here. Now a boot only imports if the stored feed is
+      // genuinely old; otherwise it waits for its normal slot.
+      const startupPriceRefresh = async () => {
+        let age = null;
+        try {
+          age = await msSinceLastRefresh();
+        } catch (err) {
+          console.error('Could not read Mana Pool price freshness:', err.message);
+        }
+        // null means it has NEVER succeeded -- that is stale, not fresh.
+        if (age !== null && age < PRICE_STALE_MS) {
+          const mins = Math.round(age / MINUTE_MS);
+          console.log(`Mana Pool prices are ${mins} min old; skipping the startup`
+            + ` import and waiting for the scheduled run.`);
+          return;
+        }
+        runPriceRefresh();
+      };
+
+      // Published before the first run so the countdown is right immediately.
+      syncSchedule.setManaPoolNextRun(new Date(Date.now() + 8 * MINUTE_MS).toISOString());
+
+      // EIGHT minutes after boot, then every six hours.
+      //
+      // Deliberately AFTER the catalogue's five-minute stale check. On a cold
+      // start where the catalogue IS stale, a 500MB rebuild and a 51MB price
+      // import would otherwise run through the same serialized database queue
+      // at once -- which is precisely the pile-up that made Zach's dashboard
+      // take 26 seconds. (My first version used three minutes and the comment
+      // claimed it ran after the catalogue check; 3 < 5, so it did not. Checked
+      // the numbers rather than trusting the sentence I had just written.)
+      setTimeout(() => {
+        startupPriceRefresh();
+        setInterval(runPriceRefresh, PRICE_INTERVAL_MS);
+      }, 8 * MINUTE_MS);
+
+      console.log('Mana Pool price refresh scheduled: first check in 8 min'
+        + ' (skipped if prices are under 3h old), then every 6h.');
+    }
+
     // MOXFIELD BACKGROUND POLL.
     //
     // Zach builds decks in Moxfield and wants Bindarr to notice on its own.

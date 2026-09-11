@@ -1,7 +1,8 @@
 const express = require('express');
 const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
-const { resolveCardPrice, isVintageSet, parseSqliteUtc } = require('../utils/priceHelpers');
+const { resolveCardPrice, resolvePricedCard, isVintageSet, parseSqliteUtc,
+        MARKETPLACE_PRICE_JOIN, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -17,10 +18,12 @@ router.get('/stats', async (req, res) => {
         c.quantity, c.purchase_price, c.added_at, c.printing, c.condition, c.card_id,
         cc.types, cc.subtypes, cc.supertype, cc.rarity, cc.set_name, cc.set_id, cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
         cc.price_avg1, cc.price_avg7, cc.price_avg30,
+        ${MARKETPLACE_PRICE_COLUMNS}
         l.name as location_name
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
+      ${MARKETPLACE_PRICE_JOIN}
       WHERE c.user_id = ?
     `;
     const rows = await db.all(query, statsParams);
@@ -59,9 +62,25 @@ router.get('/stats', async (req, res) => {
     const setCounts = {};
     const locationCounts = {};
 
+    // WHERE THE TOTAL CAME FROM.
+    //
+    // Zach approved this: "showing where the source came from in the total
+    // price is a good idea". A total that blends 1,400 Mana Pool prices with
+    // 108 Scryfall ones is not "the Mana Pool value", and one anonymous figure
+    // invites the reader to believe it is all one thing.
+    const priceSourceCounts = new Map();
+
     rows.forEach(row => {
       const qty = row.quantity || 1;
-      const price = resolveCardPrice(row);
+      const priced = resolvePricedCard(row);
+      const price = priced.price;
+      if (priced.source) {
+        const e = priceSourceCounts.get(priced.source)
+          || { source: priced.source, label: priced.sourceLabel, count: 0, total: 0 };
+        e.count += qty;
+        e.total += qty * price;
+        priceSourceCounts.set(priced.source, e);
+      }
       const addedTime = row.added_at ? parseSqliteUtc(row.added_at).getTime() : now;
 
       totalCards += qty;
@@ -142,19 +161,41 @@ router.get('/stats', async (req, res) => {
         c.quantity, c.condition, c.printing, c.purchase_price, c.is_trade, c.favorite, c.list_type,
         cc.id as card_id, cc.name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
         cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity, cc.price_trend,
-        cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
+        cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
+        ${MARKETPLACE_PRICE_COLUMNS}
+        1 AS _mp_marker
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
+      ${MARKETPLACE_PRICE_JOIN}
       WHERE c.user_id = ?
+      -- THE SORT MUST USE THE SAME PRICE THE ROW WILL DISPLAY.
+      --
+      -- This ordered by the Scryfall price and then relabelled each row with
+      -- the chain's answer, so "top 6 most valuable" was picking the six most
+      -- valuable BY SCRYFALL and then showing Mana Pool numbers next to them --
+      -- a list that could be visibly out of order, or simply the wrong six
+      -- cards. Sorting and displaying by different figures is the same class of
+      -- bug as the deck completion ring disagreeing with missing_cost.
       ORDER BY CASE
-        WHEN c.finish IN ('foil', 'etched') AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0 THEN cc.price_holofoil
-        WHEN c.finish = 'nonfoil' AND cc.price_normal IS NOT NULL AND cc.price_normal > 0 THEN cc.price_normal
+        WHEN c.finish IN ('foil', 'etched') AND mp.price_cents_foil IS NOT NULL AND mp.price_cents_foil > 0
+          THEN mp.price_cents_foil / 100.0
+        WHEN c.finish = 'nonfoil' AND mp.price_cents IS NOT NULL AND mp.price_cents > 0
+          THEN mp.price_cents / 100.0
+        WHEN c.finish IN ('foil', 'etched') AND cc.price_holofoil IS NOT NULL AND cc.price_holofoil > 0
+          THEN cc.price_holofoil
+        WHEN c.finish = 'nonfoil' AND cc.price_normal IS NOT NULL AND cc.price_normal > 0
+          THEN cc.price_normal
         ELSE cc.price_trend
       END DESC
       LIMIT 6
     `;
     const topValuableRows = await db.all(topValuableQuery, statsParams);
-    const topValuable = topValuableRows.map(row => ({ ...row, price_trend: resolveCardPrice(row) }));
+    const topValuable = topValuableRows.map(row => {
+      const priced = resolvePricedCard(row);
+      return { ...row, price_trend: priced.price,
+               price_source: priced.source, price_source_label: priced.sourceLabel,
+               price_url: priced.source && priced.source !== 'scryfall' ? row.mp_url : null };
+    });
 
     // Compute progress for top 4 sets in database (estimate set total)
     const setSizes = {
@@ -227,14 +268,22 @@ router.get('/stats', async (req, res) => {
              c.quantity, c.condition, c.printing, c.added_at, c.is_trade, c.favorite, c.list_type,
              cc.id as card_id, cc.name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
              cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity,
-             cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil
+             cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
+             ${MARKETPLACE_PRICE_COLUMNS}
+             1 AS _mp_marker
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
+      ${MARKETPLACE_PRICE_JOIN}
       WHERE c.user_id = ?
       ORDER BY c.added_at DESC
       LIMIT 6
     `, statsParams);
-    const recentAdditions = recentRows.map(row => ({ ...row, price_trend: resolveCardPrice(row) }));
+    const recentAdditions = recentRows.map(row => {
+      const priced = resolvePricedCard(row);
+      return { ...row, price_trend: priced.price,
+               price_source: priced.source, price_source_label: priced.sourceLabel,
+               price_url: priced.source && priced.source !== 'scryfall' ? row.mp_url : null };
+    });
 
     const gainAbs = totalValue - totalSpent;
     const roi = {
@@ -248,6 +297,14 @@ router.get('/stats', async (req, res) => {
         totalCards,
         uniqueCards,
         totalValue: parseFloat(totalValue.toFixed(2)),
+        // WHICH SOURCES MADE UP THAT TOTAL, largest contributor first.
+        //
+        // Sent as data rather than a sentence so the UI can render it in the
+        // user's own words and the API stays honest about a blended figure.
+        priceSources: [...priceSourceCounts.values()]
+          .sort((a, b) => b.count - a.count)
+          .map(e => ({ source: e.source, label: e.label, count: e.count,
+                       total: parseFloat(e.total.toFixed(2)) })),
         totalSpent: parseFloat(totalSpent.toFixed(2)),
         roi,
         avgCardValue,
@@ -334,6 +391,17 @@ router.get('/stats/history', async (req, res) => {
     // a fabricated curve.
     const realPriceAt = (item, targetTime) => {
       const hist = historyByCard[item.card_id];
+      // LEFT ON THE SCRYFALL PRICE DELIBERATELY.
+      //
+      // price_history is a series of recorded SCRYFALL prices going back
+      // months. Using the Mana Pool price as the fallback for a card with no
+      // history would put a marketplace number on the same line as an index
+      // series -- so the chart would show a step change on the day this feature
+      // shipped and read as if the collection had lost value overnight.
+      //
+      // The honest fix is a marketplace price history of its own, which starts
+      // accumulating from today and cannot be backfilled. Until there is enough
+      // of it, one consistent series beats a spliced one.
       if (!hist || hist.length === 0) return resolveCardPrice(item);
       let best = null;
       for (const h of hist) {

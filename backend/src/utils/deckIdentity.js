@@ -362,11 +362,39 @@ async function availabilityForDeck(database, deckId, userId) {
             -- not the type line.
             cc.oracle_text,
             -- Price for "cost to finish" and the per-card figure on the Missing
-            -- tab. price_trend is Cardmarket's trend price, the same field the
-            -- collection totals use, so the two screens cannot disagree.
-            cc.price_trend
+            -- tab.
+            --
+            -- Zach: "when I look at cards on don't own in the deck view the
+            -- value not individual card detail that shows 29 cents for the
+            -- antman when value in the card view shows 15 cents... Everywhere
+            -- should be using the mana pool lowest price even for collection
+            -- total because in theory that is what I would sell and buy for."
+            --
+            -- This read cc.price_trend -- Scryfall's number -- so a deck row
+            -- said 29c while the card sheet for the same printing said 15c.
+            -- Now the same chain as everywhere else: marketplace first in
+            -- cents, Scryfall as the pinned last resort.
+            COALESCE(
+              CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                   THEN mp.price_cents_foil / 100.0
+                   ELSE mp.price_cents / 100.0
+              END,
+              cc.price_trend) AS price_trend,
+            CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                            THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
+                 THEN 'manapool'
+                 WHEN cc.price_trend > 0 THEN 'scryfall'
+                 ELSE NULL
+            END AS price_source,
+            CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                 THEN mp.condition_foil ELSE mp.condition
+            END AS price_condition,
+            dc.allow_any_printing,
+            mp.url AS price_url
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
+     LEFT JOIN source_prices mp
+            ON mp.card_id = cc.id AND mp.source = 'manapool'
      WHERE dc.deck_id = ?
      ORDER BY cc.name COLLATE NOCASE ASC, dc.id ASC`,
     [deckId]
@@ -681,6 +709,9 @@ async function buylistForDeck(database, deckId, userId) {
       image_url: entry.image_url,
       rarity: entry.rarity,
       board: entry.board,
+      // Buying preference, not a deck fact: whether he will take another
+      // printing of this card when purchasing it.
+      allow_any_printing: entry.allow_any_printing ? 1 : 0,
       quantity: entry.quantity_missing,
       quantity_required: entry.quantity_required,
       // Reported so a line can be honest about the difference between "I have
@@ -688,7 +719,22 @@ async function buylistForDeck(database, deckId, userId) {
       // Without it a user looking at his own binder would think the app was
       // wrong.
       quantity_owned: entry.quantity_owned,
-      quantity_allocated_elsewhere: entry.quantity_allocated_elsewhere
+      quantity_allocated_elsewhere: entry.quantity_allocated_elsewhere,
+      // THE PRICE, CARRIED THROUGH.
+      //
+      // Zach: "When choosing some cards for exact printing the deck as it says
+      // manapool doesn't have a price which I know is wrong because on card
+      // detail view it shows a manapool price and manapool site itself shows a
+      // price."
+      //
+      // He was right. availabilityForDeck already resolves the marketplace price
+      // for every row, but this buylist line dropped it -- so a PINNED card
+      // (which cannot be re-priced by substitution) arrived with no price at all
+      // and was reported as "Mana Pool has no price for". Flexible cards hid the
+      // bug because substitution looked their price up again.
+      price_trend: entry.price_trend,
+      price_source: entry.price_source,
+      price_condition: entry.price_condition
     });
   }
 

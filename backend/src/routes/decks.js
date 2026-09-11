@@ -7,6 +7,7 @@ const { compartmentLabel } = require('../utils/compartmentSort');
 const { buildDeckWarnings } = require('../utils/deckRules');
 const commanderRules = require('../utils/commanderRules');
 const deckIdentity = require('../utils/deckIdentity');
+const manaPoolBuylist = require('../manaPoolBuylist');
 const { DeckIdentityError } = deckIdentity;
 const { RequestBoundsError, positiveInteger } = require('../utils/requestBounds');
 const { authenticateToken } = require('../middleware/auth');
@@ -193,10 +194,38 @@ router.get('/', async (req, res) => {
                THEN 'basic:' || dcc.name
                ELSE 'exact:' || dc.desired_card_id || ':' || COALESCE(dc.desired_finish, '')
           END AS identity,
-          COALESCE(dcc.price_trend, 0) AS price_trend
+          -- THE PRICE THE WHOLE DECK SCREEN IS BUILT ON.
+          --
+          -- Zach: "I would like to make sure the deck total amount is using the
+          -- right number as well. Everywhere should be using the mana pool
+          -- lowest price even for collection total because in theory that is
+          -- what I would sell and buy for."
+          --
+          -- deck_value and missing_cost both derive from this single column, so
+          -- correcting it here fixes the card rows AND both totals at once and
+          -- they cannot disagree with each other.
+          --
+          -- Cents to dollars at the boundary; falls through to Scryfall when
+          -- the marketplace has nothing for that printing, per the pinned
+          -- last-resort rule.
+          COALESCE(
+            CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                 THEN mp.price_cents_foil / 100.0
+                 ELSE mp.price_cents / 100.0
+            END,
+            dcc.price_trend, 0) AS price_trend,
+          -- Which source that number came from, so a deck row can say it.
+          CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                          THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
+               THEN 'manapool'
+               WHEN dcc.price_trend > 0 THEN 'scryfall'
+               ELSE NULL
+          END AS price_source
         FROM decks d
         LEFT JOIN deck_cards dc ON d.id = dc.deck_id
         LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
+        LEFT JOIN source_prices mp
+               ON mp.card_id = dcc.id AND mp.source = 'manapool'
         WHERE d.user_id = ?
       ),
 
@@ -2079,6 +2108,146 @@ router.get('/:id/buylist', async (req, res) => {
     });
   } catch (error) {
     sendError(res, error, 'Failed to build buylist');
+  }
+});
+
+// WHAT WOULD THIS BUYLIST COST, FROM PRICES WE ALREADY HAVE?
+//
+// Zach: "I also feel like the price it isn't worth it either. Because you are
+// preparing it for nothing. I would rather when I go to export tell me what the
+// cost would be if I was to export for manapool using the cheapest prices you
+// have. Obviously won't be exact because shipping cost but it gives an idea."
+//
+// He is right, and this replaces the optimizer call entirely:
+//
+//   * the optimizer took ~40s and produced a cart nothing could use -- its
+//     "pending order" is a checkout with a paymentIntent, not a shopping cart,
+//     and Mana Pool exposes no cart API to put items in
+//   * it burned a rate-limited external call to answer a question Bindarr can
+//     answer instantly from the prices it already refreshes every 6 hours
+//   * an ESTIMATE is what he actually wants: shipping depends on how the order
+//     splits across sellers, which cannot be known until checkout anyway
+//
+// So this is arithmetic over stored prices. No network call, no waiting, and it
+// says plainly that shipping is excluded.
+router.get('/:id/buylist/estimate', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const buylist = await deckIdentity.buylistForDeck(db, deck.id, req.user.id);
+    const items = buylist.items || [];
+
+    // ONE QUERY FOR THE WHOLE LIST. Calling the chooser per card inside this
+    // loop made a 49-card estimate take 41 seconds, because db.js serialises
+    // every query through one operation queue.
+    const resolved = await manaPoolBuylist.chooseCheapestPrintings(db,
+      items.map(i => ({
+        card_id: i.desired_card_id,
+        allow_any_printing: Boolean(i.allow_any_printing),
+        set_code: i.set_id,
+        collector_number: i.number,
+        finish: i.finish,
+        quantity: i.quantity,
+        name: i.name,
+        listed_price: Number(i.price_trend),
+      })));
+
+    let total = 0;
+    let priced = 0;
+    const unpriced = [];
+    const substitutions = [];
+
+    for (const r of resolved) {
+      if (r.substituted_from) {
+        substitutions.push({
+          name: r.name,
+          from: `${(r.substituted_from.set_code || '').toUpperCase()} #${r.substituted_from.collector_number}`,
+          to: `${(r.set_code || '').toUpperCase()} #${r.collector_number}`,
+          price: r.substituted_price,
+          condition: r.substituted_condition,
+        });
+      }
+      const unit = Number.isFinite(r.substituted_price)
+        ? r.substituted_price
+        : r.listed_price;
+      if (Number.isFinite(unit) && unit > 0) {
+        total += unit * (r.quantity || 1);
+        priced += 1;
+      } else {
+        // NAMED, NOT ROUNDED TO ZERO. A card with no price would otherwise make
+        // the deck look cheaper than it is.
+        unpriced.push({ name: r.name, set_code: r.set_code, collector_number: r.collector_number });
+      }
+    }
+
+    res.json({
+      deck_id: deck.id,
+      lines: items.length,
+      priced,
+      items: parseFloat(total.toFixed(2)),
+      unpriced,
+      substitutions,
+      // Stated in the payload so no screen can present this as a final price.
+      excludes_shipping: true,
+    });
+  } catch (error) {
+    sendError(res, error, 'Failed to estimate the buylist');
+  }
+});
+
+// WILL HE ACCEPT ANOTHER PRINTING OF THIS ONE CARD?
+//
+// Zach: "I would like the ability to specify each card for exact printing or
+// not... The choice can persist."
+//
+// THIS ROUTE WAS DELETED BY ACCIDENT. Removing the send-to-cart code took a
+// region of this file with it, and this went too -- so every checkbox in the
+// printing picker 404'd: "choosing exact printing doesn't work anymore. When I
+// try and check something it tells me it can't."
+//
+// Stored on deck_cards because it is a fact about that card IN THAT DECK: he may
+// not care which Sol Ring arrives for one deck and care very much for another.
+// Consulted ONLY when buying -- it does not change what the deck requires, what
+// he owns, or any price on any screen.
+router.patch('/:id/cards/:cardId/printing-preference', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const allow = req.body?.allow_any_printing;
+    if (typeof allow !== 'boolean') {
+      return res.status(400).json({ error: 'allow_any_printing must be true or false' });
+    }
+    // Scoped to the deck so one user cannot flip a preference on another's row.
+    const result = await db.run(
+      `UPDATE deck_cards SET allow_any_printing = ?
+        WHERE deck_id = ? AND desired_card_id = ?`,
+      [allow ? 1 : 0, deck.id, req.params.cardId]
+    );
+    if (!result.changes) {
+      return res.status(404).json({ error: 'That card is not in this deck' });
+    }
+    res.json({ card_id: req.params.cardId, allow_any_printing: allow });
+  } catch (error) {
+    sendError(res, error, 'Failed to save the printing preference');
+  }
+});
+
+// PIN OR UNPIN EVERY CARD AT ONCE.
+//
+// Zach: "maybe an option to select all for exact printing just in case I want
+// all cards to be exact printing." One call rather than 49, which also means
+// one atomic change rather than a half-applied sweep if something fails partway.
+router.patch('/:id/cards/printing-preference', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const allow = req.body?.allow_any_printing;
+    if (typeof allow !== 'boolean') {
+      return res.status(400).json({ error: 'allow_any_printing must be true or false' });
+    }
+    const result = await db.run(
+      `UPDATE deck_cards SET allow_any_printing = ? WHERE deck_id = ?`,
+      [allow ? 1 : 0, deck.id]);
+    res.json({ deck_id: deck.id, allow_any_printing: allow, updated: result.changes });
+  } catch (error) {
+    sendError(res, error, 'Failed to update printing preferences');
   }
 });
 

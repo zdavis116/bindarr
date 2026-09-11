@@ -346,7 +346,35 @@ async function initDb() {
       public_base_url TEXT DEFAULT '',
       mtg_prices_swept_at DATETIME,
       card_catalogue_updated_at TEXT,
-      card_catalogue_refreshed_at DATETIME
+      card_catalogue_refreshed_at DATETIME,
+      -- WHICH PRICE SOURCE WINS, as an ordered JSON array of source ids.
+      --
+      -- Zach: "if I say my top 3 card prices should come from 1. Mana pool,
+      -- then tcg player then card kingdom then what should happen is show me
+      -- mana pool price if possible then if it can't there fall back to tcg
+      -- player then card kingdom."
+      --
+      -- Scryfall is NOT stored here. It is appended as the last resort by
+      -- normaliseOrder(), so it cannot be reordered above a marketplace or
+      -- removed -- it is the only source with near-total coverage, and losing
+      -- the floor would let a card silently have no value at all.
+      price_source_order TEXT DEFAULT '["manapool"]',
+      -- SHIPPING ADDRESS: RETAINED, UNUSED, AND CLEARED ON BOOT.
+      --
+      -- These backed send-to-cart, which is gone: Mana Pool's "pending order"
+      -- was a checkout, not a cart, and there is no cart API to replace it.
+      -- Nothing reads these columns now.
+      --
+      -- Kept rather than dropped because removing a column in SQLite means
+      -- rebuilding the table, and rebuilding his real database to delete five
+      -- nullable fields is a worse risk than leaving them. The VALUES are
+      -- cleared below: his home address stored for a feature that no longer
+      -- exists is the part that actually matters.
+      ship_line1 TEXT,
+      ship_city TEXT,
+      ship_state TEXT,
+      ship_postal_code TEXT,
+      ship_country TEXT DEFAULT 'US'
     )
   `);
   await run(`INSERT OR IGNORE INTO app_settings (id, public_base_url) VALUES (1, '')`);
@@ -564,6 +592,76 @@ async function initDb() {
   `);
   await run(`CREATE INDEX IF NOT EXISTS idx_price_history_card_time ON price_history(card_id, recorded_at, id)`);
 
+  // PRICES FROM MARKETPLACES, ONE ROW PER (SOURCE, PRINTING).
+  //
+  // Zach: "long term thought is we take in tcg player and card kingdom prices
+  // too... if I say my top 3 card prices should come from 1. Mana pool, then
+  // tcg player then card kingdom".
+  //
+  // So this is keyed by SOURCE rather than being a set of manapool_* columns on
+  // card_cache. Adding TCGplayer later is then new rows, not a migration of the
+  // catalogue table that every screen reads.
+  //
+  // NOT IN card_cache DELIBERATELY. That table is the shared Scryfall catalogue
+  // and a full refresh rewrites all ~105,000 rows of it every night; marketplace
+  // prices are a different source on a different schedule, and folding them in
+  // would mean either the refresh wipes them or the refresh has to know about
+  // every marketplace. Separate table, joined on card_id.
+  //
+  // card_id is the SCRYFALL PRINTING id -- verified against Zach's real data:
+  // every one of Mana Pool's 102,929 rows carries a scryfall_id, and it covered
+  // 1,508/1,508 of his collection and 472/474 of his deck cards.
+  //
+  // Prices are stored in CENTS as integers, exactly as Mana Pool sends them.
+  // Money in a float is a rounding bug waiting for a big enough collection; the
+  // read path divides once at the boundary.
+  await run(`
+    CREATE TABLE IF NOT EXISTS source_prices (
+      source TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      price_cents INTEGER,
+      price_cents_foil INTEGER,
+      price_cents_etched INTEGER,
+      -- WHICH CONDITION EACH PRICE IS FOR.
+      --
+      -- Zach: "I only care about LP or NM and English language for exact
+      -- printing." The price is the cheapest ACCEPTABLE copy, so the screen has
+      -- to be able to say whether that is a Lightly Played or a Near Mint one --
+      -- $32.99 LP and $33.73 NM are different offers, and a number with no
+      -- condition beside it cannot be judged.
+      condition TEXT,
+      condition_foil TEXT,
+      condition_etched TEXT,
+      -- What the source says is actually purchasable right now. 0 means the
+      -- source knows the card but nobody has it in stock, which is NOT the same
+      -- as having no price and must not be shown as if it were buyable.
+      available_quantity INTEGER,
+      -- Deep link to the card on that marketplace, so a price is checkable
+      -- rather than something the app merely asserts.
+      url TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (source, card_id)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_source_prices_card ON source_prices(card_id)`);
+
+  // WHEN EACH SOURCE LAST REFRESHED, and how it went.
+  //
+  // Its own table rather than more app_settings columns: sources are added over
+  // time, and a schema that needs a migration per marketplace is a schema that
+  // discourages adding them. Also gives Settings something honest to show --
+  // "last updated" per source, and the error when a fetch failed, so a stale
+  // price is diagnosable instead of just old.
+  await run(`
+    CREATE TABLE IF NOT EXISTS source_price_meta (
+      source TEXT PRIMARY KEY,
+      last_success_at DATETIME,
+      last_attempt_at DATETIME,
+      last_error TEXT,
+      row_count INTEGER
+    )
+  `);
+
   // A deck has NO 'considering' status.
   //
   // PR 6C briefly gave decks a status column with 'active' and 'considering'
@@ -656,6 +754,25 @@ async function initDb() {
         CHECK(board IN ('commander', 'mainboard', 'sideboard', 'considering')),
       quantity INTEGER NOT NULL CHECK(quantity > 0),
       checked_out INTEGER NOT NULL DEFAULT 0,
+      -- WILL HE ACCEPT ANOTHER PRINTING OF THIS CARD WHEN BUYING IT?
+      --
+      -- Zach: "I would like the ability to specify each card for exact printing
+      -- or not... The choice can persist."
+      --
+      -- DEFAULTS TO 1 (any printing) at his instruction: "It should default to
+      -- any printing and I pick the cards I want exact printing." Buying the
+      -- cheapest printing is the common case; pinning is the exception, for
+      -- cards chosen for their art or foiling.
+      --
+      -- THIS MEANS A CARD HE NEVER TOUCHES CAN BE SUBSTITUTED, so the swap list
+      -- under the quote is not a nicety -- it is the only thing standing between
+      -- him and different cardboard arriving. Every substitution is reported.
+      --
+      -- Only ever consulted when BUYING. It does not affect what the deck
+      -- requires, what he owns, or any price shown on a screen -- those stay on
+      -- the exact printing. Widening the buy is not the same as widening the
+      -- deck.
+      allow_any_printing INTEGER NOT NULL DEFAULT 1,
       UNIQUE(deck_id, oracle_id, desired_card_id, desired_finish, board),
       FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE,
       FOREIGN KEY(desired_card_id) REFERENCES card_cache(id)
@@ -753,6 +870,64 @@ async function initDb() {
   }
   if (!appSettingsCols.some(c => c.name === 'card_catalogue_refresh_owner')) {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refresh_owner TEXT`);
+  }
+  // The price-source priority order. An existing database has no such column,
+  // and CREATE TABLE IF NOT EXISTS will not add one -- without this migration
+  // every read of price_source_order throws on Zach's actual database while
+  // passing on a fresh test one. That exact shape of bug (schema added to the
+  // CREATE but not the ALTER) has already bitten this project once.
+  // Shipping address columns. Added for send-to-cart, which no longer exists.
+  // Still created so existing databases and fresh ones have the same shape, but
+  // any stored address is wiped: it is his home address held for a deleted
+  // feature.
+  for (const col of ['ship_line1', 'ship_city', 'ship_state', 'ship_postal_code']) {
+    if (!appSettingsCols.some(c => c.name === col)) {
+      await run(`ALTER TABLE app_settings ADD COLUMN ${col} TEXT`);
+    }
+  }
+  if (!appSettingsCols.some(c => c.name === 'ship_country')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN ship_country TEXT DEFAULT 'US'`);
+  }
+  await run(`UPDATE app_settings
+                SET ship_line1 = NULL, ship_city = NULL, ship_state = NULL,
+                    ship_postal_code = NULL
+              WHERE ship_line1 IS NOT NULL OR ship_city IS NOT NULL`);
+
+  // allow_any_printing on deck_cards. Existing databases have no such column
+  // and CREATE TABLE IF NOT EXISTS will not add one -- without this every read
+  // throws on Zach's real database while passing on a fresh test one.
+  const deckCardCols = await all(`PRAGMA table_info(deck_cards)`);
+  if (deckCardCols.length && !deckCardCols.some(c => c.name === 'allow_any_printing')) {
+    await run(`ALTER TABLE deck_cards ADD COLUMN allow_any_printing INTEGER NOT NULL DEFAULT 1`);
+  } else if (deckCardCols.length
+             && !appSettingsCols.some(c => c.name === 'anyprinting_default_flipped')) {
+    // THE DEFAULT FLIPPED, AND OLD ROWS MUST FOLLOW.
+    //
+    // This column shipped for one afternoon defaulting to 0 (exact printing).
+    // Zach then asked for the opposite: "It should default to any printing and I
+    // pick the cards I want exact printing." Rows written under the old default
+    // are indistinguishable from a deliberate pin, so they are reset ONCE.
+    //
+    // Guarded by its own column so it happens exactly once -- a repeat would
+    // silently undo every card he later pinned.
+    await run(`ALTER TABLE app_settings ADD COLUMN anyprinting_default_flipped INTEGER NOT NULL DEFAULT 0`);
+    await run(`UPDATE deck_cards SET allow_any_printing = 1`);
+  }
+
+  // Condition columns on source_prices. The table already exists on dev, so the
+  // CREATE above will not add these -- without the ALTER every read throws on
+  // the real database while passing on a fresh test one.
+  const sourcePriceCols = await all(`PRAGMA table_info(source_prices)`);
+  if (sourcePriceCols.length) {
+    for (const col of ['condition', 'condition_foil', 'condition_etched']) {
+      if (!sourcePriceCols.some(c => c.name === col)) {
+        await run(`ALTER TABLE source_prices ADD COLUMN ${col} TEXT`);
+      }
+    }
+  }
+
+  if (!appSettingsCols.some(c => c.name === 'price_source_order')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN price_source_order TEXT DEFAULT '["manapool"]'`);
   }
 
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);

@@ -33,12 +33,24 @@ router.get('/export', async (req, res) => {
         cc.set_name,
         cc.number as collector_number,
         cc.image_url,
-        cc.price_trend as market_price,
+        -- EXPORTED PRICE FOLLOWS THE SAME CHAIN AS THE SCREENS.
+        --
+        -- Zach: "Everywhere should be using the mana pool lowest price even for
+        -- collection total because in theory that is what I would sell and buy
+        -- for." A CSV whose Market Price column disagrees with the app is worse
+        -- than one without the column: it gets pasted into a trade.
+        COALESCE(
+          CASE WHEN c.finish IN ('foil', 'etched')
+               THEN mp.price_cents_foil / 100.0
+               ELSE mp.price_cents / 100.0
+          END,
+          cc.price_trend) as market_price,
         l.name as location_name,
         cp.idx as compartment_idx,
         cp.label as compartment_label
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
+      LEFT JOIN source_prices mp ON mp.card_id = cc.id AND mp.source = 'manapool'
       LEFT JOIN locations l ON c.location_id = l.id
       LEFT JOIN compartments cp ON c.compartment_id = cp.id
       WHERE c.user_id = ?

@@ -15,7 +15,7 @@
 // than one that says nothing: it is the page you check when you suspect the
 // catalogue is stale.
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info } from 'lucide-react';
+import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info, ChevronUp, ChevronDown, DollarSign } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import ImportModal from './ImportModal';
@@ -146,6 +146,12 @@ function clockText(iso) {
 function SettingsScreen({ user, onNavigate, showToast }) {
   const { t } = useT();
   const [catalogue, setCatalogue] = useState(null);
+  const [priceSources, setPriceSources] = useState(null);
+  // WHERE MANA POOL SHIPS TO.
+  //
+  // Required before a cart can be created at all -- their API refuses an order
+  // without a destination. Zach chose to store it once rather than retype it.
+  const [savingOrder, setSavingOrder] = useState(false);
   const [version, setVersion] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   // Which source has its detail open. One at a time -- a phone screen
@@ -232,6 +238,52 @@ function SettingsScreen({ user, onNavigate, showToast }) {
 
   // useCallback so the countdown effect can depend on it without re-subscribing
   // on every render.
+  // PRICE SOURCE PRIORITY.
+  //
+  // Zach: "Priority order in settings and scryfall last resort." The order is
+  // read from the server rather than assumed, so what is shown here is what
+  // actually prices his cards.
+  // WHERE MANA POOL SHIPS TO. Required before a cart can be created at all.
+
+
+  const loadPriceSources = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/price-sources');
+      if (res.ok) setPriceSources(await res.json());
+    } catch { /* the section stays hidden rather than showing a wrong order */ }
+  }, []);
+
+  const movePriceSource = async (id, delta) => {
+    if (!priceSources || savingOrder) return;
+    // Only the reorderable ones move; Scryfall is the pinned floor.
+    const movable = priceSources.sources.filter(x => x.reorderable).map(x => x.id);
+    const i = movable.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= movable.length) return;
+    [movable[i], movable[j]] = [movable[j], movable[i]];
+    setSavingOrder(true);
+    try {
+      const res = await fetch('/api/settings/price-sources', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: movable }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || t('settings.priceOrderFailed'));
+      } else {
+        // Re-read rather than patching local state: the server appends the
+        // fallback and is the authority on the resulting order.
+        await loadPriceSources();
+        showToast(t('settings.priceOrderSaved'));
+      }
+    } catch {
+      showToast(t('settings.priceOrderFailed'));
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
   const loadCatalogue = useCallback(async () => {
     try {
       const res = await fetch('/api/settings/catalogue');
@@ -260,13 +312,14 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   useEffect(() => {
     loadCatalogue();
     loadMoxfield();
+    loadPriceSources();
     (async () => {
       try {
         const res = await fetch('/api/settings/version');
         if (res.ok) setVersion(await res.json());
       } catch { /* About shows the dash */ }
     })();
-  }, [loadMoxfield, loadCatalogue]);
+  }, [loadMoxfield, loadCatalogue, loadPriceSources]);
 
   const checkUpdate = async () => {
     try {
@@ -360,7 +413,132 @@ function SettingsScreen({ user, onNavigate, showToast }) {
 
           Moxfield is deliberately absent until the integration exists: showing
           a source that cannot be connected invites "why doesn't this work". */}
+      {/* WHICH SOURCE PRICES A CARD, in order.
+          Zach: "Priority order in settings and scryfall last resort." */}
+      {priceSources && (
+        <Section title={t('settings.secPriceSources')}>
+          <Row
+            icon={DollarSign}
+            label={t('settings.priceOrderTitle')}
+            detail={t('settings.priceOrderDetail')}
+            expanded={sourceOpen === 'prices'}
+            onClick={() => setSourceOpen(sourceOpen === 'prices' ? null : 'prices')}
+          />
+          {sourceOpen === 'prices' && (
+            <div style={{ background: 'var(--surface-2)' }}>
+              {priceSources.sources.map((src, idx) => (
+                <div key={src.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  padding: '0.6rem 1rem 0.6rem 2rem',
+                  borderBottom: '1px solid var(--border-glass)',
+                }}>
+                  <span style={{
+                    fontSize: '0.72rem', fontWeight: 700, minWidth: '1.1rem',
+                    color: 'var(--text-tertiary)',
+                  }}>{idx + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+                      {src.label}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
+                      {/* WHY a source cannot move, rather than a dead control.
+                          And its freshness, so a stale price is diagnosable
+                          instead of merely old. */}
+                      {!src.reorderable
+                        ? t('settings.priceAlwaysLast')
+                        : src.last_error
+                          ? t('settings.priceSourceError', { error: src.last_error })
+                          : src.last_success_at
+                            ? t('settings.priceSourceUpdated', {
+                                when: new Date(src.last_success_at.replace(' ', 'T') + 'Z').toLocaleString(),
+                                count: src.row_count ?? 0 })
+                            : t('settings.priceSourceNever')}
+                    </div>
+                  </div>
+                  {src.reorderable && (
+                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                      <button
+                        type="button"
+                        aria-label={t('settings.priceMoveUp', { source: src.label })}
+                        disabled={savingOrder || idx === 0}
+                        onClick={() => movePriceSource(src.id, -1)}
+                        style={{
+                          background: 'none', border: 'none', padding: '0.3rem',
+                          color: idx === 0 ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+                          cursor: idx === 0 ? 'default' : 'pointer',
+                        }}
+                      ><ChevronUp size={16} /></button>
+                      <button
+                        type="button"
+                        aria-label={t('settings.priceMoveDown', { source: src.label })}
+                        disabled={savingOrder
+                          || idx >= priceSources.sources.filter(x => x.reorderable).length - 1}
+                        onClick={() => movePriceSource(src.id, 1)}
+                        style={{
+                          background: 'none', border: 'none', padding: '0.3rem',
+                          color: 'var(--text-secondary)', cursor: 'pointer',
+                        }}
+                      ><ChevronDown size={16} /></button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+        </Section>
+      )}
+
       <Section title={t('settings.secDataSources')}>
+        {/* MANA POOL AS A DATA SOURCE.
+            Zach: "Mana pool should exist as a data source and that is where the
+            street address info should go."
+
+            He is right: it syncs ~99k prices every 6 hours exactly like Scryfall
+            syncs the catalogue, and every other source lives here with its own
+            dropdown showing what it is syncing. Bolting its address onto the
+            price-priority card put a form where a preference belonged. */}
+        <Row
+          icon={Link2}
+          label={t('settings.manapool')}
+          detail={priceSources?.sources?.find(x => x.id === 'manapool')?.row_count
+            ? t('settings.manapoolSyncs', {
+                count: fmt(priceSources.sources.find(x => x.id === 'manapool').row_count) })
+            : t('settings.loading')}
+          expanded={sourceOpen === 'manapool'}
+          onClick={() => setSourceOpen(sourceOpen === 'manapool' ? null : 'manapool')}
+        />
+
+        {sourceOpen === 'manapool' && (
+          <div style={{ background: 'var(--surface-2)' }}>
+            <Row
+              indent
+              label={t('settings.lastRefreshed')}
+              value={priceSources?.sources?.find(x => x.id === 'manapool')?.last_success_at
+                ? when(priceSources.sources.find(x => x.id === 'manapool').last_success_at, t)
+                : '—'}
+            />
+            {/* THE COUNTDOWN, like every other source.
+                Zach: "settings has the mana pool sync but their is not countdown
+                until the next sync like all the others."
+
+                The server was already publishing manapool_next_run -- the row
+                just never rendered it, so this source looked like it ran on some
+                unknowable schedule while Scryfall and Moxfield showed theirs. */}
+            <Row
+              indent
+              label={t('settings.automatic')}
+              detail={catalogue?.manapool_next_run
+                ? t('settings.nextRunAt', { time: clockText(catalogue.manapool_next_run) })
+                : t('settings.manapoolEvery6h')}
+              value={untilText(catalogue?.manapool_next_run, catalogue?.server_now, t)
+                     || t('settings.manapoolPrices')}
+            />
+
+
+          </div>
+        )}
+
         <Row
           icon={Link2}
           label={t('settings.scryfall')}

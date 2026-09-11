@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Z_MODAL } from '../utils/zLayers';
-import { RefreshCw, X, Trash2, Star, Maximize2 } from 'lucide-react';
+import { RefreshCw, X, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
 import { displayName, secondaryName } from '../utils/cardName';
 import CardImageZoom from './CardImageZoom';
 import CardEntryFields from './CardEntryFields';
@@ -90,11 +90,38 @@ function CardInspectorModal({
   // oracle_text and no mana_cost, so the Card tab silently lost its rules text
   // and mana cost from that screen while the deck view showed both.
   //
+  // Which printing the sheet was switched to, if any. Declared HERE rather
+  // than further down because `view` below reads it -- a const used above its
+  // declaration is a temporal dead zone throw on every open, not a warning.
+  const [switchedCardId, setSwitchedCardId] = useState(null);
+
+  // WHAT THE SHEET IS SHOWING.
+  //
   // Server values WIN. A card's rules text is a fact about the card, not about
   // the row that referenced it, so it must not depend on which screen you
   // opened. The caller keeps only what the server cannot know: which
   // collection entry this is, and which deck board it sits on.
-  const view = deckUse?.card ? { ...card, ...deckUse.card } : card;
+  //
+  // WHILE SWITCHING PRINTINGS, `card` IS THE WRONG CARD.
+  //
+  // Zach: "when I click on it 1 the card doesn't update right away I have to
+  // exit card detail and go back in."
+  //
+  // switchPrinting sets switchedCardId and clears deckUse so the fetch reloads.
+  // But `card` is the prop -- still the printing he came FROM -- so between the
+  // click and the response landing, this merge fell back to it and the sheet
+  // showed the old printing's image, set code and price. It looked like nothing
+  // had happened, which is why leaving and re-entering "fixed" it.
+  //
+  // Falling back to a stale card is worse than showing nothing: a sheet that
+  // confidently displays the wrong printing is how someone buys the wrong card.
+  // While a switch is in flight the sheet keeps only the fields the server has
+  // not replaced yet, and the switched-to id, so nothing asserts a fact about
+  // the previous printing.
+  const switching = Boolean(switchedCardId) && deckUse?.card_id !== switchedCardId;
+  const view = deckUse?.card
+    ? { ...card, ...deckUse.card }
+    : (switching ? { ...card, id: switchedCardId, card_id: switchedCardId } : card);
 
   // THE FACE CURRENTLY SHOWN, for a double-faced card.
   //
@@ -230,7 +257,6 @@ function CardInspectorModal({
   //
   // A single value in front of the fetch, rather than a second path -- the
   // sheet has already been bitten twice by two sources of truth for one field.
-  const [switchedCardId, setSwitchedCardId] = useState(null);
   const openedWith = card?.card_id || card?.desired_card_id || card?.id;
   const catalogueId = switchedCardId || openedWith;
 
@@ -1032,8 +1058,35 @@ function CardInspectorModal({
                     [t('inspector.location'), ownedEntry
                       ? (ownedEntry.location_name || t('inspector.notFiled'))
                       : null],
-                    [t('inspector.value'), card.price_trend && ownedCopies
-                      ? `$${(Number(card.price_trend) * ownedCopies).toFixed(2)}`
+                    // THE PRICE MUST COME FROM THE CHAIN, NOT THE RAW CATALOGUE.
+                    //
+                    // Zach: "when I click on it 1 the card doesn't update right
+                    // away... 2 when I go back in the value row says 24 cents.
+                    // When I navigate to mana pool it says value for card is 24
+                    // cents but then it shows cheapest list at 15 cents so I
+                    // feel like we are using 2 different values I would think
+                    // we should be showing the cheapest one."
+                    //
+                    // He was right, and it was two different values. `card` is
+                    // the raw card_cache row -- its price_trend is SCRYFALL's
+                    // number and never passed through resolvePricedCard. So the
+                    // printings list showed Mana Pool's $0.15 while the Value
+                    // row above it showed something else entirely, on the same
+                    // sheet, for the same card.
+                    //
+                    // thisPrinting comes from /card/:id/decks, which prices
+                    // through the chain. One source of truth per sheet.
+                    [t('inspector.value'), (thisPrinting?.price_trend ?? card.price_trend) && ownedCopies
+                      ? `$${(Number(thisPrinting?.price_trend ?? card.price_trend) * ownedCopies).toFixed(2)}`
+                        + (thisPrinting?.price_source_label
+                            ? ` · ${thisPrinting.price_source_label}`
+                              // The condition the price is FOR. Zach accepts LP
+                              // or NM only, so which one he is looking at
+                              // decides whether the number is worth acting on.
+                              + (thisPrinting.price_condition
+                                  ? ` ${thisPrinting.price_condition}`
+                                  : '')
+                            : '')
                       : null],
                     // AVAILABILITY OF *THIS* PRINTING, on the tab that claims
                     // to describe what he owns.
@@ -1066,6 +1119,67 @@ function CardInspectorModal({
                     </div>
                   ))}
                 </div>
+
+                {/* BUY THIS CARD. Zach: "it would be nice as well to have a
+                    button that takes you right to the card in manapool whether
+                    the price is clickable or something else in the card
+                    detail."
+
+                    A full-width button rather than only the small icons in the
+                    printings list: this is the printing the sheet is open on,
+                    and it is the one he is most likely to want.
+
+                    Rendered ONLY when the marketplace actually returned a URL
+                    for this printing. A link built from set code and number
+                    would 404 on anything the marketplace does not carry, and a
+                    dead buy button is worse than none. */}
+                {thisPrinting?.price_url && (
+                  <a
+                    href={thisPrinting.price_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      gap: '0.4rem', width: '100%', marginBottom: '0.85rem',
+                      padding: '0.7rem', borderRadius: 10,
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border-glass)',
+                      color: 'var(--accent-blue, #0a84ff)',
+                      fontSize: '0.82rem', fontWeight: 600, textDecoration: 'none',
+                    }}
+                  >
+                    <ExternalLink size={14} />
+                    {t('inspector.buyOn', { source: thisPrinting.price_source_label })}
+                    {/* Stock, because a price with nothing behind it is a quote
+                        rather than an offer. */}
+                    {thisPrinting.price_available_qty > 0 && (
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
+                        · {t('inspector.inStock', { count: thisPrinting.price_available_qty })}
+                      </span>
+                    )}
+                  </a>
+                )}
+
+                {/* SAY THAT THIS IS THE ITEM PRICE.
+                    Zach found a $32.99 LP copy sitting below a $33.73 NM one on
+                    Mana Pool's own page, because the LP seller charges $5.99
+                    shipping and the NM seller includes it. Both numbers are
+                    real; they answer different questions.
+
+                    Neither public price feed carries shipping (13 fields, none
+                    of them shipping-related), so the honest thing is to label
+                    what this number IS rather than imply it is what he will
+                    pay. Delivered cost depends on the whole order and comes
+                    from the optimizer. */}
+                {thisPrinting?.price_source && thisPrinting.price_source !== 'scryfall' && (
+                  <div style={{
+                    marginTop: '-0.5rem', marginBottom: '0.85rem',
+                    fontSize: '0.68rem', color: 'var(--text-tertiary)',
+                    textAlign: 'center',
+                  }}>
+                    {t('inspector.itemPrice')}
+                  </div>
+                )}
 
                 {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
                     found four "identical" Tony Starks that were different
@@ -1212,6 +1326,44 @@ function CardInspectorModal({
                                 <span style={{ color: 'var(--text-muted)' }}>
                                 {pr.price_trend ? `$${Number(pr.price_trend).toFixed(2)}` : '—'}
                               </span>
+                              {/* BUY THIS PRINTING.
+                                  Zach: "a button that takes you right to the
+                                  card in manapool".
+
+                                  A SIBLING, NOT A NESTED LINK. This row is a
+                                  <button> that repoints the deck to this
+                                  printing; an <a> inside it is invalid HTML and
+                                  browsers resolve the double click target
+                                  unpredictably. Rendered as a span with its own
+                                  handler, and stopPropagation so opening the
+                                  marketplace can never silently also change
+                                  which printing his deck asks for. */}
+                              {pr.price_url && (
+                                <span
+                                  role="link"
+                                  tabIndex={0}
+                                  title={t('inspector.buyOn', { source: pr.price_source_label })}
+                                  aria-label={t('inspector.buyOn', { source: pr.price_source_label })}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(pr.price_url, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      window.open(pr.price_url, '_blank', 'noopener,noreferrer');
+                                    }
+                                  }}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center',
+                                    padding: '0.15rem 0.35rem', borderRadius: 6,
+                                    color: 'var(--accent-blue, #0a84ff)', cursor: 'pointer',
+                                  }}
+                                >
+                                  <ExternalLink size={13} />
+                                </span>
+                              )}
                               </span>
                             </button>
                           );
