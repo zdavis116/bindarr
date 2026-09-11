@@ -15,7 +15,7 @@
 // than one that says nothing: it is the page you check when you suspect the
 // catalogue is stale.
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info, ChevronUp, ChevronDown, DollarSign } from 'lucide-react';
+import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info, DollarSign } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import ImportModal from './ImportModal';
@@ -253,32 +253,37 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     } catch { /* the section stays hidden rather than showing a wrong order */ }
   }, []);
 
-  const movePriceSource = async (id, delta) => {
-    if (!priceSources || savingOrder) return;
-    // Only the reorderable ones move; Scryfall is the pinned floor.
-    const movable = priceSources.sources.filter(x => x.reorderable).map(x => x.id);
-    const i = movable.indexOf(id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= movable.length) return;
-    [movable[i], movable[j]] = [movable[j], movable[i]];
+  // WHICH SHOP PRICES HIS CARDS.
+  //
+  // This was a drag-to-reorder list. Zach removed it after seeing the numbers:
+  // "I would like to get rid of the priority list and it be a selection whether
+  // I used mana pool or card kingdom but the fallback is always scryfall since
+  // it's an average."
+  //
+  // He is right that a ranking was the wrong model. The two shops have
+  // different price FLOORS -- $0.15 at Mana Pool, $0.35 at Card Kingdom -- so a
+  // ranked chain produced a total that was the price at neither shop and could
+  // not be checked against any real page.
+  const selectPriceSource = async (id) => {
+    if (!priceSources || savingOrder || priceSources.selected === id) return;
     setSavingOrder(true);
     try {
       const res = await fetch('/api/settings/price-sources', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: movable }),
+        body: JSON.stringify({ source: id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        showToast(err.error || t('settings.priceOrderFailed'));
+        showToast(err.error || t('settings.priceSourceFailed'));
       } else {
-        // Re-read rather than patching local state: the server appends the
-        // fallback and is the authority on the resulting order.
+        // Re-read rather than patching local state: the server decides what the
+        // resulting chain is, and a screen that guesses can disagree with it.
         await loadPriceSources();
-        showToast(t('settings.priceOrderSaved'));
+        showToast(t('settings.priceSourceSaved'), 'success');
       }
     } catch {
-      showToast(t('settings.priceOrderFailed'));
+      showToast(t('settings.priceSourceFailed'));
     } finally {
       setSavingOrder(false);
     }
@@ -413,79 +418,70 @@ function SettingsScreen({ user, onNavigate, showToast }) {
 
           Moxfield is deliberately absent until the integration exists: showing
           a source that cannot be connected invites "why doesn't this work". */}
-      {/* WHICH SOURCE PRICES A CARD, in order.
-          Zach: "Priority order in settings and scryfall last resort." */}
+      {/* WHICH SHOP PRICES A CARD.
+          Zach: "I would like to get rid of the priority list and it be a
+          selection whether I used mana pool or card kingdom but the fallback is
+          always scryfall since it's an average." */}
       {priceSources && (
         <Section title={t('settings.secPriceSources')}>
           <Row
             icon={DollarSign}
-            label={t('settings.priceOrderTitle')}
-            detail={t('settings.priceOrderDetail')}
+            label={t('settings.priceShopTitle')}
+            detail={priceSources.sources?.[0]?.label || ''}
             expanded={sourceOpen === 'prices'}
             onClick={() => setSourceOpen(sourceOpen === 'prices' ? null : 'prices')}
           />
           {sourceOpen === 'prices' && (
             <div style={{ background: 'var(--surface-2)' }}>
-              {priceSources.sources.map((src, idx) => (
-                <div key={src.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  padding: '0.6rem 1rem 0.6rem 2rem',
-                  borderBottom: '1px solid var(--border-glass)',
-                }}>
-                  <span style={{
-                    fontSize: '0.72rem', fontWeight: 700, minWidth: '1.1rem',
-                    color: 'var(--text-tertiary)',
-                  }}>{idx + 1}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}>
-                      {src.label}
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
-                      {/* WHY a source cannot move, rather than a dead control.
-                          And its freshness, so a stale price is diagnosable
-                          instead of merely old. */}
-                      {!src.reorderable
-                        ? t('settings.priceAlwaysLast')
-                        : src.last_error
-                          ? t('settings.priceSourceError', { error: src.last_error })
-                          : src.last_success_at
-                            ? t('settings.priceSourceUpdated', {
-                                when: new Date(src.last_success_at.replace(' ', 'T') + 'Z').toLocaleString(),
-                                count: src.row_count ?? 0 })
-                            : t('settings.priceSourceNever')}
-                    </div>
-                  </div>
-                  {src.reorderable && (
-                    <div style={{ display: 'flex', gap: '0.25rem' }}>
-                      <button
-                        type="button"
-                        aria-label={t('settings.priceMoveUp', { source: src.label })}
-                        disabled={savingOrder || idx === 0}
-                        onClick={() => movePriceSource(src.id, -1)}
-                        style={{
-                          background: 'none', border: 'none', padding: '0.3rem',
-                          color: idx === 0 ? 'var(--text-tertiary)' : 'var(--text-secondary)',
-                          cursor: idx === 0 ? 'default' : 'pointer',
-                        }}
-                      ><ChevronUp size={16} /></button>
-                      <button
-                        type="button"
-                        aria-label={t('settings.priceMoveDown', { source: src.label })}
-                        disabled={savingOrder
-                          || idx >= priceSources.sources.filter(x => x.reorderable).length - 1}
-                        onClick={() => movePriceSource(src.id, 1)}
-                        style={{
-                          background: 'none', border: 'none', padding: '0.3rem',
-                          color: 'var(--text-secondary)', cursor: 'pointer',
-                        }}
-                      ><ChevronDown size={16} /></button>
-                    </div>
-                  )}
-                </div>
-              ))}
+              {(priceSources.choices || []).map((src) => {
+                const on = src.id === priceSources.selected;
+                return (
+                  <button key={src.id} onClick={() => selectPriceSource(src.id)}
+                    disabled={savingOrder}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.7rem',
+                      width: '100%', textAlign: 'left', border: 0, font: 'inherit',
+                      padding: '0.7rem 1rem 0.7rem 2rem', background: 'transparent',
+                      color: 'inherit', cursor: savingOrder ? 'default' : 'pointer',
+                      borderBottom: '1px solid var(--border-glass)',
+                    }}>
+                    {/* A filled dot, not a checkbox: exactly one shop applies. */}
+                    <span style={{
+                      flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
+                      border: `2px solid ${on ? 'var(--accent-blue)' : 'var(--text-tertiary)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {on && <span style={{ width: 9, height: 9, borderRadius: '50%',
+                                            background: 'var(--accent-blue)' }} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.9rem',
+                                     fontWeight: on ? 600 : 400 }}>
+                        {src.label}
+                      </span>
+                      {/* Every source says how many prices it holds and when it
+                          last ran, so a stale shop is visible rather than
+                          quietly wrong. */}
+                      <span style={{ display: 'block', fontSize: '0.72rem',
+                                     color: 'var(--text-tertiary)' }}>
+                        {src.row_count
+                          ? t('settings.priceShopRows', { count: fmt(src.row_count) })
+                          : t('settings.priceShopNoData')}
+                        {src.last_success_at ? ` · ${when(src.last_success_at, t)}` : ''}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              {/* THE FALLBACK IS STATED, NOT OFFERED. It is a rule, and showing
+                  it as a fourth option would imply he could value his whole
+                  collection at an average of past sales. */}
+              <div style={{ padding: '0.7rem 1rem 0.8rem 2rem', fontSize: '0.74rem',
+                            color: 'var(--text-secondary)' }}>
+                {t('settings.priceShopFallback')}
+              </div>
             </div>
           )}
-
         </Section>
       )}
 

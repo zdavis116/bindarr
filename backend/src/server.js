@@ -396,6 +396,70 @@ db.initDb()
         + ' (skipped if prices are under 3h old), then every 6h.');
     }
 
+    // CARD KINGDOM PRICES.
+    //
+    // Zach: "would it be possible to now add tcgplayer and card kingdom in the
+    // same way as manapool." Card Kingdom yes -- public feed, per condition,
+    // keyed by scryfall_id. TCGplayer no: their API has been closed to new
+    // developers since the eBay acquisition, and the only redistribution
+    // available carries a market average with no condition, stock or listing
+    // URL. He chose to leave it out rather than mix an average in with real
+    // listings.
+    //
+    // Same shape as the Mana Pool schedule and for the same reasons: every 6
+    // hours, first check well after boot, and SKIPPED if the stored prices are
+    // recent -- a restart is not a reason to pull 67MB. Offset from Mana Pool's
+    // slot so two imports never share the database queue.
+    if (process.env.CARDKINGDOM_PRICES !== 'off') {
+      const { refreshCardKingdomPrices, msSinceLastRefresh: ckAge } =
+        require('./cardKingdomPrices');
+      const MINUTE = 60 * 1000;
+      const CK_INTERVAL_MS = 6 * 60 * MINUTE;
+      const CK_STALE_MS = 3 * 60 * MINUTE;
+
+      const runCk = () => {
+        refreshCardKingdomPrices()
+          .then(({ written, skipped, asOf }) => {
+            console.log(`Card Kingdom prices: ${written} printings updated`
+              + `${skipped ? `, ${skipped} skipped` : ''}`
+              + `${asOf ? ` (feed as of ${asOf})` : ''}.`);
+          })
+          .catch((err) => {
+            // Logged, never thrown: a failed price fetch must not take the app
+            // down, and the previous prices are still there. The failure is
+            // recorded in source_price_meta so Settings can say WHY a price is
+            // stale rather than just showing an old number.
+            console.error('Card Kingdom price refresh failed:', err.message);
+          });
+        syncSchedule.setCardKingdomNextRun(
+          new Date(Date.now() + CK_INTERVAL_MS).toISOString());
+      };
+
+      const startupCk = async () => {
+        let age = null;
+        try { age = await ckAge(); }
+        catch (err) { console.error('Could not read Card Kingdom freshness:', err.message); }
+        // null means it has NEVER succeeded -- stale, not fresh.
+        if (age !== null && age < CK_STALE_MS) {
+          console.log(`Card Kingdom prices are ${Math.round(age / MINUTE)} min old;`
+            + ' skipping the startup import and waiting for the scheduled run.');
+          return;
+        }
+        runCk();
+      };
+
+      syncSchedule.setCardKingdomNextRun(new Date(Date.now() + 11 * MINUTE).toISOString());
+      // ELEVEN minutes: three past Mana Pool's slot, so a cold start cannot run
+      // two large imports through the single operation queue at once.
+      setTimeout(() => {
+        startupCk();
+        setInterval(runCk, CK_INTERVAL_MS);
+      }, 11 * MINUTE);
+
+      console.log('Card Kingdom price refresh scheduled: first check in 11 min'
+        + ' (skipped if prices are under 3h old), then every 6h.');
+    }
+
     // MOXFIELD BACKGROUND POLL.
     //
     // Zach builds decks in Moxfield and wants Bindarr to notice on its own.

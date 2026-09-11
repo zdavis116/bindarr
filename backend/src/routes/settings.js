@@ -147,31 +147,37 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
 router.get('/price-sources', authenticateToken, async (req, res) => {
   try {
     const row = await db.get(`SELECT price_source_order AS order_json FROM app_settings WHERE id = 1`);
-    let stored = [];
-    try { stored = JSON.parse(row?.order_json || '[]'); } catch { stored = []; }
+    let stored = null;
+    try { stored = JSON.parse(row?.order_json || 'null'); } catch { stored = null; }
     const order = priceSources.normaliseOrder(stored);
+    const [selected] = order;
 
     const meta = await db.all(`SELECT * FROM source_price_meta`);
     const byId = new Map(meta.map(m => [m.source, m]));
 
+    const describe = (id) => {
+      const def = priceSources.SOURCES[id] || { id, label: id };
+      const m = byId.get(id) || {};
+      return {
+        id,
+        label: def.label,
+        kind: def.kind,
+        last_success_at: m.last_success_at || null,
+        last_error: m.last_error || null,
+        row_count: m.row_count ?? null,
+      };
+    };
+
     res.json({
+      // The shop he picked, and the floor behind it. `order` is kept so every
+      // existing caller that walks a chain keeps working unchanged.
+      selected,
       order,
       fallback: priceSources.FALLBACK_SOURCE,
-      sources: order.map(id => {
-        const def = priceSources.SOURCES[id] || { id, label: id };
-        const m = byId.get(id) || {};
-        return {
-          id,
-          label: def.label,
-          kind: def.kind,
-          // Scryfall cannot be dragged: it is the floor. The UI must show WHY
-          // rather than silently refusing the drag.
-          reorderable: def.reorderable !== false,
-          last_success_at: m.last_success_at || null,
-          last_error: m.last_error || null,
-          row_count: m.row_count ?? null,
-        };
-      }),
+      // Every shop he COULD pick. The old endpoint returned only the configured
+      // order, so a UI built on it could never offer an alternative.
+      choices: priceSources.selectableSources().map(x => describe(x.id)),
+      sources: order.map(describe),
     });
   } catch (error) {
     console.error(error);
@@ -179,39 +185,51 @@ router.get('/price-sources', authenticateToken, async (req, res) => {
   }
 });
 
+// WHICH SHOP HIS PRICES COME FROM.
+//
+// Zach: "I would like to get rid of the priority list and it be a selection
+// whether I used mana pool or card kingdom but the fallback is always scryfall."
+//
+// Accepts { source: 'cardkingdom' }. The legacy { order: [...] } body is still
+// honoured and collapsed to its first real shop, so an older cached client
+// cannot wipe the setting.
 router.put('/price-sources', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const requested = Array.isArray(req.body?.order) ? req.body.order : null;
-    if (!requested) return res.status(400).json({ error: 'order must be an array of source ids' });
-
-    // REJECT UNKNOWN IDS RATHER THAN DROPPING THEM.
-    //
-    // normaliseOrder() silently discards anything it does not recognise, which
-    // is right for reading a possibly-corrupt stored value but wrong for a
-    // write: saving ["manpool"] would report success, drop the typo, and leave
-    // him wondering why nothing changed.
-    const unknown = requested.filter(id => !priceSources.SOURCES[id]);
-    if (unknown.length) {
-      return res.status(400).json({ error: `Unknown price source: ${unknown.join(', ')}` });
+    const requested = typeof req.body?.source === 'string'
+      ? req.body.source
+      : (Array.isArray(req.body?.order) ? req.body.order[0] : null);
+    if (!requested) {
+      return res.status(400).json({ error: 'source must be a price source id' });
     }
-    if (requested.includes(priceSources.FALLBACK_SOURCE)) {
+
+    // REJECT UNKNOWN IDS RATHER THAN DROPPING THEM. normaliseOrder falls back to
+    // the default for anything it does not recognise, which is right when
+    // reading a possibly-stale stored value and wrong for a write: saving
+    // "manpool" would report success, quietly use Mana Pool anyway, and leave
+    // him wondering why his choice did nothing.
+    const def = priceSources.SOURCES[requested];
+    if (!def) {
+      return res.status(400).json({ error: `Unknown price source: ${requested}` });
+    }
+    if (!def.selectable) {
       return res.status(400).json({
-        error: `${priceSources.SOURCES[priceSources.FALLBACK_SOURCE].label} is always the last resort and cannot be reordered`,
+        error: `${def.label} is the fallback for cards the chosen shop does not `
+             + `carry. It cannot be the main source: it is an average of past `
+             + `sales, not a price anyone will honour today.`,
       });
     }
 
     const order = priceSources.normaliseOrder(requested);
-    // Stored WITHOUT the appended fallback: the floor is a rule, not a user
-    // choice, and writing it into the setting would make it look editable.
+    // Stored WITHOUT the fallback: the floor is a rule, not a user choice, and
+    // writing it into the setting would make it look editable.
     await db.run(`UPDATE app_settings SET price_source_order = ? WHERE id = 1`,
                  [JSON.stringify(requested)]);
-    res.json({ order });
+    res.json({ selected: requested, order });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Failed to save price sources' });
+    res.status(500).json({ error: 'Failed to save the price source' });
   }
 });
-
 
 module.exports = router;
 // Exported for tests.

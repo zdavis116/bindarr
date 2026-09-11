@@ -1,34 +1,43 @@
-// WHERE A PRICE CAME FROM, AND WHICH SOURCE WINS.
+// WHERE A PRICE COMES FROM: ONE CHOSEN SHOP, PLUS A FLOOR.
 //
-// Zach: "I think it should use manapool outright but maybe be configurable like
-// if there is no price for manapool it uses scryfall almost like a ranking
-// system. Like long term thought is we take in tcg player and card kingdom
-// prices too. Like if I say my top 3 card prices should come from 1. Mana pool,
-// then tcg player then card kingdom then what should happen is show me mana
-// pool price if possible then if it can't there fall back to tcg player then
-// card kingdom. So then also maybe it tells you where that price is coming
-// from."
+// This began as a ranked list, at Zach's original request. He changed it after
+// living with it: "I would like to get rid of the priority list and it be a
+// selection whether I used mana pool or card kingdom but the fallback is always
+// scryfall since it's an average."
 //
-// So this is a REGISTRY, not a Mana Pool special case. Adding TCGplayer later
-// should be one entry here plus a fetcher, not a rewrite of every screen.
+// He is right, and the measurements back him up. A ranking implied the sources
+// were interchangeable rungs of one ladder. They are not -- they are different
+// SHOPS with different price floors:
+//
+//   most common Card Kingdom price   $0.35 x1584
+//   most common Mana Pool price      $0.15 x2225
+//
+// His collection is $2461 at Card Kingdom and $1319 at Mana Pool, and 61% of
+// that $1142 gap is bulk commons sitting on each shop's minimum price. Neither
+// number is wrong. But a ranked chain would have blended them -- most cards at
+// Mana Pool's floor, a handful at Card Kingdom's -- producing a total that is
+// the price at NO shop and cannot be checked against any real page.
+//
+// A selection answers a question that has an answer: "what is this worth at the
+// shop I actually use?"
 //
 // TWO RULES THAT ARE NOT PREFERENCES:
 //
-//   1. SCRYFALL IS ALWAYS LAST. Zach: "scryfall last resort". It is the only
-//      source with a price for essentially every printing, so it is the floor
-//      that stops a card showing no price at all. It cannot be reordered above
-//      a marketplace or removed, because then a card no marketplace stocks
-//      would silently have no value and the collection total would quietly drop.
+//   1. SCRYFALL IS ALWAYS THE FALLBACK. It is the only source with a price for
+//      essentially every printing, so it stops a card the chosen shop does not
+//      stock from silently having no value and quietly shrinking the total. It
+//      cannot be selected as the primary: it is an average of what cards sold
+//      for, not an offer anyone will honour today.
 //
 //   2. A PRICE ALWAYS CARRIES ITS SOURCE. Never return a bare number. A total
-//      that blends 1,400 Mana Pool prices with 108 Scryfall ones is not "the
-//      Mana Pool value", and showing it as one anonymous figure is how numbers
-//      drift without anyone being able to argue with them -- the same class of
-//      problem as a schedule hardcoded in the UI.
+//      that blends 1,496 Card Kingdom prices with 12 Scryfall ones is not "the
+//      Card Kingdom value", and showing it as one anonymous figure is how
+//      numbers drift without anyone being able to argue with them.
+//
+// EXPORTS ARE UNAFFECTED, deliberately. Zach: "export buylist wouldn't change."
+// Each export tab prices itself at ITS OWN shop -- the Card Kingdom list must
+// cost Card Kingdom money regardless of which shop he values his binder at.
 
-// Every source Bindarr can price from. `id` is what gets stored in settings and
-// returned as provenance, so these strings are a contract -- renaming one
-// invalidates a user's saved order.
 const SOURCES = {
   manapool: {
     id: 'manapool',
@@ -36,7 +45,16 @@ const SOURCES = {
     // Live marketplace asking prices with real stock behind them: what the card
     // would actually cost today, not a market average.
     kind: 'marketplace',
-    reorderable: true,
+    selectable: true,
+  },
+  cardkingdom: {
+    id: 'cardkingdom',
+    label: 'Card Kingdom',
+    // A single retailer rather than a marketplace: one price, their stock, and
+    // a higher floor ($0.35 vs $0.15). Graded NM/EX/VG/G, where EX is the
+    // equivalent of Lightly Played -- his condition floor.
+    kind: 'retailer',
+    selectable: true,
   },
   scryfall: {
     id: 'scryfall',
@@ -44,37 +62,44 @@ const SOURCES = {
     // Market averages. Near-total coverage, which is exactly why it is the
     // floor rather than a competitor in the ranking.
     kind: 'index',
-    reorderable: false,
+    // Never selectable as the primary: an average of past sales is not an offer.
+    // It exists so a card the chosen shop does not carry still has a value.
+    selectable: false,
   },
 };
 
-// The floor. Not in the reorderable set, always appended last.
+// The floor. Never selectable, always appended last.
 const FALLBACK_SOURCE = 'scryfall';
 
-// Default order when nothing is configured. Mana Pool first because it is the
-// one Zach asked for; Scryfall is appended by normaliseOrder regardless.
-const DEFAULT_ORDER = ['manapool'];
+// The shop used when nothing is configured.
+const DEFAULT_SOURCE = 'manapool';
 
-// Turn whatever is stored in settings into an order that is safe to walk.
+// Every shop he can choose between, in display order.
+function selectableSources() {
+  return Object.values(SOURCES).filter(s => s.selectable);
+}
+
+// Turn the stored selection into an order that is safe to walk.
 //
-// Defensive on purpose: this list comes from a settings row a user can edit, and
-// a typo there must not blank out every price in the app. Unknown ids are
-// dropped, duplicates collapse, and the fallback is appended if missing.
+// The chain machinery is unchanged -- a selection is simply a one-shop order
+// with the fallback behind it. Keeping the same shape means every call site
+// that walks an order still works, and a future "compare both" view is a list
+// of two rather than a rewrite.
+//
+// Defensive on purpose: this comes from a settings row, and a stale or unknown
+// id must not blank out every price in the app. It also accepts the OLD array
+// form, because his database already holds one -- reading a legacy value as
+// garbage would silently reprice his whole collection at Scryfall.
 function normaliseOrder(stored) {
-  const seen = new Set();
-  const order = [];
-  for (const id of Array.isArray(stored) ? stored : []) {
-    if (!SOURCES[id] || id === FALLBACK_SOURCE || seen.has(id)) continue;
-    seen.add(id);
-    order.push(id);
+  let chosen = null;
+  if (typeof stored === 'string') {
+    chosen = stored;
+  } else if (Array.isArray(stored)) {
+    // Legacy ranked order: the first real shop in it was the primary.
+    chosen = stored.find(id => SOURCES[id]?.selectable) || null;
   }
-  if (order.length === 0) {
-    for (const id of DEFAULT_ORDER) {
-      if (SOURCES[id] && !seen.has(id)) { seen.add(id); order.push(id); }
-    }
-  }
-  order.push(FALLBACK_SOURCE);
-  return order;
+  if (!SOURCES[chosen]?.selectable) chosen = DEFAULT_SOURCE;
+  return [chosen, FALLBACK_SOURCE];
 }
 
 // THE CHAIN. Walk the order and take the first source that has a real price.
@@ -126,7 +151,8 @@ function summarise(priced) {
 module.exports = {
   SOURCES,
   FALLBACK_SOURCE,
-  DEFAULT_ORDER,
+  DEFAULT_SOURCE,
+  selectableSources,
   normaliseOrder,
   priceFrom,
   summarise,
