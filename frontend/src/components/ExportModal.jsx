@@ -282,6 +282,23 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
           </button>
         </div>
 
+        {/* WHY THERE IS NO PRINTING PICKER ON THIS TAB.
+            Card Kingdom's builder matches on card TITLE and chooses the edition
+            itself -- verified against their live page, where "1 Sol Ring [C21]
+            263" returns "titles must match exactly" and "1 Sol Ring" returns
+            "Cards Selected: 2/2".
+
+            So a pinned printing cannot travel in the list they accept. Hiding
+            the picker without saying why would leave him wondering where his
+            setting went; saying nothing at all would let him assume a pin he
+            made on the Mana Pool tab is being honoured here. */}
+        {activeFormat.namesOnly && text && (
+          <div style={{ padding: '0 1rem 0.6rem', fontSize: '0.72rem',
+                        color: 'var(--text-secondary)' }}>
+            {t('deck.ckPicksEdition', { shop: activeFormat.label })}
+          </div>
+        )}
+
         {/* THE TOTAL, AT THE TOP.
             Zach: "Just give me total price at the top and remove bottom list."
             The per-card rows below ARE the breakdown -- each already shows its
