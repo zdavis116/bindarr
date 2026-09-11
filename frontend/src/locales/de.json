@@ -399,7 +399,6 @@
   "deck.mpExactHint": "Unticked cards may be swapped for a cheaper printing of the same card. Ticked cards are ordered exactly as your deck lists them.",
   "deck.mpExactPrinting": "this printing only",
   "deck.mpExactTitle": "Cards that must be the exact printing",
-  "deck.mpOpenMassEntry": "Copy list & open Mana Pool",
   "deck.mpOpenShop": "Copy list & open {shop}",
   "deck.mpPinAll": "All exact",
   "deck.mpPlainReady": "{count} cards ready to copy",
