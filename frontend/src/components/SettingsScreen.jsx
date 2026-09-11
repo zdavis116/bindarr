@@ -90,10 +90,42 @@ function Section({ title, children }) {
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');
 
 // A date, or an honest dash. NEVER "just now" or a guess.
+// WHEN A SOURCE LAST REFRESHED -- date AND time.
+//
+// Zach: "for the last refreshed date can it be date and time. I want that for
+// all data sources."
+//
+// It was toLocaleDateString(), so a feed that refreshed four minutes ago and one
+// that refreshed twenty hours ago both read "9/11/2026". For a source that syncs
+// every 6 hours the date alone cannot answer the only question worth asking --
+// are these prices current -- and it made a stale feed indistinguishable from a
+// fresh one.
+//
+// Rendered in HIS timezone, not the server's. The dev box runs Etc/UTC, so a
+// server-side format would read an hour off his phone and look like a bug even
+// when the underlying timestamp was right.
 function when(iso, t) {
   if (!iso) return t('settings.never');
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? t('settings.never') : d.toLocaleDateString();
+  // THE TIMESTAMP IS UTC, AND MUST BE SAID SO.
+  //
+  // Zach: "the last run time is behind 1 hr."
+  //
+  // SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' with NO zone
+  // marker, and new Date() on that reads it as LOCAL time. The dev box runs
+  // Etc/UTC while he is on EDT, so a sync that ran at 12:35 UTC rendered as
+  // 12:35 PM on his phone instead of 8:35 AM -- four hours adrift, and always
+  // in the direction that makes a stale feed look fresh.
+  //
+  // Measured, not assumed: TZ=America/New_York node showed 12:35:22 PM raw
+  // versus 8:35:22 AM parsed as UTC.
+  const d = new Date(/[Zz]|[+-]\d\d:?\d\d$/.test(iso)
+    ? iso
+    : String(iso).replace(' ', 'T') + 'Z');
+  if (Number.isNaN(d.getTime())) return t('settings.never');
+  return d.toLocaleString(undefined, {
+    month: 'numeric', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
 }
 
 // A COUNTDOWN TO THE NEXT SYNC, plus the clock time it lands at.

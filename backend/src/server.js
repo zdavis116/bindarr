@@ -370,6 +370,18 @@ db.initDb()
           const mins = Math.round(age / MINUTE_MS);
           console.log(`Mana Pool prices are ${mins} min old; skipping the startup`
             + ` import and waiting for the scheduled run.`);
+          // SKIPPING STILL HAS TO SAY WHEN THE NEXT RUN IS.
+          //
+          // Zach: "the automatic section says due now for both mana pool and
+          // card kingdom". Returning here left the stamp at boot+8min, which
+          // then expired and read "Due now" indefinitely -- a healthy sync
+          // looking broken, which is worse than a broken one looking broken.
+          //
+          // Anchored to the LAST SUCCESSFUL import, not to now: anchoring to now
+          // would push the schedule six hours later on every restart, so a box
+          // that reboots often would quietly stop refreshing prices.
+          syncSchedule.setManaPoolNextRun(
+            new Date(Date.now() + (PRICE_INTERVAL_MS - age)).toISOString());
           return;
         }
         runPriceRefresh();
@@ -443,6 +455,10 @@ db.initDb()
         if (age !== null && age < CK_STALE_MS) {
           console.log(`Card Kingdom prices are ${Math.round(age / MINUTE)} min old;`
             + ' skipping the startup import and waiting for the scheduled run.');
+          // Same correction as Mana Pool: a skip must still publish a real next
+          // run, anchored to the last success so restarts cannot push it later.
+          syncSchedule.setCardKingdomNextRun(
+            new Date(Date.now() + (CK_INTERVAL_MS - age)).toISOString());
           return;
         }
         runCk();
