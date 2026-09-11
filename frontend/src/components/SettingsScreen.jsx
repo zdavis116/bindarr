@@ -486,54 +486,61 @@ function SettingsScreen({ user, onNavigate, showToast }) {
       )}
 
       <Section title={t('settings.secDataSources')}>
-        {/* MANA POOL AS A DATA SOURCE.
-            Zach: "Mana pool should exist as a data source and that is where the
-            street address info should go."
+        {/* EVERY PRICE SHOP IS A DATA SOURCE.
+            Zach: "Mana pool should exist as a data source", and later "one thing
+            missing is adding card kingdom to the data source section."
 
-            He is right: it syncs ~99k prices every 6 hours exactly like Scryfall
-            syncs the catalogue, and every other source lives here with its own
-            dropdown showing what it is syncing. Bolting its address onto the
-            price-priority card put a form where a preference belonged. */}
-        <Row
-          icon={Link2}
-          label={t('settings.manapool')}
-          detail={priceSources?.sources?.find(x => x.id === 'manapool')?.row_count
-            ? t('settings.manapoolSyncs', {
-                count: fmt(priceSources.sources.find(x => x.id === 'manapool').row_count) })
-            : t('settings.loading')}
-          expanded={sourceOpen === 'manapool'}
-          onClick={() => setSourceOpen(sourceOpen === 'manapool' ? null : 'manapool')}
-        />
-
-        {sourceOpen === 'manapool' && (
-          <div style={{ background: 'var(--surface-2)' }}>
-            <Row
-              indent
-              label={t('settings.lastRefreshed')}
-              value={priceSources?.sources?.find(x => x.id === 'manapool')?.last_success_at
-                ? when(priceSources.sources.find(x => x.id === 'manapool').last_success_at, t)
-                : '—'}
-            />
-            {/* THE COUNTDOWN, like every other source.
-                Zach: "settings has the mana pool sync but their is not countdown
-                until the next sync like all the others."
-
-                The server was already publishing manapool_next_run -- the row
-                just never rendered it, so this source looked like it ran on some
-                unknowable schedule while Scryfall and Moxfield showed theirs. */}
-            <Row
-              indent
-              label={t('settings.automatic')}
-              detail={catalogue?.manapool_next_run
-                ? t('settings.nextRunAt', { time: clockText(catalogue.manapool_next_run) })
-                : t('settings.manapoolEvery6h')}
-              value={untilText(catalogue?.manapool_next_run, catalogue?.server_now, t)
-                     || t('settings.manapoolPrices')}
-            />
-
-
-          </div>
-        )}
+            Rendered from the list of shops rather than hand-written per shop.
+            The previous version was a Mana Pool block that read the SELECTED
+            source, so Card Kingdom vanished from Settings whenever Mana Pool was
+            chosen -- a source syncing every 6 hours with nothing on screen
+            saying so. Adding a shop later needs no new markup here. */}
+        {(priceSources?.choices || []).map((shop) => {
+          const nextRun = catalogue?.[`${shop.id}_next_run`];
+          return (
+            <div key={shop.id}>
+              <Row
+                icon={Link2}
+                label={shop.label}
+                detail={shop.row_count
+                  ? t('settings.shopSyncs', { count: fmt(shop.row_count) })
+                  : t('settings.shopNeverSynced')}
+                expanded={sourceOpen === shop.id}
+                onClick={() => setSourceOpen(sourceOpen === shop.id ? null : shop.id)}
+              />
+              {sourceOpen === shop.id && (
+                <div style={{ background: 'var(--surface-2)' }}>
+                  <Row
+                    indent
+                    label={t('settings.lastRefreshed')}
+                    value={shop.last_success_at ? when(shop.last_success_at, t) : '—'}
+                  />
+                  {/* THE COUNTDOWN, like every other source. A sync with no
+                      visible next run looks like it happens at random. */}
+                  <Row
+                    indent
+                    label={t('settings.automatic')}
+                    detail={nextRun
+                      ? t('settings.nextRunAt', { time: clockText(nextRun) })
+                      : t('settings.shopEvery6h')}
+                    value={untilText(nextRun, catalogue?.server_now, t)
+                           || t('settings.shopEvery6h')}
+                  />
+                  {/* A FAILED SYNC IS SAID OUT LOUD. Otherwise a stale price
+                      looks like a current one -- the whole reason provenance
+                      exists on every figure in this app. */}
+                  {shop.last_error && (
+                    <Row
+                      indent
+                      label={t('settings.lastError')}
+                      value={shop.last_error}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         <Row
           icon={Link2}
