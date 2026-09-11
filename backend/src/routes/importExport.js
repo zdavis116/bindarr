@@ -1,4 +1,5 @@
 const express = require('express');
+const { selectedShop } = require('../utils/priceHelpers');
 const router = express.Router();
 const db = require('../db');
 const { generateExportCSV } = require('../utils/csvExporters');
@@ -16,6 +17,10 @@ router.get('/export', async (req, res) => {
   const targetFormat = (ecosystem || format || 'internal').toLowerCase();
 
   try {
+    // Prices follow the shop he selected, so a deck list and the collection
+    // never quote two different shops for the same card.
+    const shop = await selectedShop(db);
+
     const query = `
       SELECT 
         c.quantity,
@@ -50,7 +55,7 @@ router.get('/export', async (req, res) => {
         cp.label as compartment_label
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      LEFT JOIN source_prices mp ON mp.card_id = cc.id AND mp.source = 'manapool'
+      LEFT JOIN source_prices mp ON mp.card_id = cc.id AND mp.source = '${shop}'
       LEFT JOIN locations l ON c.location_id = l.id
       LEFT JOIN compartments cp ON c.compartment_id = cp.id
       WHERE c.user_id = ?

@@ -125,8 +125,41 @@ function marketplacePriceJoin(sourceId) {
          ON mp.card_id = cc.id AND mp.source = '${id}'`;
 }
 
-// Kept for the call sites that have no settings context. Same shape, default
-// shop -- so nothing silently loses its prices while the rest is converted.
+// WHICH SHOP IS SELECTED, READ AT REQUEST TIME.
+//
+// Cached briefly because every priced endpoint needs it and it changes only
+// when he taps Settings. Without the cache a collection page would issue an
+// extra settings query per request through the single operation queue -- the
+// same queue that already made /api/stats take 26 seconds under load.
+let _shopCache = { id: null, at: 0 };
+const SHOP_CACHE_MS = 5000;
+
+async function selectedShop(database) {
+  if (_shopCache.id && Date.now() - _shopCache.at < SHOP_CACHE_MS) return _shopCache.id;
+  try {
+    const row = await database.get(
+      `SELECT price_source_order AS o FROM app_settings WHERE id = 1`);
+    let stored = null;
+    try { stored = JSON.parse(row?.o || 'null'); } catch { stored = null; }
+    // Accepts the legacy array form as well as the current string.
+    const id = typeof stored === 'string'
+      ? stored
+      : (Array.isArray(stored) ? stored[0] : null);
+    _shopCache = { id: MARKETPLACE_LABELS[id] ? id : 'manapool', at: Date.now() };
+  } catch {
+    // A failed settings read must not blank every price: fall back to the
+    // default shop rather than to no join at all.
+    _shopCache = { id: 'manapool', at: Date.now() };
+  }
+  return _shopCache.id;
+}
+
+// Called after a write so his choice takes effect immediately rather than up to
+// five seconds later -- a setting that appears not to work is worse than a slow
+// one.
+function clearShopCache() { _shopCache = { id: null, at: 0 }; }
+
+// Kept for the few call sites with no database handle. Same shape, default shop.
 const MARKETPLACE_PRICE_JOIN = marketplacePriceJoin('manapool');
 
 const MARKETPLACE_PRICE_COLUMNS = `
@@ -240,6 +273,8 @@ module.exports = {
   resolvePricedCard,
   MARKETPLACE_PRICE_JOIN,
   marketplacePriceJoin,
+  selectedShop,
+  clearShopCache,
   MARKETPLACE_PRICE_COLUMNS,
   parseCardRow,
   rebalanceCompartmentPositions,

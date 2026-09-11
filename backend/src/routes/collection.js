@@ -10,7 +10,7 @@ const setIndex = require('../setIndex');
 
 const { authenticateToken, searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, resolvePricedCard, parseCardRow, recordPrice,
-        MARKETPLACE_PRICE_JOIN, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
+        marketplacePriceJoin, selectedShop, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
 const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
@@ -174,6 +174,11 @@ function sortOwnedFirst(cards) {
 // deck size -- but the user asked to see them, labelled as what they are.
 router.get('/card/:cardId/decks', async (req, res) => {
   try {
+    // The shop he selected prices this query. Read per request (cached 5s) so
+    // switching shops in Settings takes effect on the next screen he opens,
+    // rather than on the next restart.
+    const shopJoin = marketplacePriceJoin(await selectedShop(db));
+
     // THE WHOLE CATALOGUE ROW, not just the identity.
     //
     // The card detail must look the same from every screen, and it cannot if
@@ -350,7 +355,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
                 ON col.card_id = cc.id
                AND col.user_id = ?
                AND col.list_type = 'collection'
-         ${MARKETPLACE_PRICE_JOIN}
+         ${shopJoin}
         WHERE cc.oracle_id = ?
         GROUP BY cc.id
         -- Owned first (Zach: "the ones you own filter to the top"), then
@@ -1654,6 +1659,11 @@ router.post('/prepare-set', searchLimiter, async (req, res) => {
 // 2. Get User's Collection
 router.get('/collection', async (req, res) => {
   try {
+    // The shop he selected prices this query. Read per request (cached 5s) so
+    // switching shops in Settings takes effect on the next screen he opens,
+    // rather than on the next restart.
+    const shopJoin = marketplacePriceJoin(await selectedShop(db));
+
     const listType = req.query.list_type || 'collection';
     const isTrade = req.query.is_trade;
     const compId = req.query.compartment_id;
@@ -1730,7 +1740,7 @@ router.get('/collection', async (req, res) => {
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
       LEFT JOIN compartments cp ON c.compartment_id = cp.id
-      ${MARKETPLACE_PRICE_JOIN}
+      ${shopJoin}
       ${filterSql}
       ORDER BY c.added_at DESC
     `;

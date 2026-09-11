@@ -1,4 +1,5 @@
 const express = require('express');
+const priceHelpers = require('../utils/priceHelpers');
 const axios = require('axios');
 const db = require('../db');
 const syncSchedule = require('../utils/syncSchedule');
@@ -224,6 +225,9 @@ router.put('/price-sources', authenticateToken, requireAdmin, async (req, res) =
     // writing it into the setting would make it look editable.
     await db.run(`UPDATE app_settings SET price_source_order = ? WHERE id = 1`,
                  [JSON.stringify(requested)]);
+    // Immediately, not in five seconds: a setting that appears not to work is
+    // worse than a slow one, and he WILL tap straight back to the dashboard.
+    priceHelpers.clearShopCache();
     res.json({ selected: requested, order });
   } catch (error) {
     console.error(error);

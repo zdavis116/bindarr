@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const { resolveCardPrice, resolvePricedCard, isVintageSet, parseSqliteUtc,
-        MARKETPLACE_PRICE_JOIN, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
+        marketplacePriceJoin, selectedShop, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -10,6 +10,11 @@ router.use(authenticateToken);
 // 7. Get Collection Statistics & Analytics
 router.get('/stats', async (req, res) => {
   try {
+    // The shop he selected prices this query. Read per request (cached 5s) so
+    // switching shops in Settings takes effect on the next screen he opens,
+    // rather than on the next restart.
+    const shopJoin = marketplacePriceJoin(await selectedShop(db));
+
     const statsParams = [req.user.id];
 
     // Retrieve all collection items to compute statistics
@@ -23,7 +28,7 @@ router.get('/stats', async (req, res) => {
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
       LEFT JOIN locations l ON c.location_id = l.id
-      ${MARKETPLACE_PRICE_JOIN}
+      ${shopJoin}
       WHERE c.user_id = ?
     `;
     const rows = await db.all(query, statsParams);
@@ -166,7 +171,7 @@ router.get('/stats', async (req, res) => {
         1 AS _mp_marker
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      ${MARKETPLACE_PRICE_JOIN}
+      ${shopJoin}
       WHERE c.user_id = ?
       -- THE SORT MUST USE THE SAME PRICE THE ROW WILL DISPLAY.
       --
@@ -273,7 +278,7 @@ router.get('/stats', async (req, res) => {
              1 AS _mp_marker
       FROM collection c
       JOIN card_cache cc ON c.card_id = cc.id
-      ${MARKETPLACE_PRICE_JOIN}
+      ${shopJoin}
       WHERE c.user_id = ?
       ORDER BY c.added_at DESC
       LIMIT 6

@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { alternativesForRequirement, repointRequirement } = require('../utils/deckRepoint');
 const scryfallApi = require('../scryfallApi');
-const { recordPrice } = require('../utils/priceHelpers');
+const { recordPrice , selectedShop } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
 const { buildDeckWarnings } = require('../utils/deckRules');
 const commanderRules = require('../utils/commanderRules');
@@ -150,6 +150,10 @@ async function assertDeckNameAvailable(database, userId, name, { excludeDeckId =
 // SQL rather than in the client so every screen gets the same number.
 router.get('/', async (req, res) => {
   try {
+    // Prices follow the shop he selected, so a deck list and the collection
+    // never quote two different shops for the same card.
+    const shop = await selectedShop(db);
+
     const rows = await db.all(`
       -- DECK LIST, rewritten from five correlated subqueries to two grouped
       -- passes plus a window function.
@@ -225,7 +229,7 @@ router.get('/', async (req, res) => {
         LEFT JOIN deck_cards dc ON d.id = dc.deck_id
         LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
         LEFT JOIN source_prices mp
-               ON mp.card_id = dcc.id AND mp.source = 'manapool'
+               ON mp.card_id = dcc.id AND mp.source = '${shop}'
         WHERE d.user_id = ?
       ),
 
