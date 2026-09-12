@@ -62,7 +62,11 @@ export default defineConfig({
         // EVERY /api CALL MUST REACH THE SERVER. navigateFallback would
         // otherwise answer API requests with index.html, and a cached price is
         // a price that lies about being current.
-        navigateFallbackDenylist: [/^\/api\//],
+        // /api must reach the server, and /sketches are standalone HTML files
+        // that are NOT part of the React app -- without this the service worker
+        // answers them with index.html and they render as the app shell. Found
+        // while trying to view the desktop mockups on dev.
+        navigateFallbackDenylist: [/^\/api\//, /^\/sketches\//],
         cleanupOutdatedCaches: true,
       },
       devOptions: { enabled: false },
