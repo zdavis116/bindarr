@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr desktop — mockups</title>
+<style>
+  /* Bindarr's own dark palette, lifted from index.css so these read as the
+     same app rather than a different product. */
+  :root{
+    --bg:#0a0f1d; --surface:#121829; --surface-2:#1a2137; --surface-3:#232c47;
+    --border:rgba(255,255,255,.10); --border-2:rgba(255,255,255,.06);
+    --text:#e8ecf7; --text-2:#a3adc7; --text-3:#6b7694;
+    --blue:#0a84ff; --green:#30d158; --red:#ff453a; --amber:#ff9f0a;
+    --radius:14px; --radius-sm:9px;
+    --rail:236px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  a{color:inherit}
+
+  /* ---------- chrome shared by every screen ---------- */
+  .app{display:grid;grid-template-columns:var(--rail) 1fr;min-height:100vh}
+  .rail{background:var(--surface);border-right:1px solid var(--border);
+        padding:1rem .75rem;display:flex;flex-direction:column;gap:.25rem;
+        position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem 1rem}
+  .brand b{font-size:1.15rem;letter-spacing:-.02em}
+  .brand .dot{width:26px;height:26px;border-radius:6px;background:var(--red);
+              display:grid;place-items:center;font-size:13px}
+  .navsec{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;
+          color:var(--text-3);padding:.9rem .6rem .35rem}
+  .nav{display:flex;align-items:center;gap:.65rem;padding:.55rem .6rem;
+       border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;
+       font-size:.88rem;text-decoration:none}
+  .nav:hover{background:var(--surface-2);color:var(--text)}
+  .nav.on{background:rgba(10,132,255,.14);color:#5ab0ff;font-weight:600}
+  .nav .ic{width:17px;text-align:center;opacity:.9}
+  .nav .count{margin-left:auto;font-size:.72rem;color:var(--text-3)}
+  .railfoot{margin-top:auto;border-top:1px solid var(--border-2);padding-top:.6rem}
+
+  .main{padding:1.4rem 1.6rem 3rem;min-width:0}
+  .head{display:flex;align-items:baseline;gap:1rem;margin-bottom:1.1rem}
+  .head h1{margin:0;font-size:1.5rem;letter-spacing:-.02em}
+  .head .sub{color:var(--text-3);font-size:.85rem}
+  .head .sp{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+
+  .btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+       padding:.45rem .8rem;border-radius:var(--radius-sm);font:inherit;
+       font-size:.83rem;cursor:pointer}
+  .btn.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+  .btn.sm{padding:.3rem .55rem;font-size:.76rem}
+  .inp{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+       padding:.45rem .7rem;border-radius:var(--radius-sm);font:inherit;font-size:.83rem}
+
+  .panel{background:var(--surface);border:1px solid var(--border);
+         border-radius:var(--radius);padding:1rem}
+  .panel h3{margin:0 0 .7rem;font-size:.95rem}
+
+  /* a note pinned to each mockup explaining the decision */
+  .why{margin:1.2rem 0 0;padding:.75rem .9rem;border-left:3px solid var(--blue);
+       background:rgba(10,132,255,.07);border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+       font-size:.8rem;color:var(--text-2);max-width:70ch}
+  .why b{color:var(--text)}
+
+  .tabs{display:flex;gap:.3rem;border-bottom:1px solid var(--border);margin-bottom:1rem}
+  .tab{padding:.5rem .8rem;font-size:.85rem;color:var(--text-2);cursor:pointer;
+       border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:#5ab0ff;border-bottom-color:var(--blue);font-weight:600}
+
+  .pill{display:inline-block;padding:.12rem .45rem;border-radius:999px;
+        font-size:.68rem;font-weight:600;background:var(--surface-3);color:var(--text-2)}
+  .pill.g{background:rgba(48,209,88,.16);color:#4ade80}
+  .pill.a{background:rgba(255,159,10,.16);color:#fbbf24}
+  .pill.r{background:rgba(255,69,58,.16);color:#f87171}
+
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+     color:var(--text-3);font-weight:600;padding:.45rem .6rem;border-bottom:1px solid var(--border)}
+  td{padding:.45rem .6rem;border-bottom:1px solid var(--border-2)}
+  tr:hover td{background:var(--surface-2)}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+
+  .card{aspect-ratio:.718;border-radius:8px;background:linear-gradient(145deg,#2a3350,#1b2238);
+        border:1px solid var(--border);display:grid;place-items:center;
+        font-size:.62rem;color:var(--text-3);text-align:center;padding:.3rem;overflow:hidden}
+  .card.own{border-color:rgba(48,209,88,.4)}
+  .card.miss{border-color:rgba(255,69,58,.35);opacity:.62}
+
+  .screens{display:flex;flex-direction:column;gap:3.5rem;padding:1.5rem}
+  .screen{border:1px solid var(--border);border-radius:18px;overflow:hidden;
+          background:var(--bg);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  .screen > .label{background:var(--surface-2);padding:.6rem 1rem;font-size:.8rem;
+                   color:var(--text-2);border-bottom:1px solid var(--border);
+                   display:flex;gap:.7rem;align-items:center}
+  .screen > .label b{color:var(--text);font-size:.88rem}
+  .screen .frame{height:760px;overflow:auto}
+</style>
+</head>
+<body>
+
+<div class="screens">
+
+<!-- =========================================================== 1. DECK BUILDER -->
+<section class="screen">
+  <div class="label"><b>1 · Deck builder</b> the reason desktop exists — deck and collection side by side</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <div class="navsec">Play</div>
+      <a class="nav on"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
+      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <div class="navsec">Manage</div>
+      <a class="nav"><span class="ic">＋</span>Add cards</a>
+      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">◱</span>Dashboard</a>
+      <div class="railfoot">
+        <a class="nav"><span class="ic">⚙</span>Settings</a>
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head">
+        <h1>AI Doom</h1>
+        <span class="sub">Commander · 100 cards</span>
+        <span class="pill a">52% built</span>
+        <div class="sp">
+          <span class="sub">$232.68 as listed · <b style="color:#4ade80">$213.21 cheapest</b></span>
+          <button class="btn">Export</button>
+          <button class="btn pri">Add cards</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 380px;gap:1.1rem;align-items:start">
+        <!-- LEFT: the deck itself -->
+        <div class="panel" style="padding:.6rem">
+          <div class="tabs" style="margin:.2rem .3rem 0">
+            <div class="tab on">Deck list <span class="pill" style="margin-left:.3rem">100</span></div>
+            <div class="tab">Missing <span class="pill r" style="margin-left:.3rem">49</span></div>
+            <div class="tab">Curve</div>
+            <div class="tab">Notes</div>
+          </div>
+          <table>
+            <thead><tr>
+              <th style="width:26px"></th><th>Card</th><th>Type</th><th>Set</th>
+              <th class="num">Price</th><th class="num">Have</th><th style="width:60px"></th>
+            </tr></thead>
+            <tbody>
+              <tr><td>1</td><td><b>Ur-Dragon, The</b></td><td>Legendary Creature</td><td>C17</td><td class="num">$23.40</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Sol Ring</b></td><td>Artifact</td><td>C21</td><td class="num">$1.29</td><td class="num"><span class="pill g">4</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Arcane Signet</b></td><td>Artifact</td><td>C21</td><td class="num">$0.89</td><td class="num"><span class="pill g">2</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Bojuka Bog</b></td><td>Land</td><td>C20</td><td class="num">$0.74</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Library of Leng</b></td><td>Artifact</td><td>4ED</td><td class="num">$1.95</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Monument to Endurance</b></td><td>Artifact</td><td>DFT</td><td class="num">$17.82</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Sulfurous Springs</b></td><td>Land</td><td>EOC</td><td class="num">$1.09</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Command Tower</b></td><td>Land</td><td>C21</td><td class="num">$0.35</td><td class="num"><span class="pill g">3</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Cultivate</b></td><td>Sorcery</td><td>M21</td><td class="num">$0.68</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Kodama's Reach</b></td><td>Sorcery</td><td>CMR</td><td class="num">$0.55</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Rhystic Study</b></td><td>Enchantment</td><td>2XM</td><td class="num">$28.10</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Smothering Tithe</b></td><td>Enchantment</td><td>RVR</td><td class="num">$19.44</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- RIGHT: your collection, searchable, to pull cards from -->
+        <div class="panel" style="position:sticky;top:1rem">
+          <h3>From your collection</h3>
+          <input class="inp" style="width:100%;margin-bottom:.6rem" placeholder="Search 2,625 cards…" value="dragon">
+          <div style="display:flex;gap:.35rem;margin-bottom:.7rem;flex-wrap:wrap">
+            <span class="pill g">In colours</span>
+            <span class="pill">Unused</span>
+            <span class="pill">Any printing</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem">
+            <div class="card own">Scourge of<br>Valkas</div>
+            <div class="card own">Dragonlord<br>Atarka</div>
+            <div class="card own">Terror of the<br>Peaks</div>
+            <div class="card own">Dragon's<br>Hoard</div>
+            <div class="card own">Sarkhan,<br>Fireblood</div>
+            <div class="card own">Lathliss</div>
+          </div>
+          <p style="font-size:.76rem;color:var(--text-3);margin:.7rem 0 0">
+            Click to add · 47 more match</p>
+        </div>
+      </div>
+
+      <p class="why"><b>Why this shape.</b> You said desktop is mainly deckbuilding, so the
+      deck and the cards you own sit on one screen — no navigating away to find a card.
+      The deck is a <b>table</b>, not tall cards: at 100 rows you want to scan type, set and
+      price quickly. <b>Cost:</b> the right pane takes 380px that the deck list could use.</p>
+    </div>
+  </div></div>
+</section>
+
+<!-- =========================================================== 2. COLLECTION -->
+<section class="screen">
+  <div class="label"><b>2 · Collection</b> 2,625 cards — filters beside the grid, not stacked above it</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <div class="navsec">Play</div>
+      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
+      <a class="nav on"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <div class="navsec">Manage</div>
+      <a class="nav"><span class="ic">＋</span>Add cards</a>
+      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">◱</span>Dashboard</a>
+      <div class="railfoot">
+        <a class="nav"><span class="ic">⚙</span>Settings</a>
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head">
+        <h1>Collection</h1>
+        <span class="sub">2,625 cards · 1,508 unique · $1,319.02 <span class="pill">Mana Pool</span></span>
+        <div class="sp">
+          <input class="inp" placeholder="Search…" style="width:220px">
+          <button class="btn">Grid ▾</button>
+          <button class="btn pri">Add cards</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:210px 1fr;gap:1.1rem;align-items:start">
+        <!-- filters live in a rail, always visible -->
+        <div class="panel" style="position:sticky;top:1rem">
+          <h3>Filter</h3>
+          <div style="font-size:.75rem;color:var(--text-3);margin:.6rem 0 .25rem">COLOUR</div>
+          <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+            <span class="pill">W</span><span class="pill g">U</span><span class="pill">B</span>
+            <span class="pill g">R</span><span class="pill g">G</span><span class="pill">C</span>
+          </div>
+          <div style="font-size:.75rem;color:var(--text-3);margin:.9rem 0 .25rem">TYPE</div>
+          <div style="display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;color:var(--text-2)">
+            <label><input type="checkbox" checked> Creature <span style="color:var(--text-3)">612</span></label>
+            <label><input type="checkbox"> Instant <span style="color:var(--text-3)">208</span></label>
+            <label><input type="checkbox"> Sorcery <span style="color:var(--text-3)">171</span></label>
+            <label><input type="checkbox"> Artifact <span style="color:var(--text-3)">244</span></label>
+            <label><input type="checkbox"> Land <span style="color:var(--text-3)">489</span></label>
+          </div>
+          <div style="font-size:.75rem;color:var(--text-3);margin:.9rem 0 .25rem">STORAGE</div>
+          <div style="display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;color:var(--text-2)">
+            <label><input type="checkbox"> Binder 1</label>
+            <label><input type="checkbox"> Bulk box</label>
+            <label><input type="checkbox"> Deck shelf</label>
+          </div>
+          <button class="btn sm" style="width:100%;margin-top:.9rem">Clear all</button>
+        </div>
+
+        <div>
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.7rem">
+            <span class="sub">Showing 612 of 2,625</span>
+            <span class="pill g">U + R + G</span>
+            <span style="margin-left:auto" class="sub">Sort: Value ▾</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:.6rem">
+            <div class="card own">Ur-Dragon<br>$23.40</div><div class="card own">Rhystic Study<br>$28.10</div>
+            <div class="card own">Smothering<br>Tithe $19.44</div><div class="card own">Atarka<br>$4.10</div>
+            <div class="card own">Terror of<br>Peaks $6.22</div><div class="card own">Lathliss<br>$2.90</div>
+            <div class="card own">Sol Ring<br>$1.29</div><div class="card own">Command<br>Tower $0.35</div>
+            <div class="card own">Cultivate<br>$0.68</div><div class="card own">Arcane<br>Signet $0.89</div>
+            <div class="card own">Bojuka Bog<br>$0.74</div><div class="card own">Sakura<br>Tribe $0.42</div>
+            <div class="card own">Farseek<br>$0.55</div><div class="card own">Llanowar<br>Elves $0.25</div>
+            <div class="card own">Birds of<br>Paradise $8.10</div><div class="card own">Dragon's<br>Hoard $1.10</div>
+          </div>
+          <p style="font-size:.78rem;color:var(--text-3);margin-top:.8rem">…596 more</p>
+        </div>
+      </div>
+
+      <p class="why"><b>Why this shape.</b> On the phone the filters are a sheet you open, apply,
+      and close. On desktop they sit <b>beside</b> the grid so you can see what you changed and
+      what it did — and the grid goes 8 wide instead of 2. <b>Cost:</b> 210px permanently
+      spent on filters, which matters less at 1512px than the round trip does.</p>
+    </div>
+  </div></div>
+</section>
+
+<!-- =========================================================== 3. CARD DETAIL -->
+<section class="screen">
+  <div class="label"><b>3 · Card detail</b> currently BROKEN on desktop — renders as an empty grey box</div>
+  <div class="frame" style="height:700px;position:relative;background:#05070e">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:2rem">
+      <div class="panel" style="width:1000px;max-width:100%;padding:0;display:grid;
+                                grid-template-columns:300px 1fr;gap:0;overflow:hidden">
+        <div style="padding:1.4rem;background:var(--surface-2);display:flex;
+                    flex-direction:column;gap:.8rem;align-items:center">
+          <div class="card own" style="width:100%;font-size:.8rem">Ur-Dragon, The<br>C17 · #1</div>
+          <button class="btn sm" style="width:100%">⛶ Full screen</button>
+          <button class="btn sm" style="width:100%">⇄ Flip</button>
+          <div style="width:100%;border-top:1px solid var(--border);padding-top:.7rem;
+                      font-size:.78rem;color:var(--text-2);line-height:1.8">
+            <div style="display:flex"><span>Mana Pool</span><b style="margin-left:auto">$23.40</b></div>
+            <div style="display:flex"><span>Card Kingdom</span><b style="margin-left:auto">$27.99</b></div>
+            <div style="display:flex;color:var(--text-3)"><span>Scryfall</span><span style="margin-left:auto">$24.10</span></div>
+          </div>
+        </div>
+        <div style="padding:1.4rem;min-width:0">
+          <div style="display:flex;align-items:baseline;gap:.6rem">
+            <h2 style="margin:0;font-size:1.4rem">The Ur-Dragon</h2>
+            <span class="pill">{4}{W}{U}{B}{R}{G}</span>
+            <button class="btn sm" style="margin-left:auto">✕</button>
+          </div>
+          <div style="color:var(--text-2);font-size:.86rem;margin:.15rem 0 .1rem">
+            Legendary Creature — Dragon Avatar</div>
+          <div style="color:var(--text-3);font-size:.8rem">Commander 2017 · #1 · Mythic · <b style="color:var(--text-2)">x1 owned</b></div>
+
+          <div class="tabs" style="margin-top:1rem">
+            <div class="tab on">Card</div><div class="tab">Yours</div>
+            <div class="tab">Decks <span class="pill" style="margin-left:.3rem">2</span></div>
+            <div class="tab">Price history</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.1rem">
+            <div>
+              <p style="font-size:.84rem;line-height:1.6;color:var(--text-2);margin:.2rem 0">
+                Eminence — As long as The Ur-Dragon is in the command zone or on the
+                battlefield, other Dragon spells you cast cost {1} less to cast.<br><br>
+                Flying<br><br>
+                Whenever one or more Dragons you control attack, draw that many cards,
+                then you may put a permanent card from your hand onto the battlefield.</p>
+              <div style="font-size:.8rem;color:var(--text-3);margin-top:.6rem">10/10 · EDHREC #42</div>
+            </div>
+            <div>
+              <h3 style="font-size:.82rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em">In your decks</h3>
+              <table style="font-size:.8rem">
+                <tr><td>Ur-Dragon</td><td class="num"><span class="pill g">commander</span></td></tr>
+                <tr><td>AI Doom</td><td class="num"><span class="pill">1×</span></td></tr>
+              </table>
+              <h3 style="font-size:.82rem;color:var(--text-3);text-transform:uppercase;
+                         letter-spacing:.05em;margin-top:1rem">Your copies</h3>
+              <table style="font-size:.8rem">
+                <tr><td>C17 #1</td><td>NM · English</td><td class="num">Binder 1</td></tr>
+              </table>
+              <div style="display:flex;gap:.4rem;margin-top:1rem">
+                <button class="btn sm">Edit</button>
+                <button class="btn sm">Add to deck</button>
+                <button class="btn sm">Move</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:0 1.5rem 1.2rem">
+    <p class="why"><b>This one is a bug, not a preference.</b> Measured on dev at 1512×900: the
+    info column declares <code>flex: 1 1 320px</code> and renders at <b>121px</b>, so the text
+    wraps to one word per line inside an invisible sliver — your empty grey box. The mobile
+    rules are scoped to <code>max-width: 768px</code>, so desktop falls through to a layout
+    nobody ever built. Here it becomes a proper two-pane sheet with the art and <b>both shop
+    prices</b> pinned left.</p>
+  </div>
+</section>
+
+<!-- =========================================================== 4. DASHBOARD -->
+<section class="screen">
+  <div class="label"><b>4 · Dashboard</b> a real overview instead of one tall column of cards</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <div class="navsec">Play</div>
+      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
+      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <div class="navsec">Manage</div>
+      <a class="nav"><span class="ic">＋</span>Add cards</a>
+      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav on"><span class="ic">◱</span>Dashboard</a>
+      <div class="railfoot">
+        <a class="nav"><span class="ic">⚙</span>Settings</a>
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head"><h1>Dashboard</h1>
+        <span class="sub">prices from Mana Pool · refreshed 9:06 AM</span></div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem;margin-bottom:1.1rem">
+        <div class="panel"><div class="sub" style="font-size:.75rem">COLLECTION VALUE</div>
+          <div style="font-size:1.7rem;font-weight:700">$1,319.02</div>
+          <div class="sub" style="font-size:.76rem"><span style="color:#4ade80">▲ $12.40</span> this week</div></div>
+        <div class="panel"><div class="sub" style="font-size:.75rem">CARDS</div>
+          <div style="font-size:1.7rem;font-weight:700">2,625</div>
+          <div class="sub" style="font-size:.76rem">1,508 unique</div></div>
+        <div class="panel"><div class="sub" style="font-size:.75rem">DECKS</div>
+          <div style="font-size:1.7rem;font-weight:700">4</div>
+          <div class="sub" style="font-size:.76rem">1 incomplete</div></div>
+        <div class="panel"><div class="sub" style="font-size:.75rem">TO FINISH ALL DECKS</div>
+          <div style="font-size:1.7rem;font-weight:700;color:#fbbf24">$140.35</div>
+          <div class="sub" style="font-size:.76rem">49 cards missing</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:1.1rem;align-items:start">
+        <div class="panel">
+          <h3>Your decks</h3>
+          <table>
+            <thead><tr><th>Deck</th><th>Format</th><th class="num">Built</th><th class="num">Missing</th><th class="num">To finish</th></tr></thead>
+            <tbody>
+              <tr><td><b>AI Doom</b></td><td>Commander</td><td class="num"><span class="pill a">52%</span></td><td class="num">49</td><td class="num">$140.35</td></tr>
+              <tr><td><b>Ur-Dragon</b></td><td>Commander</td><td class="num"><span class="pill g">100%</span></td><td class="num">0</td><td class="num">$0.00</td></tr>
+              <tr><td><b>I Am Iron Man</b></td><td>Commander</td><td class="num"><span class="pill g">100%</span></td><td class="num">0</td><td class="num">$0.00</td></tr>
+              <tr><td><b>Ass-Blaster 3000</b></td><td>Commander</td><td class="num"><span class="pill g">100%</span></td><td class="num">0</td><td class="num">$0.00</td></tr>
+            </tbody>
+          </table>
+          <h3 style="margin-top:1.2rem">Most valuable</h3>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem">
+            <div class="card own">Rhystic<br>$28.10</div><div class="card own">Ur-Dragon<br>$23.40</div>
+            <div class="card own">Smothering<br>$19.44</div><div class="card own">Monument<br>$17.82</div>
+            <div class="card own">Birds<br>$8.10</div><div class="card own">Terror<br>$6.22</div>
+            <div class="card own">Atarka<br>$4.10</div>
+          </div>
+        </div>
+        <div>
+          <div class="panel" style="margin-bottom:1rem">
+            <h3>Data sources</h3>
+            <table style="font-size:.8rem">
+              <tr><td>Mana Pool <span class="pill g">selected</span></td><td class="num sub">9:06 AM</td><td class="num sub">in 4h</td></tr>
+              <tr><td>Card Kingdom</td><td class="num sub">9:05 AM</td><td class="num sub">in 4h</td></tr>
+              <tr><td>Scryfall</td><td class="num sub">12:00 AM</td><td class="num sub">nightly</td></tr>
+              <tr><td>Moxfield</td><td class="num sub">9:14 AM</td><td class="num sub">in 11m</td></tr>
+            </table>
+          </div>
+          <div class="panel">
+            <h3>Recent</h3>
+            <div style="font-size:.8rem;color:var(--text-2);line-height:2">
+              <div>Scanned 12 cards → Bulk box</div>
+              <div>AI Doom synced from Moxfield</div>
+              <div>Card Kingdom prices updated</div>
+              <div>Moved 4 cards to Binder 1</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="why"><b>Why this shape.</b> The phone dashboard is one tall column you scroll.
+      Here the four numbers you check most sit across the top, decks become a sortable table
+      with the buying question answered per row, and the sync state you asked to always be
+      visible gets a permanent home. <b>Cost:</b> denser — more to take in at a glance.</p>
+    </div>
+  </div></div>
+</section>
+
+<!-- =========================================================== 5. STORAGE -->
+<section class="screen">
+  <div class="label"><b>5 · Storage</b> locations beside their contents — currently a drill-down</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <div class="navsec">Play</div>
+      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
+      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <div class="navsec">Manage</div>
+      <a class="nav"><span class="ic">＋</span>Add cards</a>
+      <a class="nav on"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">◱</span>Dashboard</a>
+      <div class="railfoot">
+        <a class="nav"><span class="ic">⚙</span>Settings</a>
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head"><h1>Storage</h1><span class="sub">3 locations · 2,625 cards</span>
+        <div class="sp"><button class="btn">New location</button><button class="btn pri">Move cards</button></div></div>
+      <div style="display:grid;grid-template-columns:250px 1fr;gap:1.1rem;align-items:start">
+        <div class="panel" style="position:sticky;top:1rem">
+          <div class="nav on" style="justify-content:space-between"><span>⛁ Binder 1</span><span class="count">412</span></div>
+          <div class="nav" style="justify-content:space-between"><span>⛁ Bulk box</span><span class="count">2,109</span></div>
+          <div class="nav" style="justify-content:space-between"><span>⛁ Deck shelf</span><span class="count">104</span></div>
+          <div style="border-top:1px solid var(--border-2);margin-top:.6rem;padding-top:.6rem;
+                      font-size:.78rem;color:var(--text-3)">
+            Binder 1 · $612.40<br>9 pages · 4 free slots</div>
+        </div>
+        <div class="panel">
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem">
+            <h3 style="margin:0">Binder 1</h3><span class="sub">412 cards · $612.40</span>
+            <div style="margin-left:auto;display:flex;gap:.4rem">
+              <input class="inp" placeholder="Find in this location…" style="width:200px">
+              <button class="btn sm">Page view</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:.45rem">
+            <div class="card own">Ur-Dragon</div><div class="card own">Rhystic</div><div class="card own">Atarka</div>
+            <div class="card own">Terror</div><div class="card own">Lathliss</div><div class="card own">Sol Ring</div>
+            <div class="card own">Signet</div><div class="card own">Cultivate</div><div class="card own">Farseek</div>
+            <div class="card own">Birds</div><div class="card own">Hoard</div><div class="card own">Sarkhan</div>
+            <div class="card own">Tower</div><div class="card own">Bog</div><div class="card own">Springs</div>
+            <div class="card own">Llanowar</div><div class="card own">Sakura</div><div class="card own">Smothering</div>
+          </div>
+          <p style="font-size:.78rem;color:var(--text-3);margin-top:.8rem">…394 more</p>
+        </div>
+      </div>
+      <p class="why"><b>Why this shape.</b> Picking a location no longer replaces the screen —
+      locations on the left, contents on the right, so moving cards between two places is one
+      view rather than a round trip.</p>
+    </div>
+  </div></div>
+</section>
+
+<!-- =========================================================== 6. ADD CARDS -->
+<section class="screen">
+  <div class="label"><b>6 · Add cards</b> search and results side by side; scan still available</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <div class="navsec">Play</div>
+      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
+      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <div class="navsec">Manage</div>
+      <a class="nav on"><span class="ic">＋</span>Add cards</a>
+      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">◱</span>Dashboard</a>
+      <div class="railfoot">
+        <a class="nav"><span class="ic">⚙</span>Settings</a>
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head"><h1>Add cards</h1>
+        <div class="sp"><button class="btn">📷 Scan</button><button class="btn">Import CSV</button><button class="btn">Paste list</button></div></div>
+      <div style="display:grid;grid-template-columns:1fr 330px;gap:1.1rem;align-items:start">
+        <div class="panel">
+          <input class="inp" style="width:100%;margin-bottom:.8rem" placeholder="Card name…" value="lightning">
+          <table>
+            <thead><tr><th></th><th>Card</th><th>Set</th><th>Cond</th><th class="num">Price</th><th class="num">Own</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><div class="card" style="width:28px"></div></td><td><b>Lightning Bolt</b></td><td>2XM · #129</td><td>NM</td><td class="num">$3.10</td><td class="num">4</td><td><button class="btn sm pri">Add</button></td></tr>
+              <tr><td><div class="card" style="width:28px"></div></td><td><b>Lightning Bolt</b></td><td>M11 · #149</td><td>NM</td><td class="num">$2.85</td><td class="num">0</td><td><button class="btn sm pri">Add</button></td></tr>
+              <tr><td><div class="card" style="width:28px"></div></td><td><b>Lightning Greaves</b></td><td>C21 · #243</td><td>NM</td><td class="num">$3.40</td><td class="num">2</td><td><button class="btn sm pri">Add</button></td></tr>
+              <tr><td><div class="card" style="width:28px"></div></td><td><b>Lightning Helix</b></td><td>RVR · #202</td><td>NM</td><td class="num">$1.10</td><td class="num">0</td><td><button class="btn sm pri">Add</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel" style="position:sticky;top:1rem">
+          <h3>Staging <span class="pill">3</span></h3>
+          <table style="font-size:.8rem">
+            <tr><td>Lightning Bolt</td><td class="num">2XM</td><td class="num">×1</td></tr>
+            <tr><td>Sol Ring</td><td class="num">C21</td><td class="num">×2</td></tr>
+            <tr><td>Command Tower</td><td class="num">C21</td><td class="num">×1</td></tr>
+          </table>
+          <div style="border-top:1px solid var(--border);margin-top:.7rem;padding-top:.7rem;
+                      font-size:.8rem;color:var(--text-2)">
+            <div style="display:flex"><span>Going to</span><b style="margin-left:auto">Binder 1</b></div>
+            <div style="display:flex"><span>Condition</span><b style="margin-left:auto">NM</b></div>
+            <div style="display:flex"><span>Value</span><b style="margin-left:auto">$8.08</b></div>
+          </div>
+          <button class="btn pri" style="width:100%;margin-top:.8rem">Add 4 cards</button>
+        </div>
+      </div>
+      <p class="why"><b>Why this shape.</b> A staging pane that stays visible while you keep
+      searching — on the phone you add one card at a time and lose your place. The scan
+      button is still here; camera work belongs on the phone but shouldn't vanish.</p>
+    </div>
+  </div></div>
+</section>
+
+<!-- =========================================================== 7. SETTINGS -->
+<section class="screen">
+  <div class="label"><b>7 · Settings</b> sections in a rail instead of one long scroll</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <div class="navsec">Play</div>
+      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
+      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <div class="navsec">Manage</div>
+      <a class="nav"><span class="ic">＋</span>Add cards</a>
+      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">◱</span>Dashboard</a>
+      <div class="railfoot">
+        <a class="nav on"><span class="ic">⚙</span>Settings</a>
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head"><h1>Settings</h1><span class="sub">Bindarr 1.6.1</span></div>
+      <div style="display:grid;grid-template-columns:200px 1fr;gap:1.1rem;align-items:start">
+        <div class="panel" style="position:sticky;top:1rem;padding:.5rem">
+          <div class="nav on">Card prices</div>
+          <div class="nav">Data sources</div>
+          <div class="nav">Collection</div>
+          <div class="nav">Appearance</div>
+          <div class="nav">Account</div>
+          <div class="nav">About</div>
+        </div>
+        <div>
+          <div class="panel" style="margin-bottom:1rem">
+            <h3>Card prices from</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:.6rem">
+              <div class="panel" style="border-color:var(--blue);background:rgba(10,132,255,.08)">
+                <b>Mana Pool</b> <span class="pill g">selected</span>
+                <div class="sub" style="font-size:.78rem;margin-top:.3rem">98,754 prices · marketplace<br>lowest listing · floor $0.15</div>
+              </div>
+              <div class="panel">
+                <b>Card Kingdom</b>
+                <div class="sub" style="font-size:.78rem;margin-top:.3rem">93,881 prices · single retailer<br>retail · floor $0.35</div>
+              </div>
+            </div>
+            <p class="sub" style="font-size:.78rem;margin:.7rem 0 0">
+              Scryfall fills in anything the selected shop doesn't carry.</p>
+          </div>
+          <div class="panel">
+            <h3>Data sources</h3>
+            <table>
+              <thead><tr><th>Source</th><th>Syncs</th><th class="num">Last refreshed</th><th class="num">Next run</th><th></th></tr></thead>
+              <tbody>
+                <tr><td><b>Mana Pool</b></td><td>98,754 card prices</td><td class="num">9/12/2026, 9:06 AM</td><td class="num">in 4h 12m</td><td><button class="btn sm">Sync</button></td></tr>
+                <tr><td><b>Card Kingdom</b></td><td>93,881 card prices</td><td class="num">9/12/2026, 9:05 AM</td><td class="num">in 4h 11m</td><td><button class="btn sm">Sync</button></td></tr>
+                <tr><td><b>Scryfall</b></td><td>105,695 cards</td><td class="num">9/12/2026, 12:00 AM</td><td class="num">nightly</td><td><button class="btn sm">Sync</button></td></tr>
+                <tr><td><b>Moxfield</b></td><td>4 decks</td><td class="num">9/12/2026, 9:14 AM</td><td class="num">in 11m</td><td><button class="btn sm">Sync</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="why"><b>Why this shape.</b> Settings is the screen that suffers most from a
+          phone layout on a wide screen — a single column of full-width rows with the label on
+          one line and the value on the next. As a table you can compare the four sources at
+          once, which is the actual question: is everything current?</p>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+</div>
+</body>
+</html>
