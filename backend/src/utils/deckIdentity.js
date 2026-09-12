@@ -20,6 +20,7 @@
 // as the write it guards; reading through the module-level `db` from inside a
 // transaction deadlocks on the PR 6A queue.
 const db = require('../db');
+const { selectedShop } = require('./priceHelpers');
 
 const FINISHES = ['nonfoil', 'foil', 'etched'];
 const BOARDS = ['commander', 'mainboard', 'sideboard', 'considering'];
@@ -342,6 +343,11 @@ function withParsedCardFields(row) {
 
 // Every requirement in one deck, each annotated with its reservation position.
 async function availabilityForDeck(database, deckId, userId) {
+  // Deck prices follow the shop he selected, exactly like the collection --
+  // otherwise a deck row and the card sheet for the same printing disagree,
+  // which is the bug he reported as "it says 24 cents... but 15 cents".
+  const shop = await selectedShop(client(database));
+
   const deck = await client(database).get(
     `SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]
   );
@@ -394,7 +400,7 @@ async function availabilityForDeck(database, deckId, userId) {
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
      LEFT JOIN source_prices mp
-            ON mp.card_id = cc.id AND mp.source = 'manapool'
+            ON mp.card_id = cc.id AND mp.source = '${shop}'
      WHERE dc.deck_id = ?
      ORDER BY cc.name COLLATE NOCASE ASC, dc.id ASC`,
     [deckId]

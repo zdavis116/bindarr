@@ -26,11 +26,42 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 // Moxfield is a deck site, not a shop: a list of printings with no prices beside
 // them tells him nothing he cannot see in the deck itself. Adding TCGplayer or
 // Card Kingdom later means setting this flag, not rewriting the sheet.
+// EVERY TAB IS A SHOP.
+//
+// Zach: "when exporting we would remove moxfield and name only (no longer
+// needed) and have manapool tcgplayer and card kingdom exports. All 3 would
+// effectively function the same way."
+//
+// Moxfield and Names only are gone: neither can attach a price to a card, so
+// both were a list of names he could already read off the deck screen.
+//
+// TCGplayer is absent deliberately. Their API has been closed to new developers
+// since the eBay acquisition, and the only redistribution available carries a
+// market average with no condition, no stock and no listing URL -- the same
+// kind of number as the $34.37 that appeared nowhere on Mana Pool's page. He
+// chose to leave it out rather than ship a tab that cannot honour his LP floor.
+//
+// `priced` drives the rows, the total and the printing picker together; `source`
+// is which shop the estimate is asked for. Adding a shop later is one entry
+// here plus a fetcher.
 const EXPORT_FORMATS = [
-  { id: 'brackets', label: 'Moxfield', format: 'buylist', bracketStyle: 'brackets' },
-  { id: 'parens', label: 'Manapool', format: 'buylist', bracketStyle: 'parentheses',
-    priced: true, source: 'manapool' },
-  { id: 'plain', label: 'Names only', format: 'plain', bracketStyle: 'brackets' },
+  { id: 'parens', label: 'Mana Pool', format: 'buylist', bracketStyle: 'parentheses',
+    priced: true, source: 'manapool', massEntry: 'https://manapool.com/add-deck' },
+  // CARD KINGDOM TAKES PLAIN NAMES, NOT SET CODES.
+  //
+  // Verified against their live Deck Builder rather than assumed. Pasting
+  // "1 Sol Ring [C21] 263" returns "The following titles were not recognized...
+  // card titles must match exactly". Pasting "1 Sol Ring" returns "Cards
+  // Selected: 2/2, Price: $3.78, ADD ITEMS TO CART".
+  //
+  // So this is the one shop where the printing cannot travel with the list.
+  // Their builder picks the edition itself (it has a "Lowest Price" auto-fill),
+  // which is close to what Bindarr's substitution does anyway -- but it means
+  // the pinned-printing choice cannot be honoured on this tab, and the sheet
+  // says so rather than implying otherwise.
+  { id: 'ckplain', label: 'Card Kingdom', format: 'plain', bracketStyle: 'brackets',
+    priced: true, source: 'cardkingdom', namesOnly: true,
+    massEntry: 'https://www.cardkingdom.com/builder' },
 ];
 
 function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
@@ -94,14 +125,15 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
     setEstimateLoading(true);
     (async () => {
       try {
-        const r = await fetch(`/api/decks/${deckId}/buylist/estimate`);
+        const r = await fetch(
+          `/api/decks/${deckId}/buylist/estimate?source=${activeFormat.source}`);
         if (r.ok && !cancelled) setEstimate(await r.json());
       } catch { /* the estimate simply does not render */ } finally {
         if (!cancelled) setEstimateLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [open, deckId, anyPrinting]);
+  }, [open, deckId, anyPrinting, activeFormat.source]);
 
   // Pinned = he wants THAT printing. Counted from the live map so the summary
   // can never disagree with the checkboxes.
@@ -178,7 +210,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
       showToast(t('deck.buylistCopyFailed'), 'error');
       return;   // no tab if the list is not on the clipboard
     }
-    window.open('https://manapool.com/add-deck', '_blank', 'noopener');
+    window.open(activeFormat.massEntry, '_blank', 'noopener');
   };
 
   // THE TEXT HE PASTES MUST NAME THE PRINTING WE PRICED.
@@ -249,6 +281,23 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             <X size={16} />
           </button>
         </div>
+
+        {/* WHY THERE IS NO PRINTING PICKER ON THIS TAB.
+            Card Kingdom's builder matches on card TITLE and chooses the edition
+            itself -- verified against their live page, where "1 Sol Ring [C21]
+            263" returns "titles must match exactly" and "1 Sol Ring" returns
+            "Cards Selected: 2/2".
+
+            So a pinned printing cannot travel in the list they accept. Hiding
+            the picker without saying why would leave him wondering where his
+            setting went; saying nothing at all would let him assume a pin he
+            made on the Mana Pool tab is being honoured here. */}
+        {activeFormat.namesOnly && text && (
+          <div style={{ padding: '0 1rem 0.6rem', fontSize: '0.72rem',
+                        color: 'var(--text-secondary)' }}>
+            {t('deck.ckPicksEdition', { shop: activeFormat.label })}
+          </div>
+        )}
 
         {/* THE TOTAL, AT THE TOP.
             Zach: "Just give me total price at the top and remove bottom list."
@@ -393,7 +442,12 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
             design. This shows the SUMMARY plus only the cards he has pinned;
             the full list is one tap away and searchable. The common case
             (everything flexible) needs no interaction at all. */}
-        {onManaPool && deckId && text && cards.length > 0 && (
+        {/* THE PRINTING PICKER ONLY APPEARS WHERE A PRINTING CAN TRAVEL.
+            Card Kingdom's builder matches on card TITLE and picks the edition
+            itself -- a pinned printing cannot be expressed in the list it
+            accepts. Showing the picker there would let him pin a printing that
+            is silently ignored, which is the state change he has ruled out. */}
+        {onManaPool && !activeFormat.namesOnly && deckId && text && cards.length > 0 && (
           <div style={{ padding: '0.75rem 1rem 0' }}>
             {/* Label above the control, matching the price block below it. The
                 first version had a bare row with different padding from its
@@ -523,7 +577,7 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
                        display: 'flex', alignItems: 'center', justifyContent: 'center',
                        gap: '0.45rem', cursor: 'pointer' }}>
               <ExternalLink size={16} />
-              {t('deck.mpOpenMassEntry')}
+              {t('deck.mpOpenShop', { shop: activeFormat.label })}
             </button>
           )}
           <button onClick={copy} disabled={!text}

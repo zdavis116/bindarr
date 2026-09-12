@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { alternativesForRequirement, repointRequirement } = require('../utils/deckRepoint');
 const scryfallApi = require('../scryfallApi');
-const { recordPrice } = require('../utils/priceHelpers');
+const { recordPrice , selectedShop } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
 const { buildDeckWarnings } = require('../utils/deckRules');
 const commanderRules = require('../utils/commanderRules');
@@ -150,6 +150,10 @@ async function assertDeckNameAvailable(database, userId, name, { excludeDeckId =
 // SQL rather than in the client so every screen gets the same number.
 router.get('/', async (req, res) => {
   try {
+    // Prices follow the shop he selected, so a deck list and the collection
+    // never quote two different shops for the same card.
+    const shop = await selectedShop(db);
+
     const rows = await db.all(`
       -- DECK LIST, rewritten from five correlated subqueries to two grouped
       -- passes plus a window function.
@@ -225,7 +229,7 @@ router.get('/', async (req, res) => {
         LEFT JOIN deck_cards dc ON d.id = dc.deck_id
         LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
         LEFT JOIN source_prices mp
-               ON mp.card_id = dcc.id AND mp.source = 'manapool'
+               ON mp.card_id = dcc.id AND mp.source = '${shop}'
         WHERE d.user_id = ?
       ),
 
@@ -2139,6 +2143,12 @@ router.get('/:id/buylist/estimate', async (req, res) => {
     // ONE QUERY FOR THE WHOLE LIST. Calling the chooser per card inside this
     // loop made a 49-card estimate take 41 seconds, because db.js serialises
     // every query through one operation queue.
+    // WHICH SHOP THIS ESTIMATE IS FOR. Each export tab prices at its own shop,
+    // independent of the one he values his collection at.
+    const shop = ['manapool', 'cardkingdom'].includes(req.query.source)
+      ? req.query.source
+      : 'manapool';
+
     const resolved = await manaPoolBuylist.chooseCheapestPrintings(db,
       items.map(i => ({
         card_id: i.desired_card_id,
@@ -2149,7 +2159,29 @@ router.get('/:id/buylist/estimate', async (req, res) => {
         quantity: i.quantity,
         name: i.name,
         listed_price: Number(i.price_trend),
-      })));
+      })), shop);
+
+    // PINNED CARDS MUST BE PRICED AT THIS TAB'S SHOP TOO.
+    //
+    // A pinned line cannot be re-priced by substitution, so it falls back to the
+    // price carried on the buylist row -- which comes from the shop he SELECTED
+    // for valuation, not the shop this export is for. On a Card Kingdom tab that
+    // silently mixes Mana Pool numbers into a Card Kingdom total.
+    //
+    // One query for every pinned card, not one per card: db.js serialises
+    // queries, and a per-card loop is what made this endpoint take 41 seconds.
+    const pinnedIds = resolved
+      .filter(r => !Number.isFinite(r.substituted_price) && r.card_id)
+      .map(r => r.card_id);
+    const shopPrice = new Map();
+    if (pinnedIds.length) {
+      const rows = await db.all(
+        `SELECT card_id, price_cents, price_cents_foil, price_cents_etched
+           FROM source_prices
+          WHERE source = ? AND card_id IN (${pinnedIds.map(() => '?').join(',')})`,
+        [shop, ...pinnedIds]);
+      for (const row of rows) shopPrice.set(row.card_id, row);
+    }
 
     let total = 0;
     let priced = 0;
@@ -2166,9 +2198,16 @@ router.get('/:id/buylist/estimate', async (req, res) => {
           condition: r.substituted_condition,
         });
       }
-      const unit = Number.isFinite(r.substituted_price)
-        ? r.substituted_price
-        : r.listed_price;
+      let unit = r.substituted_price;
+      if (!Number.isFinite(unit)) {
+        const row = shopPrice.get(r.card_id);
+        const foil = r.finish === 'foil' || r.finish === 'etched';
+        const cents = row ? (foil ? row.price_cents_foil : row.price_cents) : null;
+        // Fall back to the row's own price ONLY when this shop has nothing --
+        // better a Scryfall figure that is labelled than a card silently
+        // dropped from the total.
+        unit = Number.isFinite(cents) && cents > 0 ? cents / 100 : r.listed_price;
+      }
       if (Number.isFinite(unit) && unit > 0) {
         total += unit * (r.quantity || 1);
         priced += 1;
@@ -2181,6 +2220,7 @@ router.get('/:id/buylist/estimate', async (req, res) => {
 
     res.json({
       deck_id: deck.id,
+      source: shop,
       lines: items.length,
       priced,
       items: parseFloat(total.toFixed(2)),

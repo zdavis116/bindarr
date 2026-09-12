@@ -15,7 +15,7 @@
 // than one that says nothing: it is the page you check when you suspect the
 // catalogue is stale.
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info, ChevronUp, ChevronDown, DollarSign } from 'lucide-react';
+import { ChevronRight, Upload, Download, RefreshCw, Key, Link2, Shield, Info, DollarSign } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import ImportModal from './ImportModal';
@@ -90,10 +90,42 @@ function Section({ title, children }) {
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');
 
 // A date, or an honest dash. NEVER "just now" or a guess.
+// WHEN A SOURCE LAST REFRESHED -- date AND time.
+//
+// Zach: "for the last refreshed date can it be date and time. I want that for
+// all data sources."
+//
+// It was toLocaleDateString(), so a feed that refreshed four minutes ago and one
+// that refreshed twenty hours ago both read "9/11/2026". For a source that syncs
+// every 6 hours the date alone cannot answer the only question worth asking --
+// are these prices current -- and it made a stale feed indistinguishable from a
+// fresh one.
+//
+// Rendered in HIS timezone, not the server's. The dev box runs Etc/UTC, so a
+// server-side format would read an hour off his phone and look like a bug even
+// when the underlying timestamp was right.
 function when(iso, t) {
   if (!iso) return t('settings.never');
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? t('settings.never') : d.toLocaleDateString();
+  // THE TIMESTAMP IS UTC, AND MUST BE SAID SO.
+  //
+  // Zach: "the last run time is behind 1 hr."
+  //
+  // SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' with NO zone
+  // marker, and new Date() on that reads it as LOCAL time. The dev box runs
+  // Etc/UTC while he is on EDT, so a sync that ran at 12:35 UTC rendered as
+  // 12:35 PM on his phone instead of 8:35 AM -- four hours adrift, and always
+  // in the direction that makes a stale feed look fresh.
+  //
+  // Measured, not assumed: TZ=America/New_York node showed 12:35:22 PM raw
+  // versus 8:35:22 AM parsed as UTC.
+  const d = new Date(/[Zz]|[+-]\d\d:?\d\d$/.test(iso)
+    ? iso
+    : String(iso).replace(' ', 'T') + 'Z');
+  if (Number.isNaN(d.getTime())) return t('settings.never');
+  return d.toLocaleString(undefined, {
+    month: 'numeric', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
 }
 
 // A COUNTDOWN TO THE NEXT SYNC, plus the clock time it lands at.
@@ -253,32 +285,37 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     } catch { /* the section stays hidden rather than showing a wrong order */ }
   }, []);
 
-  const movePriceSource = async (id, delta) => {
-    if (!priceSources || savingOrder) return;
-    // Only the reorderable ones move; Scryfall is the pinned floor.
-    const movable = priceSources.sources.filter(x => x.reorderable).map(x => x.id);
-    const i = movable.indexOf(id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= movable.length) return;
-    [movable[i], movable[j]] = [movable[j], movable[i]];
+  // WHICH SHOP PRICES HIS CARDS.
+  //
+  // This was a drag-to-reorder list. Zach removed it after seeing the numbers:
+  // "I would like to get rid of the priority list and it be a selection whether
+  // I used mana pool or card kingdom but the fallback is always scryfall since
+  // it's an average."
+  //
+  // He is right that a ranking was the wrong model. The two shops have
+  // different price FLOORS -- $0.15 at Mana Pool, $0.35 at Card Kingdom -- so a
+  // ranked chain produced a total that was the price at neither shop and could
+  // not be checked against any real page.
+  const selectPriceSource = async (id) => {
+    if (!priceSources || savingOrder || priceSources.selected === id) return;
     setSavingOrder(true);
     try {
       const res = await fetch('/api/settings/price-sources', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: movable }),
+        body: JSON.stringify({ source: id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        showToast(err.error || t('settings.priceOrderFailed'));
+        showToast(err.error || t('settings.priceSourceFailed'));
       } else {
-        // Re-read rather than patching local state: the server appends the
-        // fallback and is the authority on the resulting order.
+        // Re-read rather than patching local state: the server decides what the
+        // resulting chain is, and a screen that guesses can disagree with it.
         await loadPriceSources();
-        showToast(t('settings.priceOrderSaved'));
+        showToast(t('settings.priceSourceSaved'), 'success');
       }
     } catch {
-      showToast(t('settings.priceOrderFailed'));
+      showToast(t('settings.priceSourceFailed'));
     } finally {
       setSavingOrder(false);
     }
@@ -413,131 +450,129 @@ function SettingsScreen({ user, onNavigate, showToast }) {
 
           Moxfield is deliberately absent until the integration exists: showing
           a source that cannot be connected invites "why doesn't this work". */}
-      {/* WHICH SOURCE PRICES A CARD, in order.
-          Zach: "Priority order in settings and scryfall last resort." */}
+      {/* WHICH SHOP PRICES A CARD.
+          Zach: "I would like to get rid of the priority list and it be a
+          selection whether I used mana pool or card kingdom but the fallback is
+          always scryfall since it's an average." */}
       {priceSources && (
         <Section title={t('settings.secPriceSources')}>
           <Row
             icon={DollarSign}
-            label={t('settings.priceOrderTitle')}
-            detail={t('settings.priceOrderDetail')}
+            label={t('settings.priceShopTitle')}
+            detail={priceSources.sources?.[0]?.label || ''}
             expanded={sourceOpen === 'prices'}
             onClick={() => setSourceOpen(sourceOpen === 'prices' ? null : 'prices')}
           />
           {sourceOpen === 'prices' && (
             <div style={{ background: 'var(--surface-2)' }}>
-              {priceSources.sources.map((src, idx) => (
-                <div key={src.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  padding: '0.6rem 1rem 0.6rem 2rem',
-                  borderBottom: '1px solid var(--border-glass)',
-                }}>
-                  <span style={{
-                    fontSize: '0.72rem', fontWeight: 700, minWidth: '1.1rem',
-                    color: 'var(--text-tertiary)',
-                  }}>{idx + 1}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}>
-                      {src.label}
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
-                      {/* WHY a source cannot move, rather than a dead control.
-                          And its freshness, so a stale price is diagnosable
-                          instead of merely old. */}
-                      {!src.reorderable
-                        ? t('settings.priceAlwaysLast')
-                        : src.last_error
-                          ? t('settings.priceSourceError', { error: src.last_error })
-                          : src.last_success_at
-                            ? t('settings.priceSourceUpdated', {
-                                when: new Date(src.last_success_at.replace(' ', 'T') + 'Z').toLocaleString(),
-                                count: src.row_count ?? 0 })
-                            : t('settings.priceSourceNever')}
-                    </div>
-                  </div>
-                  {src.reorderable && (
-                    <div style={{ display: 'flex', gap: '0.25rem' }}>
-                      <button
-                        type="button"
-                        aria-label={t('settings.priceMoveUp', { source: src.label })}
-                        disabled={savingOrder || idx === 0}
-                        onClick={() => movePriceSource(src.id, -1)}
-                        style={{
-                          background: 'none', border: 'none', padding: '0.3rem',
-                          color: idx === 0 ? 'var(--text-tertiary)' : 'var(--text-secondary)',
-                          cursor: idx === 0 ? 'default' : 'pointer',
-                        }}
-                      ><ChevronUp size={16} /></button>
-                      <button
-                        type="button"
-                        aria-label={t('settings.priceMoveDown', { source: src.label })}
-                        disabled={savingOrder
-                          || idx >= priceSources.sources.filter(x => x.reorderable).length - 1}
-                        onClick={() => movePriceSource(src.id, 1)}
-                        style={{
-                          background: 'none', border: 'none', padding: '0.3rem',
-                          color: 'var(--text-secondary)', cursor: 'pointer',
-                        }}
-                      ><ChevronDown size={16} /></button>
-                    </div>
-                  )}
-                </div>
-              ))}
+              {(priceSources.choices || []).map((src) => {
+                const on = src.id === priceSources.selected;
+                return (
+                  <button key={src.id} onClick={() => selectPriceSource(src.id)}
+                    disabled={savingOrder}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.7rem',
+                      width: '100%', textAlign: 'left', border: 0, font: 'inherit',
+                      padding: '0.7rem 1rem 0.7rem 2rem', background: 'transparent',
+                      color: 'inherit', cursor: savingOrder ? 'default' : 'pointer',
+                      borderBottom: '1px solid var(--border-glass)',
+                    }}>
+                    {/* A filled dot, not a checkbox: exactly one shop applies. */}
+                    <span style={{
+                      flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
+                      border: `2px solid ${on ? 'var(--accent-blue)' : 'var(--text-tertiary)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {on && <span style={{ width: 9, height: 9, borderRadius: '50%',
+                                            background: 'var(--accent-blue)' }} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.9rem',
+                                     fontWeight: on ? 600 : 400 }}>
+                        {src.label}
+                      </span>
+                      {/* Every source says how many prices it holds and when it
+                          last ran, so a stale shop is visible rather than
+                          quietly wrong. */}
+                      <span style={{ display: 'block', fontSize: '0.72rem',
+                                     color: 'var(--text-tertiary)' }}>
+                        {src.row_count
+                          ? t('settings.priceShopRows', { count: fmt(src.row_count) })
+                          : t('settings.priceShopNoData')}
+                        {src.last_success_at ? ` · ${when(src.last_success_at, t)}` : ''}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              {/* THE FALLBACK IS STATED, NOT OFFERED. It is a rule, and showing
+                  it as a fourth option would imply he could value his whole
+                  collection at an average of past sales. */}
+              <div style={{ padding: '0.7rem 1rem 0.8rem 2rem', fontSize: '0.74rem',
+                            color: 'var(--text-secondary)' }}>
+                {t('settings.priceShopFallback')}
+              </div>
             </div>
           )}
-
         </Section>
       )}
 
       <Section title={t('settings.secDataSources')}>
-        {/* MANA POOL AS A DATA SOURCE.
-            Zach: "Mana pool should exist as a data source and that is where the
-            street address info should go."
+        {/* EVERY PRICE SHOP IS A DATA SOURCE.
+            Zach: "Mana pool should exist as a data source", and later "one thing
+            missing is adding card kingdom to the data source section."
 
-            He is right: it syncs ~99k prices every 6 hours exactly like Scryfall
-            syncs the catalogue, and every other source lives here with its own
-            dropdown showing what it is syncing. Bolting its address onto the
-            price-priority card put a form where a preference belonged. */}
-        <Row
-          icon={Link2}
-          label={t('settings.manapool')}
-          detail={priceSources?.sources?.find(x => x.id === 'manapool')?.row_count
-            ? t('settings.manapoolSyncs', {
-                count: fmt(priceSources.sources.find(x => x.id === 'manapool').row_count) })
-            : t('settings.loading')}
-          expanded={sourceOpen === 'manapool'}
-          onClick={() => setSourceOpen(sourceOpen === 'manapool' ? null : 'manapool')}
-        />
-
-        {sourceOpen === 'manapool' && (
-          <div style={{ background: 'var(--surface-2)' }}>
-            <Row
-              indent
-              label={t('settings.lastRefreshed')}
-              value={priceSources?.sources?.find(x => x.id === 'manapool')?.last_success_at
-                ? when(priceSources.sources.find(x => x.id === 'manapool').last_success_at, t)
-                : '—'}
-            />
-            {/* THE COUNTDOWN, like every other source.
-                Zach: "settings has the mana pool sync but their is not countdown
-                until the next sync like all the others."
-
-                The server was already publishing manapool_next_run -- the row
-                just never rendered it, so this source looked like it ran on some
-                unknowable schedule while Scryfall and Moxfield showed theirs. */}
-            <Row
-              indent
-              label={t('settings.automatic')}
-              detail={catalogue?.manapool_next_run
-                ? t('settings.nextRunAt', { time: clockText(catalogue.manapool_next_run) })
-                : t('settings.manapoolEvery6h')}
-              value={untilText(catalogue?.manapool_next_run, catalogue?.server_now, t)
-                     || t('settings.manapoolPrices')}
-            />
-
-
-          </div>
-        )}
+            Rendered from the list of shops rather than hand-written per shop.
+            The previous version was a Mana Pool block that read the SELECTED
+            source, so Card Kingdom vanished from Settings whenever Mana Pool was
+            chosen -- a source syncing every 6 hours with nothing on screen
+            saying so. Adding a shop later needs no new markup here. */}
+        {(priceSources?.choices || []).map((shop) => {
+          const nextRun = catalogue?.[`${shop.id}_next_run`];
+          return (
+            <div key={shop.id}>
+              <Row
+                icon={Link2}
+                label={shop.label}
+                detail={shop.row_count
+                  ? t('settings.shopSyncs', { count: fmt(shop.row_count) })
+                  : t('settings.shopNeverSynced')}
+                expanded={sourceOpen === shop.id}
+                onClick={() => setSourceOpen(sourceOpen === shop.id ? null : shop.id)}
+              />
+              {sourceOpen === shop.id && (
+                <div style={{ background: 'var(--surface-2)' }}>
+                  <Row
+                    indent
+                    label={t('settings.lastRefreshed')}
+                    value={shop.last_success_at ? when(shop.last_success_at, t) : '—'}
+                  />
+                  {/* THE COUNTDOWN, like every other source. A sync with no
+                      visible next run looks like it happens at random. */}
+                  <Row
+                    indent
+                    label={t('settings.automatic')}
+                    detail={nextRun
+                      ? t('settings.nextRunAt', { time: clockText(nextRun) })
+                      : t('settings.shopEvery6h')}
+                    value={untilText(nextRun, catalogue?.server_now, t)
+                           || t('settings.shopEvery6h')}
+                  />
+                  {/* A FAILED SYNC IS SAID OUT LOUD. Otherwise a stale price
+                      looks like a current one -- the whole reason provenance
+                      exists on every figure in this app. */}
+                  {shop.last_error && (
+                    <Row
+                      indent
+                      label={t('settings.lastError')}
+                      value={shop.last_error}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         <Row
           icon={Link2}

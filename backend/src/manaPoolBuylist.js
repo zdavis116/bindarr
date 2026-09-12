@@ -50,7 +50,17 @@ class ManaPoolStockError extends Error {
 //   * it uses prices Bindarr already refreshed, so it costs no API call
 //
 // Only applied to lines he left flexible. A pinned line is returned untouched.
-async function chooseCheapestPrintings(database, cards) {
+async function chooseCheapestPrintings(database, cards, sourceId = 'manapool') {
+  // WHICH SHOP THIS LIST IS PRICED AT.
+  //
+  // Each export tab prices itself at its OWN shop -- Zach: "export buylist
+  // wouldn't change" when the valuation source became a selection. A Card
+  // Kingdom list has to cost Card Kingdom money regardless of which shop he
+  // values his binder at, or the total he reads is for a cart he is not
+  // building.
+  //
+  // Validated against a known set rather than interpolated: this goes into SQL.
+  const source = ['manapool', 'cardkingdom'].includes(sourceId) ? sourceId : 'manapool';
   const flexible = cards.filter(c => c.allow_any_printing && c.card_id);
   if (flexible.length === 0) return cards;
 
@@ -76,7 +86,7 @@ async function chooseCheapestPrintings(database, cards) {
             sp.price_cents, sp.price_cents_foil, sp.condition, sp.condition_foil
        FROM card_cache cc
        JOIN source_prices sp
-         ON sp.card_id = cc.id AND sp.source = 'manapool'
+         ON sp.card_id = cc.id AND sp.source = '${source}'
       WHERE cc.oracle_id IN (${oracles.map(() => '?').join(',')})`,
     oracles
   );

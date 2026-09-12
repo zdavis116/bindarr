@@ -100,25 +100,67 @@ function resolvePricedCard(card) {
   return { price: 0, source: null, sourceLabel: null };
 }
 
-const MARKETPLACE_LABELS = { manapool: 'Mana Pool' };
+const MARKETPLACE_LABELS = { manapool: 'Mana Pool', cardkingdom: 'Card Kingdom' };
 
-// THE JOIN THAT BRINGS MARKETPLACE PRICES INTO A QUERY.
+// THE JOIN THAT BRINGS SHOP PRICES INTO A QUERY.
 //
 // One definition, used by every priced read, so the columns resolvePricedCard
-// looks for can never be spelled differently in two places. Add TCGplayer later
-// and this is where the priority is expressed -- not in each route.
+// looks for can never be spelled differently in two places.
 //
-// TODAY IT IS HARDCODED TO MANA POOL, and that is a deliberate first step
-// rather than the finished shape. The stored priority order is honoured by the
-// SETTINGS UI work that follows; wiring the SQL to a user-ordered list means
-// building the join dynamically, which is worth doing once the order is
-// actually configurable rather than guessing at it now.
+// THIS USED TO BE HARDCODED TO MANA POOL, with a comment admitting it was a
+// first step. It now honours the shop he selected -- Zach: "I would like to get
+// rid of the priority list and it be a selection whether I used mana pool or
+// card kingdom but the fallback is always scryfall."
 //
-// LEFT JOIN, always: a card the marketplace does not stock must still appear
+// A FUNCTION, NOT A CONSTANT, because the shop is a runtime setting. Call sites
+// pass the selected id; the parameter is validated against the registry rather
+// than interpolated, since this string goes straight into SQL.
+//
+// LEFT JOIN, always: a card the chosen shop does not stock must still appear
 // with its Scryfall price, never vanish from the listing.
-const MARKETPLACE_PRICE_JOIN = `
+function marketplacePriceJoin(sourceId) {
+  const id = MARKETPLACE_LABELS[sourceId] ? sourceId : 'manapool';
+  return `
   LEFT JOIN source_prices mp
-         ON mp.card_id = cc.id AND mp.source = 'manapool'`;
+         ON mp.card_id = cc.id AND mp.source = '${id}'`;
+}
+
+// WHICH SHOP IS SELECTED, READ AT REQUEST TIME.
+//
+// Cached briefly because every priced endpoint needs it and it changes only
+// when he taps Settings. Without the cache a collection page would issue an
+// extra settings query per request through the single operation queue -- the
+// same queue that already made /api/stats take 26 seconds under load.
+let _shopCache = { id: null, at: 0 };
+const SHOP_CACHE_MS = 5000;
+
+async function selectedShop(database) {
+  if (_shopCache.id && Date.now() - _shopCache.at < SHOP_CACHE_MS) return _shopCache.id;
+  try {
+    const row = await database.get(
+      `SELECT price_source_order AS o FROM app_settings WHERE id = 1`);
+    let stored = null;
+    try { stored = JSON.parse(row?.o || 'null'); } catch { stored = null; }
+    // Accepts the legacy array form as well as the current string.
+    const id = typeof stored === 'string'
+      ? stored
+      : (Array.isArray(stored) ? stored[0] : null);
+    _shopCache = { id: MARKETPLACE_LABELS[id] ? id : 'manapool', at: Date.now() };
+  } catch {
+    // A failed settings read must not blank every price: fall back to the
+    // default shop rather than to no join at all.
+    _shopCache = { id: 'manapool', at: Date.now() };
+  }
+  return _shopCache.id;
+}
+
+// Called after a write so his choice takes effect immediately rather than up to
+// five seconds later -- a setting that appears not to work is worse than a slow
+// one.
+function clearShopCache() { _shopCache = { id: null, at: 0 }; }
+
+// Kept for the few call sites with no database handle. Same shape, default shop.
+const MARKETPLACE_PRICE_JOIN = marketplacePriceJoin('manapool');
 
 const MARKETPLACE_PRICE_COLUMNS = `
   mp.price_cents        AS mp_price_cents,
@@ -230,6 +272,9 @@ module.exports = {
   resolveCardPrice,
   resolvePricedCard,
   MARKETPLACE_PRICE_JOIN,
+  marketplacePriceJoin,
+  selectedShop,
+  clearShopCache,
   MARKETPLACE_PRICE_COLUMNS,
   parseCardRow,
   rebalanceCompartmentPositions,

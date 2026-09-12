@@ -62,13 +62,31 @@ test('PREF-TC4: substitution happens in Bindarr, and is reported', () => {
     'and the quote reports every swap to the screen');
 });
 
-test('PREF-TC5: the condition floor survives substitution', () => {
+test('PREF-TC5: the condition floor survives substitution, at every shop', () => {
   // Swapping to a cheaper printing must not quietly swap to a Damaged copy.
-  // chooseCheapestPrinting reads source_prices, which only ever holds LP/NM.
-  assert.match(buylist, /sp\.source = 'manapool'/,
-    'substitution prices come from the stored LP/NM feed, not a wider search');
+  //
+  // The guard used to assert the literal source 'manapool'. Now that the shop is
+  // selectable it must assert the RULE instead: substitution prices come from
+  // source_prices, and every fetcher that writes to source_prices filters to his
+  // floor before storing. A shop added later cannot bypass that by construction
+  // rather than by my remembering.
+  assert.match(buylist, /sp\.source = '\$\{source\}'/,
+    'substitution reads the selected shop, not a hardcoded one');
+  assert.match(buylist, /\['manapool', 'cardkingdom'\]\.includes\(sourceId\)/,
+    'and the shop id is validated against a known set before reaching SQL');
   assert.deepEqual(CONDITION_IDS, ['LP', 'NM'],
-    'and the floor itself is unchanged');
+    'the Mana Pool floor is unchanged');
+
+  // Card Kingdom grades NM/EX/VG/G. EX is the equivalent of Lightly Played;
+  // VG and G sit below his floor and must never be stored.
+  const ck = readFileSync(
+    new URL('../src/cardKingdomPrices.js', import.meta.url), 'utf8');
+  const grades = ck.slice(ck.indexOf('const ACCEPTED_GRADES'),
+                          ck.indexOf('function cents'));
+  assert.match(grades, /key: 'nm'/, 'NM is accepted');
+  assert.match(grades, /key: 'ex'.*\n?.*LP/, 'EX maps to his Lightly Played floor');
+  assert.ok(!/key: 'vg'/.test(grades) && !/key: 'g'/.test(grades),
+    'VG and G are below the floor and must not be priced');
 });
 
 test('PREF-TC6: BOTH printing-preference routes exist', () => {

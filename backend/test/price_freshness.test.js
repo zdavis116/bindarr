@@ -31,47 +31,71 @@ const modal = readFileSync(
 const block = server.slice(server.indexOf("MANAPOOL_PRICES !== 'off'"),
                            server.indexOf('MOXFIELD BACKGROUND POLL'));
 
-test('FRESH-TC1: startup consults freshness before importing', () => {
+test('FRESH-TC1: the schedule consults freshness before importing', () => {
   assert.match(block, /msSinceLastRefresh\(\)/,
-    'the startup path must ask how old the prices are');
+    'the scheduling path must ask how old the prices are');
   assert.match(prices, /async function msSinceLastRefresh/,
     'and the price module must expose that age');
 
   // THE BOOT TIMER MUST CALL THE CHECKED PATH.
   //
-  // My first version of this test only asserted that startupPriceRefresh
-  // EXISTED somewhere in the file. Swapping the boot timer back to
-  // runPriceRefresh() -- which IS the bug Zach hit -- left the function defined
-  // but unused, and the test still passed. A guard that survives its own bug is
-  // worse than no guard: it certifies the thing it was written to prevent.
-  const timer = block.slice(block.indexOf('setTimeout(() => {'));
-  assert.match(timer, /setTimeout\(\(\) => \{\s*startupPriceRefresh\(\);/,
-    'the boot timer must call the freshness-checked path, not the raw import');
+  // My first version of this only asserted that the checked function EXISTED
+  // somewhere in the file. Pointing the boot timer straight at runPriceRefresh
+  // -- which IS the bug Zach hit -- left it defined but unused and the test
+  // still passed. A guard that survives its own bug certifies the thing it was
+  // written to prevent.
+  // The BOOT timer specifically -- the 8-minute one, not the 5s re-arm that
+  // follows a completed import.
+  const timer = block.slice(block.indexOf('}, 8 * MINUTE_MS);') - 120,
+                            block.indexOf('}, 8 * MINUTE_MS);') + 20);
+  assert.match(timer, /scheduleNextPriceRun\(\)/,
+    'the boot timer must schedule through the freshness-aware path');
+  // The boot timer must not be the raw import. Scoped to the 8-minute timer:
+  // matching the whole block caught the 5s re-arm inside runPriceRefresh, which
+  // is correct code -- the test was wrong, not the server.
+  assert.ok(!/runPriceRefresh\(\);?\s*\}, 8 \* MINUTE_MS\)/.test(block),
+    'the boot timer must never call the raw import directly');
 });
 
-test('FRESH-TC2: fresh prices skip the import entirely', () => {
-  const guard = block.slice(block.indexOf('const startupPriceRefresh'),
-                            block.indexOf('// Published before the first run'));
-  assert.match(guard, /age < PRICE_STALE_MS/,
-    'a recent import must short-circuit');
-  assert.match(guard, /return;/,
-    'and return WITHOUT calling runPriceRefresh');
-  // The early return must come before the refresh call, or the guard does
-  // nothing at all.
-  assert.ok(guard.indexOf('return;') < guard.indexOf('runPriceRefresh()'),
-    'the skip must happen before the import is triggered');
+test('FRESH-TC2: fresh prices delay the import rather than repeating it', () => {
+  // A restart must not re-pull 201MB that is minutes old. Under the old design
+  // that was an early return; it is now a positive delay, which additionally
+  // fixes the bug the early return caused -- it left the countdown unset and
+  // reading "Due now" forever.
+  const sched = block.slice(block.indexOf('const scheduleNextPriceRun'));
+  // The delay is INTERVAL minus what has already elapsed -- floored at a
+  // minimum gap, because max(0, ...) let an overdue source retry instantly and
+  // loop, which is what earned HTTP 429 from Card Kingdom.
+  assert.match(sched, /PRICE_INTERVAL_MS - age/,
+    'fresh prices must push the next run out by the time already elapsed');
+  // Asserted as the FLOOR of the delay, not merely present in the file: my
+  // first version matched MIN_RETRY_MS anywhere, so reverting this very line to
+  // max(0, ...) still passed while the constant sat unused a few lines up. The
+  // sixth guard on this project to survive its own bug.
+  assert.match(sched, /Math\.max\(\s*\n?\s*priceFailures > 0 \? backoff : MIN_RETRY_MS,/,
+    'the delay must be floored at the minimum gap, never at zero');
+  assert.ok(sched.indexOf('const due =') < sched.indexOf('setTimeout'),
+    'the delay must be decided before the timer is armed');
+  // The import is reached only through the timer, never called inline, or a
+  // restart would import immediately regardless of freshness.
+  const beforeTimer = sched.slice(0, sched.indexOf('setTimeout'));
+  assert.ok(!beforeTimer.includes('runPriceRefresh()'),
+    'scheduling must not trigger an import as a side effect');
 });
 
 test('FRESH-TC3: never having imported counts as stale, not fresh', () => {
   // msSinceLastRefresh returns null on a first boot. Treating null as "recent"
   // would mean a brand new install never fetches prices at all and every screen
-  // silently falls back to Scryfall.
+  // silently falls back to Scryfall averages.
   assert.match(prices, /if \(!row\?\.last_success_at\) return null/,
     'no successful run must report null');
-  const guard = block.slice(block.indexOf('const startupPriceRefresh'),
-                            block.indexOf('// Published before the first run'));
-  assert.match(guard, /age !== null && age < PRICE_STALE_MS/,
-    'and null must NOT satisfy the skip condition');
+  const sched = block.slice(block.indexOf('const scheduleNextPriceRun'));
+  assert.match(sched, /age === null/,
+    'null must be handled explicitly, not folded into the arithmetic');
+  // With null the delay is the short startup window, not a full interval --
+  // otherwise a fresh install would wait six hours before its first prices.
+  assert.match(sched, /age === null\s*\n?\s*\? 8 \* MINUTE_MS/,
+    'a never-imported source must be scheduled promptly, not an interval away');
 });
 
 test('FRESH-TC4: the stale window is shorter than the interval', () => {

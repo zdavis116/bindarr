@@ -126,15 +126,19 @@ test('EST-TC5: the estimate prices the printing it would actually export', () =>
   // a cheaper substitute, the number and the list would disagree.
   assert.match(decks, /chooseCheapestPrintings\(db,/,
     'substitution must run before the total is computed');
-  assert.match(decks, /Number\.isFinite\(r\.substituted_price\)\s*\?\s*r\.substituted_price/,
-    'and the substituted price must be the one counted');
+  assert.match(decks, /let unit = r\.substituted_price;/,
+    'the substituted price must be the one counted');
+  // A pinned line cannot be re-priced by substitution, so it must be looked up
+  // at THIS tab's shop -- not inherited from the shop he values his binder at.
+  assert.match(decks, /shopPrice\.get\(r\.card_id\)/,
+    'and a pinned line must be priced at the shop this export is for');
 });
 
 test('EST-TC6: substitution is one query for the whole list, not one per card', () => {
   // Calling it per card took 41 seconds, because db.js serialises every query
   // through a single operation queue. Same mistake as /api/stats' per-set loop.
-  assert.match(buylist, /async function chooseCheapestPrintings\(database, cards\)/,
-    'the chooser must take the whole list');
+  assert.match(buylist, /async function chooseCheapestPrintings\(database, cards, sourceId/,
+    'the chooser must take the whole list, and the shop to price it at');
   const perCardLoop = /for \(const \w+ of items\)[\s\S]{0,200}await manaPoolBuylist\./;
   assert.ok(!perCardLoop.test(decks),
     'the route must not await the chooser inside a loop');

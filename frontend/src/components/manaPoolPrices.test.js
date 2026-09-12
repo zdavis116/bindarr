@@ -48,8 +48,12 @@ test('MP-TC1: the most-valuable list sorts by the price it will show', () => {
   assert.match(q, /mp\.price_cents/,
     'the ORDER BY must consider the marketplace price, or the six "most '
     + 'valuable" cards are the six most valuable by a price the row does not show');
-  assert.match(q, /MARKETPLACE_PRICE_JOIN/,
-    'the query must join the marketplace prices it sorts by');
+  // The join used to be a fixed constant. It is now built from the shop he
+  // selected, so this asserts that the query joins THAT -- pinning it back to
+  // one shop would sort by Mana Pool while displaying Card Kingdom numbers,
+  // which is the same bug this test was written for in the first place.
+  assert.match(q, /\$\{shopJoin\}/,
+    'the query must join the prices of the shop currently selected');
 });
 
 test('MP-TC2: top-valuable and recent additions carry their source', () => {

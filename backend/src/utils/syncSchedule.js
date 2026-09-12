@@ -28,12 +28,15 @@ let manaPoolNextRun = null;
 function setCatalogueNextRun(iso) { catalogueNextRun = iso || null; }
 function setMoxfieldNextRun(iso) { moxfieldNextRun = iso || null; }
 function setManaPoolNextRun(iso) { manaPoolNextRun = iso || null; }
+let cardKingdomNextRun = null;
+function setCardKingdomNextRun(iso) { cardKingdomNextRun = iso || null; }
 
 function getSchedule() {
   return {
     catalogue_next_run: catalogueNextRun,
     moxfield_next_run: moxfieldNextRun,
     manapool_next_run: manaPoolNextRun,
+    cardkingdom_next_run: cardKingdomNextRun,
     // The server's own clock, so the client can correct for a device clock that
     // is off. Without it a phone running two minutes fast shows a countdown two
     // minutes short, and "why did it not sync?" becomes unanswerable.
@@ -41,4 +44,5 @@ function getSchedule() {
   };
 }
 
-module.exports = { setCatalogueNextRun, setMoxfieldNextRun, setManaPoolNextRun, getSchedule };
+module.exports = { setCatalogueNextRun, setMoxfieldNextRun, setManaPoolNextRun,
+                   setCardKingdomNextRun, getSchedule };
