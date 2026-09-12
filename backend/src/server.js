@@ -385,6 +385,9 @@ db.initDb()
       // take 26 seconds. (My first version used three minutes and the comment
       // claimed it ran after the catalogue check; 3 < 5, so it did not. Checked
       // the numbers rather than trusting the sentence I had just written.)
+      // Published immediately so the countdown is right from boot, then again
+      // after the startup delay in case the first computation raced the DB.
+      scheduleNextPriceRun();
       setTimeout(() => { scheduleNextPriceRun(); }, 8 * MINUTE_MS);
 
       console.log('Mana Pool price refresh scheduled: first check in 8 min'
@@ -445,6 +448,7 @@ db.initDb()
       };
       // ELEVEN minutes: three past Mana Pool's slot, so a cold start cannot run
       // two large imports through the single operation queue at once.
+      scheduleNextCk();
       setTimeout(() => { scheduleNextCk(); }, 11 * MINUTE);
 
       console.log('Card Kingdom price refresh scheduled: first check in 11 min'
