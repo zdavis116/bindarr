@@ -105,6 +105,27 @@ test('SHOP-TC7: switching shops takes effect immediately', () => {
     'the write path must clear it');
 });
 
+test('SHOP-TC9: the export sheet opens on the shop he selected', () => {
+  // Zach: "It should open which ever card price source we are using."
+  //
+  // The sheet used to open on the first tab regardless, so someone valuing
+  // their collection at Card Kingdom changed shops on every export -- and could
+  // read a Mana Pool total for a moment and take it for theirs.
+  const modal = readFileSync(
+    new URL('../../frontend/src/components/ExportModal.jsx', import.meta.url), 'utf8');
+  assert.match(modal, /fetch\('\/api\/settings\/price-sources'\)/,
+    'the sheet must read the selected shop when it opens');
+  assert.match(modal, /EXPORT_FORMATS\.find\(f => f\.source === d\.selected\)/,
+    'and match it to a tab by source id');
+  // Scryfall is the fallback and has no tab. An unknown or unmatched id must
+  // leave the sheet on a working tab rather than blanking it.
+  assert.match(modal, /if \(match\) setFormatId\(match\.id\)/,
+    'an unmatched source must not clear the active tab');
+  // Re-read on every open: he can change shops in Settings between exports.
+  assert.match(modal, /\}, \[open\]\)/,
+    'the lookup must run each time the sheet opens, not once per session');
+});
+
 test('SHOP-TC8: Card Kingdom prices are real, stocked, and above his floor', () => {
   // A price with no quantity behind it is not a price he can act on: Card
   // Kingdom lists prices for grades they are out of.

@@ -66,7 +66,36 @@ const EXPORT_FORMATS = [
 
 function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   const { t } = useT();
+  // OPEN ON THE SHOP HE ACTUALLY USES.
+  //
+  // Zach: "It should open which ever card price source we are using."
+  //
+  // The sheet used to open on the first tab regardless, so someone valuing
+  // their collection at Card Kingdom had to change shops on every single
+  // export -- and worse, could read a Mana Pool total for a moment and think
+  // it was theirs. The default should agree with Settings.
+  //
+  // Still a free choice once open: he may well value at one shop and buy at
+  // the other, which is exactly why both tabs stay.
   const [formatId, setFormatId] = useState(EXPORT_FORMATS[0].id);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/settings/price-sources');
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        const match = EXPORT_FORMATS.find(f => f.source === d.selected);
+        // Only if that shop HAS a tab. Scryfall is a fallback, not a shop, and
+        // an unknown id must leave the sheet on a working tab rather than
+        // blanking it.
+        if (match) setFormatId(match.id);
+      } catch { /* the sheet simply opens on its default tab */ }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   // Zach: "I think we should only see manapool stuff when on the manapool
   // selection." The printing picker, the cost estimate and the Mass Entry
