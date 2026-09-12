@@ -105,6 +105,29 @@ test('SHOP-TC7: switching shops takes effect immediately', () => {
     'the write path must clear it');
 });
 
+test('SHOP-TC11: a price is labelled with the shop it actually came from', () => {
+  // Found by auditing after Zach caught the deck-header bug, rather than by
+  // waiting for him to find this one too.
+  //
+  // The JOINs were converted to read the selected shop, but the CASE
+  // expressions that stamp provenance still wrote the literal 'manapool'. So
+  // with Card Kingdom selected, a Card Kingdom price was displayed attributed
+  // to Mana Pool -- in the one place this app promises to say where a number
+  // came from. Measured before the fix: 119 deck cards mislabelled.
+  //
+  // "A PRICE ALWAYS CARRIES ITS SOURCE" is worthless if the source is a guess.
+  for (const f of ['routes/decks.js', 'utils/deckIdentity.js']) {
+    const src = readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+    const cases = src.match(/THEN '[a-z]+'\s*\n\s*WHEN/g) || [];
+    for (const c of cases) {
+      assert.ok(!c.includes("'manapool'") && !c.includes("'cardkingdom'"),
+        `${f}: provenance must name the shop that was queried, not a literal`);
+    }
+    assert.match(src, /THEN '\$\{shop\}'/,
+      `${f}: the label must interpolate the shop the JOIN used`);
+  }
+});
+
 test('SHOP-TC10: both deck-header figures come from the SAME shop', () => {
   // Zach, with a screenshot: "the green text is referring to manapool so that
   // should update as well to use card kingdom when card kingdom is selected."

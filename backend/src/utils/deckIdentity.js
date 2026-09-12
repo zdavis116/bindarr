@@ -388,7 +388,7 @@ async function availabilityForDeck(database, deckId, userId) {
               cc.price_trend) AS price_trend,
             CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
                             THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
-                 THEN 'manapool'
+                 THEN '${shop}'
                  WHEN cc.price_trend > 0 THEN 'scryfall'
                  ELSE NULL
             END AS price_source,

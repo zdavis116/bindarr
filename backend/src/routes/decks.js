@@ -221,7 +221,7 @@ router.get('/', async (req, res) => {
           -- Which source that number came from, so a deck row can say it.
           CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
                           THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
-               THEN 'manapool'
+               THEN '${shop}'
                WHEN dcc.price_trend > 0 THEN 'scryfall'
                ELSE NULL
           END AS price_source
