@@ -342,53 +342,39 @@ db.initDb()
             // a price is stale rather than just showing an old number.
             console.error('Mana Pool price refresh failed:', err.message);
           });
-        syncSchedule.setManaPoolNextRun(
-          new Date(Date.now() + PRICE_INTERVAL_MS).toISOString());
+        // Re-armed after the import lands so the next run is measured from the
+        // timestamp it just wrote, not from when it started.
+        setTimeout(() => { scheduleNextPriceRun(); }, 5000);
       };
 
-      // A RESTART IS NOT A REASON TO RE-IMPORT.
+
+      // ONE CLOCK FOR THE TIMER AND THE COUNTDOWN.
       //
-      // Zach: "where is there a delay in loading total... about a minute later
-      // it updated." Every restart armed this 8-minute timer, so four deploys in
-      // an hour meant four full 201MB imports -- and an import holds the single
-      // database queue, so his reads waited behind it. He opened the export
-      // sheet mid-import and watched it fill in a minute later.
-      //
-      // The catalogue was fixed this way weeks ago ("I feel like the sync should
-      // run independently of the app being stopped and started") and I did not
-      // apply the same rule here. Now a boot only imports if the stored feed is
-      // genuinely old; otherwise it waits for its normal slot.
-      const startupPriceRefresh = async () => {
+      // scheduleNextPriceRun computes how long until the next run is actually
+      // due -- from the last successful import, not from boot -- publishes that
+      // moment, and arms a timer for exactly it. Every completed run calls it
+      // again. A restart re-derives the same instant instead of restarting a
+      // six-hour clock, so the schedule cannot drift later each time the
+      // service bounces.
+      let priceTimer = null;
+      const scheduleNextPriceRun = async () => {
         let age = null;
         try {
           age = await msSinceLastRefresh();
         } catch (err) {
           console.error('Could not read Mana Pool price freshness:', err.message);
         }
-        // null means it has NEVER succeeded -- that is stale, not fresh.
-        if (age !== null && age < PRICE_STALE_MS) {
-          const mins = Math.round(age / MINUTE_MS);
-          console.log(`Mana Pool prices are ${mins} min old; skipping the startup`
-            + ` import and waiting for the scheduled run.`);
-          // SKIPPING STILL HAS TO SAY WHEN THE NEXT RUN IS.
-          //
-          // Zach: "the automatic section says due now for both mana pool and
-          // card kingdom". Returning here left the stamp at boot+8min, which
-          // then expired and read "Due now" indefinitely -- a healthy sync
-          // looking broken, which is worse than a broken one looking broken.
-          //
-          // Anchored to the LAST SUCCESSFUL import, not to now: anchoring to now
-          // would push the schedule six hours later on every restart, so a box
-          // that reboots often would quietly stop refreshing prices.
-          syncSchedule.setManaPoolNextRun(
-            new Date(Date.now() + (PRICE_INTERVAL_MS - age)).toISOString());
-          return;
-        }
-        runPriceRefresh();
+        // Never imported, or the stamp is unreadable: treat as due, but not
+        // instantly -- the startup delay still keeps it clear of the catalogue.
+        const due = age === null
+          ? 8 * MINUTE_MS
+          : Math.max(0, PRICE_INTERVAL_MS - age);
+        syncSchedule.setManaPoolNextRun(new Date(Date.now() + due).toISOString());
+        if (priceTimer) clearTimeout(priceTimer);
+        priceTimer = setTimeout(() => {
+          runPriceRefresh();
+        }, due);
       };
-
-      // Published before the first run so the countdown is right immediately.
-      syncSchedule.setManaPoolNextRun(new Date(Date.now() + 8 * MINUTE_MS).toISOString());
 
       // EIGHT minutes after boot, then every six hours.
       //
@@ -399,10 +385,7 @@ db.initDb()
       // take 26 seconds. (My first version used three minutes and the comment
       // claimed it ran after the catalogue check; 3 < 5, so it did not. Checked
       // the numbers rather than trusting the sentence I had just written.)
-      setTimeout(() => {
-        startupPriceRefresh();
-        setInterval(runPriceRefresh, PRICE_INTERVAL_MS);
-      }, 8 * MINUTE_MS);
+      setTimeout(() => { scheduleNextPriceRun(); }, 8 * MINUTE_MS);
 
       console.log('Mana Pool price refresh scheduled: first check in 8 min'
         + ' (skipped if prices are under 3h old), then every 6h.');
@@ -443,34 +426,26 @@ db.initDb()
             // stale rather than just showing an old number.
             console.error('Card Kingdom price refresh failed:', err.message);
           });
-        syncSchedule.setCardKingdomNextRun(
-          new Date(Date.now() + CK_INTERVAL_MS).toISOString());
+        setTimeout(() => { scheduleNextCk(); }, 5000);
       };
 
-      const startupCk = async () => {
+
+      // Same single-clock correction as Mana Pool.
+      let ckTimer = null;
+      const scheduleNextCk = async () => {
         let age = null;
         try { age = await ckAge(); }
         catch (err) { console.error('Could not read Card Kingdom freshness:', err.message); }
-        // null means it has NEVER succeeded -- stale, not fresh.
-        if (age !== null && age < CK_STALE_MS) {
-          console.log(`Card Kingdom prices are ${Math.round(age / MINUTE)} min old;`
-            + ' skipping the startup import and waiting for the scheduled run.');
-          // Same correction as Mana Pool: a skip must still publish a real next
-          // run, anchored to the last success so restarts cannot push it later.
-          syncSchedule.setCardKingdomNextRun(
-            new Date(Date.now() + (CK_INTERVAL_MS - age)).toISOString());
-          return;
-        }
-        runCk();
+        const due = age === null
+          ? 11 * MINUTE
+          : Math.max(0, CK_INTERVAL_MS - age);
+        syncSchedule.setCardKingdomNextRun(new Date(Date.now() + due).toISOString());
+        if (ckTimer) clearTimeout(ckTimer);
+        ckTimer = setTimeout(() => { runCk(); }, due);
       };
-
-      syncSchedule.setCardKingdomNextRun(new Date(Date.now() + 11 * MINUTE).toISOString());
       // ELEVEN minutes: three past Mana Pool's slot, so a cold start cannot run
       // two large imports through the single operation queue at once.
-      setTimeout(() => {
-        startupCk();
-        setInterval(runCk, CK_INTERVAL_MS);
-      }, 11 * MINUTE);
+      setTimeout(() => { scheduleNextCk(); }, 11 * MINUTE);
 
       console.log('Card Kingdom price refresh scheduled: first check in 11 min'
         + ' (skipped if prices are under 3h old), then every 6h.');

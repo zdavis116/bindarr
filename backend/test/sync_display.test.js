@@ -23,17 +23,53 @@ const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8'
 const settingsUi = readFileSync(
   new URL('../../frontend/src/components/SettingsScreen.jsx', import.meta.url), 'utf8');
 
-test('SYNC-TC1: skipping a startup import still publishes the next run', () => {
-  // The bug was a bare `return` on the skip path. Both shops must set their
-  // next-run stamp BEFORE returning, or the countdown expires and sits at
-  // "Due now" indefinitely.
-  for (const [shop, setter] of [['Mana Pool', 'setManaPoolNextRun'],
-                                ['Card Kingdom', 'setCardKingdomNextRun']]) {
-    const i = server.indexOf(`${shop} prices are`);
-    assert.ok(i > -1, `${shop} skip path must exist`);
-    const block = server.slice(i, server.indexOf('return;', i));
-    assert.match(block, new RegExp(`syncSchedule\\.${setter}`),
-      `${shop} must publish a next run before returning from a skip`);
+test('SYNC-TC1: the countdown and the timer are ONE clock', () => {
+  // Zach: "it's still busted... the automatic is just wrong" -- last refreshed
+  // 2:08 PM, next run 8:08 PM, his phone 9:00 PM. Overdue by 53 minutes with
+  // nothing having run.
+  //
+  // My previous fix made the SKIP publish a stamp anchored to the last import
+  // (last_success + 6h), but the timer was still setInterval(6h) started at
+  // BOOT. Two different moments, so the countdown expired while the timer was
+  // still waiting -- and "Due now" was telling the truth.
+  //
+  // The fix is one function that computes the delay ONCE, publishes it, and
+  // arms a timer for exactly that. The guard asserts they cannot diverge again
+  // by construction rather than by my keeping two expressions in step.
+  for (const [shop, fn, setter, interval] of [
+    ['Mana Pool', 'scheduleNextPriceRun', 'setManaPoolNextRun', 'PRICE_INTERVAL_MS'],
+    ['Card Kingdom', 'scheduleNextCk', 'setCardKingdomNextRun', 'CK_INTERVAL_MS'],
+  ]) {
+    const i = server.indexOf(`const ${fn} = async`);
+    assert.ok(i > -1, `${shop} must schedule through one function`);
+    const block = server.slice(i, server.indexOf('};', server.indexOf('setTimeout', i)));
+    assert.match(block, new RegExp(`const due = `),
+      `${shop} must compute the delay once`);
+    assert.match(block, new RegExp(`${setter}\\(new Date\\(Date\\.now\\(\\) \\+ due\\)`),
+      `${shop} must publish exactly the delay it is about to wait`);
+    assert.match(block, /setTimeout\(\(\) => \{[\s\S]*?\}, due\)/,
+      `${shop} must arm the timer with that same delay`);
+    assert.match(block, new RegExp(`${interval} - age`),
+      `${shop} must measure from the last import, not from boot`);
+  }
+  // setInterval is what caused this: it counts from process start and cannot be
+  // re-derived after a restart.
+  assert.ok(!/setInterval\(runPriceRefresh/.test(server)
+    && !/setInterval\(runCk/.test(server),
+    'a price sync must not run on a boot-anchored setInterval');
+});
+
+test('SYNC-TC1b: a completed run re-arms the schedule', () => {
+  // A one-shot timer that never re-arms is a sync that runs exactly once and
+  // then silently stops -- worse than the bug it replaced, and invisible until
+  // prices are days stale.
+  for (const [shop, fn] of [['Mana Pool', 'scheduleNextPriceRun'],
+                            ['Card Kingdom', 'scheduleNextCk']]) {
+    const runner = shop === 'Mana Pool' ? 'runPriceRefresh' : 'runCk';
+    const i = server.indexOf(`const ${runner} = `);
+    const block = server.slice(i, server.indexOf('\n      };', i));
+    assert.match(block, new RegExp(fn),
+      `${shop}: every completed run must schedule the next one`);
   }
 });
 
