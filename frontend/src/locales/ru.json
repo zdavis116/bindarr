@@ -112,6 +112,8 @@
   "admin.userCards.other": "{count} карты",
   "admin.userCreated": "Пользователь «{name}» создан.",
   "admin.userDeleted": "Пользователь «{name}» удалён.",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "Применить перенос",
   "bulk.clear": "Сбросить",
   "bulk.confirmDelete.few": "Удалить {count} выбранные карты? Это нельзя отменить.",

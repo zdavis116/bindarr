@@ -103,6 +103,8 @@
   "admin.userCards.other": "{count}장",
   "admin.userCreated": "사용자 “{name}”을(를) 만들었습니다.",
   "admin.userDeleted": "사용자 “{name}”을(를) 삭제했습니다.",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "이동 적용",
   "bulk.clear": "선택 해제",
   "bulk.confirmDelete.other": "선택한 {count}장을 삭제하시겠습니까? 되돌릴 수 없습니다.",

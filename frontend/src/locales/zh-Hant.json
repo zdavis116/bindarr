@@ -103,6 +103,8 @@
   "admin.userCards.other": "{count} 張卡",
   "admin.userCreated": "使用者「{name}」建立成功。",
   "admin.userDeleted": "使用者「{name}」已刪除。",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "套用移動",
   "bulk.clear": "清除",
   "bulk.confirmDelete.other": "要刪除所選的 {count} 張卡牌嗎？此動作無法復原。",

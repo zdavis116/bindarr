@@ -103,6 +103,8 @@
   "admin.userCards.other": "{count} 枚",
   "admin.userCreated": "ユーザー「{name}」を作成しました。",
   "admin.userDeleted": "ユーザー「{name}」を削除しました。",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "移動を実行",
   "bulk.clear": "選択を解除",
   "bulk.confirmDelete.other": "選択した {count} 枚を削除しますか？この操作は取り消せません。",

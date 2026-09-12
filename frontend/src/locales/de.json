@@ -106,6 +106,8 @@
   "admin.userCards.other": "{count} Karten",
   "admin.userCreated": "Benutzer „{name}“ erfolgreich erstellt.",
   "admin.userDeleted": "Benutzer „{name}“ gelöscht.",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "Verschieben anwenden",
   "bulk.clear": "Zurücksetzen",
   "bulk.confirmDelete.one": "{count} ausgewählte Karte löschen? Das kann nicht rückgängig gemacht werden.",

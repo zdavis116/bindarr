@@ -109,6 +109,8 @@
   "admin.userCards.other": "{count} carte",
   "admin.userCreated": "Utente «{name}» creato correttamente.",
   "admin.userDeleted": "Utente «{name}» eliminato.",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "Applica lo spostamento",
   "bulk.clear": "Azzera",
   "bulk.confirmDelete.many": "Eliminare {count} di carte selezionate? L'operazione non si può annullare.",

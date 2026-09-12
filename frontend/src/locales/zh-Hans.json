@@ -131,6 +131,8 @@
   "admin.userCreated": "用户“{name}”创建成功。",
   "admin.userDeleted": "用户“{name}”已删除。",
   "admin.username": "Username",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "应用移动",
   "bulk.clear": "清除",
   "bulk.confirmDelete": "删除 {count} 张卡？此操作可撤销。",

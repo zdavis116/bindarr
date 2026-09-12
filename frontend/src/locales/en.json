@@ -134,6 +134,8 @@
   "admin.userCreated": "User \"{name}\" created successfully.",
   "admin.userDeleted": "User \"{name}\" deleted.",
   "admin.username": "Username",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "Apply Move",
   "bulk.clear": "Clear",
   "bulk.confirmDelete": "Delete {count} card(s)? You can undo this.",
