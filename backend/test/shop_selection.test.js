@@ -105,6 +105,31 @@ test('SHOP-TC7: switching shops takes effect immediately', () => {
     'the write path must clear it');
 });
 
+test('SHOP-TC10: both deck-header figures come from the SAME shop', () => {
+  // Zach, with a screenshot: "the green text is referring to manapool so that
+  // should update as well to use card kingdom when card kingdom is selected."
+  //
+  // With Card Kingdom selected the header read:
+  //   $232.68  to finish, as listed          <- Card Kingdom
+  //   $127.66 cheapest printings, saves $105.02  <- MANA POOL
+  //
+  // Two shops in one subtraction. The as-listed figure followed the selection
+  // but the estimate endpoint defaulted to a hardcoded 'manapool', so the
+  // saving was fiction -- the real Card Kingdom cheapest is $213.21, a $19
+  // saving rather than $105. Worse than a wrong label: a number he could act
+  // on, wrong by $86.
+  const decks = readFileSync(
+    new URL('../src/routes/decks.js', import.meta.url), 'utf8');
+  const route = decks.slice(decks.indexOf("'/:id/buylist/estimate'"));
+  assert.match(route, /: await selectedShop\(db\)/,
+    'with no ?source the estimate must use the SELECTED shop, not a literal');
+  assert.ok(!/req\.query\.source\s*\n?\s*: 'manapool'/.test(route),
+    'defaulting to a hardcoded shop is what made the saving fiction');
+  // An explicit ?source must still win: each export tab prices at its own shop.
+  assert.match(route, /\['manapool', 'cardkingdom'\]\.includes\(req\.query\.source\)/,
+    'an explicit source must still override, for the per-shop export tabs');
+});
+
 test('SHOP-TC9: the export sheet opens on the shop he selected', () => {
   // Zach: "It should open which ever card price source we are using."
   //

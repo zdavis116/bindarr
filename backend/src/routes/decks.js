@@ -2143,11 +2143,20 @@ router.get('/:id/buylist/estimate', async (req, res) => {
     // ONE QUERY FOR THE WHOLE LIST. Calling the chooser per card inside this
     // loop made a 49-card estimate take 41 seconds, because db.js serialises
     // every query through one operation queue.
-    // WHICH SHOP THIS ESTIMATE IS FOR. Each export tab prices at its own shop,
-    // independent of the one he values his collection at.
+    // WHICH SHOP THIS ESTIMATE IS FOR.
+    //
+    // An explicit ?source wins -- each export tab prices at its OWN shop, since
+    // he may value his binder at one and buy at the other.
+    //
+    // With no parameter it falls back to the SELECTED shop, not to a hardcoded
+    // Mana Pool. Zach caught the difference: with Card Kingdom selected, the
+    // deck header read "$232.68 to finish, as listed" (Card Kingdom) above
+    // "$127.66 cheapest printings - saves $105.02" (Mana Pool). Two shops in one
+    // subtraction, and the saving was pure fiction -- the real Card Kingdom
+    // figure is $213.21, a saving of $19, not $105.
     const shop = ['manapool', 'cardkingdom'].includes(req.query.source)
       ? req.query.source
-      : 'manapool';
+      : await selectedShop(db);
 
     const resolved = await manaPoolBuylist.chooseCheapestPrintings(db,
       items.map(i => ({

@@ -188,6 +188,14 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     let cancelled = false;
     (async () => {
       try {
+        // No ?source: the endpoint uses the SHOP HE SELECTED, the same shop
+        // the as-listed figure above it comes from.
+        //
+        // Zach caught this comparing two shops in one subtraction: with Card
+        // Kingdom selected the header read "$232.68 to finish, as listed" over
+        // "$127.66 cheapest printings - saves $105.02". The first was Card
+        // Kingdom, the second Mana Pool, and the saving was fiction. The real
+        // Card Kingdom cheapest is $213.21 -- a $19 saving, not $105.
         const r = await fetch(`/api/decks/${deck.id}/buylist/estimate`);
         if (r.ok && !cancelled) {
           const d = await r.json();
