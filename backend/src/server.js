@@ -351,10 +351,12 @@ db.initDb()
                     VALUES ('manapool', ?)
                     ON CONFLICT(source) DO UPDATE SET last_error = ?`,
                    [err.message, err.message]).catch(() => {});
-          });
-        // Re-armed after the import lands so the next run is measured from the
-        // timestamp it just wrote, not from when it started.
-        setTimeout(() => { scheduleNextPriceRun(); }, 5000);
+          })
+          // CHAINED to the import, not a 5s guess. The previous version re-armed
+          // while the fetch was still in flight, so the failure counter was
+          // still 0 when the next delay was computed and the backoff never
+          // engaged -- which is why the 429s continued after the first fix.
+          .finally(() => { scheduleNextPriceRun(); });
       };
 
 
@@ -459,8 +461,12 @@ db.initDb()
                     VALUES ('cardkingdom', ?)
                     ON CONFLICT(source) DO UPDATE SET last_error = ?`,
                    [err.message, err.message]).catch(() => {});
-          });
-        setTimeout(() => { scheduleNextCk(); }, 5000);
+          })
+          // CHAINED, not a 5s guess: the previous version re-armed while the
+          // fetch was still in flight, so ckFailures was still 0 and the
+          // backoff never engaged. That is why the 429s continued after the
+          // first fix.
+          .finally(() => { scheduleNextCk(); });
       };
 
 

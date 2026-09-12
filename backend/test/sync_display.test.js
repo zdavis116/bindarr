@@ -59,17 +59,26 @@ test('SYNC-TC1: the countdown and the timer are ONE clock', () => {
     'a price sync must not run on a boot-anchored setInterval');
 });
 
-test('SYNC-TC1b: a completed run re-arms the schedule', () => {
+test('SYNC-TC1b: a completed run re-arms the schedule, AFTER it settles', () => {
   // A one-shot timer that never re-arms is a sync that runs exactly once and
   // then silently stops -- worse than the bug it replaced, and invisible until
   // prices are days stale.
+  //
+  // AND IT MUST BE CHAINED, not a timed guess. My first version re-armed with
+  // setTimeout(..., 5000) while the import was still in flight, so the failure
+  // counter was still 0 when the next delay was computed. The backoff never
+  // engaged and Card Kingdom kept returning 429 after I had "fixed" it. Zach
+  // saw eleven more failures on the next deploy.
   for (const [shop, fn] of [['Mana Pool', 'scheduleNextPriceRun'],
                             ['Card Kingdom', 'scheduleNextCk']]) {
     const runner = shop === 'Mana Pool' ? 'runPriceRefresh' : 'runCk';
     const i = server.indexOf(`const ${runner} = `);
     const block = server.slice(i, server.indexOf('\n      };', i));
-    assert.match(block, new RegExp(fn),
-      `${shop}: every completed run must schedule the next one`);
+    assert.ok(block.includes(`.finally(() => { ${fn}(); })`),
+      `${shop}: the next run must be scheduled from .finally(), so the failure `
+      + 'count is already updated when the delay is computed');
+    assert.ok(!block.includes(`setTimeout(() => { ${fn}(); },`),
+      `${shop}: a timed re-arm races the import it is meant to follow`);
   }
 });
 
