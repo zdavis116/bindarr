@@ -63,8 +63,17 @@ test('FRESH-TC2: fresh prices delay the import rather than repeating it', () => 
   // fixes the bug the early return caused -- it left the countdown unset and
   // reading "Due now" forever.
   const sched = block.slice(block.indexOf('const scheduleNextPriceRun'));
-  assert.match(sched, /Math\.max\(0, PRICE_INTERVAL_MS - age\)/,
+  // The delay is INTERVAL minus what has already elapsed -- floored at a
+  // minimum gap, because max(0, ...) let an overdue source retry instantly and
+  // loop, which is what earned HTTP 429 from Card Kingdom.
+  assert.match(sched, /PRICE_INTERVAL_MS - age/,
     'fresh prices must push the next run out by the time already elapsed');
+  // Asserted as the FLOOR of the delay, not merely present in the file: my
+  // first version matched MIN_RETRY_MS anywhere, so reverting this very line to
+  // max(0, ...) still passed while the constant sat unused a few lines up. The
+  // sixth guard on this project to survive its own bug.
+  assert.match(sched, /Math\.max\(\s*\n?\s*priceFailures > 0 \? backoff : MIN_RETRY_MS,/,
+    'the delay must be floored at the minimum gap, never at zero');
   assert.ok(sched.indexOf('const due =') < sched.indexOf('setTimeout'),
     'the delay must be decided before the timer is armed');
   // The import is reached only through the timer, never called inline, or a

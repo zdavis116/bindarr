@@ -73,6 +73,53 @@ test('SYNC-TC1b: a completed run re-arms the schedule', () => {
   }
 });
 
+test('SYNC-TC1c: a failing import backs off instead of hammering the vendor', () => {
+  // FOUND IN THE LOGS, not by reasoning: his box was making a Card Kingdom
+  // request every ~6 seconds and collecting HTTP 429s.
+  //
+  //   Card Kingdom price refresh failed: ... returned HTTP 429   (x6 in 40s)
+  //
+  // Prices were 7h46m old against a 6h interval, so due = max(0, INTERVAL-age)
+  // was 0. The timer fired at once, the import failed, the handler rescheduled,
+  // and 0 came out again. A hot loop, and every failure invisible because the
+  // error was only logged.
+  //
+  // A 24h vendor outage cost ~14,400 requests. With a 15-minute floor and
+  // exponential backoff it costs 7.
+  for (const [shop, failures, interval] of [
+    ['Mana Pool', 'priceFailures', 'PRICE_INTERVAL_MS'],
+    ['Card Kingdom', 'ckFailures', 'CK_INTERVAL_MS'],
+  ]) {
+    assert.match(server, new RegExp(`let ${failures} = 0;`),
+      `${shop} must count consecutive failures`);
+    assert.match(server, new RegExp(`${failures} \\+= 1;`),
+      `${shop} must increment on failure`);
+    assert.match(server, new RegExp(`${failures} = 0;\\s*\\n\\s*console\\.log`),
+      `${shop} must reset the count on success, or backoff never recovers`);
+    assert.match(server, new RegExp(`Math\\.min\\(\\s*\\n?\\s*${interval},`),
+      `${shop} backoff must be capped at the normal interval`);
+  }
+  // The floor is what stops the loop: without it an overdue source retries
+  // instantly forever.
+  assert.match(server, /MIN_RETRY_MS \* Math\.pow\(2,/,
+    'backoff must grow exponentially from the minimum gap');
+  assert.ok(!/Math\.max\(0, PRICE_INTERVAL_MS - age\)/.test(server)
+    && !/Math\.max\(0, CK_INTERVAL_MS - age\)/.test(server),
+    'an overdue source must never compute a zero delay');
+});
+
+test('SYNC-TC1d: a failed sync is recorded, not just logged', () => {
+  // Six failures in forty seconds and the UI said nothing. A stale price that
+  // looks current is the exact failure this app exists to avoid -- provenance
+  // on every figure is worthless if "this did not refresh" is invisible.
+  for (const shop of ['manapool', 'cardkingdom']) {
+    const i = server.indexOf(`VALUES ('${shop}', ?)`);
+    assert.ok(i > -1, `${shop} must write last_error to source_price_meta`);
+  }
+  assert.match(server, /ON CONFLICT\(source\) DO UPDATE SET last_error = \?/,
+    'and must update the existing row rather than silently doing nothing');
+});
+
 test('SYNC-TC2: the next run is anchored to the last success, not to now', () => {
   // Anchoring to now would push the schedule one full interval later on EVERY
   // restart, so a box that reboots often would quietly stop refreshing prices

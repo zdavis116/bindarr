@@ -323,6 +323,8 @@ db.initDb()
     if (process.env.MANAPOOL_PRICES !== 'off') {
       const { refreshManaPoolPrices, msSinceLastRefresh } = require('./manaPoolPrices');
       const MINUTE_MS = 60 * 1000;
+      // Never poll a vendor harder than this, no matter how overdue.
+      const MIN_RETRY_MS = 15 * MINUTE_MS;
       const PRICE_INTERVAL_MS = 6 * 60 * MINUTE_MS;
       // Half the interval: old enough to be worth 201MB, new enough that a
       // deploy during the day never triggers one.
@@ -331,6 +333,7 @@ db.initDb()
       const runPriceRefresh = () => {
         refreshManaPoolPrices()
           .then(({ written, skipped, asOf }) => {
+            priceFailures = 0;
             console.log(`Mana Pool prices: ${written} rows updated`
               + `${skipped ? `, ${skipped} skipped` : ''}`
               + `${asOf ? ` (feed as of ${asOf})` : ''}.`);
@@ -340,7 +343,14 @@ db.initDb()
             // down, and the previous prices are still there. The failure is
             // recorded in source_price_meta.last_error so Settings can say WHY
             // a price is stale rather than just showing an old number.
+            priceFailures += 1;
             console.error('Mana Pool price refresh failed:', err.message);
+            // Recorded, not just logged: a failure nobody can see is how six
+            // hours of stale prices look identical to fresh ones.
+            db.run(`INSERT INTO source_price_meta (source, last_error)
+                    VALUES ('manapool', ?)
+                    ON CONFLICT(source) DO UPDATE SET last_error = ?`,
+                   [err.message, err.message]).catch(() => {});
           });
         // Re-armed after the import lands so the next run is measured from the
         // timestamp it just wrote, not from when it started.
@@ -357,6 +367,7 @@ db.initDb()
       // six-hour clock, so the schedule cannot drift later each time the
       // service bounces.
       let priceTimer = null;
+      let priceFailures = 0;
       const scheduleNextPriceRun = async () => {
         let age = null;
         try {
@@ -366,9 +377,22 @@ db.initDb()
         }
         // Never imported, or the stamp is unreadable: treat as due, but not
         // instantly -- the startup delay still keeps it clear of the catalogue.
+        //
+        // A MINIMUM GAP, always. Without one, prices older than the interval
+        // give due=0, so a failing import retries the instant it fails and
+        // loops. That is what earned HTTP 429 from Card Kingdom: a request
+        // every six seconds until someone looked at the logs.
+        //
+        // After a failure the gap grows (1, 2, 4... capped at the interval) so
+        // a vendor outage costs a handful of polite attempts rather than
+        // thousands, and recovery is still automatic.
+        const backoff = Math.min(
+          PRICE_INTERVAL_MS,
+          MIN_RETRY_MS * Math.pow(2, Math.min(priceFailures, 6)));
         const due = age === null
           ? 8 * MINUTE_MS
-          : Math.max(0, PRICE_INTERVAL_MS - age);
+          : Math.max(priceFailures > 0 ? backoff : MIN_RETRY_MS,
+                     PRICE_INTERVAL_MS - age);
         syncSchedule.setManaPoolNextRun(new Date(Date.now() + due).toISOString());
         if (priceTimer) clearTimeout(priceTimer);
         priceTimer = setTimeout(() => {
@@ -412,12 +436,14 @@ db.initDb()
       const { refreshCardKingdomPrices, msSinceLastRefresh: ckAge } =
         require('./cardKingdomPrices');
       const MINUTE = 60 * 1000;
+      const MIN_RETRY_MS = 15 * MINUTE;
       const CK_INTERVAL_MS = 6 * 60 * MINUTE;
       const CK_STALE_MS = 3 * 60 * MINUTE;
 
       const runCk = () => {
         refreshCardKingdomPrices()
           .then(({ written, skipped, asOf }) => {
+            ckFailures = 0;
             console.log(`Card Kingdom prices: ${written} printings updated`
               + `${skipped ? `, ${skipped} skipped` : ''}`
               + `${asOf ? ` (feed as of ${asOf})` : ''}.`);
@@ -427,7 +453,12 @@ db.initDb()
             // down, and the previous prices are still there. The failure is
             // recorded in source_price_meta so Settings can say WHY a price is
             // stale rather than just showing an old number.
+            ckFailures += 1;
             console.error('Card Kingdom price refresh failed:', err.message);
+            db.run(`INSERT INTO source_price_meta (source, last_error)
+                    VALUES ('cardkingdom', ?)
+                    ON CONFLICT(source) DO UPDATE SET last_error = ?`,
+                   [err.message, err.message]).catch(() => {});
           });
         setTimeout(() => { scheduleNextCk(); }, 5000);
       };
@@ -435,13 +466,20 @@ db.initDb()
 
       // Same single-clock correction as Mana Pool.
       let ckTimer = null;
+      let ckFailures = 0;
       const scheduleNextCk = async () => {
         let age = null;
         try { age = await ckAge(); }
         catch (err) { console.error('Could not read Card Kingdom freshness:', err.message); }
+        // Same minimum gap and exponential backoff as Mana Pool -- this is the
+        // feed that actually returned 429.
+        const ckBackoff = Math.min(
+          CK_INTERVAL_MS,
+          MIN_RETRY_MS * Math.pow(2, Math.min(ckFailures, 6)));
         const due = age === null
           ? 11 * MINUTE
-          : Math.max(0, CK_INTERVAL_MS - age);
+          : Math.max(ckFailures > 0 ? ckBackoff : MIN_RETRY_MS,
+                     CK_INTERVAL_MS - age);
         syncSchedule.setCardKingdomNextRun(new Date(Date.now() + due).toISOString());
         if (ckTimer) clearTimeout(ckTimer);
         ckTimer = setTimeout(() => { runCk(); }, due);
