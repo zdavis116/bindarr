@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { LayoutDashboard, Database, Sparkles, Settings as SettingsIcon, LogOut, Swords } from 'lucide-react';
+import { Sparkles, LogOut } from 'lucide-react';
 import Login from './components/Login';
 import Logo from './components/Logo';
 import { pushBackGuard } from './utils/useBackGuard';
 import { useT } from './utils/i18n';
+import { NAV_ITEMS } from './navItems.js';
 
 // View components are code-split so heavy deps (recharts in the chart views)
 // load on demand instead of in the initial bundle.
@@ -322,12 +323,10 @@ function App() {
             buttons: a fifth destination is one entry, and the tab order cannot
             silently disagree with itself. */}
         <nav className="nav-tabs" style={{ margin: 0 }}>
-          {[
-            { id: 'dashboard',   icon: LayoutDashboard, label: t('nav.dashboard') },
-            { id: 'collection',  icon: Database,        label: t('nav.collection') },
-            { id: 'deckbuilder', icon: Swords,          label: t('nav.deckBuilder') },
-            { id: 'settings',    icon: SettingsIcon,    label: t('nav.settings') },
-          ].map(({ id, icon: Icon, label }) => (
+          {/* Rendered from the SHARED list in navItems.js, so the bottom bar and
+              the desktop rail cannot disagree about what exists or in what
+              order. Zach: "the nav shouldn't be different on the desktop." */}
+          {NAV_ITEMS.map(({ id, icon: Icon, labelKey }) => (
             <button
               key={id}
               className={`nav-tab ${activeTab === id ? 'active' : ''}`}
@@ -335,7 +334,7 @@ function App() {
               aria-current={activeTab === id ? 'page' : undefined}
             >
               <Icon size={18} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </button>
           ))}
           {/* NO ADMIN TAB. Administration is reached from Settings -> About.
