@@ -102,17 +102,16 @@
 
 <div class="screens">
 
-<!-- =========================================================== 1. DECK BUILDER -->
+
+<!-- =========================================================== 1a. DECK LIST -->
 <section class="screen">
-  <div class="label"><b>1 · Deck builder</b> the reason desktop exists — deck and collection side by side</div>
+  <div class="label"><b>1 · Decks</b> where the nav actually lands — this view was missing entirely</div>
   <div class="frame"><div class="app">
     <nav class="rail">
       <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
       <a class="nav"><span class="ic">◱</span>Dashboard</a>
       <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav on"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
-      <a class="nav"><span class="ic">＋</span>Add cards</a>
-      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
       <a class="nav"><span class="ic">⚙</span>Settings</a>
       <div class="railfoot">
         <a class="nav"><span class="ic">👤</span>admin</a>
@@ -120,32 +119,137 @@
     </nav>
     <div class="main">
       <div class="head">
-        <h1>AI Doom</h1>
-        <span class="sub">Commander · 100 cards</span>
-        <span class="pill a">52% built</span>
+        <h1>Decks</h1><span class="sub">4 decks · $140.35 to finish them all</span>
         <div class="sp">
-          <span class="sub">$232.68 as listed · <b style="color:#4ade80">$213.21 cheapest</b></span>
-          <button class="btn">Export</button>
-          <button class="btn pri">Add cards</button>
+          <input class="inp" placeholder="Find a deck…" style="width:200px">
+          <button class="btn">Sync Moxfield</button>
+          <button class="btn pri">New deck</button>
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 380px;gap:1.1rem;align-items:start">
-        <!-- LEFT: the deck itself -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem;margin-bottom:1.2rem">
+        <div class="panel" style="padding:0;overflow:hidden;cursor:pointer;border-color:var(--blue)">
+          <div style="height:112px;background:linear-gradient(145deg,#3a2740,#1b2238);
+                      display:grid;place-items:center;color:var(--text-3);font-size:.7rem">
+            commander art</div>
+          <div style="padding:.7rem">
+            <b>AI Doom</b>
+            <div class="sub" style="font-size:.76rem">Commander · 100 cards</div>
+            <div style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem">
+              <div style="flex:1;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden">
+                <div style="width:52%;height:100%;background:var(--amber)"></div></div>
+              <span class="pill a">52%</span>
+            </div>
+            <div class="sub" style="font-size:.76rem;margin-top:.4rem">
+              49 missing · <b style="color:#fbbf24">$140.35</b></div>
+          </div>
+        </div>
+        <div class="panel" style="padding:0;overflow:hidden;cursor:pointer">
+          <div style="height:112px;background:linear-gradient(145deg,#28323f,#1b2238);
+                      display:grid;place-items:center;color:var(--text-3);font-size:.7rem">
+            commander art</div>
+          <div style="padding:.7rem">
+            <b>Ur-Dragon</b>
+            <div class="sub" style="font-size:.76rem">Commander · 100 cards</div>
+            <div style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem">
+              <div style="flex:1;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden">
+                <div style="width:100%;height:100%;background:var(--green)"></div></div>
+              <span class="pill g">100%</span>
+            </div>
+            <div class="sub" style="font-size:.76rem;margin-top:.4rem">Complete</div>
+          </div>
+        </div>
+        <div class="panel" style="padding:0;overflow:hidden;cursor:pointer">
+          <div style="height:112px;background:linear-gradient(145deg,#3a3328,#1b2238);
+                      display:grid;place-items:center;color:var(--text-3);font-size:.7rem">
+            commander art</div>
+          <div style="padding:.7rem">
+            <b>I Am Iron Man</b>
+            <div class="sub" style="font-size:.76rem">Commander · 100 cards</div>
+            <div style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem">
+              <div style="flex:1;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden">
+                <div style="width:100%;height:100%;background:var(--green)"></div></div>
+              <span class="pill g">100%</span>
+            </div>
+            <div class="sub" style="font-size:.76rem;margin-top:.4rem">Complete</div>
+          </div>
+        </div>
+        <div class="panel" style="padding:0;overflow:hidden;cursor:pointer">
+          <div style="height:112px;background:linear-gradient(145deg,#402828,#1b2238);
+                      display:grid;place-items:center;color:var(--text-3);font-size:.7rem">
+            commander art</div>
+          <div style="padding:.7rem">
+            <b>Ass-Blaster 3000</b>
+            <div class="sub" style="font-size:.76rem">Commander · 100 cards</div>
+            <div style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem">
+              <div style="flex:1;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden">
+                <div style="width:100%;height:100%;background:var(--green)"></div></div>
+              <span class="pill g">100%</span>
+            </div>
+            <div class="sub" style="font-size:.76rem;margin-top:.4rem">Complete</div>
+          </div>
+        </div>
+      </div>
+
+      <p class="why"><b>This view did not exist in the last round.</b> You asked where the deck
+      list was — I had only ever mocked the individual deck, so the screen the nav actually
+      lands on was invisible. Cards rather than a table here: four decks with commander art is
+      a shelf you recognise at a glance, and the number that matters per deck is
+      <b>what it costs to finish</b>. At forty decks this would want a table toggle.</p>
+    </div>
+  </div></div>
+</section>
+
+<!-- =========================================================== 2. DECK VIEW -->
+<section class="screen">
+  <div class="label"><b>2 · Deck view</b> right pane is card detail, not a separate search — no modal</div>
+  <div class="frame"><div class="app">
+    <nav class="rail">
+      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+      <a class="nav"><span class="ic">◱</span>Dashboard</a>
+      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
+      <a class="nav"><span class="ic">⚙</span>Settings</a>
+      <div class="railfoot">
+        <a class="nav"><span class="ic">👤</span>admin</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="head">
+        <span class="sub" style="cursor:pointer">Decks ›</span>
+        <h1 style="margin-left:-.6rem">AI Doom</h1>
+        <span class="sub">Commander · 100 cards</span>
+        <span class="pill a">52% built</span>
+        <div class="sp">
+          <span class="sub">$232.68 as listed · <b style="color:#4ade80">$213.21 cheapest · saves $19.47</b></span>
+          <button class="btn">Export</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 400px;gap:1.1rem;align-items:start">
         <div class="panel" style="padding:.6rem">
-          <div class="tabs" style="margin:.2rem .3rem 0">
-            <div class="tab on">Deck list <span class="pill" style="margin-left:.3rem">100</span></div>
-            <div class="tab">Missing <span class="pill r" style="margin-left:.3rem">49</span></div>
+          <!-- SEARCH AT THE TOP, not a pane of its own.
+               Zach: "couldnt that just be a search on the top... if there is a
+               search through the collection already what is the point of the
+               add cards button" -->
+          <div style="display:flex;gap:.5rem;padding:.3rem .3rem .6rem">
+            <input class="inp" style="flex:1" placeholder="Search your collection or any card to add…">
+            <button class="btn sm">Filters</button>
+          </div>
+          <div class="tabs" style="margin:0 .3rem 0">
+            <div class="tab on">All <span class="pill" style="margin-left:.3rem">100</span></div>
+            <div class="tab">Have <span class="pill g" style="margin-left:.3rem">51</span></div>
+            <div class="tab">Need <span class="pill r" style="margin-left:.3rem">49</span></div>
+            <div class="tab">Considering <span class="pill" style="margin-left:.3rem">7</span></div>
             <div class="tab">Curve</div>
-            <div class="tab">Notes</div>
           </div>
           <table>
             <thead><tr>
               <th style="width:26px"></th><th>Card</th><th>Type</th><th>Set</th>
-              <th class="num">Price</th><th class="num">Have</th><th style="width:60px"></th>
+              <th class="num">Price</th><th class="num">Have</th><th style="width:36px"></th>
             </tr></thead>
             <tbody>
-              <tr><td>1</td><td><b>Ur-Dragon, The</b></td><td>Legendary Creature</td><td>C17</td><td class="num">$23.40</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr style="background:rgba(10,132,255,.10)"><td>1</td><td><b>The Ur-Dragon</b> <span class="pill g">commander</span></td><td>Legendary Creature</td><td>C17</td><td class="num">$23.40</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Sol Ring</b></td><td>Artifact</td><td>C21</td><td class="num">$1.29</td><td class="num"><span class="pill g">4</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Arcane Signet</b></td><td>Artifact</td><td>C21</td><td class="num">$0.89</td><td class="num"><span class="pill g">2</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Bojuka Bog</b></td><td>Land</td><td>C20</td><td class="num">$0.74</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
@@ -154,39 +258,63 @@
               <tr><td>1</td><td><b>Sulfurous Springs</b></td><td>Land</td><td>EOC</td><td class="num">$1.09</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Command Tower</b></td><td>Land</td><td>C21</td><td class="num">$0.35</td><td class="num"><span class="pill g">3</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Cultivate</b></td><td>Sorcery</td><td>M21</td><td class="num">$0.68</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
-              <tr><td>1</td><td><b>Kodama's Reach</b></td><td>Sorcery</td><td>CMR</td><td class="num">$0.55</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Rhystic Study</b></td><td>Enchantment</td><td>2XM</td><td class="num">$28.10</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
               <tr><td>1</td><td><b>Smothering Tithe</b></td><td>Enchantment</td><td>RVR</td><td class="num">$19.44</td><td class="num"><span class="pill g">1</span></td><td><button class="btn sm">⋯</button></td></tr>
+              <tr><td>1</td><td><b>Kodama's Reach</b></td><td>Sorcery</td><td>CMR</td><td class="num">$0.55</td><td class="num"><span class="pill r">0</span></td><td><button class="btn sm">⋯</button></td></tr>
             </tbody>
           </table>
         </div>
 
-        <!-- RIGHT: your collection, searchable, to pull cards from -->
+        <!-- THE RIGHT PANE IS CARD DETAIL.
+             Zach: "I think the right hand side should show individual card
+             detail so it doesnt have to open up a modal. Like initial load of
+             deck view shows the commander but as you click different cards it
+             shows that card." -->
         <div class="panel" style="position:sticky;top:1rem">
-          <h3>From your collection</h3>
-          <input class="inp" style="width:100%;margin-bottom:.6rem" placeholder="Search 2,625 cards…" value="dragon">
-          <div style="display:flex;gap:.35rem;margin-bottom:.7rem;flex-wrap:wrap">
-            <span class="pill g">In colours</span>
-            <span class="pill">Unused</span>
-            <span class="pill">Any printing</span>
+          <div style="display:flex;gap:.9rem;align-items:flex-start">
+            <div class="card own" style="width:120px;flex:0 0 auto">The Ur-Dragon<br>C17 · #1</div>
+            <div style="min-width:0">
+              <b style="font-size:1.02rem">The Ur-Dragon</b>
+              <div class="sub" style="font-size:.78rem">Legendary Creature — Dragon Avatar</div>
+              <div style="margin:.35rem 0"><span class="pill">{4}{W}{U}{B}{R}{G}</span> <span class="pill g">commander</span></div>
+              <div class="sub" style="font-size:.76rem">Commander 2017 · #1 · Mythic</div>
+            </div>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem">
-            <div class="card own">Scourge of<br>Valkas</div>
-            <div class="card own">Dragonlord<br>Atarka</div>
-            <div class="card own">Terror of the<br>Peaks</div>
-            <div class="card own">Dragon's<br>Hoard</div>
-            <div class="card own">Sarkhan,<br>Fireblood</div>
-            <div class="card own">Lathliss</div>
+
+          <div style="border-top:1px solid var(--border);margin-top:.8rem;padding-top:.7rem;
+                      font-size:.8rem;color:var(--text-2);line-height:1.9">
+            <div style="display:flex"><span>Mana Pool</span><b style="margin-left:auto">$23.40</b></div>
+            <div style="display:flex"><span>Card Kingdom</span><b style="margin-left:auto">$27.99</b></div>
+            <div style="display:flex"><span>You own</span><b style="margin-left:auto">1 · NM · Binder 1</b></div>
           </div>
-          <p style="font-size:.76rem;color:var(--text-3);margin:.7rem 0 0">
-            Click to add · 47 more match</p>
+
+          <p style="font-size:.8rem;line-height:1.55;color:var(--text-2);
+                    border-top:1px solid var(--border);margin:.7rem 0 0;padding-top:.7rem">
+            <b>Eminence</b> — As long as The Ur-Dragon is in the command zone or on the
+            battlefield, other Dragon spells you cast cost {1} less to cast.<br><br>
+            Flying<br><br>
+            Whenever one or more Dragons you control attack, draw that many cards, then you
+            may put a permanent card from your hand onto the battlefield.</p>
+
+          <div style="display:flex;gap:.4rem;margin-top:.9rem;flex-wrap:wrap">
+            <button class="btn sm">Choose printing</button>
+            <button class="btn sm">Move to considering</button>
+            <button class="btn sm">Remove</button>
+          </div>
+          <p class="sub" style="font-size:.74rem;margin:.7rem 0 0">
+            Click any row to show that card here.</p>
         </div>
       </div>
 
-      <p class="why"><b>Nav matches the phone.</b> Same six destinations, same order, same labels — a rail instead of a bottom bar, nothing else. Storage and Add cards were added to <b>both</b> layouts; they had been reachable only by drilling in.<br><br><b>Why this shape.</b> You said desktop is mainly deckbuilding, so the
-      deck and the cards you own sit on one screen — no navigating away to find a card.
-      The deck is a <b>table</b>, not tall cards: at 100 rows you want to scan type, set and
-      price quickly. <b>Cost:</b> the right pane takes 380px that the deck list could use.</p>
+      <p class="why"><b>Everything you asked for.</b> Nav says <b>Decks</b>; it lands on the deck
+      list first, and this is one deck inside it. Tabs are the real ones — All, Have, Need,
+      <b>Considering</b> — and Notes is gone. Search moved to the top, so the right pane is free
+      to be <b>card detail that follows your selection</b>: commander on load, then whatever row
+      you click. No modal. The Add cards button is gone since the search does that job.<br><br>
+      <b>Curve</b> shows how your mana costs are distributed — a bar per cost (0,1,2,3…7+) with
+      the count of cards at each, so you can see if you are top heavy. Usually paired with a
+      land count and colour breakdown. Say if that is what you expected; it is the one tab here
+      that does not exist yet.</p>
     </div>
   </div></div>
 </section>
@@ -199,9 +327,7 @@
       <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
       <a class="nav"><span class="ic">◱</span>Dashboard</a>
       <a class="nav on"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
-      <a class="nav"><span class="ic">＋</span>Add cards</a>
-      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
       <a class="nav"><span class="ic">⚙</span>Settings</a>
       <div class="railfoot">
         <a class="nav"><span class="ic">👤</span>admin</a>
@@ -214,7 +340,8 @@
         <div class="sp">
           <input class="inp" placeholder="Search…" style="width:220px">
           <button class="btn">Grid ▾</button>
-          <button class="btn pri">Add cards</button>
+          <button class="btn">⛁ Storage</button>
+          <button class="btn pri">＋ Add cards</button>
         </div>
       </div>
 
@@ -264,7 +391,7 @@
         </div>
       </div>
 
-      <p class="why"><b>Why this shape.</b> On the phone the filters are a sheet you open, apply,
+      <p class="why"><b>Storage and Add cards live here now.</b> You said it: "I would only go there from collections so it being tied to just collections makes sense." Both are things you do TO the collection, not places you go — so they are buttons in this header rather than nav slots, and the nav stays at four like your phone. <b>Add cards</b> still opens the full desktop screen you liked.<br><br><b>Why this shape.</b> On the phone the filters are a sheet you open, apply,
       and close. On desktop they sit <b>beside</b> the grid so you can see what you changed and
       what it did — and the grid goes 8 wide instead of 2. <b>Cost:</b> 210px permanently
       spent on filters, which matters less at 1512px than the round trip does.</p>
@@ -357,9 +484,7 @@
       <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
       <a class="nav on"><span class="ic">◱</span>Dashboard</a>
       <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
-      <a class="nav"><span class="ic">＋</span>Add cards</a>
-      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
       <a class="nav"><span class="ic">⚙</span>Settings</a>
       <div class="railfoot">
         <a class="nav"><span class="ic">👤</span>admin</a>
@@ -408,10 +533,18 @@
           <div class="panel" style="margin-bottom:1rem">
             <h3>Data sources</h3>
             <table style="font-size:.8rem">
-              <tr><td>Mana Pool <span class="pill g">selected</span></td><td class="num sub">9:06 AM</td><td class="num sub">in 4h</td></tr>
-              <tr><td>Card Kingdom</td><td class="num sub">9:05 AM</td><td class="num sub">in 4h</td></tr>
-              <tr><td>Scryfall</td><td class="num sub">12:00 AM</td><td class="num sub">nightly</td></tr>
-              <tr><td>Moxfield</td><td class="num sub">9:14 AM</td><td class="num sub">in 11m</td></tr>
+              <tr><td><b>Mana Pool</b> <span class="pill g">prices</span><br>
+                      <span class="sub" style="font-size:.72rem">98,754 card prices</span></td>
+                  <td class="num sub">9:06 AM<br><span style="font-size:.72rem">in 4h 12m</span></td></tr>
+              <tr><td><b>Card Kingdom</b> <span class="pill">prices</span><br>
+                      <span class="sub" style="font-size:.72rem">93,881 card prices</span></td>
+                  <td class="num sub">9:05 AM<br><span style="font-size:.72rem">in 4h 11m</span></td></tr>
+              <tr><td><b>Scryfall</b> <span class="pill">card data</span><br>
+                      <span class="sub" style="font-size:.72rem">105,695 cards, images, rules text</span></td>
+                  <td class="num sub">12:00 AM<br><span style="font-size:.72rem">nightly</span></td></tr>
+              <tr><td><b>Moxfield</b> <span class="pill">decks</span><br>
+                      <span class="sub" style="font-size:.72rem">4 decks and their card lists</span></td>
+                  <td class="num sub">9:14 AM<br><span style="font-size:.72rem">in 11m</span></td></tr>
             </table>
           </div>
           <div class="panel">
@@ -441,10 +574,8 @@
     <nav class="rail">
       <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
       <a class="nav"><span class="ic">◱</span>Dashboard</a>
-      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
-      <a class="nav"><span class="ic">＋</span>Add cards</a>
-      <a class="nav on"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav on"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <a class="nav"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
       <a class="nav"><span class="ic">⚙</span>Settings</a>
       <div class="railfoot">
         <a class="nav"><span class="ic">👤</span>admin</a>
@@ -495,10 +626,8 @@
     <nav class="rail">
       <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
       <a class="nav"><span class="ic">◱</span>Dashboard</a>
-      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
-      <a class="nav on"><span class="ic">＋</span>Add cards</a>
-      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav on"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+      <a class="nav"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
       <a class="nav"><span class="ic">⚙</span>Settings</a>
       <div class="railfoot">
         <a class="nav"><span class="ic">👤</span>admin</a>
@@ -551,9 +680,7 @@
       <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
       <a class="nav"><span class="ic">◱</span>Dashboard</a>
       <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav"><span class="ic">⚔</span>Deck builder<span class="count">4</span></a>
-      <a class="nav"><span class="ic">＋</span>Add cards</a>
-      <a class="nav"><span class="ic">⛁</span>Storage<span class="count">3</span></a>
+      <a class="nav"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
       <a class="nav on"><span class="ic">⚙</span>Settings</a>
       <div class="railfoot">
         <a class="nav"><span class="ic">👤</span>admin</a>
