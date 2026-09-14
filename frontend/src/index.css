@@ -3259,11 +3259,14 @@ button, input, select, textarea {
     /* 1rem below the top of the scroll container. The rail is its own
        scroller, so this only has to clear the page padding. */
     top: 1rem;
-    /* The pane scrolls INTERNALLY when the card has long rules text, rather
-       than growing past the viewport and dragging the sticky position with
-       it -- which is how a "pinned" pane ends up half off-screen. */
+    /* THIS WRAPPER DOES NOT SCROLL. It used to be overflow-y:auto, which is
+       what made the WHOLE pane scrollable -- art, name and tabs slid away
+       together. Zach: "should not fully be scrollable just the bottom portion
+       under the 3 tabs."
+       The inspector inside it owns a fixed height and scrolls its own body
+       row, so this only has to hold it in place. */
     max-height: calc(100vh - 2rem);
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   /* The inline inspector is a block in a column, not a centred dialog. The
@@ -3295,11 +3298,9 @@ button, input, select, textarea {
   .card-inspector-inline {
     width: 100%;
     max-width: none;
-    /* Height comes from the content. The modal's 82dvh is a dialog rule; in a
-       column it would leave a half-empty panel on a short card and clip a
-       long one. .deck-panes-side owns the scrolling. */
-    height: auto;
-    max-height: none;
+    /* Height is set in the grid rule below -- the pane needs a real box so the
+       header can pin while the body row scrolls. (This used to say `auto`,
+       back when the wrapper did the scrolling and took the header with it.) */
     margin: 0;
     /* Mockup panel padding, not dialog padding. */
     padding: 1rem;
@@ -3324,9 +3325,21 @@ button, input, select, textarea {
   .card-inspector-inline {
     display: grid;
     grid-template-columns: 120px minmax(0, 1fr);
+    /* THREE ROWS: [art | identity], tabs, then the body.
+       The body row is minmax(0, 1fr) so it takes the leftover height and can
+       shrink below its content -- without the 0 minimum it would refuse to
+       shrink and the overflow would push the pane taller instead of
+       scrolling inside it. */
+    grid-template-rows: auto auto minmax(0, 1fr);
     align-items: start;
     column-gap: 0.9rem;
     row-gap: 0.6rem;
+    /* A HEIGHT, not just a cap: the header must pin, which needs a box to pin
+       against. Viewport-relative so it still fits a laptop screen, and it
+       stops short of the viewport so the page's own padding shows. */
+    height: calc(100vh - 6rem);
+    max-height: calc(100vh - 6rem);
+    overflow: hidden;
   }
 
   .card-inspector-inline .ci-info-col {
@@ -3384,15 +3397,32 @@ button, input, select, textarea {
     display: block;
   }
 
-  /* The body scrolls with the PAGE, not in its own little window. A ~100px
-     inner scroller inside a pane inside a page is three scroll regions for one
-     card -- that is the cramped Availability box in his screenshot.
-     .deck-panes-side owns the scrolling for this column. */
+  /* ONLY THE BODY UNDER THE TABS SCROLLS.
+     Zach: "the card detail pane should not fully be scrollable just the
+     bottom portion under the 3 tabs."
+
+     I had this backwards. Earlier I removed the inner scroller because a
+     cramped ~100px box looked wrong -- but the box was cramped because the
+     PANE had no height, not because scrolling there was wrong. Letting the
+     whole pane scroll means the card art and the tabs slide away, so you lose
+     the thing you are looking at and the control you switch with.
+
+     The pane takes a fixed viewport-relative height, the image/name/tabs rows
+     size to their content, and this row takes whatever is left and scrolls
+     inside it. minmax(0, 1fr) is load-bearing: a grid row defaults to min
+     auto, which refuses to shrink below its content, and the overflow would
+     escape the pane instead of scrolling within it. */
   .card-inspector-inline .ci-scroll {
     grid-column: 1 / -1;
+    /* Fill the row rather than sitting at its top: align-items:start on the
+       grid would otherwise size this to its content, leaving the scroll box
+       short and the space below it empty. */
+    align-self: stretch;
+    height: 100%;
     min-height: 0 !important;
     max-height: none !important;
-    overflow: visible !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 
   /* DELETE DECK STAYS SMALL.
