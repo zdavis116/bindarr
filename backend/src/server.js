@@ -206,7 +206,24 @@ db.initDb()
     if (process.env.CARD_CATALOGUE_REFRESH !== 'off') {
       const cardCatalogue = require('./cardCatalogue');
       const runCatalogueRefresh = () => {
-        cardCatalogue.refreshCatalogue({ lockLabel: 'server' }).catch((err) => {
+        cardCatalogue.refreshCatalogue({ lockLabel: 'server' }).then(() => {
+          // ROLES RUN AFTER THE CATALOGUE, AND ONLY IF IT SUCCEEDED.
+          //
+          // The role import reads distinct oracle_ids out of card_cache, so
+          // running it first (or after a failed refresh) would classify a stale
+          // or half-swapped catalogue. Chained rather than scheduled separately
+          // for the same reason the catalogue takes its lock before the
+          // download: the ordering is the correctness condition, not a
+          // convenience.
+          //
+          // Failures here are logged and swallowed. A missing role makes the
+          // Curve tab less useful; it must never take down a refresh that
+          // prices and legality depend on.
+          const cardRoles = require('./cardRoles');
+          return cardRoles.refreshRoles({}).catch((err) => {
+            console.error('Card role refresh failed:', err.message);
+          });
+        }).catch((err) => {
           // A refresh already in flight is the GUARD WORKING, not a failure.
           // Logging it as an error would train an operator to ignore genuine
           // catalogue errors in this same line. It is worth a note, though:

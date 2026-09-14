@@ -15,6 +15,7 @@ import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
          Trash2, Lightbulb, ArrowDownToLine, ChevronDown } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useIsDesktop } from '../utils/breakpoints';
+import CurveTab from './CurveTab';
 import { formatPrice } from '../utils/formatPrice';
 import ExportModal from './ExportModal';
 import CardInspectorModal from './CardInspectorModal';
@@ -423,9 +424,39 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     }
   };
 
-  // Absolute-quantity write, shared by the +/- controls and the board moves.
-  // Returns true on success so callers can decide whether to refresh.
+  // CORRECT A CARD'S ROLE.
+  //
+  // Keyed on ORACLE id, so fixing Goldspan Dragon once fixes it in every deck
+  // that plays it rather than once per deck.
+  //
+  // onChanged() refetches the deck rather than patching local state: the role
+  // feeds the chart, the legend counts and the filter, and three derived
+  // numbers updated by hand is three chances to disagree with the server about
+  // what the deck contains.
+  const overrideRole = async (card, role) => {
+    if (busy) return false;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/decks/card-role/${encodeURIComponent(card.oracle_id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || t('deck.saveFailed'));
+      onChanged && onChanged();
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const writeCard = async (entry, { quantity, board }) => {
+    // Absolute-quantity write, shared by the +/- controls and the board moves.
+    // Returns true on success so callers can decide whether to refresh.
     if (busy) return false;
     setBusy(true);
     try {
@@ -574,6 +605,11 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     { id: 'have', label: t('deck.tabOwned'), n: counts.owned },
     { id: 'need', label: t('deck.tabMissing'), n: counts.missing },
     { id: 'consider', label: t('deck.tabConsidering'), n: counts.considering },
+    // CURVE IS A TAB, not a nav destination. Zach: "Since this is apart of
+    // decks" -- it describes THIS deck, so it belongs beside the other views
+    // of this deck rather than becoming a fifth thing in the bottom bar. The
+    // nav stays four items at every width.
+    { id: 'curve', label: t('deck.tabCurve') },
   ];
 
   return (
@@ -930,11 +966,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                        color: on ? 'var(--text-on-accent)' : 'var(--text-secondary)',
                        font: 'inherit', fontSize: '0.8rem', fontWeight: 600,
                        whiteSpace: 'nowrap', cursor: 'pointer' }}>
-              {label} {n}
+              {label}{n == null ? '' : ` ${n}`}
             </button>
           );
         })}
       </div>
+
+      {/* CURVE replaces the card list, it does not sit above it: it IS a view
+          of the same cards. Rendered before the search results block so the
+          add-a-card flow still works from this tab. */}
+      {tab === 'curve' && (
+        <CurveTab
+          cards={deckCards}
+          commander={deckCards.find(c => c.board === 'commander')
+            || deckCards.find(c => /legendary creature/i.test(c.type_line || ''))}
+          onSelectCard={(c) => {
+            // Same routing as every other row on this screen: the pinned pane
+            // on desktop, the modal on the phone.
+            if (isDesktop) setSelectedCardId(c.id);
+            else setInspecting(c);
+          }}
+          onOverrideRole={overrideRole}
+        />
+      )}
 
       {(searching || results.length > 0) && (
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
@@ -1024,8 +1078,10 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </div>
       )}
 
-      {/* CARD LIST, grouped by type. */}
-      {sections.length === 0 ? (
+      {/* CARD LIST, grouped by type. Hidden on the Curve tab, which shows its
+          own list filtered by whatever you tapped on the chart -- two lists of
+          the same cards on one screen is the redundant surface Zach dislikes. */}
+      {tab === 'curve' ? null : sections.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-secondary)',
                       background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
           {tab === 'consider' ? t('deck.noConsidering')

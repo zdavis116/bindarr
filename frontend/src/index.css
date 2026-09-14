@@ -3544,3 +3544,161 @@ button, input, select, textarea {
     gap: 1rem;
   }
 }
+
+/* ============================================================================
+   THE CURVE TAB
+   One set of rules for both widths. The phone and desktop prototypes behaved
+   identically; only the chrome differed. Sizes step up inside the desktop
+   media query at the end rather than in a second component.
+   ========================================================================== */
+
+.curve-panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+.curve-head { display: flex; align-items: baseline; gap: 0.5rem; }
+.curve-head b { font-size: 0.92rem; }
+.curve-head span { font-size: 0.72rem; color: var(--text-muted); }
+
+/* THE CHART. align-items:end so bars grow up from a shared baseline. */
+.curve-chart {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.3rem;
+  align-items: end;
+  height: 170px;
+  /* Headroom for the commander label, which sits ABOVE the tallest bar and
+     would otherwise be clipped by the panel. */
+  padding-top: 1.1rem;
+  margin-top: 0.6rem;
+}
+
+.curve-col { position: relative; display: flex; flex-direction: column;
+             justify-content: flex-end; height: 100%; }
+.curve-total { text-align: center; font-size: 0.66rem; font-weight: 700;
+               color: var(--text-secondary); margin-bottom: 0.2rem;
+               font-variant-numeric: tabular-nums; }
+
+/* column-reverse stacks the first role at the BOTTOM, so the legend order and
+   the stacking order agree -- otherwise the key reads upside down. */
+.curve-stack { display: flex; flex-direction: column-reverse;
+               border-radius: 4px 4px 0 0; overflow: hidden; min-height: 2px; }
+
+.curve-seg { width: 100%; min-height: 3px; border: 0; padding: 0;
+             cursor: pointer; transition: opacity 0.12s; }
+.curve-seg.dim { opacity: 0.18; }
+.curve-seg.sel { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+
+.curve-ramp, .curve-seg.curve-ramp { background: var(--type-grass, #30d158); }
+.curve-draw, .curve-seg.curve-draw { background: var(--accent-blue, #0a84ff); }
+.curve-removal, .curve-seg.curve-removal { background: #ff9f0a; }
+.curve-threat, .curve-seg.curve-threat { background: #ff453a; }
+.curve-other, .curve-seg.curve-other { background: var(--text-muted, #6b7694); }
+
+.curve-xrow { display: grid; grid-template-columns: repeat(8, 1fr);
+              gap: 0.3rem; margin-top: 0.3rem; }
+.curve-x { text-align: center; font-size: 0.66rem; color: var(--text-muted); }
+.curve-axis { text-align: center; font-size: 0.64rem; color: var(--text-muted);
+              margin-top: 0.15rem; }
+
+/* Anchored right, not centred: the commander is usually a 6+ drop, so a
+   centred label on the last column overflows the panel. */
+.curve-cmdr { position: absolute; right: 0; white-space: nowrap;
+              font-size: 0.58rem; font-weight: 700; color: var(--text-primary);
+              background: var(--surface-2); border: 1px solid var(--border-glass);
+              border-radius: 999px; padding: 0.05rem 0.35rem; pointer-events: none; }
+
+.curve-legend { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.7rem;
+                padding-top: 0.6rem; border-top: 1px solid var(--border-glass); }
+.curve-lg { display: flex; align-items: center; gap: 0.3rem; font: inherit;
+            font-size: 0.73rem; color: var(--text-secondary);
+            background: var(--surface-2); border: 1px solid var(--border-glass);
+            border-radius: 999px; padding: 0.3rem 0.55rem;
+            /* 32px: a thumb target, not a mouse target. */
+            min-height: 32px; cursor: pointer; }
+.curve-lg.on { border-color: var(--accent-blue); color: var(--text-primary); }
+.curve-sw { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+
+.curve-stats { display: grid; grid-template-columns: repeat(2, 1fr);
+               gap: 0.45rem; margin-top: 0.7rem; }
+.curve-stat { background: var(--surface-2); border: 1px solid var(--border-glass);
+              border-radius: var(--radius-sm); padding: 0.45rem 0.55rem; }
+.curve-stat-k { font-size: 0.62rem; text-transform: uppercase;
+                letter-spacing: 0.04em; color: var(--text-muted); }
+.curve-stat-v { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.curve-stat-n { font-size: 0.64rem; color: var(--text-muted); }
+
+.curve-toggle { display: flex; gap: 3px; background: var(--surface-2);
+                border-radius: 9px; padding: 3px; border: 1px solid var(--border-glass);
+                margin-top: 0.6rem; }
+.curve-toggle button { flex: 1; background: none; border: 0; color: var(--text-muted);
+                       font: inherit; font-size: 0.74rem; font-weight: 600;
+                       padding: 0.4rem; border-radius: 7px; min-height: 34px;
+                       cursor: pointer; }
+.curve-toggle button.on { background: var(--surface-3, var(--surface-1));
+                          color: var(--text-primary); }
+
+.curve-turns { margin-top: 0.5rem; }
+.curve-turn { display: flex; align-items: center; gap: 0.5rem; width: 100%;
+              background: none; border: 0; font: inherit; padding: 0.3rem 0;
+              min-height: 36px; cursor: pointer; }
+.curve-turn-l { width: 52px; font-size: 0.73rem; color: var(--text-muted);
+                text-align: left; }
+.curve-turn-bar { flex: 1; height: 15px; background: var(--surface-2);
+                  border-radius: 4px; overflow: hidden; }
+.curve-turn-bar i { display: block; height: 100%; background: var(--accent-blue);
+                    transition: width 0.2s; }
+.curve-turn.on .curve-turn-bar i { background: #5ab0ff; }
+.curve-turn-n { width: 30px; text-align: right; font-size: 0.73rem;
+                color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* STICKY so the active filter and its undo stay reachable: with 49+ rows the
+   Clear button measured y=1279 in a 950px viewport -- a filter you cannot see
+   and cannot undo. */
+.curve-filterbar { position: sticky; top: 0; z-index: 2;
+                   display: flex; align-items: center; gap: 0.6rem;
+                   background: rgba(10, 132, 255, 0.12);
+                   border: 1px solid rgba(10, 132, 255, 0.32);
+                   border-radius: var(--radius-sm); padding: 0.45rem 0.6rem;
+                   margin-bottom: 0.5rem; font-size: 0.78rem;
+                   backdrop-filter: blur(8px); }
+.curve-filterbar button { margin-left: auto; background: var(--surface-2);
+                          border: 1px solid var(--border-glass); color: var(--text-primary);
+                          border-radius: 7px; font: inherit; font-size: 0.74rem;
+                          padding: 0.3rem 0.6rem; min-height: 32px; cursor: pointer; }
+.curve-listhint { font-size: 0.76rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+.curve-row { display: flex; align-items: center; gap: 0.55rem; width: 100%;
+             /* 48px minimum: this list is tapped, not clicked. */
+             min-height: 48px; padding: 0.4rem 0.2rem; background: none;
+             border: 0; border-bottom: 1px solid var(--border-glass);
+             font: inherit; text-align: left; cursor: pointer; }
+.curve-dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+.curve-row-name { flex: 1; min-width: 0; }
+.curve-row-name b { font-size: 0.84rem; font-weight: 600; display: block;
+                    color: var(--text-primary); overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+.curve-row-what { font-size: 0.68rem; color: var(--text-muted); display: block;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.curve-row-mv { font-size: 0.76rem; color: var(--text-muted);
+                font-variant-numeric: tabular-nums; }
+.curve-note-pill { font-size: 0.62rem; font-weight: 700; padding: 0.1rem 0.4rem;
+                   border-radius: 999px; background: var(--surface-2);
+                   color: var(--text-secondary); flex: 0 0 auto; }
+
+.curve-source { font-size: 0.72rem; color: var(--text-muted); margin: 0.2rem 0 0;
+                padding: 0 0.2rem; }
+
+/* DESKTOP: more room, so the chart gets taller and the stats go four across.
+   Same component, same markup -- only the dimensions change. */
+@media (min-width: 1024px) {
+  .curve-chart { height: 240px; gap: 0.5rem; }
+  .curve-xrow { gap: 0.5rem; }
+  .curve-stats { grid-template-columns: repeat(4, 1fr); }
+  .curve-panel { padding: 1rem; }
+  .curve-turn-l { width: 60px; }
+}

@@ -843,6 +843,39 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refreshed_at DATETIME`);
   }
 
+  // CARD ROLES, for the deck Curve tab.
+  //
+  // What a card DOES -- ramp, draw, interaction, threat -- sourced from
+  // Scryfall's Tagger via its oracle_tags bulk file. See cardRoles.js.
+  //
+  // A SEPARATE TABLE, not a column on card_cache, for two reasons:
+  //   1. A role belongs to an ORACLE ID, not a printing. card_cache holds every
+  //      printing, so a column there would store the same answer 30 times for a
+  //      card like Sol Ring and let those copies disagree.
+  //   2. card_cache is rebuilt wholesale by the catalogue refresh, which swaps a
+  //      staging table into place. A role column would be destroyed on every
+  //      refresh unless the two jobs were kept in lock-step -- and that file
+  //      already warns that its two positional column lists have drifted apart
+  //      four times.
+  //
+  // user_role is the override and always wins. It is NULL for the ~95% of cards
+  // where the tag is right, so a NULL genuinely means "never touched" rather
+  // than "agreed with the tag", and clearing an override restores the tag
+  // rather than freezing today's answer.
+  await run(`
+    CREATE TABLE IF NOT EXISTS card_roles (
+      oracle_id TEXT PRIMARY KEY,
+      role TEXT NOT NULL,
+      source_tag TEXT,
+      user_role TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  if (!appSettingsCols.some(c => c.name === 'card_roles_updated_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_roles_updated_at TEXT`);
+  }
+
   // THE CATALOGUE REFRESH LOCK (PR 6I item 8).
   //
   // It lives in the DATABASE, not in a module variable, because the two things
