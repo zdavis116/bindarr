@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bindarr — Curve on the phone</title>
+<title>Bindarr — Curve on the phone (working)</title>
 <style>
   :root{
     --bg:#0a0f1d; --surface:#121829; --surface-2:#1a2137; --surface-3:#232c47;
@@ -16,35 +16,33 @@
   *{box-sizing:border-box}
   body{margin:0;background:#05070e;color:var(--text);
        font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-       display:flex;flex-wrap:wrap;gap:2rem;padding:1.5rem;justify-content:center}
+       display:flex;flex-wrap:wrap;gap:2.5rem;padding:2.5rem 1.5rem;justify-content:center;
+       align-items:flex-start}
 
-  /* A real phone frame, 390x844 -- the size Zach actually uses. */
   .phone{width:390px;height:844px;background:var(--bg);border-radius:30px;
          border:1px solid var(--border);overflow:hidden;position:relative;
          box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column}
-  .phone .cap{position:absolute;top:-30px;left:0;font-size:.78rem;color:var(--text-3)}
-  .scroll{flex:1;overflow-y:auto;padding:.75rem .75rem 5rem}
+  .cap{position:absolute;top:-1.7rem;left:2px;font-size:.78rem;color:var(--text-3)}
+  .scroll{flex:1;overflow-y:auto;padding:.75rem .75rem 5rem;-webkit-overflow-scrolling:touch}
 
-  .hdr{display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem .4rem;
-       border-bottom:1px solid var(--border-2)}
-  .hdr .bk{color:var(--blue);font-size:.9rem}
+  .hdr{display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem .5rem;
+       border-bottom:1px solid var(--border-2);flex:0 0 auto}
+  .hdr .bk{color:var(--blue);font-size:1rem}
   .hdr b{font-size:1.05rem}
 
-  /* THE TAB BAR IS FOUR ITEMS, same as everywhere. */
   .tabbar{position:absolute;bottom:0;left:0;right:0;display:flex;
           background:var(--bg);border-top:1px solid var(--border);
-          padding:.4rem .25rem .7rem}
+          padding:.4rem .25rem .7rem;z-index:5}
   .tb{flex:1;display:flex;flex-direction:column;align-items:center;gap:.15rem;
       font-size:.62rem;color:var(--text-3);padding:.3rem 0}
   .tb.on{color:#5ab0ff;font-weight:700}
   .tb i{font-style:normal;font-size:1.05rem}
 
-  .chips{display:flex;gap:.35rem;overflow-x:auto;padding:.6rem .1rem;
-         scrollbar-width:none}
+  .chips{display:flex;gap:.35rem;overflow-x:auto;padding:.55rem .1rem;scrollbar-width:none}
   .chips::-webkit-scrollbar{display:none}
-  .chip{flex:0 0 auto;padding:.35rem .7rem;border-radius:999px;font-size:.78rem;
+  .chip{flex:0 0 auto;padding:.4rem .75rem;border-radius:999px;font-size:.78rem;
         font-weight:600;background:var(--surface-2);color:var(--text-2);
-        border:1px solid var(--border)}
+        border:1px solid var(--border);min-height:34px;display:flex;align-items:center}
   .chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
 
   .panel{background:var(--surface);border:1px solid var(--border);
@@ -53,31 +51,32 @@
   .ptitle b{font-size:.92rem}
   .ptitle span{font-size:.72rem;color:var(--text-3)}
 
-  /* THE CHART. Same eight buckets, sized for a thumb. */
   .curve{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem;
-         align-items:end;height:150px;margin-top:.7rem}
+         align-items:end;height:160px;margin-top:1.1rem}
   .col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;
        position:relative}
   .coltot{text-align:center;font-size:.66rem;font-weight:700;color:var(--text-2);
           margin-bottom:.2rem;font-variant-numeric:tabular-nums}
   .stack{display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;
          overflow:hidden;min-height:2px}
-  .seg{width:100%}
+  .seg{width:100%;min-height:3px;transition:opacity .12s}
   .seg.ramp{background:var(--ramp)} .seg.draw{background:var(--draw)}
   .seg.removal{background:var(--removal)} .seg.threat{background:var(--threat)}
   .seg.other{background:var(--other)}
+  .seg.dim{opacity:.18}
+  .seg.sel{outline:2px solid #fff;outline-offset:-2px}
   .xrow{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem;margin-top:.3rem}
   .colx{text-align:center;font-size:.66rem;color:var(--text-3)}
-  .cmdrlab{position:absolute;right:0;white-space:nowrap;font-size:.58rem;
+  .cmdrlab{position:absolute;right:0;white-space:nowrap;font-size:.57rem;
            font-weight:700;color:#fff;background:var(--surface-3);
            border:1px solid var(--border);border-radius:999px;padding:.05rem .3rem}
 
   .legend{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.7rem;
           padding-top:.6rem;border-top:1px solid var(--border-2)}
-  .lg{display:flex;align-items:center;gap:.3rem;font-size:.72rem;color:var(--text-2);
+  .lg{display:flex;align-items:center;gap:.3rem;font-size:.73rem;color:var(--text-2);
       background:var(--surface-2);border:1px solid var(--border-2);
-      border-radius:999px;padding:.2rem .5rem}
-  .lg.on{border-color:var(--blue);color:var(--text)}
+      border-radius:999px;padding:.3rem .55rem;min-height:32px}
+  .lg.on{border-color:var(--blue);color:var(--text);background:rgba(10,132,255,.14)}
   .sw{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
 
   .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:.45rem;margin-top:.7rem}
@@ -87,15 +86,29 @@
   .stat .v{font-size:1rem;font-weight:700;font-variant-numeric:tabular-nums}
   .stat .n{font-size:.64rem;color:var(--text-3)}
 
-  .trow{display:flex;align-items:center;gap:.5rem;padding:.25rem 0}
-  .trow .tl{width:44px;font-size:.72rem;color:var(--text-3)}
-  .tbar{flex:1;height:14px;background:var(--surface-2);border-radius:4px;overflow:hidden}
-  .tbar i{display:block;height:100%;background:var(--blue)}
+  .seg3{display:flex;gap:3px;background:var(--surface-2);border-radius:9px;padding:3px;
+        border:1px solid var(--border-2);margin-top:.6rem}
+  .seg3 button{flex:1;background:none;border:0;color:var(--text-3);font:inherit;
+               font-size:.74rem;font-weight:600;padding:.4rem;border-radius:7px;min-height:34px}
+  .seg3 button.on{background:var(--surface-3);color:var(--text)}
+
+  .trow{display:flex;align-items:center;gap:.5rem;padding:.3rem 0;min-height:34px}
+  .trow.on .tbar i{background:#5ab0ff}
+  .trow .tl{width:46px;font-size:.73rem;color:var(--text-3)}
+  .tbar{flex:1;height:15px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+  .tbar i{display:block;height:100%;background:var(--blue);transition:width .2s}
   .trow .tn{width:28px;text-align:right;font-size:.73rem;font-variant-numeric:tabular-nums}
 
-  /* CARD ROWS. 44px minimum, because this is a thumb not a mouse. */
-  .crow{display:flex;align-items:center;gap:.55rem;min-height:46px;
+  .filterbar{display:flex;align-items:center;gap:.5rem;background:rgba(10,132,255,.12);
+             border:1px solid rgba(10,132,255,.32);border-radius:var(--radius-sm);
+             padding:.45rem .6rem;margin-bottom:.5rem;font-size:.78rem}
+  .filterbar button{margin-left:auto;background:var(--surface-2);border:1px solid var(--border);
+                    color:var(--text);border-radius:7px;font:inherit;font-size:.74rem;
+                    padding:.3rem .6rem;min-height:30px}
+
+  .crow{display:flex;align-items:center;gap:.55rem;min-height:48px;
         padding:.4rem .2rem;border-bottom:1px solid var(--border-2)}
+  .crow.open{background:rgba(10,132,255,.10)}
   .cdot{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
   .cname{flex:1;min-width:0}
   .cname b{font-size:.84rem;font-weight:600;display:block;
@@ -108,13 +121,19 @@
   .pill.g{background:rgba(48,209,88,.16);color:#4ade80}
   .pill.r{background:rgba(255,69,58,.16);color:#f87171}
 
-  /* THE SHEET: a phone's answer to a hover. */
-  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);
+  /* THE SHEET. A phone has no hover, so a tap opens this instead. */
+  .scrim{position:absolute;inset:0 0 72px 0;background:rgba(0,0,0,.5);opacity:0;
+         pointer-events:none;transition:opacity .18s;z-index:8}
+  .scrim.show{opacity:1;pointer-events:auto}
+  .sheet{position:absolute;left:0;right:0;bottom:72px;background:var(--surface);
          border-top-left-radius:20px;border-top-right-radius:20px;
-         border-top:1px solid var(--border);padding:.5rem .9rem 1.4rem;
-         box-shadow:0 -18px 50px rgba(0,0,0,.6);max-height:74%;overflow-y:auto}
+         border-top:1px solid var(--border);padding:.4rem .9rem 1.3rem;
+         box-shadow:0 -18px 50px rgba(0,0,0,.6);max-height:70%;overflow-y:auto;
+         transform:translateY(102%);transition:transform .22s cubic-bezier(.32,.72,0,1);
+         z-index:9}
+  .sheet.show{transform:translateY(0)}
   .grab{width:36px;height:4px;border-radius:2px;background:var(--surface-3);
-        margin:.35rem auto .7rem}
+        margin:.4rem auto .7rem}
   .shead{display:flex;gap:.75rem;align-items:flex-start}
   .simg{width:86px;flex:0 0 86px;aspect-ratio:.718;border-radius:7px;
         background:linear-gradient(145deg,#2a3350,#1b2238);border:1px solid var(--border);
@@ -122,39 +141,45 @@
         text-align:center;padding:.25rem}
   .stext{font-size:.78rem;line-height:1.45;color:var(--text-2);margin-top:.6rem;
          padding-top:.6rem;border-top:1px solid var(--border-2)}
-  .snote{font-size:.72rem;color:var(--text-2);margin-top:.5rem;padding:.4rem .5rem;
+  .snote{font-size:.72rem;color:var(--text-2);margin-top:.5rem;padding:.45rem .55rem;
          border-left:2px solid var(--blue);background:rgba(10,132,255,.07);
          border-radius:0 5px 5px 0}
+  .snote code{background:var(--surface-3);padding:0 .25rem;border-radius:3px;font-size:.7rem}
   .sacts{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.7rem}
   .btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
        padding:.5rem .7rem;border-radius:var(--radius-sm);font:inherit;
-       font-size:.78rem;min-height:40px}
+       font-size:.78rem;min-height:42px}
+  .btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}
   .mp{display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;
       font-size:.56rem;font-weight:800;font-style:normal;vertical-align:-2px;
       margin-right:1px;color:#150e05;background:#cac5c0}
   .mp-w{background:#fffbd5} .mp-u{background:#aae0fa} .mp-b{background:#cbc2bf}
   .mp-r{background:#f9aa8f} .mp-g{background:#9bd3ae}
+  .facesep{border:0;border-top:1px solid var(--border);margin:.5rem 0}
 
-  .note{max-width:560px;font-size:.82rem;color:var(--text-2);line-height:1.55}
-  .note h3{color:var(--text);font-size:.95rem;margin:1.2rem 0 .4rem}
+  /* Role picker, shown inside the sheet when you tap "Change role". */
+  .rolepick{display:none;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
+  .rolepick.show{display:flex}
+  .rp{font-size:.74rem;padding:.4rem .6rem;border-radius:999px;min-height:36px;
+      background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
+  .rp.on{border-color:#fff;color:var(--text)}
+
+  .note{max-width:520px;font-size:.84rem;color:var(--text-2);line-height:1.6}
+  .note h3{color:var(--text);font-size:.95rem;margin:1.3rem 0 .4rem}
   .note b{color:var(--text)}
-  .note code{background:var(--surface-2);padding:.1rem .3rem;border-radius:4px;
-             font-size:.78rem}
-  table{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:.5rem}
-  th{text-align:left;color:var(--text-3);font-weight:600;padding:.3rem .4rem;
-     border-bottom:1px solid var(--border);font-size:.7rem;text-transform:uppercase}
-  td{padding:.3rem .4rem;border-bottom:1px solid var(--border-2)}
+  .note code{background:var(--surface-2);padding:.1rem .3rem;border-radius:4px;font-size:.78rem}
+  .note li{margin:.25rem 0}
 </style>
 </head>
 <body>
 
-<!-- ============ PHONE 1: the Curve tab ============ -->
 <div style="position:relative">
 <div class="phone">
-  <span class="cap">1 · Curve — 390x844</span>
+  <span class="cap">Working prototype — tap the bars, roles, turns and cards</span>
   <div class="hdr"><span class="bk">‹</span><b>AI Doom</b>
     <span style="margin-left:auto;font-size:.72rem;color:var(--text-3)">52% built</span></div>
-  <div class="scroll">
+
+  <div class="scroll" id="scroll">
     <div class="chips">
       <div class="chip">All 100</div><div class="chip">Have 51</div>
       <div class="chip">Need 49</div><div class="chip">Considering 7</div>
@@ -168,8 +193,8 @@
       <div style="text-align:center;font-size:.64rem;color:var(--text-3);margin-top:.2rem">
         mana value</div>
       <div class="legend" id="legend"></div>
-      <div style="font-size:.68rem;color:var(--text-3);margin-top:.5rem;text-align:center">
-        tap a block for its cards · tap a role to filter</div>
+      <div style="font-size:.67rem;color:var(--text-3);margin-top:.55rem;text-align:center"
+           id="hint">tap a block to filter · tap a role to isolate it</div>
     </div>
 
     <div class="panel">
@@ -178,68 +203,22 @@
     </div>
 
     <div class="panel">
-      <div class="ptitle"><b>Castable by turn</b><span>with your 12 ramp</span></div>
-      <div id="turns" style="margin-top:.4rem"></div>
+      <div class="ptitle"><b>Castable by turn</b><span id="turnsub"></span></div>
+      <div class="seg3">
+        <button id="withRamp" class="on">With ramp</button>
+        <button id="landsOnly">Lands only</button>
+      </div>
+      <div id="turns" style="margin-top:.5rem"></div>
     </div>
 
     <div class="panel">
-      <div class="ptitle"><b>All 63 nonland cards</b></div>
-      <div id="list" style="margin-top:.3rem"></div>
+      <div id="filterbar"></div>
+      <div id="list"></div>
     </div>
-  </div>
-  <div class="tabbar">
-    <div class="tb"><i>◱</i>Home</div>
-    <div class="tb"><i>▦</i>Collection</div>
-    <div class="tb on"><i>⚔</i>Decks</div>
-    <div class="tb"><i>⚙</i>Settings</div>
-  </div>
-</div>
-</div>
-
-<!-- ============ PHONE 2: the sheet ============ -->
-<div style="position:relative">
-<div class="phone">
-  <span class="cap">2 · Tapping a card — the sheet replaces the hover</span>
-  <div class="hdr"><span class="bk">‹</span><b>AI Doom</b>
-    <span style="margin-left:auto;font-size:.72rem;color:var(--text-3)">52% built</span></div>
-  <div class="scroll" style="filter:brightness(.55)">
-    <div class="chips">
-      <div class="chip">All 100</div><div class="chip">Have 51</div>
-      <div class="chip">Need 49</div><div class="chip on">Curve</div>
-    </div>
-    <div class="panel"><div class="ptitle"><b>Mana curve</b></div>
-      <div class="curve" id="curve2"></div>
-      <div class="xrow" id="xrow2"></div></div>
-    <div class="panel"><div class="ptitle"><b>All 63 nonland cards</b></div>
-      <div id="list2" style="margin-top:.3rem"></div></div>
   </div>
 
-  <div class="sheet">
-    <div class="grab"></div>
-    <div class="shead">
-      <div class="simg">Rhystic Study</div>
-      <div style="min-width:0;flex:1">
-        <b style="font-size:.95rem">Rhystic Study</b>
-        <div style="margin:.2rem 0">
-          <i class="mp mp-c">2</i><i class="mp mp-u">U</i></div>
-        <div style="font-size:.72rem;color:var(--text-3)">Enchantment</div>
-        <div style="margin-top:.35rem">
-          <span class="pill" style="background:rgba(10,132,255,.16);color:#5ab0ff">Card draw</span>
-          <span class="pill r">Not owned</span></div>
-      </div>
-    </div>
-    <div class="stext">Whenever an opponent casts a spell, you may draw a card
-      unless that player pays <i class="mp mp-c">1</i>.</div>
-    <div class="snote"><b>Why Card draw?</b> Scryfall's Tagger has it as
-      <code style="background:var(--surface-3);padding:0 .25rem;border-radius:3px">repeatable-pure-draw</code>,
-      which rolls up under <code style="background:var(--surface-3);padding:0 .25rem;border-radius:3px">card-advantage</code>.
-      Tap to change — your choice is stored and always beats the tag.</div>
-    <div class="sacts">
-      <button class="btn">Change role</button>
-      <button class="btn">Choose printing</button>
-      <button class="btn">Remove</button>
-    </div>
-  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet"></div>
 
   <div class="tabbar">
     <div class="tb"><i>◱</i>Home</div>
@@ -250,77 +229,42 @@
 </div>
 </div>
 
-<!-- ============ the categories answer ============ -->
 <div class="note">
-  <h3>Yes — one bulk file, not a call per card</h3>
-  <p>You were right to push. There is <b>no per-card endpoint</b> —
-  <code>/cards/:id/tags</code> is a 404, and <code>?include_tags=true</code> is
-  silently ignored (I diffed the payloads: identical apart from the price
-  timestamp). But there <i>is</i> something better than the per-tag searches I
-  was doing:</p>
+  <h3>This one actually works</h3>
+  <p>Same behaviour as the desktop prototype, reworked for a thumb:</p>
+  <ul>
+    <li><b>Tap a coloured block</b> → filters the list to those cards.</li>
+    <li><b>Tap a role chip</b> → isolates that role across every bar. Try
+      <b>Ramp</b>: you can see instantly that yours stops at mana value 3.</li>
+    <li><b>Tap a turn row</b> → filters to what is castable by then.</li>
+    <li><b>With ramp / Lands only</b> → recomputes the turn numbers.</li>
+    <li><b>Tap a card</b> → the sheet. Hover does not exist on a phone, so the
+      full rules text lives here instead of in a tooltip.</li>
+    <li><b>Change role</b> in the sheet → pick a different one; it sticks, the
+      chart redraws, and the card is marked as yours not Scryfall's.</li>
+  </ul>
 
-  <p><b><code>GET /bulk-data</code> → <code>oracle_tags</code></b> — a single
-  5.9 MB gzipped file containing <b>every Oracle tag and every card it applies
-  to</b>. 4,533 tags covering 36,093 cards. Refreshed daily; Scryfall asks you
-  to download it rather than crawl the API.</p>
+  <h3>What is different from the desktop, and why</h3>
+  <ul>
+    <li><b>No hover.</b> Every hover became a tap-to-open sheet. The gist line
+      under each card name carries what the tooltip used to.</li>
+    <li><b>Rows are 48px.</b> Thumb targets, not mouse targets.</li>
+    <li><b>The turn view is always visible</b>, not behind a toggle — you said
+      you would rather have more information than less.</li>
+    <li><b>Filters show a clear bar</b> rather than relying on you remembering
+      what you tapped, because on a phone the chart scrolls off screen.</li>
+  </ul>
 
-  <p>Each entry carries the tag, its description, the oracle_ids it applies to,
-  and — the part that matters — <b>parent and child tags</b>.</p>
-
-  <h3>That hierarchy explains my earlier bad number</h3>
-  <p>When I queried <code>otag:removal</code> directly it scored 67%, and I
-  blamed the tags. Wrong. <b><code>removal</code> and <code>draw</code> have
-  ZERO cards tagged directly</b> — every card lives in a child tag like
-  <code>removal-creature</code> or <code>burst-draw</code>. My query was asking
-  for an empty set.</p>
-  <table>
-    <tr><th>Tag</th><th>Direct</th><th>Child tags</th></tr>
-    <tr><td><code>removal</code></td><td>0</td><td>55 in the family</td></tr>
-    <tr><td><code>card-advantage</code></td><td>58</td><td>184 in the family</td></tr>
-    <tr><td><code>ramp</code></td><td>560</td><td>23 in the family</td></tr>
-    <tr><td><code>counterspell</code></td><td>97</td><td>24 in the family</td></tr>
-  </table>
-  <p style="margin-top:.6rem">Roll the tree up and a card tagged
-  <code>removal-creature</code> correctly counts as Interaction.</p>
-
-  <h3>Measured, all four approaches</h3>
-  <table>
-    <tr><th>Approach</th><th>Agreement</th><th>Cost</th></tr>
-    <tr><td>My hand-written regex</td><td>79%</td><td>code I maintain forever</td></tr>
-    <tr><td><code>otag:</code> search, no hierarchy</td><td>67%</td><td>dozens of calls, rate-limited</td></tr>
-    <tr><td><code>otag:</code> search + type line</td><td>95%</td><td>dozens of calls, rate-limited</td></tr>
-    <tr><td><b>Bulk file + hierarchy + type line</b></td><td><b>95%</b></td>
-        <td><b>one 5.9 MB download, daily</b></td></tr>
-  </table>
-
-  <p style="margin-top:.8rem">Same accuracy as the search approach, but one
-  download instead of dozens of rate-limited calls — and every role now cites
-  the <b>specific</b> tag. Ancestral Vision is not just "draw", it is
-  <code>burst-draw</code>. Dragon Tempest is <code>burn-any</code>.</p>
-
-  <h3>Still three disagreements, and the interesting one stands</h3>
-  <table>
-    <tr><th>Card</th><th>Tag says</th><th>I said</th><th>Verdict</th></tr>
-    <tr><td>Beast Whisperer</td><td>Threat (it is a creature)</td><td>Card draw</td>
-        <td>Arguable — a 4-mana 2/3 whose only job is drawing</td></tr>
-    <tr><td>Dragon Tempest</td><td>Interaction (<code>burn-any</code>)</td><td>Threat</td>
-        <td>Arguable — it pings, but you play it as a payoff</td></tr>
-    <tr><td>Ancestral Vision</td><td>Card draw (<code>burst-draw</code>)</td><td>Other</td>
-        <td><b>The tag is right, I was wrong</b></td></tr>
-  </table>
-
-  <h3>What this means for Bindarr</h3>
-  <p>The catalogue refresh already pulls Scryfall bulk data. This is
-  <b>one more file on that same job</b> — roles land in <code>card_cache</code>
-  beside prices and legality, no per-card calls, no rate limit to trip, and
-  nothing to classify at page load.</p>
-  <p>Override still stands. 5% of 100 cards is five wrong rows per deck, and a
-  wrong role silently skews the chart you are reading to make deck decisions.
-  Every card names its tag, and one tap beats it permanently.</p>
+  <h3>Roles come from Scryfall</h3>
+  <p>Every role here is derived from the <code>oracle_tags</code> bulk file —
+  95% agreement, measured — and each card's sheet names the exact tag it matched.
+  One tap overrides it permanently, and an overridden card says
+  <b>"your choice"</b> instead of a tag.</p>
 </div>
 
 <script>
 const DECK = [
+
 
   // commander (marker only, not in the bars)
   {n:'The Ur-Dragon', mv:9, role:'threat', why:'creature or planeswalker', have:1, cmdr:true, cost:'{4}{W}{U}{B}{R}{G}', type:'Legendary Creature — Dragon Avatar', text:'Eminence — As long as The Ur-Dragon is in the command zone or on the battlefield, other Dragon spells you cast cost {1} less to cast.\nFlying\nWhenever one or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield.'},
@@ -404,65 +348,222 @@ const ROLES=[{id:'ramp',label:'Ramp'},{id:'draw',label:'Card draw'},
 const B=[0,1,2,3,4,5,6,7];
 const spells=DECK.filter(c=>!c.cmdr);
 const bk=c=>Math.min(c.mv,7);
-const inB=(b,r)=>spells.filter(c=>bk(c)===b&&(!r||c.role===r));
-const maxN=Math.max(...B.map(b=>inB(b).length));
+
+let filter=null;      // {bucket,role} | {turn} | null
+let hotRole=null;     // isolated role
+let ramped=true;
+let sheetCard=null;
+const overrides={};   // name -> role the user picked
+
+const roleOf=c=>overrides[c.n]||c.role;
+const inB=(b,r)=>spells.filter(c=>bk(c)===b&&(!r||roleOf(c)===r));
+const maxN=()=>Math.max(...B.map(b=>inB(b).length));
 
 function mana(cost){if(!cost)return '';return (cost.match(/\{[^}]+\}/g)||[]).map(s=>{
   const v=s.slice(1,-1);const cl={W:'w',U:'u',B:'b',R:'r',G:'g'}[v]||'c';
   return `<i class="mp mp-${cl}">${v.replace('/','')}</i>`;}).join('');}
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function textHtml(t){if(!t)return '<span style="color:var(--text-3)">No rules text.</span>';
+  return esc(t).replace(/\{[^}]+\}/g,m=>mana(m)).replace(/\n\/\/\n/g,'<hr class="facesep">')
+    .replace(/\n/g,'<br>');}
 function gist(t){if(!t)return '';const f=t.split('\n')[0].split(/(?<=\.)\s/)[0];
-  return f.length>58?f.slice(0,55)+'…':f;}
+  return esc(f.length>58?f.slice(0,55)+'…':f);}
 
-function chart(el,xel,h){
-  el.innerHTML='';xel.innerHTML='';
+// how many cards are castable by turn t
+function castable(t){
+  const extra=ramped?Math.min(Math.floor((t-1)*0.7),4):0;
+  return spells.filter(c=>c.mv<=t+extra).length;
+}
+
+function matches(c){
+  if(!filter) return true;
+  if(filter.turn!=null){
+    const extra=ramped?Math.min(Math.floor((filter.turn-1)*0.7),4):0;
+    return c.mv<=filter.turn+extra;
+  }
+  return bk(c)===filter.bucket && roleOf(c)===filter.role;
+}
+
+function drawCurve(){
+  const el=document.getElementById('curve'),xr=document.getElementById('xrow');
+  el.innerHTML='';xr.innerHTML='';
+  const mx=maxN();
   B.forEach(b=>{
     const n=inB(b).length,col=document.createElement('div');col.className='col';
     col.innerHTML=`<div class="coltot">${n||''}</div>`;
     const st=document.createElement('div');st.className='stack';
-    st.style.height=Math.round(n/maxN*h)+'px';
-    ROLES.forEach(r=>{const k=inB(b,r.id).length;if(!k)return;
-      const s=document.createElement('div');s.className='seg '+r.id;
-      s.style.height=(k/n*100)+'%';st.appendChild(s);});
+    st.style.height=Math.round(n/mx*118)+'px';
+    ROLES.forEach(r=>{
+      const k=inB(b,r.id).length;if(!k)return;
+      const s=document.createElement('div');
+      s.className='seg '+r.id
+        +(hotRole&&hotRole!==r.id?' dim':'')
+        +(filter&&filter.bucket===b&&filter.role===r.id?' sel':'');
+      s.style.height=(k/n*100)+'%';
+      s.onclick=()=>{
+        filter=(filter&&filter.bucket===b&&filter.role===r.id)?null:{bucket:b,role:r.id};
+        render();
+      };
+      st.appendChild(s);
+    });
     col.appendChild(st);
     if(b===Math.min(DECK.find(c=>c.cmdr).mv,7)){
       const l=document.createElement('div');l.className='cmdrlab';
-      l.style.bottom=(Math.round(n/maxN*h)+6)+'px';l.textContent='◈ commander';
-      col.appendChild(l);}
+      l.style.bottom=(Math.round(n/mx*118)+6)+'px';l.textContent='◈ commander';
+      col.appendChild(l);
+    }
     el.appendChild(col);
     const x=document.createElement('div');x.className='colx';
-    x.textContent=b===7?'7+':b;xel.appendChild(x);});
+    x.textContent=b===7?'7+':b;xr.appendChild(x);
+  });
 }
-chart(document.getElementById('curve'),document.getElementById('xrow'),110);
-chart(document.getElementById('curve2'),document.getElementById('xrow2'),110);
 
-document.getElementById('sub').textContent=`${spells.length} nonland · 37 lands out`;
-document.getElementById('legend').innerHTML=ROLES.map(r=>
-  `<span class="lg"><i class="sw" style="background:var(--${r.id})"></i>${r.label} ${
-    spells.filter(c=>c.role===r.id).length}</span>`).join('');
+function drawLegend(){
+  document.getElementById('legend').innerHTML=ROLES.map(r=>
+    `<button class="lg${hotRole===r.id?' on':''}" data-role="${r.id}">
+       <i class="sw" style="background:var(--${r.id})"></i>${r.label}
+       ${spells.filter(c=>roleOf(c)===r.id).length}</button>`).join('');
+  document.querySelectorAll('#legend .lg').forEach(b=>{
+    b.onclick=()=>{hotRole=hotRole===b.dataset.role?null:b.dataset.role;render();};
+  });
+}
 
-const mvs=spells.map(c=>c.mv).sort((a,b)=>a-b);
-const avg=(mvs.reduce((s,n)=>s+n,0)/mvs.length).toFixed(2);
-const ramp=spells.filter(c=>c.role==='ramp').length;
-document.getElementById('stats').innerHTML=[
-  ['Avg MV',avg,'excl. lands'],['Median MV',mvs[Math.floor(mvs.length/2)],'typical 2.5–3.5'],
-  ['Ramp',ramp,ramp>=10?'on target':'thin'],
-  ['6+ drops',spells.filter(c=>c.mv>=6).length,'over ~10 clogs'],
-].map(([k,v,n])=>`<div class="stat"><div class="k">${k}</div>
-   <div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+function drawStats(){
+  const mvs=spells.map(c=>c.mv).sort((a,b)=>a-b);
+  const avg=(mvs.reduce((s,n)=>s+n,0)/mvs.length).toFixed(2);
+  const ramp=spells.filter(c=>roleOf(c)==='ramp').length;
+  const big=spells.filter(c=>c.mv>=6).length;
+  document.getElementById('stats').innerHTML=[
+    ['Avg MV',avg,'excl. lands'],
+    ['Median MV',mvs[Math.floor(mvs.length/2)],'typical 2.5–3.5'],
+    ['Ramp',ramp,ramp>=10?'on target':'thin for EDH'],
+    ['6+ drops',big,big>10?'may clog':'fine'],
+  ].map(([k,v,n])=>`<div class="stat"><div class="k">${k}</div>
+     <div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+  document.getElementById('sub').textContent=`${spells.length} nonland · 37 lands out`;
+  document.getElementById('turnsub').textContent=ramped
+    ?`with your ${spells.filter(c=>roleOf(c)==='ramp').length} ramp`:'lands only';
+}
 
-document.getElementById('turns').innerHTML=[1,2,3,4,5,6].map(t=>{
-  const n=spells.filter(c=>c.mv<=t+Math.max(0,Math.floor((t-1)*0.8))).length;
-  return `<div class="trow"><span class="tl">Turn ${t}</span>
-    <div class="tbar"><i style="width:${(n/spells.length*100).toFixed(1)}%"></i></div>
-    <span class="tn">${n}</span></div>`;}).join('');
+function drawTurns(){
+  document.getElementById('turns').innerHTML=[1,2,3,4,5,6].map(t=>{
+    const n=castable(t);
+    return `<button class="trow${filter&&filter.turn===t?' on':''}" data-turn="${t}"
+              style="width:100%;background:none;border:0;padding:.3rem 0;font:inherit">
+      <span class="tl">Turn ${t}</span>
+      <span class="tbar"><i style="width:${(n/spells.length*100).toFixed(1)}%"></i></span>
+      <span class="tn">${n}</span></button>`;
+  }).join('');
+  document.querySelectorAll('#turns .trow').forEach(b=>{
+    b.onclick=()=>{const t=+b.dataset.turn;
+      filter=(filter&&filter.turn===t)?null:{turn:t};render();};
+  });
+}
 
-const rows=spells.slice().sort((a,b)=>a.mv-b.mv||a.n.localeCompare(b.n)).map(c=>
-  `<div class="crow"><span class="cdot" style="background:var(--${c.role})"></span>
-    <span class="cname"><b>${c.n}</b><span class="cwhat">${gist(c.text)}</span></span>
-    <span class="cmv">${c.mv}</span>
-    <span class="pill ${c.have?'g':'r'}">${c.have?c.have:0}</span></div>`).join('');
-document.getElementById('list').innerHTML=rows;
-document.getElementById('list2').innerHTML=rows;
+function filterLabel(){
+  if(!filter)return null;
+  if(filter.turn!=null)return `Castable by turn ${filter.turn}`;
+  return `${ROLES.find(r=>r.id===filter.role).label} · MV ${filter.bucket===7?'7+':filter.bucket}`;
+}
+
+function drawList(){
+  const shown=spells.filter(matches);
+  const lab=filterLabel();
+  document.getElementById('filterbar').innerHTML = lab
+    ? `<div class="filterbar"><span><b>${lab}</b> · ${shown.length}</span>
+         <button id="clear">Clear</button></div>`
+    : `<div style="font-size:.76rem;color:var(--text-3);margin-bottom:.5rem">
+         All ${shown.length} nonland cards · tap one for detail</div>`;
+  if(lab)document.getElementById('clear').onclick=()=>{filter=null;render();};
+
+  document.getElementById('list').innerHTML=shown
+    .sort((a,b)=>a.mv-b.mv||a.n.localeCompare(b.n))
+    .map(c=>`<div class="crow" data-card="${esc(c.n)}">
+        <span class="cdot" style="background:var(--${roleOf(c)})"></span>
+        <span class="cname"><b>${esc(c.n)}</b><span class="cwhat">${gist(c.text)}</span></span>
+        <span class="cmv">${c.mv}</span>
+        <span class="pill ${c.have?'g':'r'}">${c.have?c.have:0}</span>
+      </div>`).join('');
+  document.querySelectorAll('#list .crow').forEach(r=>{
+    r.onclick=()=>openSheet(r.dataset.card);
+  });
+}
+
+// --- the sheet: a phone's answer to hover -----------------------------------
+function openSheet(name){
+  const c=spells.find(x=>x.n===name);if(!c)return;
+  sheetCard=c;
+  const r=roleOf(c), rl=ROLES.find(x=>x.id===r).label;
+  const mine=!!overrides[c.n];
+  document.getElementById('sheet').innerHTML=`
+    <div class="grab"></div>
+    <div class="shead">
+      <div class="simg">${esc(c.n.split(',')[0])}</div>
+      <div style="min-width:0;flex:1">
+        <b style="font-size:.95rem">${esc(c.n)}</b>
+        <div style="margin:.25rem 0">${mana(c.cost)}</div>
+        <div style="font-size:.72rem;color:var(--text-3)">${esc(c.type)}</div>
+        <div style="margin-top:.4rem">
+          <span class="pill" style="background:rgba(10,132,255,.16);color:#5ab0ff">${rl}</span>
+          <span class="pill ${c.have?'g':'r'}">${c.have?'You own '+c.have:'Not owned'}</span>
+          ${c.note?`<span class="pill">${esc(c.note)}</span>`:''}
+        </div>
+      </div>
+    </div>
+    <div class="stext">${textHtml(c.text)}</div>
+    <div class="snote"><b>Why ${rl}?</b> ${mine
+      ? 'You set this yourself — your choice always beats the tag.'
+      : `Scryfall's Tagger has it as <code>${esc((c.why||'').replace('otag: ',''))}</code>.`}
+      ${mine?'':' Tap Change role to override it permanently.'}</div>
+    ${c.note==='//'?`<div class="snote">Split card — bucketed at the cheaper half
+       (${c.mv}), not the rules' combined mana value, because that is the turn
+       you can actually cast it.</div>`:''}
+    ${c.note==='X'?`<div class="snote">X counts as 0 off the stack (CR 202.3e),
+       so this sits in bucket ${c.mv}. You will usually pay more.</div>`:''}
+    <div class="rolepick" id="rolepick">
+      ${ROLES.map(x=>`<button class="rp${x.id===r?' on':''}" data-r="${x.id}">
+         <i class="sw" style="background:var(--${x.id});display:inline-block;
+            width:8px;height:8px;border-radius:2px;margin-right:.3rem"></i>${x.label}</button>`).join('')}
+    </div>
+    <div class="sacts">
+      <button class="btn" id="changerole">Change role</button>
+      <button class="btn">Choose printing</button>
+      <button class="btn">Remove</button>
+      <button class="btn pri" id="closesheet">Done</button>
+    </div>`;
+  document.getElementById('changerole').onclick=()=>
+    document.getElementById('rolepick').classList.toggle('show');
+  document.querySelectorAll('#rolepick .rp').forEach(b=>{
+    // Re-open the picker after the redraw. openSheet() rebuilds the sheet, which
+    // closed the picker the instant you used it -- you could not see which role
+    // you had just chosen, or change your mind without hunting for the button.
+    b.onclick=()=>{
+      overrides[sheetCard.n]=b.dataset.r;
+      const name=sheetCard.n;
+      render(); openSheet(name);
+      document.getElementById('rolepick').classList.add('show');
+    };
+  });
+  document.getElementById('closesheet').onclick=closeSheet;
+  document.getElementById('sheet').classList.add('show');
+  document.getElementById('scrim').classList.add('show');
+}
+function closeSheet(){
+  document.getElementById('sheet').classList.remove('show');
+  document.getElementById('scrim').classList.remove('show');
+  sheetCard=null;
+}
+document.getElementById('scrim').onclick=closeSheet;
+
+document.getElementById('withRamp').onclick=()=>{
+  ramped=true;document.getElementById('withRamp').classList.add('on');
+  document.getElementById('landsOnly').classList.remove('on');render();};
+document.getElementById('landsOnly').onclick=()=>{
+  ramped=false;document.getElementById('landsOnly').classList.add('on');
+  document.getElementById('withRamp').classList.remove('on');render();};
+
+function render(){drawCurve();drawLegend();drawStats();drawTurns();drawList();}
+render();
 </script>
 </body>
 </html>
