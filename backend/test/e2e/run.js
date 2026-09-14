@@ -41,7 +41,18 @@ async function runTestFile(file) {
       // UNCOUNTED passing test is a silent under-report, while an
       // over-permissive pattern would at worst count a line that literally
       // says "PASS:".
-      const passMatches = output.match(/PASS: F[A-Z0-9]+-TC[A-Za-z0-9]+/g);
+      //
+      // THIRD ROUND OF THIS BUG. The pattern required the id to start with
+      // 'F', so DECK-ART-1..5 ran, passed, and reported as zero. The 'F' was
+      // never a rule -- it was a coincidence of the suites that existed when
+      // this was written. Anchoring the tally to a naming convention nobody
+      // wrote down means every new suite is one arbitrary prefix away from
+      // being invisible.
+      //
+      // It now counts any 'PASS: <ID> ' line: uppercase letters, digits and
+      // hyphens. The alternative -- renaming tests to satisfy the counter --
+      // is the tail wagging the dog.
+      const passMatches = output.match(/PASS: [A-Z][A-Z0-9-]*[0-9A-Za-z]/g);
       if (passMatches) {
         filePassed += passMatches.length;
       }
@@ -53,7 +64,7 @@ async function runTestFile(file) {
       
       // The same shape as the PASS pattern above, and for the same reason: a
       // FAILURE that goes uncounted is strictly worse than an uncounted pass.
-      const failMatches = output.match(/FAIL: F[A-Z0-9]+-TC[A-Za-z0-9]+/g);
+      const failMatches = output.match(/FAIL: [A-Z][A-Z0-9-]*[0-9A-Za-z]/g);
       if (failMatches) {
         fileFailed += failMatches.length;
       }
