@@ -14,6 +14,7 @@ import CardSearchResult from './CardSearchResult.jsx';
 import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
          Trash2, Lightbulb, ArrowDownToLine, ChevronDown } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { useIsDesktop } from '../utils/breakpoints';
 import { formatPrice } from '../utils/formatPrice';
 import ExportModal from './ExportModal';
 import CardInspectorModal from './CardInspectorModal';
@@ -130,6 +131,34 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   const searchRef = useRef(null);
 
   const cards = useMemo(() => deck?.cards || [], [deck]);
+
+  const isDesktop = useIsDesktop();
+
+  // WHICH CARD THE RIGHT PANE IS SHOWING.
+  //
+  // Separate state from `inspecting` on purpose. `inspecting` means "the user
+  // opened a modal"; this means "the pane has a subject", and the pane always
+  // has one -- it defaults to the commander on load. Sharing one state would
+  // make the phone open a modal on load.
+  const [selectedCardId, setSelectedCardId] = useState(null);
+
+  // The commander is the default subject. Falls back to the first card for a
+  // deck with no command zone (a 60-card deck), and is null only for an empty
+  // deck, which is the one case the pane does not render.
+  const detailCard = useMemo(() => {
+    if (!isDesktop) return null;
+    const pick = selectedCardId
+      ? cards.find(c => String(c.id) === String(selectedCardId))
+      : null;
+    const fallback = cards.find(c => c.board === 'commander') || cards[0] || null;
+    const chosen = pick || fallback;
+    if (!chosen) return null;
+    // The inspector keys off the CARD id (a card_cache row), but remove and
+    // repoint act on the deck_cards row. Both travel, explicitly named, so the
+    // pane cannot delete a collection row that happens to share an id -- the
+    // exact confusion the modal's onRemoveFromDeck comment warns about.
+    return { ...chosen, deckCardId: chosen.id };
+  }, [isDesktop, selectedCardId, cards]);
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:
   // "Move considering to the chips like owned and missing." They sit outside
@@ -821,6 +850,40 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </div>
       ) : null}
 
+      {/* THE TWO-PANE REGION, on desktop only.
+          Left: search, tabs, the card list. Right: card detail that follows
+          your selection. Below 1024px this is one column and the detail opens
+          as the modal it has always been -- the grid simply collapses, so the
+          phone is untouched. */}
+      <div className="deck-panes">
+        <div className="deck-panes-main">
+      {/* SEARCH SITS ABOVE THE TABS.
+          The mockup puts it there, and the order is the point: search spans
+          every tab (it adds a card to the deck regardless of which filter you
+          are looking at), so placing it under the tabs implied it searched
+          within the selected one.
+
+          Same element, same behaviour, moved -- this is a reorder, not a
+          rewrite.
+
+          ADD A CARD: always visible, not behind a "+". Adding cards is the main
+          thing you do on this screen. */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem',
+                      background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
+                      borderRadius: 'var(--radius-md)', padding: '0 0.85rem', height: 44, marginBottom: '0.75rem' }}>
+        <Search size={17} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
+               placeholder={t('deck.addCardPlaceholder')}
+               style={{ border: 0, outline: 'none', background: 'transparent', flex: 1,
+                        color: 'var(--text-primary)', font: 'inherit', fontSize: '0.95rem' }} />
+        {query && (
+          <button onClick={() => { setQuery(''); setResults([]); }} aria-label={t('common.close')}
+                  style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}>
+            <X size={15} />
+          </button>
+        )}
+      </label>
+
       {/* TABS */}
       <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: 2, marginBottom: '0.75rem' }}>
         {TABS.map(({ id, label, n }) => {
@@ -838,24 +901,6 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           );
         })}
       </div>
-
-      {/* ADD A CARD: always visible, not behind a "+". Adding cards is the main
-          thing you do on this screen. */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem',
-                      background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
-                      borderRadius: 'var(--radius-md)', padding: '0 0.85rem', height: 44, marginBottom: '0.75rem' }}>
-        <Search size={17} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-        <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
-               placeholder={t('deck.addCardPlaceholder')}
-               style={{ border: 0, outline: 'none', background: 'transparent', flex: 1,
-                        color: 'var(--text-primary)', font: 'inherit', fontSize: '0.95rem' }} />
-        {query && (
-          <button onClick={() => { setQuery(''); setResults([]); }} aria-label={t('common.close')}
-                  style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}>
-            <X size={15} />
-          </button>
-        )}
-      </label>
 
       {(searching || results.length > 0) && (
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
@@ -971,13 +1016,18 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                 <div key={card.id}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.65rem',
                            padding: '0.5rem 0.65rem', borderRadius: 11,
-                           background: missing ? 'rgba(255,159,10,.06)' : 'var(--surface-1)' }}>
+                           background: isDesktop && detailCard && String(detailCard.id) === String(card.id)
+                             ? 'rgba(10,132,255,.12)'
+                             : missing ? 'rgba(255,159,10,.06)' : 'var(--surface-1)' }}>
                   {/* TAP TO INSPECT. Art + name only: the quantity controls
                       are outside this button, because on a phone they sit
-                      millimetres apart and one of them changes a record. */}
+                      millimetres apart and one of them changes a record.
+
+                      On desktop the same click fills the right pane instead of
+                      opening a modal over the list you are working through. */}
                   <button
                     type="button"
-                    onClick={() => setInspecting(card)}
+                    onClick={() => (isDesktop ? setSelectedCardId(card.id) : setInspecting(card))}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '0.6rem',
                       flex: 1, minWidth: 0, padding: 0, border: 0,
@@ -1071,6 +1121,39 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         </div>
       ))}
+        </div>
+
+        {/* RIGHT PANE: card detail that follows the selection.
+            Zach: "the right hand side should show individual card detail so it
+            doesnt have to open up a modal. Like initial load of deck view shows
+            the commander but as you click different cards it shows that card."
+
+            Same CardInspectorModal the phone opens, with inline -- not a second
+            card-detail component that would drift from it.
+
+            `key` forces a remount when the card changes. Without it the
+            inspector keeps its own fetched state (deckUse, switched printing)
+            across a selection change, which is exactly the stale-printing bug
+            it already has a guard for; remounting makes it impossible rather
+            than guarded. */}
+        {isDesktop && detailCard ? (
+          <div className="deck-panes-side">
+            <CardInspectorModal
+              key={detailCard.id || detailCard.card_id}
+              card={detailCard}
+              inline
+              readOnly
+              deckId={deck?.id}
+              deckCardId={detailCard.deckCardId ?? null}
+              onRepointed={() => { onChanged && onChanged(); setRepointVersion(v => v + 1); }}
+              onClose={() => {}}
+              showToast={showToast}
+              onRemoveFromDeck={removeCard}
+              deckName={deck?.name || null}
+            />
+          </div>
+        ) : null}
+      </div>
 
       {/* COMMANDER SWAP */}
       {commanderOpen && (
@@ -1171,6 +1254,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           It lives HERE rather than on the list because this screen shows what
           is about to be destroyed, and a list row is a mis-tap waiting to
           happen. */}
+      <div className="deck-delete-row">
       <button
         onClick={confirmDelete}
         disabled={busy}
@@ -1186,6 +1270,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         <Trash2 size={15} />
         {t('deck.deleteDeck')}
       </button>
+      </div>
 
       {/* CARD DETAIL, read-only. A deck card is not a collection entry, so the
           inspector must not be allowed to write through this id. */}

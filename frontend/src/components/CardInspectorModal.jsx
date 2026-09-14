@@ -42,6 +42,22 @@ function CardInspectorModal({
   // The caller owns its own context and passes the right action in.
   onRemoveFromDeck = null,
   deckName = null,
+  // RENDER IN PLACE INSTEAD OF OVER THE PAGE.
+  //
+  // The desktop deck view shows card detail in a pinned right-hand pane:
+  // Zach: "the right hand side should show individual card detail so it
+  // doesnt have to open up a modal."
+  //
+  // Same component, not a second one. Everything below this line -- printing
+  // switching, the stale-printing guard, double-faced flipping, per-card
+  // repoint, remove-from-deck -- is the behaviour that took several rounds to
+  // get right, and a parallel "inline card detail" component would have to
+  // re-earn all of it and then drift from it.
+  //
+  // `inline` removes exactly two things: the fixed backdrop and the close
+  // button. The pane has no backdrop to dismiss and is never empty, so a
+  // close control would leave a hole where the detail was.
+  inline = false,
 }) {
   const { t } = useT();
 
@@ -373,11 +389,15 @@ function CardInspectorModal({
   // The previous scroll position is restored on close: locking with
   // overflow:hidden alone makes the page jump to the top when it is released.
   useEffect(() => {
+    // NOT WHEN INLINE. The pane is part of the page, not over it -- locking
+    // the body here would freeze the deck list the pane sits beside, so
+    // clicking a card would stop you scrolling to the next one.
+    if (inline) return undefined;
     const { body } = document;
     const previous = body.style.overflow;
     body.style.overflow = 'hidden';
     return () => { body.style.overflow = previous; };
-  }, []);
+  }, [inline]);
 
   useEffect(() => {
     // FETCHED FOR EVERY TAB, INCLUDING THE ONE YOU LAND ON.
@@ -587,36 +607,25 @@ function CardInspectorModal({
 
   const cardNumber = card.number || card.collector_number || card.card_number || '';
 
-  return (
-    <div className="modal-overlay" style={{
-      position: 'fixed',
-      top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.75)',
-      backdropFilter: 'blur(8px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      // ROOM TO BREATHE. A full-bleed overlay puts a 90vh panel flush against
-      // the viewport edges, so any browser chrome or dynamic toolbar tips it
-      // over. The safe-area insets matter on a phone with a notch or a home
-      // bar, where the usable height is smaller than the reported height.
-      padding: 'max(0.75rem, env(safe-area-inset-top, 0px)) 0.75rem '
-             + 'max(0.75rem, env(safe-area-inset-bottom, 0px))',
-      boxSizing: 'border-box',
-      // The overlay itself must never scroll -- .ci-scroll is the only
-      // scrolling region in this modal.
-      overflow: 'hidden',
-      zIndex: Z_MODAL
-    }} onClick={handleClose}>
-      <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
-        {/* CLOSE, IN THE FLOW.
-            This was position:absolute at top:1rem of the panel, and Zach
-            reported it missing twice for two different reasons: first the
-            panel scrolled and carried it off, then the header outgrew the
-            viewport and took it off the top. An absolute button has no
-            relationship to the layout -- it goes wherever the panel's top
-            goes, including off-screen.
-            As a flex row it cannot be anywhere the panel is not. */}
+  // THE PANEL'S CONTENTS, shared by both shapes.
+  //
+  // Held in a variable rather than duplicated into the two return branches so
+  // the modal and the inline pane can never render different card detail --
+  // which is the whole reason this is one component and not two.
+  const panelBody = (
+    <>
+      {/* CLOSE, IN THE FLOW.
+          This was position:absolute at top:1rem of the panel, and Zach
+          reported it missing twice for two different reasons: first the
+          panel scrolled and carried it off, then the header outgrew the
+          viewport and took it off the top. An absolute button has no
+          relationship to the layout -- it goes wherever the panel's top
+          goes, including off-screen.
+          As a flex row it cannot be anywhere the panel is not.
+
+          Not rendered inline: the pane always shows a card (the commander on
+          load), so closing it would leave an empty column and no way back. */}
+      {!inline && (
         <div style={{
           order: -1,
           width: '100%',
@@ -638,6 +647,7 @@ function CardInspectorModal({
             <X size={16} />
           </button>
         </div>
+      )}
 
 
         {/* Left side: Main Card Image Focus */}
@@ -1626,7 +1636,45 @@ function CardInspectorModal({
           )}
         </div>
                 </div>
-</div>
+    </>
+  );
+
+  // INLINE: the same panel, in a grid column instead of over the page.
+  if (inline) {
+    return (
+      <div className="glass-panel card-inspector card-inspector-inline">
+        {panelBody}
+        {isFullScreen && (
+          <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="modal-overlay" style={{
+      position: 'fixed',
+      top: 0, left: 0, right: 0, bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.75)',
+      backdropFilter: 'blur(8px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      // ROOM TO BREATHE. A full-bleed overlay puts a 90vh panel flush against
+      // the viewport edges, so any browser chrome or dynamic toolbar tips it
+      // over. The safe-area insets matter on a phone with a notch or a home
+      // bar, where the usable height is smaller than the reported height.
+      padding: 'max(0.75rem, env(safe-area-inset-top, 0px)) 0.75rem '
+             + 'max(0.75rem, env(safe-area-inset-bottom, 0px))',
+      boxSizing: 'border-box',
+      // The overlay itself must never scroll -- .ci-scroll is the only
+      // scrolling region in this modal.
+      overflow: 'hidden',
+      zIndex: Z_MODAL
+    }} onClick={handleClose}>
+      <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
+        {panelBody}
+      </div>
 
       {isFullScreen && (
         <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />

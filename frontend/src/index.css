@@ -3229,3 +3229,80 @@ button, input, select, textarea {
      a second thing sitting next to it. */
   align-self: baseline;
 }
+
+/* ============================================================================
+   DECK VIEW — two panes on desktop
+   ============================================================================
+   Left: search, tabs, the card list. Right: card detail that follows the
+   selection, pinned so it stays put while the list scrolls.
+
+   On the phone this is a plain block and the grid never applies, so the
+   single-column screen Zach already uses is untouched.
+*/
+.deck-panes { display: block; }
+
+@media (min-width: 1024px) {
+  .deck-panes {
+    display: grid;
+    /* A FIXED right column, not a fraction. Card detail has a card image in
+       it, which has a fixed aspect ratio -- letting it scale with the window
+       makes the image jump size on every resize. The LIST takes the slack. */
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 1.1rem;
+    align-items: start;
+  }
+
+  .deck-panes-main { min-width: 0; }
+
+  .deck-panes-side {
+    position: sticky;
+    /* 1rem below the top of the scroll container. The rail is its own
+       scroller, so this only has to clear the page padding. */
+    top: 1rem;
+    /* The pane scrolls INTERNALLY when the card has long rules text, rather
+       than growing past the viewport and dragging the sticky position with
+       it -- which is how a "pinned" pane ends up half off-screen. */
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+
+  /* The inline inspector is a block in a column, not a centred dialog. The
+     modal's sizing (90vh, centred, fixed width) would fight the grid. */
+  .card-inspector-inline {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    height: auto;
+    margin: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* The inline pane is 400px, not the modal's ~900px, so the modal's
+     side-by-side image + detail layout has to stack. Without this the detail
+     column is ~150px wide and every card name wraps mid-word. */
+  .card-inspector-inline .ci-image-col {
+    align-self: center;
+  }
+
+  .card-inspector-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* DELETE DECK STAYS SMALL.
+     It was width:100% under a single column, which was fine at 390px and
+     became a 1150px red target spanning both panes on desktop. The size of a
+     destructive control should reflect how often you mean to press it, not
+     how much room the layout happens to have. */
+  .deck-delete-row {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  .deck-delete-row > button {
+    width: auto !important;
+    min-width: 160px;
+  }
+}
