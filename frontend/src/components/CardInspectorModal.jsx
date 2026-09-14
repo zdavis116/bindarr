@@ -830,7 +830,11 @@ function CardInspectorModal({
 
                 No counts on the labels. Zach: "can remove the numbers from the
                 tabs seems pointless". */}
-            <div style={{
+            {/* HEADER ENDS HERE: badges, name, type line, set. The tabs that
+                follow are a SIBLING, see the note below. */}
+          </div>
+
+            <div className="ci-tabs" style={{
               display: 'flex', gap: 4, marginTop: '0.5rem', marginBottom: '0.35rem',
               background: 'var(--bg-secondary)', padding: 3, borderRadius: 10,
               border: '1px solid var(--border-glass)',
@@ -854,8 +858,20 @@ function CardInspectorModal({
                 </button>
               ))}
             </div>
-          </div>
+          {/* THE TABS CLOSE OUTSIDE .ci-head, deliberately.
+              They used to be nested inside it, which made them a
+              grandchild of .ci-info-col -- so on the desktop deck view they
+              could not be made to span the pane by CSS alone. Two attempts
+              proved it: `display:contents` on .ci-head broke the header
+              apart (an empty badge wrapper took the slot beside the art and
+              pushed the name below it), and a negative margin slid the tabs
+              under the card image, hiding the "Card" tab. Measured both.
 
+              As a SIBLING of .ci-head they are a direct child of the info
+              column and can simply be a full-width row of the pane's grid.
+              Nothing changes in the modal: .ci-info-col is a flex column
+              there, and the tabs sit in exactly the same place in the same
+              order as before. */}
           {/* THE ONLY SCROLLING REGION. Zach: "I think it would make sense
               for the section below the 3 tabs to be the scrollable area." */}
           <div className="ci-scroll">

@@ -3308,23 +3308,61 @@ button, input, select, textarea {
     overflow: visible;
   }
 
-  /* THE PANEL STAYS A ROW: image left, everything else right.
-     `.card-inspector` is already flex-direction:row with .ci-image-col and
-     .ci-info-col as its two children -- that IS the mockup's shape. My first
-     attempt overrode it to `column`, which is what put a centred image on its
-     own row with empty space beside it. The fix is to stop fighting the base
-     layout and just resize it for 400px. */
+  /* THE PANEL IS A GRID: image beside the identity, then FULL-WIDTH rows.
+     Zach: "make the tabs inside the card detail view span the entire width
+     of that pane."
+
+     The tabs and the body are children of .ci-info-col, which is the narrow
+     right-hand column -- so no amount of width on the tabs themselves could
+     make them span the pane. `display: contents` on the info column removes
+     that box from the layout and promotes its children (head, tabs, body)
+     into THIS grid, where the tabs and body can each span both columns while
+     the head stays beside the image.
+
+     It is the one CSS feature that solves this without restructuring the
+     component's JSX and breaking the modal that shares it. */
   .card-inspector-inline {
-    flex-direction: row;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    align-items: start;
+    column-gap: 0.9rem;
+    row-gap: 0.6rem;
+  }
+
+  .card-inspector-inline .ci-info-col {
+    display: contents !important;
+  }
+
+  /* Row 1, column 2: badges, name, type line, set -- beside the image.
+     .ci-head is ONE box here (not display:contents): dissolving it made every
+     child its own grid row, so an empty badge wrapper took the slot next to
+     the art and pushed the name below it. Measured: image top 266, name 442. */
+  .card-inspector-inline .ci-head {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* FULL-WIDTH ROWS. Both are now direct children of .ci-info-col, which is
+     display:contents, so they are real grid items of the pane and simply span
+     both columns. The tabs had to be un-nested from .ci-head in the JSX for
+     this to be possible -- CSS alone could not do it without either breaking
+     the header apart or sliding the tabs under the card image. */
+  .card-inspector-inline .ci-tabs,
+  .card-inspector-inline .ci-scroll {
+    grid-column: 1 / -1;
+    min-width: 0;
   }
 
   /* 120px, from the mockup. Fixed, and NOT allowed to grow: the complaint was
      the image eating the pane. */
   .card-inspector-inline .ci-image-col {
-    flex: 0 0 120px !important;
+    grid-column: 1;
+    grid-row: 1;
     width: 120px !important;
-    align-self: flex-start !important;
+    align-self: start !important;
     align-items: flex-start !important;
     min-height: 0 !important;
     gap: 0.3rem !important;
@@ -3346,24 +3384,12 @@ button, input, select, textarea {
     display: block;
   }
 
-  /* The info column takes the rest and must be able to SHRINK, or a long name
-     ("Doctor Doom, King of Latveria" -- the live case) pushes the layout wider
-     than the pane instead of wrapping inside it.
-     flex-basis 320px from the modal is wider than the whole pane, so it is
-     overridden to auto. */
-  .card-inspector-inline .ci-info-col {
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-    width: auto !important;
-    gap: 0.5rem !important;
-  }
-
   /* The body scrolls with the PAGE, not in its own little window. A ~100px
      inner scroller inside a pane inside a page is three scroll regions for one
-     card -- that is the cramped Availability box in the screenshot.
+     card -- that is the cramped Availability box in his screenshot.
      .deck-panes-side owns the scrolling for this column. */
   .card-inspector-inline .ci-scroll {
-    flex: 0 1 auto !important;
+    grid-column: 1 / -1;
     min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
@@ -3382,5 +3408,50 @@ button, input, select, textarea {
   .deck-delete-row > button {
     width: auto !important;
     min-width: 160px;
+  }
+}
+
+/* ============================================================================
+   DECK BUILDER WRAPPER — the 1200px cap, and where it stops applying
+   ============================================================================
+   These were inline styles on the wrapper in DeckBuilder.jsx. Moved into a
+   class for the same reason .deck-row was: an inline style cannot be
+   overridden by a media query, so the cap could not be lifted for desktop
+   without a width branch in JS.
+
+   Below 1024px this is byte-for-byte the old behaviour.
+*/
+.deckbuilder-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  /* NO READING CAP ON A TWO-PANE SCREEN.
+     Measured at 1743px: the cap left 307px of dead gutter -- ~128px of
+     nothing down each side of a screen whose whole point is fitting a list
+     and a card beside each other. */
+  .deckbuilder-wrap {
+    max-width: none;
+    margin: 0;
+  }
+
+  /* Tighter page padding too. 1.6rem of page padding plus the rail's own
+     border was reading as more margin on top of the gutters. */
+  .app-container > main {
+    padding: 1.2rem 1.2rem 3rem;
+  }
+
+  /* THE DETAIL PANE GETS THE RECLAIMED WIDTH.
+     400px was chosen to match the mockup when the list had 1200px to share.
+     With the cap gone there is room for the card text to breathe, which is
+     the pane's actual job. clamp() rather than a fixed number so it stays
+     sensible on a 1280px laptop (440) and a 2560px monitor (560). */
+  .deck-panes {
+    grid-template-columns: minmax(0, 1fr) clamp(440px, 30%, 560px);
+    gap: 1rem;
   }
 }
