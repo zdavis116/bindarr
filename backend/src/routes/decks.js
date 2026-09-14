@@ -318,7 +318,30 @@ router.get('/', async (req, res) => {
         COALESCE((SELECT SUM((r.quantity - r.owned_here) * r.price_trend) FROM resolved r
                    WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS missing_cost,
         COALESCE((SELECT SUM(r.quantity * r.price_trend) FROM resolved r
-                   WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS deck_value
+                   WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS deck_value,
+        -- COMMANDER ART, for the deck tile on desktop.
+        --
+        -- The desktop deck list is a shelf you recognise by picture, not a
+        -- table you read -- so the tile needs the commander's image. Two
+        -- scalar subqueries on the SAME statement rather than a per-deck
+        -- lookup from the client: db.js serialises every query onto one global
+        -- queue, so N decks would have cost N round trips of queue wait.
+        --
+        -- ORDER BY dc.id ASC matches how the commander is read everywhere else
+        -- (routes/decks.js:754), so a partner pair shows the FIRST commander
+        -- here and in the deck view rather than disagreeing between screens.
+        --
+        -- NULL for a 60-card deck with no commander, and for a Commander deck
+        -- whose commander is not yet chosen. The client must render a
+        -- placeholder, never a broken image.
+        (SELECT cc.image_url FROM deck_cards dc
+           JOIN card_cache cc ON cc.id = dc.desired_card_id
+          WHERE dc.deck_id = d.id AND dc.board = 'commander'
+          ORDER BY dc.id ASC LIMIT 1) AS commander_image_url,
+        (SELECT cc.name FROM deck_cards dc
+           JOIN card_cache cc ON cc.id = dc.desired_card_id
+          WHERE dc.deck_id = d.id AND dc.board = 'commander'
+          ORDER BY dc.id ASC LIMIT 1) AS commander_name
       FROM decks d
       WHERE d.user_id = ?
       ORDER BY d.created_at DESC
