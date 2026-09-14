@@ -3552,6 +3552,21 @@ button, input, select, textarea {
    media query at the end rather than in a second component.
    ========================================================================== */
 
+/* The tab's own wrapper. Bottom padding clears the pinned mobile nav so the
+   last card row is not trapped under it -- the deck screen does the same. */
+.curve-tab {
+  display: block;
+  padding-bottom: 0.5rem;
+}
+
+/* The filtered card list. Its own box so the sticky filter bar above it has a
+   scroll parent to stick within, and so a long list cannot spill past the
+   panel's rounded corner. */
+.curve-list {
+  display: flex;
+  flex-direction: column;
+}
+
 .curve-panel {
   background: var(--surface-1);
   border: 1px solid var(--border-glass);
