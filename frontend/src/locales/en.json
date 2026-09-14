@@ -1565,8 +1565,10 @@
   "curve.rolesFrom": "Roles come from Scryfall's community Tagger project.",
   "curve.overrideHint": "Open a card to correct one; your choice is kept.",
   "curve.whyRole": "Why {role}?",
-  "curve.whyTag": "Scryfall's Tagger has this as {tag}.",
-  "curve.whyOverride": "You set this yourself - your choice always beats the tag.",
+  "curve.whyTag": "Scryfall tag: {tag}",
+  "curve.whyOverride": "you set this",
   "curve.changeRole": "Change role",
-  "curve.useScryfall": "Use Scryfall's"
+  "curve.useScryfall": "Use Scryfall's",
+  "curve.noRulesText": "No rules text.",
+  "curve.whyTypeLine": "from its type line"
 }

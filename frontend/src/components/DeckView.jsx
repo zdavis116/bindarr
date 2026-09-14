@@ -925,7 +925,13 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           your selection. Below 1024px this is one column and the detail opens
           as the modal it has always been -- the grid simply collapses, so the
           phone is untouched. */}
-      <div className="deck-panes">
+      {/* THE CURVE LAYOUT APPLIES ONLY WHEN NOTHING IS SELECTED.
+          Gated on selectedCardId, NOT detailCard: detailCard falls back to the
+          commander so the pane is never empty on desktop, which means it is
+          never null and this class would never have applied. Measured: the
+          list stayed at x=255 under the chart instead of taking the right
+          pane. */}
+      <div className={`deck-panes${tab === 'curve' && !(isDesktop && selectedCardId) ? ' deck-panes-curve' : ''}`}>
         <div className="deck-panes-main">
       {/* SEARCH SITS ABOVE THE TABS.
           The mockup puts it there, and the order is the point: search spans
@@ -1226,7 +1232,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             across a selection change, which is exactly the stale-printing bug
             it already has a guard for; remounting makes it impossible rather
             than guarded. */}
-        {isDesktop && detailCard ? (
+        {isDesktop && detailCard && !(tab === 'curve' && !selectedCardId) ? (
           <div className="deck-panes-side" ref={sidePaneRef}>
             <CardInspectorModal
               key={detailCard.id || detailCard.card_id}

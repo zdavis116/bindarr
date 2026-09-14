@@ -3717,3 +3717,115 @@ button, input, select, textarea {
   .curve-panel { padding: 1rem; }
   .curve-turn-l { width: 60px; }
 }
+
+/* ============================================================================
+   CURVE ON DESKTOP — the list takes the right pane
+   Zach: "that list should replace the card detail pane instead of having to
+   scroll to the bottom." On this tab the filtered list IS the detail: you tap
+   a bar to ask "which cards are these", and the answer belongs beside the
+   question, not 1200px below it.
+   ========================================================================== */
+@media (min-width: 1024px) {
+  /* The Curve tab drops the deck screen's two-pane split: the card detail pane
+     is not shown here, so the main column takes the whole width and the curve
+     makes its own columns below. */
+  .deck-panes-curve { grid-template-columns: minmax(0, 1fr) !important; }
+
+  /* Chart, health and turns on the left; the card list pinned on the right at
+     the same width as the detail pane it replaces, so the eye does not have to
+     re-learn the screen between tabs. */
+  .curve-tab {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(440px, 30%, 560px);
+    gap: 1.2rem;
+    align-items: start;
+  }
+
+  /* Everything except the list stacks in column 1. */
+  .curve-tab > .curve-panel:not(.curve-listpanel),
+  .curve-tab > .curve-source { grid-column: 1; }
+
+  /* THE LIST PANE. Sticky and self-scrolling, exactly like the card detail
+     pane: the chart above it is what you are interacting with, so it must not
+     scroll away while you read the answer. */
+  .curve-tab > .curve-listpanel {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    position: sticky;
+    top: 1rem;
+    /* A definite height so the list scrolls INSIDE the pane rather than
+       running past the fold -- the same bug the detail pane had. */
+    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Only the rows scroll; the filter bar above them stays put. */
+  .curve-tab > .curve-listpanel .curve-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+/* THE HOVER PREVIEW on the curve's card list.
+   Desktop only: there is no hover on a phone, where tapping the row opens the
+   card sheet and shows the same information. */
+.curve-tip { display: none; }
+
+@media (min-width: 1024px) {
+  .curve-tip {
+    display: block;
+    position: fixed;
+    /* Anchored to the RIGHT of the viewport minus the list pane's width, so it
+       sits beside the list rather than over the rows being scanned. */
+    /* BELOW the chart, not beside it. Anchored right of the list pane it was
+       covering the bars -- and the bars are what you are reading when you
+       hover a row to ask "what is this card". Pinned to the bottom-left of the
+       viewport instead: out of the chart, out of the list, always the same
+       place so the eye knows where to look. */
+    left: 1.2rem;
+    bottom: 3.2rem;
+    width: 340px;
+    z-index: 40;
+    background: var(--surface-2);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.75rem;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    font-size: 0.78rem;
+  }
+  .curve-tip b { color: var(--text-primary); font-size: 0.86rem; }
+  .curve-tip-type { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.1rem; }
+  .curve-tip-text { font-size: 0.76rem; line-height: 1.45; color: var(--text-secondary);
+                    margin: 0.45rem 0; padding: 0.45rem 0;
+                    border-top: 1px solid var(--border-glass);
+                    border-bottom: 1px solid var(--border-glass);
+                    white-space: pre-wrap; }
+  .curve-tip-foot { font-size: 0.7rem; color: var(--text-muted); }
+}
+
+@media (min-width: 1024px) {
+  /* A CARD IS SELECTED: the detail pane takes the right column, so the curve
+     collapses to one column and its list goes back under the chart.
+     Two panes cannot share one slot -- when they tried, the detail pane
+     mounted below the fold and clicking a card looked like nothing happened.
+     .deck-panes-curve is only applied when NO card is selected, so the absence
+     of that class is the signal here. */
+  .deck-panes:not(.deck-panes-curve) .curve-tab {
+    display: block;
+  }
+  .deck-panes:not(.deck-panes-curve) .curve-tab > .curve-listpanel {
+    position: static;
+    height: auto;
+    max-height: 60vh;
+  }
+  .deck-panes:not(.deck-panes-curve) .curve-tab > .curve-listpanel .curve-list {
+    max-height: 48vh;
+  }
+  /* No hover preview while the detail pane is open: the pane already shows the
+     card's rules text, and a tooltip repeating it over the chart is noise. */
+  .deck-panes:not(.deck-panes-curve) .curve-tip { display: none; }
+}

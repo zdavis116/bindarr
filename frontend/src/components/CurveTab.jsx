@@ -88,6 +88,7 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const [filter, setFilter] = useState(null);   // {bucket, role} | {turn} | null
   const [hotRole, setHotRole] = useState(null);
   const [ramped, setRamped] = useState(true);
+  const [hover, setHover] = useState(null);   // the card being previewed
 
   // The spells the chart describes: nonland, and not the considering pile --
   // considering cards are not in the deck yet, so counting them would tell you
@@ -254,14 +255,16 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
           screen -- measured Clear at y=1279 in a 950px viewport. A filter you
           cannot see and cannot undo is how you end up reading a partial deck
           and thinking it is the whole one. */}
-      <div className="curve-panel">
+      <div className="curve-panel curve-listpanel">
         {filterLabel() ? (
           <div className="curve-filterbar">
             <span><b>{filterLabel()}</b> · {shown.length}</span>
             <button type="button" onClick={() => setFilter(null)}>{t('curve.clear')}</button>
           </div>
         ) : (
-          <div className="curve-listhint">{t('curve.allNonland', { count: shown.length, n: shown.length })}</div>
+          <div className="curve-listhint">
+            {t('curve.allNonland', { count: shown.length, n: shown.length })}
+          </div>
         )}
         <div className="curve-list">
           {shown
@@ -273,6 +276,17 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                 type="button"
                 className="curve-row"
                 onClick={() => onSelectCard && onSelectCard(c)}
+                // HOVER PREVIEWS, as in the prototype. The list is 49+ rows of
+                // names, and a name does not tell you what a card does -- that
+                // was the whole point of putting rules text in the tooltip.
+                // Pointer events only: on a phone there is no hover and the
+                // tap opens the card, which is the same information.
+                onMouseEnter={() => setHover(c)}
+                onMouseLeave={() => setHover(null)}
+                // Keyboard parity: the preview is the only place the rules text
+                // appears without opening the card, so tabbing must reach it.
+                onFocus={() => setHover(c)}
+                onBlur={() => setHover(null)}
               >
                 <i className={`curve-dot curve-${c.role}`} />
                 <span className="curve-row-name">
@@ -285,6 +299,33 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
             ))}
         </div>
       </div>
+
+      {/* THE HOVER PREVIEW.
+          Pinned bottom-left of the viewport, NOT anchored to the hovered row.
+          Anchoring it to the row put it over the chart -- and the chart is what
+          you are reading when you hover a card to ask what it does. A fixed
+          corner also means the eye always knows where the answer will appear,
+          instead of tracking a box that moves with every row. */}
+      {hover && (
+        <div className="curve-tip">
+          <b>{hover.display_name || hover.name}</b>
+          <div className="curve-tip-type">{hover.type_line}</div>
+          <div className="curve-tip-text">
+            {hover.oracle_text || t('curve.noRulesText')}
+          </div>
+          <div className="curve-tip-foot">
+            <span style={{ color: `var(--curve-${hover.role}, inherit)` }}>
+              {roleLabel(hover.role)}
+            </span>
+            {' · '}
+            {hover.role_is_override
+              ? t('curve.whyOverride')
+              : hover.role_source_tag
+                ? t('curve.whyTag', { tag: hover.role_source_tag })
+                : t('curve.whyTypeLine')}
+          </div>
+        </div>
+      )}
 
       {/* WHERE THE ROLES COME FROM. Stated in the UI rather than left implicit:
           a number you cannot question is one you cannot correct. */}
