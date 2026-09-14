@@ -128,7 +128,25 @@
   th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
      color:var(--text-3);font-weight:600;padding:.45rem .6rem;border-bottom:1px solid var(--border)}
   td{padding:.4rem .6rem;border-bottom:1px solid var(--border-2)}
+  tr.cardrow{cursor:pointer}
   tr.cardrow:hover td{background:var(--surface-2)}
+  tr.cardrow.open td{background:rgba(10,132,255,.12)}
+
+  /* CARD DETAIL, expanded inside the list.
+     In place rather than a modal: a dialog over the list hides the list you
+     are working through, which is the same reason the deck view uses a pane. */
+  tr.detailrow td{background:var(--surface-2);padding:.7rem .6rem}
+  .cdet{display:flex;gap:.8rem;align-items:flex-start}
+  .cdet-img{width:92px;flex:0 0 92px;aspect-ratio:.718;border-radius:7px;
+            background:linear-gradient(145deg,#2a3350,#1b2238);
+            border:1px solid var(--border);display:grid;place-items:center;
+            font-size:.6rem;color:var(--text-3);text-align:center;padding:.3rem}
+  .cdet-body{min-width:0;flex:1}
+  .cdet-meta{font-size:.76rem;color:var(--text-3);margin-top:.25rem}
+  .cdet-note{font-size:.74rem;color:var(--text-2);margin-top:.45rem;
+             padding:.4rem .5rem;border-left:2px solid var(--blue);
+             background:rgba(10,132,255,.07);border-radius:0 5px 5px 0}
+  .cdet-acts{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.6rem}
   .num{text-align:right;font-variant-numeric:tabular-nums}
   .filterbar{display:flex;align-items:center;gap:.6rem;background:rgba(10,132,255,.10);
              border:1px solid rgba(10,132,255,.30);border-radius:var(--radius-sm);
@@ -346,6 +364,7 @@ function cardsIn(b, role) {
 let filter = null;          // {bucket, role} | {turn} | null
 let hotRole = null;         // legend hover
 let ramped = true;
+let detail = null;          // card NAME whose detail row is expanded, or null
 
 // --- the chart -------------------------------------------------------------
 const curve = document.getElementById('curve');
@@ -569,13 +588,58 @@ function drawList() {
 
   document.getElementById('list').innerHTML = shown
     .sort((a,b) => a.mv - b.mv || a.n.localeCompare(b.n))
-    .map(c => `<tr class="cardrow">
+    .map((c, i) => `<tr class="cardrow${detail === c.n ? ' open' : ''}" data-card="${c.n}">
         <td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;
               background:var(--${c.role});margin-right:.5rem"></span>${c.n}
             ${c.note ? `<span class="pill">${c.note}</span>` : ''}</td>
         <td class="num">${c.mv}</td>
         <td class="num"><span class="pill ${c.have ? 'g' : 'r'}">${c.have ? c.have : 0}</span></td>
-      </tr>`).join('');
+      </tr>` + (detail === c.n ? detailRow(c) : '')).join('');
+}
+
+// CARD DETAIL, opened in place.
+//
+// Zach: "can I either hover of the cards to see their card details or click on
+// them to show card details" -- so it is BOTH, and they do different jobs:
+//
+//   HOVER  -> a preview that follows the pointer. Cheap, no commitment, good
+//             for skimming a filtered list.
+//   CLICK  -> the detail expands INSIDE the row and stays there, so you can
+//             read it, scroll, and compare without keeping the mouse still.
+//
+// It expands in place rather than opening a modal for the same reason the deck
+// view's detail is a pane: a modal over the list hides the list you are
+// working through.
+function detailRow(c) {
+  const roleLabel = ROLES.find(r => r.id === c.role).label;
+  return `<tr class="detailrow"><td colspan="3">
+    <div class="cdet">
+      <div class="cdet-img">${c.n.split(',')[0]}</div>
+      <div class="cdet-body">
+        <b>${c.n}</b>
+        <div class="cdet-meta">Mana value ${c.mv} ·
+          <span style="color:var(--${c.role})">${roleLabel}</span>
+          ${c.note ? ` · <span class="pill">${c.note}</span>` : ''}</div>
+        <div class="cdet-meta">${c.have
+          ? `<span class="pill g">You own ${c.have}</span>`
+          : `<span class="pill r">Not owned</span>`}</div>
+        ${c.note === '//' ? `<div class="cdet-note">Split card — bucketed at the
+            cheaper half (2), not the rules' combined mana value (4), because
+            that is the turn you can actually cast it.</div>` : ''}
+        ${c.note === 'X' ? `<div class="cdet-note">X counts as 0 off the stack
+            (CR 202.3e), so this sits in bucket ${c.mv}. You will usually pay
+            more.</div>` : ''}
+        ${c.note === 'adv' ? `<div class="cdet-note">Adventure — bucketed at the
+            creature face.</div>` : ''}
+        ${c.note === 'no cost' ? `<div class="cdet-note">No mana cost, so its
+            mana value is 0. Not the same as free to cast.</div>` : ''}
+        <div class="cdet-acts">
+          <button class="btn sm">Choose printing</button>
+          <button class="btn sm">Move to considering</button>
+          <button class="btn sm">Remove</button>
+        </div>
+      </div>
+    </div></td></tr>`;
 }
 
 document.getElementById('withRamp').onclick = () => {
@@ -593,6 +657,52 @@ document.getElementById('landsOnly').onclick = () => {
 
 function render() { drawCurve(); drawLegend(); drawStats(); drawTurns(); drawList(); }
 render();
+
+// --- card detail in the list: hover previews, click pins -------------------
+const list = document.getElementById('list');
+
+list.addEventListener('mousemove', e => {
+  const row = e.target.closest('.cardrow');
+  // No preview while a row is expanded -- the detail is already on screen and
+  // a floating copy of it chasing the pointer is just noise.
+  if (!row || detail) { tip.classList.remove('show'); return; }
+  const c = spells.find(x => x.n === row.dataset.card);
+  if (!c) return;
+  const roleLabel = ROLES.find(r => r.id === c.role).label;
+
+  tip.innerHTML = `<b>${c.n}</b>
+    <div class="tiprow"><span class="nm">Mana value</span>
+      <span class="tipmv">${c.mv}</span></div>
+    <div class="tiprow"><span class="nm">Role</span>
+      <span style="color:var(--${c.role});font-weight:600">${roleLabel}</span></div>
+    <div class="tiprow"><span class="nm">In your collection</span>
+      <span class="pill ${c.have ? 'g' : 'r'}">${c.have ? c.have : 'none'}</span></div>
+    ${c.note ? `<div class="tipfoot">Bucketed with a <b>${c.note}</b> rule — click for why.</div>`
+             : `<div class="tipfoot">Click for full detail →</div>`}`;
+  tip.classList.add('show');
+
+  // Left of the list, so it never covers the rows you are scanning.
+  const w = 270, pad = 14;
+  const lr = list.getBoundingClientRect();
+  let x = lr.left - w - pad;
+  if (x < 8) x = lr.right + pad;
+  let y = e.clientY - 20;
+  const h = tip.offsetHeight;
+  if (y + h > innerHeight - 8) y = innerHeight - h - 8;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+});
+list.addEventListener('mouseleave', () => tip.classList.remove('show'));
+
+list.addEventListener('click', e => {
+  const row = e.target.closest('.cardrow');
+  if (!row) return;
+  // Clicking the open row closes it -- same no-dead-end rule as the chart.
+  detail = (detail === row.dataset.card) ? null : row.dataset.card;
+  tip.classList.remove('show');
+  drawList();
+});
 </script>
 </body>
 </html>
