@@ -2986,3 +2986,103 @@ button, input, select, textarea {
   background: rgba(63, 185, 80, 0.13); color: #3fb950; white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ============================================================================
+   DESKTOP SHELL — the sidebar rail (>=1024px)
+   ============================================================================
+   The mockup's rail is not a new navigation. It is the SAME header, rotated:
+   brand, the four NAV_ITEMS in the same order, user at the foot. That is why
+   this is CSS only -- no JSX, no second nav array, no isDesktop branch in
+   React. navItems.js stays the single place that says what exists, so the
+   phone's tab bar and this rail cannot drift apart.
+
+   1024px, not 769px: a landscape tablet at 800-1000px does not have room for
+   a 236px rail plus a two-pane deck view without the panes getting squeezed.
+   Below this it keeps the existing top bar.
+
+   Zach's rule: "there is 4 nav items on my phone it should be the same on my
+   desktop." Width is not a reason to add destinations, so there is nothing
+   here the phone does not also have.
+*/
+@media (min-width: 1024px) {
+  :root { --rail-w: 236px; }
+
+  .app-container {
+    display: grid;
+    grid-template-columns: var(--rail-w) 1fr;
+    grid-template-areas: "rail main";
+    align-items: start;
+    padding: 0;
+    gap: 0;
+  }
+
+  /* The header BECOMES the rail: a sticky full-height column on the left. */
+  .app-header {
+    grid-area: rail;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 1rem 0.75rem;
+    background: var(--bg-secondary);
+    border-bottom: none;
+    border-right: 1px solid var(--border-glass);
+    overflow-y: auto;
+  }
+
+  .app-header > .logo-section { padding: 0.25rem 0.6rem 1rem; }
+  .logo-icon { width: 30px; height: 30px; animation: none; }
+  .logo-text { font-size: 1.2rem; }
+
+  .app-header .nav-tabs {
+    flex-direction: column;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    gap: 0.15rem;
+  }
+
+  .app-header .nav-tab {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.7rem;
+    padding: 0.6rem 0.65rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .app-header .nav-tab.active {
+    background: var(--surface-1);
+    font-weight: 700;
+    box-shadow: none;
+  }
+
+  /* The greeting + logout block drops to the foot of the rail, above the fold
+     of nothing -- it is the least-used control on the screen and should not sit
+     at eye level. `margin-top:auto` inside the flex column does that without a
+     fixed height that would break if the nav ever gains a fifth item. */
+  .app-header > div:last-child {
+    margin-top: auto;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+    border-top: 1px solid var(--border-glass);
+    padding-top: 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .app-container > main {
+    grid-area: main;
+    margin-top: 0 !important;
+    padding: 1.4rem 1.6rem 3rem;
+    min-width: 0;   /* lets tables/grids inside shrink instead of overflowing */
+  }
+}
