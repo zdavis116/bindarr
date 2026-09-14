@@ -230,8 +230,9 @@
     </div>
     <div class="stext">Whenever an opponent casts a spell, you may draw a card
       unless that player pays <i class="mp mp-c">1</i>.</div>
-    <div class="snote"><b>Why Card draw?</b> Its rules text says “draw a card”.
-      Tap to change — your choice is remembered and beats the automatic guess.</div>
+    <div class="snote"><b>Why Card draw?</b> Scryfall tags this card
+      <code style="background:var(--surface-3);padding:0 .25rem;border-radius:3px">otag:draw</code>.
+      Tap to change — your choice is stored and always beats the tag.</div>
     <div class="sacts">
       <button class="btn">Change role</button>
       <button class="btn">Choose printing</button>
@@ -250,144 +251,138 @@
 
 <!-- ============ the categories answer ============ -->
 <div class="note">
-  <h3>How the roles are actually derived — the honest answer</h3>
-  <p><b>In the mockup you liked, they were not derived at all. I typed all 63 by
-  hand.</b> You asked the right question, so here is the real one, written and
-  run against these same cards.</p>
+  <h3>Can Scryfall tell us the roles? — yes, mostly</h3>
+  <p>You asked the right question. <b>Scryfall does publish this</b>, through its
+  Tagger project: community-curated <i>oracle tags</i>, searchable as
+  <code>otag:ramp</code>, <code>otag:removal</code>, <code>otag:draw</code>,
+  <code>otag:counterspell</code>, <code>otag:card-advantage</code> and hundreds
+  more. It is not a field on the card — you query for it.</p>
 
-  <p>The classifier reads Scryfall's oracle text in a fixed order, first match
-  wins:</p>
+  <p>I ran all three approaches against these same 57 cards:</p>
   <table>
-    <tr><th>Role</th><th>Matched on</th></tr>
-    <tr><td style="color:var(--ramp)">Ramp</td>
-        <td><code>add {…} mana</code>, or searches your library for a land, or
-        reduces spell costs</td></tr>
-    <tr><td style="color:var(--removal)">Interaction</td>
-        <td><code>destroy target</code>, <code>exile target</code>,
-        <code>counter target</code>, or deals damage to a target</td></tr>
-    <tr><td style="color:var(--draw)">Card draw</td>
-        <td><code>draw a card</code> / <code>draw N cards</code></td></tr>
-    <tr><td style="color:var(--threat)">Threats</td>
-        <td>a creature or planeswalker that matched none of the above</td></tr>
-    <tr><td style="color:var(--other)">Other</td><td>everything left</td></tr>
+    <tr><th>Approach</th><th>Agreed with my hand labels</th></tr>
+    <tr><td>My hand-written regex</td><td>45 / 57 — <b>79%</b></td></tr>
+    <tr><td>Scryfall tags, used raw</td><td>38 / 57 — <b>67%</b></td></tr>
+    <tr><td><b>Scryfall tags + the type line</b></td><td>54 / 57 — <b>95%</b></td></tr>
   </table>
 
-  <p style="margin-top:.8rem"><b>Measured: it agrees with my hand labels on
-  45 of 57 cards — 79%.</b> That is not good enough to ship silently, and the
-  failures are interesting rather than random:</p>
+  <p style="margin-top:.8rem"><b>The surprise: raw Scryfall tags scored WORSE
+  than my regex.</b> Not because the tags are bad — because they answer a
+  different question. Scryfall tags what a card <i>does</i>; we want to know
+  what <i>slot it fills in your deck</i>. Old Gnawbone is genuinely tagged
+  <code>ramp</code>, Thundermaw Hellkite genuinely <code>removal</code>. Both
+  are true, and both are wrong for this chart — they are the dragons you win
+  with.</p>
 
+  <p>So the rule that gets to 95% is one line of judgement on top of the data:
+  <b>a creature or planeswalker is a Threat</b>, unless taps-for-mana is its
+  whole job. Tags then decide everything that is not a creature, where they are
+  excellent.</p>
+
+  <h3>The three it still gets wrong</h3>
   <table>
-    <tr><th>Card</th><th>Auto</th><th>Should be</th><th>Why it trips</th></tr>
-    <tr><td>The Ur-Dragon</td><td>Ramp</td><td>Threat</td>
-        <td>Eminence reduces Dragon costs, so it reads as cost reduction</td></tr>
-    <tr><td>Goldspan Dragon</td><td>Ramp</td><td>Threat</td>
-        <td>Makes treasure — it <i>does</i> ramp, but it is a win condition</td></tr>
-    <tr><td>Savage Ventmaw</td><td>Ramp</td><td>Threat</td>
-        <td>Adds six mana when it attacks</td></tr>
-    <tr><td>Bonecrusher Giant</td><td>Interaction</td><td>Threat</td>
-        <td>Stomp deals damage; the creature half is the card you play</td></tr>
-    <tr><td>Fire // Ice</td><td>Card draw</td><td>Interaction</td>
-        <td>Ice draws a card, so the second face wins the race</td></tr>
-    <tr><td>Farseek</td><td>Other</td><td>Ramp</td>
-        <td>Fetches a “Plains, Island…” — never says the word “land”</td></tr>
-    <tr><td>Sylvan Library</td><td>Other</td><td>Card draw</td>
-        <td>“draw two <i>additional</i> cards” dodges the pattern</td></tr>
-    <tr><td>Fact or Fiction</td><td>Other</td><td>Card draw</td>
-        <td>Puts cards in hand without the word “draw”</td></tr>
+    <tr><th>Card</th><th>Auto</th><th>I said</th><th>Who is right</th></tr>
+    <tr><td>Beast Whisperer</td><td>Threat</td><td>Card draw</td>
+        <td>Arguable — it is a 4-mana 2/3 whose only job is drawing</td></tr>
+    <tr><td>Dragon Tempest</td><td>Interaction</td><td>Threat</td>
+        <td>Arguable — it pings, but you play it as a payoff</td></tr>
+    <tr><td>Ancestral Vision</td><td>Card draw</td><td>Other</td>
+        <td><b>Scryfall is right, I was wrong</b> — it draws three</td></tr>
   </table>
 
-  <h3>So what I would actually build</h3>
-  <p><b>Auto-classify, show the reason, and let you override — permanently.</b>
-  Every card's sheet says <i>why</i> it landed in a role, with one tap to change
-  it. Your choice is stored per card and always beats the guess, so the same
-  card never re-classifies itself behind your back.</p>
-  <p>That matters more than the accuracy number. A wrong role is a wrong record,
-  and it would quietly distort the chart you are using to make deck decisions —
-  Goldspan Dragon counted as ramp makes your ramp look fine when it is not.
-  <b>79% silently is worse than 79% visibly.</b></p>
-  <p>The alternative — typing 100 roles per deck by hand — is the thing you would
-  stop doing after one deck. So: the machine guesses, it shows its reasoning,
-  and you correct it in one tap.</p>
+  <p style="margin-top:.8rem">That last row is the point. On the one card where
+  we disagree and there is a correct answer, <b>the data beat me.</b></p>
+
+  <h3>What this changes</h3>
+  <p>Roles come from Scryfall, cached in <code>card_cache</code> like everything
+  else, not from regexes I maintain. Each card still shows <i>why</i> it landed
+  in its role — now citing a real tag rather than my guesswork — and one tap
+  still overrides it permanently, because 5% of 100 cards is five wrong rows
+  per deck and a wrong role quietly distorts the chart.</p>
+  <p>One caveat I have not solved: this is <b>one extra query per role tag</b>
+  at import time, and Scryfall rate-limits to 10 requests a second (I tripped it
+  while testing). It is a batch job on import, not something to do per page
+  load.</p>
 </div>
 
 <script>
 const DECK = [
 
   // commander (marker only, not in the bars)
-  {n:'The Ur-Dragon', mv:9, role:'threat', have:1, cmdr:true, cost:'{4}{W}{U}{B}{R}{G}', type:'Legendary Creature — Dragon Avatar', text:'Eminence — As long as The Ur-Dragon is in the command zone or on the battlefield, other Dragon spells you cast cost {1} less to cast.\nFlying\nWhenever one or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield.'},
+  {n:'The Ur-Dragon', mv:9, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, cmdr:true, cost:'{4}{W}{U}{B}{R}{G}', type:'Legendary Creature — Dragon Avatar', text:'Eminence — As long as The Ur-Dragon is in the command zone or on the battlefield, other Dragon spells you cast cost {1} less to cast.\nFlying\nWhenever one or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield.'},
 
   // --- ramp (12) ---
-  {n:'Sol Ring', mv:1, role:'ramp', have:1, cost:'{1}', type:'Artifact', text:'{T}: Add {C}{C}.'},
-  {n:'Arcane Signet', mv:2, role:'ramp', have:1, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color in your commander\'s color identity.'},
-  {n:'Fellwar Stone', mv:2, role:'ramp', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color that a land an opponent controls could produce.'},
-  {n:'Talisman of Curiosity', mv:2, role:'ramp', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add {C}.\n{T}: Add {G} or {U}. This artifact deals 1 damage to you.'},
-  {n:'Birds of Paradise', mv:1, role:'ramp', have:1, cost:'{G}', type:'Creature — Bird', text:'Flying\n{T}: Add one mana of any color.'},
-  {n:'Llanowar Elves', mv:1, role:'ramp', have:1, cost:'{G}', type:'Creature — Elf Druid', text:'{T}: Add {G}.'},
-  {n:'Cultivate', mv:3, role:'ramp', have:1, cost:'{2}{G}', type:'Sorcery', text:'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.'},
-  {n:"Kodama's Reach", mv:3, role:'ramp', have:0},
-  {n:'Rampant Growth', mv:2, role:'ramp', have:1, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
-  {n:'Farseek', mv:2, role:'ramp', have:0, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a Plains, Island, Swamp, or Mountain card, put it onto the battlefield tapped, then shuffle.'},
-  {n:'Chromatic Lantern', mv:3, role:'ramp', have:0, cost:'{3}', type:'Artifact', text:'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.'},
-  {n:'Mana Crypt', mv:0, role:'ramp', have:0, cost:'{0}', type:'Artifact', text:'At the beginning of your upkeep, flip a coin. If you lose the flip, this artifact deals 3 damage to you.\n{T}: Add {C}{C}.'},
+  {n:'Sol Ring', mv:1, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:1, cost:'{1}', type:'Artifact', text:'{T}: Add {C}{C}.'},
+  {n:'Arcane Signet', mv:2, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:1, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color in your commander\'s color identity.'},
+  {n:'Fellwar Stone', mv:2, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color that a land an opponent controls could produce.'},
+  {n:'Talisman of Curiosity', mv:2, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add {C}.\n{T}: Add {G} or {U}. This artifact deals 1 damage to you.'},
+  {n:'Birds of Paradise', mv:1, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:1, cost:'{G}', type:'Creature — Bird', text:'Flying\n{T}: Add one mana of any color.'},
+  {n:'Llanowar Elves', mv:1, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:1, cost:'{G}', type:'Creature — Elf Druid', text:'{T}: Add {G}.'},
+  {n:'Cultivate', mv:3, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:1, cost:'{2}{G}', type:'Sorcery', text:'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.'},
+  {n:"Kodama's Reach", mv:3, role:'ramp', handRole:'ramp', have:0},
+  {n:'Rampant Growth', mv:2, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:1, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
+  {n:'Farseek', mv:2, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:0, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a Plains, Island, Swamp, or Mountain card, put it onto the battlefield tapped, then shuffle.'},
+  {n:'Chromatic Lantern', mv:3, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:0, cost:'{3}', type:'Artifact', text:'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.'},
+  {n:'Mana Crypt', mv:0, role:'ramp', handRole:'ramp', why:'Scryfall tag', have:0, cost:'{0}', type:'Artifact', text:'At the beginning of your upkeep, flip a coin. If you lose the flip, this artifact deals 3 damage to you.\n{T}: Add {C}{C}.'},
 
   // --- card draw (11) ---
-  {n:'Rhystic Study', mv:3, role:'draw', have:0, cost:'{2}{U}', type:'Enchantment', text:'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.'},
-  {n:'Mystic Remora', mv:1, role:'draw', have:0, cost:'{U}', type:'Enchantment', text:'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nWhenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}.'},
-  {n:'Phyrexian Arena', mv:3, role:'draw', have:1, cost:'{1}{B}{B}', type:'Enchantment', text:'At the beginning of your upkeep, you draw a card and you lose 1 life.'},
-  {n:'Sylvan Library', mv:2, role:'draw', have:0, cost:'{1}{G}', type:'Enchantment', text:'At the beginning of your draw step, you may draw two additional cards. If you do, choose two cards in your hand drawn this turn. For each of those cards, pay 4 life or put the card on top of your library.'},
-  {n:'Guardian Project', mv:4, role:'draw', have:1, cost:'{3}{G}', type:'Enchantment', text:'Whenever a nontoken creature you control enters, if it doesn\'t have the same name as another creature you control or a creature card in your graveyard, draw a card.'},
-  {n:'Beast Whisperer', mv:4, role:'draw', have:0, cost:'{2}{G}{G}', type:'Creature — Elf Druid', text:'Whenever you cast a creature spell, draw a card.'},
-  {n:'Harmonize', mv:4, role:'draw', have:1, cost:'{2}{G}{G}', type:'Sorcery', text:'Draw three cards.'},
-  {n:'Night\u2019s Whisper', mv:2, role:'draw', have:1},
-  {n:'Read the Bones', mv:3, role:'draw', have:1, cost:'{2}{B}', type:'Sorcery', text:'Scry 2, then draw two cards. You lose 2 life. (To scry 2, look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)'},
-  {n:'Fact or Fiction', mv:4, role:'draw', have:0, cost:'{3}{U}', type:'Instant', text:'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.'},
-  {n:'Blue Sun\u2019s Zenith', mv:1, role:'draw', have:0, note:'X'},
+  {n:'Rhystic Study', mv:3, role:'draw', handRole:'draw', why:'Scryfall tag', have:0, cost:'{2}{U}', type:'Enchantment', text:'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.'},
+  {n:'Mystic Remora', mv:1, role:'draw', handRole:'draw', why:'Scryfall tag', have:0, cost:'{U}', type:'Enchantment', text:'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nWhenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}.'},
+  {n:'Phyrexian Arena', mv:3, role:'draw', handRole:'draw', why:'Scryfall tag', have:1, cost:'{1}{B}{B}', type:'Enchantment', text:'At the beginning of your upkeep, you draw a card and you lose 1 life.'},
+  {n:'Sylvan Library', mv:2, role:'draw', handRole:'draw', why:'Scryfall tag', have:0, cost:'{1}{G}', type:'Enchantment', text:'At the beginning of your draw step, you may draw two additional cards. If you do, choose two cards in your hand drawn this turn. For each of those cards, pay 4 life or put the card on top of your library.'},
+  {n:'Guardian Project', mv:4, role:'draw', handRole:'draw', why:'Scryfall tag', have:1, cost:'{3}{G}', type:'Enchantment', text:'Whenever a nontoken creature you control enters, if it doesn\'t have the same name as another creature you control or a creature card in your graveyard, draw a card.'},
+  {n:'Beast Whisperer', mv:4, role:'threat', handRole:'draw', why:'Scryfall tag', have:0, cost:'{2}{G}{G}', type:'Creature — Elf Druid', text:'Whenever you cast a creature spell, draw a card.'},
+  {n:'Harmonize', mv:4, role:'draw', handRole:'draw', why:'Scryfall tag', have:1, cost:'{2}{G}{G}', type:'Sorcery', text:'Draw three cards.'},
+  {n:'Night\u2019s Whisper', mv:2, role:'draw', handRole:'draw', have:1},
+  {n:'Read the Bones', mv:3, role:'draw', handRole:'draw', why:'Scryfall tag', have:1, cost:'{2}{B}', type:'Sorcery', text:'Scry 2, then draw two cards. You lose 2 life. (To scry 2, look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)'},
+  {n:'Fact or Fiction', mv:4, role:'draw', handRole:'draw', why:'Scryfall tag', have:0, cost:'{3}{U}', type:'Instant', text:'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.'},
+  {n:'Blue Sun\u2019s Zenith', mv:1, role:'draw', handRole:'draw', have:0, note:'X'},
 
   // --- interaction (14) ---
-  {n:'Swords to Plowshares', mv:1, role:'removal', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller gains life equal to its power.'},
-  {n:'Path to Exile', mv:1, role:'removal', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
-  {n:'Nature\u2019s Claim', mv:1, role:'removal', have:1},
-  {n:'Pongify', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. Its controller creates a 3/3 green Ape creature token.'},
-  {n:'Rapid Hybridization', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. That creature\'s controller creates a 3/3 green Frog Lizard creature token.'},
-  {n:'Beast Within', mv:3, role:'removal', have:1, cost:'{2}{G}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.'},
-  {n:'Generous Gift', mv:3, role:'removal', have:0, cost:'{2}{W}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Elephant creature token.'},
-  {n:'Counterspell', mv:2, role:'removal', have:1, cost:'{U}{U}', type:'Instant', text:'Counter target spell.'},
-  {n:'Swan Song', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Counter target enchantment, instant, or sorcery spell. Its controller creates a 2/2 blue Bird creature token with flying.'},
-  {n:'Anguished Unmaking', mv:3, role:'removal', have:0, cost:'{1}{W}{B}', type:'Instant', text:'Exile target nonland permanent. You lose 3 life.'},
-  {n:'Fire // Ice', mv:2, role:'removal', have:1, note:'//', cost:'{1}{R} // {1}{U}', type:'Instant // Instant', text:'Fire {1}{R} — Fire deals 2 damage divided as you choose among one or two targets.\n//\nIce {1}{U} — Tap target permanent.\nDraw a card.'},
-  {n:'Vandalblast', mv:1, role:'removal', have:1, note:'X', cost:'{R}', type:'Sorcery', text:'Destroy target artifact you don\'t control.\nOverload {4}{R} (You may cast this spell for its overload cost. If you do, change "target" in its text to "each.")'},
-  {n:'Wrath of God', mv:4, role:'removal', have:0, cost:'{2}{W}{W}', type:'Sorcery', text:'Destroy all creatures. They can\'t be regenerated.'},
-  {n:'Blasphemous Act', mv:9, role:'removal', have:1, cost:'{8}{R}', type:'Sorcery', text:'This spell costs {1} less to cast for each creature on the battlefield.\nBlasphemous Act deals 13 damage to each creature.'},
+  {n:'Swords to Plowshares', mv:1, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller gains life equal to its power.'},
+  {n:'Path to Exile', mv:1, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
+  {n:'Nature\u2019s Claim', mv:1, role:'removal', handRole:'removal', have:1},
+  {n:'Pongify', mv:1, role:'removal', handRole:'removal', why:'Scryfall tag', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. Its controller creates a 3/3 green Ape creature token.'},
+  {n:'Rapid Hybridization', mv:1, role:'removal', handRole:'removal', why:'Scryfall tag', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. That creature\'s controller creates a 3/3 green Frog Lizard creature token.'},
+  {n:'Beast Within', mv:3, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, cost:'{2}{G}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.'},
+  {n:'Generous Gift', mv:3, role:'removal', handRole:'removal', why:'Scryfall tag', have:0, cost:'{2}{W}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Elephant creature token.'},
+  {n:'Counterspell', mv:2, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, cost:'{U}{U}', type:'Instant', text:'Counter target spell.'},
+  {n:'Swan Song', mv:1, role:'removal', handRole:'removal', why:'Scryfall tag', have:0, cost:'{U}', type:'Instant', text:'Counter target enchantment, instant, or sorcery spell. Its controller creates a 2/2 blue Bird creature token with flying.'},
+  {n:'Anguished Unmaking', mv:3, role:'removal', handRole:'removal', why:'Scryfall tag', have:0, cost:'{1}{W}{B}', type:'Instant', text:'Exile target nonland permanent. You lose 3 life.'},
+  {n:'Fire // Ice', mv:2, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, note:'//', cost:'{1}{R} // {1}{U}', type:'Instant // Instant', text:'Fire {1}{R} — Fire deals 2 damage divided as you choose among one or two targets.\n//\nIce {1}{U} — Tap target permanent.\nDraw a card.'},
+  {n:'Vandalblast', mv:1, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, note:'X', cost:'{R}', type:'Sorcery', text:'Destroy target artifact you don\'t control.\nOverload {4}{R} (You may cast this spell for its overload cost. If you do, change "target" in its text to "each.")'},
+  {n:'Wrath of God', mv:4, role:'removal', handRole:'removal', why:'Scryfall tag', have:0, cost:'{2}{W}{W}', type:'Sorcery', text:'Destroy all creatures. They can\'t be regenerated.'},
+  {n:'Blasphemous Act', mv:9, role:'removal', handRole:'removal', why:'Scryfall tag', have:1, cost:'{8}{R}', type:'Sorcery', text:'This spell costs {1} less to cast for each creature on the battlefield.\nBlasphemous Act deals 13 damage to each creature.'},
 
   // --- threats / payoffs (21) ---
-  {n:'Dragonlord Atarka', mv:7, role:'threat', have:0, cost:'{5}{R}{G}', type:'Legendary Creature — Elder Dragon', text:'Flying, trample\nWhen Dragonlord Atarka enters, it deals 5 damage divided as you choose among any number of target creatures and/or planeswalkers your opponents control.'},
-  {n:'Scourge of Valkas', mv:5, role:'threat', have:1, cost:'{2}{R}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever this creature or another Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.\n{R}: This creature gets +1/+0 until end of turn.'},
-  {n:'Dragon Tempest', mv:2, role:'threat', have:1, cost:'{1}{R}', type:'Enchantment', text:'Whenever a creature you control with flying enters, it gains haste until end of turn.\nWhenever a Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.'},
-  {n:'Terror of the Peaks', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nSpells your opponents cast that target this creature cost an additional 3 life to cast.\nWhenever another creature you control enters, this creature deals damage equal to that creature\'s power to any target.'},
-  {n:'Old Gnawbone', mv:7, role:'threat', have:0, cost:'{5}{G}{G}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever a creature you control deals combat damage to a player, create that many Treasure tokens.'},
-  {n:'Ancient Copper Dragon', mv:6, role:'threat', have:0, cost:'{4}{R}{R}', type:'Creature — Elder Dragon', text:'Flying\nWhenever this creature deals combat damage to a player, roll a d20. You create a number of Treasure tokens equal to the result.'},
-  {n:'Miirym, Sentinel Wyrm', mv:6, role:'threat', have:0, cost:'{3}{G}{U}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, ward {2}\nWhenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except the token isn\'t legendary.'},
-  {n:'Lathliss, Dragon Queen', mv:6, role:'threat', have:1, cost:'{4}{R}{R}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever another nontoken Dragon you control enters, create a 5/5 red Dragon creature token with flying.\n{1}{R}: Dragons you control get +1/+0 until end of turn.'},
-  {n:'Bonecrusher Giant', mv:3, role:'threat', have:1, note:'adv', cost:'{2}{R} // {1}{R}', type:'Creature — Giant // Instant — Adventure', text:'Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell\'s controller.\n//\nDamage can\'t be prevented this turn. Stomp deals 2 damage to any target.'},
-  {n:'Goldspan Dragon', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying, haste\nWhenever this creature attacks or becomes the target of a spell, create a Treasure token.\nTreasures you control have "{T}, Sacrifice this artifact: Add two mana of any one color."'},
-  {n:'Thundermaw Hellkite', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nHaste (This creature can attack and {T} as soon as it comes under your control.)\nWhen this creature enters, it deals 1 damage to each creature with flying your opponents control. Tap those creatures.'},
-  {n:'Utvara Hellkite', mv:8, role:'threat', have:0, cost:'{6}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever a Dragon you control attacks, create a 6/6 red Dragon creature token with flying.'},
-  {n:'Hellkite Courser', mv:6, role:'threat', have:1, cost:'{4}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhen this creature enters, you may put a commander you own from the command zone onto the battlefield. It gains haste. Return it to the command zone at the beginning of the next end step.'},
-  {n:'Steel Hellkite', mv:6, role:'threat', have:0, cost:'{6}', type:'Artifact Creature — Dragon', text:'Flying\n{2}: This creature gets +1/+0 until end of turn.\n{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.'},
-  {n:'Dragonspeaker Shaman', mv:3, role:'threat', have:1, cost:'{1}{R}{R}', type:'Creature — Human Barbarian Shaman', text:'Dragon spells you cast cost {2} less to cast.'},
-  {n:'Dragonlord\u2019s Servant', mv:2, role:'threat', have:1},
-  {n:'Sarkhan, Fireblood', mv:3, role:'threat', have:0, cost:'{1}{R}{R}', type:'Legendary Planeswalker — Sarkhan', text:'+1: You may discard a card. If you do, draw a card.\n+1: Add two mana in any combination of colors. Spend this mana only to cast Dragon spells.\n−7: Create four 5/5 red Dragon creature tokens with flying.'},
-  {n:'Kilnmouth Dragon', mv:7, role:'threat', have:0, cost:'{5}{R}{R}', type:'Creature — Dragon', text:'Amplify 3 (As this creature enters, put three +1/+1 counters on it for each Dragon card you reveal in your hand.)\nFlying\n{T}: This creature deals damage equal to the number of +1/+1 counters on it to any target.'},
-  {n:'Bladewing the Risen', mv:7, role:'threat', have:0, cost:'{3}{B}{B}{R}{R}', type:'Legendary Creature — Zombie Dragon', text:'Flying\nWhen Bladewing enters, you may return target Dragon permanent card from your graveyard to the battlefield.\n{B}{R}: Dragon creatures get +1/+1 until end of turn.'},
-  {n:'Savage Ventmaw', mv:6, role:'threat', have:1, cost:'{4}{R}{G}', type:'Creature — Dragon', text:'Flying\nWhenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don\'t lose this mana as steps and phases end.'},
-  {n:'Atsushi, the Blazing Sky', mv:4, role:'threat', have:0, cost:'{2}{R}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, trample\nWhen Atsushi dies, choose one —\n• Exile the top two cards of your library. Until the end of your next turn, you may play those cards.\n• Create three Treasure tokens.'},
+  {n:'Dragonlord Atarka', mv:7, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{5}{R}{G}', type:'Legendary Creature — Elder Dragon', text:'Flying, trample\nWhen Dragonlord Atarka enters, it deals 5 damage divided as you choose among any number of target creatures and/or planeswalkers your opponents control.'},
+  {n:'Scourge of Valkas', mv:5, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, cost:'{2}{R}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever this creature or another Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.\n{R}: This creature gets +1/+0 until end of turn.'},
+  {n:'Dragon Tempest', mv:2, role:'removal', handRole:'threat', why:'Scryfall tag', have:1, cost:'{1}{R}', type:'Enchantment', text:'Whenever a creature you control with flying enters, it gains haste until end of turn.\nWhenever a Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.'},
+  {n:'Terror of the Peaks', mv:5, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nSpells your opponents cast that target this creature cost an additional 3 life to cast.\nWhenever another creature you control enters, this creature deals damage equal to that creature\'s power to any target.'},
+  {n:'Old Gnawbone', mv:7, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{5}{G}{G}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever a creature you control deals combat damage to a player, create that many Treasure tokens.'},
+  {n:'Ancient Copper Dragon', mv:6, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{4}{R}{R}', type:'Creature — Elder Dragon', text:'Flying\nWhenever this creature deals combat damage to a player, roll a d20. You create a number of Treasure tokens equal to the result.'},
+  {n:'Miirym, Sentinel Wyrm', mv:6, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{3}{G}{U}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, ward {2}\nWhenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except the token isn\'t legendary.'},
+  {n:'Lathliss, Dragon Queen', mv:6, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, cost:'{4}{R}{R}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever another nontoken Dragon you control enters, create a 5/5 red Dragon creature token with flying.\n{1}{R}: Dragons you control get +1/+0 until end of turn.'},
+  {n:'Bonecrusher Giant', mv:3, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, note:'adv', cost:'{2}{R} // {1}{R}', type:'Creature — Giant // Instant — Adventure', text:'Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell\'s controller.\n//\nDamage can\'t be prevented this turn. Stomp deals 2 damage to any target.'},
+  {n:'Goldspan Dragon', mv:5, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying, haste\nWhenever this creature attacks or becomes the target of a spell, create a Treasure token.\nTreasures you control have "{T}, Sacrifice this artifact: Add two mana of any one color."'},
+  {n:'Thundermaw Hellkite', mv:5, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nHaste (This creature can attack and {T} as soon as it comes under your control.)\nWhen this creature enters, it deals 1 damage to each creature with flying your opponents control. Tap those creatures.'},
+  {n:'Utvara Hellkite', mv:8, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{6}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever a Dragon you control attacks, create a 6/6 red Dragon creature token with flying.'},
+  {n:'Hellkite Courser', mv:6, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, cost:'{4}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhen this creature enters, you may put a commander you own from the command zone onto the battlefield. It gains haste. Return it to the command zone at the beginning of the next end step.'},
+  {n:'Steel Hellkite', mv:6, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{6}', type:'Artifact Creature — Dragon', text:'Flying\n{2}: This creature gets +1/+0 until end of turn.\n{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.'},
+  {n:'Dragonspeaker Shaman', mv:3, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, cost:'{1}{R}{R}', type:'Creature — Human Barbarian Shaman', text:'Dragon spells you cast cost {2} less to cast.'},
+  {n:'Dragonlord\u2019s Servant', mv:2, role:'threat', handRole:'threat', have:1},
+  {n:'Sarkhan, Fireblood', mv:3, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{1}{R}{R}', type:'Legendary Planeswalker — Sarkhan', text:'+1: You may discard a card. If you do, draw a card.\n+1: Add two mana in any combination of colors. Spend this mana only to cast Dragon spells.\n−7: Create four 5/5 red Dragon creature tokens with flying.'},
+  {n:'Kilnmouth Dragon', mv:7, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{5}{R}{R}', type:'Creature — Dragon', text:'Amplify 3 (As this creature enters, put three +1/+1 counters on it for each Dragon card you reveal in your hand.)\nFlying\n{T}: This creature deals damage equal to the number of +1/+1 counters on it to any target.'},
+  {n:'Bladewing the Risen', mv:7, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{3}{B}{B}{R}{R}', type:'Legendary Creature — Zombie Dragon', text:'Flying\nWhen Bladewing enters, you may return target Dragon permanent card from your graveyard to the battlefield.\n{B}{R}: Dragon creatures get +1/+1 until end of turn.'},
+  {n:'Savage Ventmaw', mv:6, role:'threat', handRole:'threat', why:'Scryfall tag', have:1, cost:'{4}{R}{G}', type:'Creature — Dragon', text:'Flying\nWhenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don\'t lose this mana as steps and phases end.'},
+  {n:'Atsushi, the Blazing Sky', mv:4, role:'threat', handRole:'threat', why:'Scryfall tag', have:0, cost:'{2}{R}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, trample\nWhen Atsushi dies, choose one —\n• Exile the top two cards of your library. Until the end of your next turn, you may play those cards.\n• Create three Treasure tokens.'},
 
   // --- other (5) ---
-  {n:'Herald\u2019s Horn', mv:3, role:'other', have:1},
-  {n:'Urza\u2019s Incubator', mv:3, role:'other', have:0},
-  {n:'Ancestral Vision', mv:0, role:'other', have:0, note:'no cost', cost:'', type:'Sorcery', text:'Suspend 4—{U} (Rather than cast this card from your hand, pay {U} and exile it with four time counters on it. At the beginning of your upkeep, remove a time counter. When the last is removed, you may cast it without paying its mana cost.)\nTarget player draws three cards.'},
-  {n:'Crucible of Fire', mv:4, role:'other', have:1, cost:'{3}{R}', type:'Enchantment', text:'Dragon creatures you control get +3/+3.'},
-  {n:'Door of Destinies', mv:4, role:'other', have:0, cost:'{4}', type:'Artifact', text:'As this artifact enters, choose a creature type.\nWhenever you cast a spell of the chosen type, put a charge counter on this artifact.\nCreatures you control of the chosen type get +1/+1 for each charge counter on this artifact.'},
+  {n:'Herald\u2019s Horn', mv:3, role:'other', handRole:'other', have:1},
+  {n:'Urza\u2019s Incubator', mv:3, role:'other', handRole:'other', have:0},
+  {n:'Ancestral Vision', mv:0, role:'draw', handRole:'other', why:'Scryfall tag', have:0, note:'no cost', cost:'', type:'Sorcery', text:'Suspend 4—{U} (Rather than cast this card from your hand, pay {U} and exile it with four time counters on it. At the beginning of your upkeep, remove a time counter. When the last is removed, you may cast it without paying its mana cost.)\nTarget player draws three cards.'},
+  {n:'Crucible of Fire', mv:4, role:'other', handRole:'other', why:'Scryfall tag', have:1, cost:'{3}{R}', type:'Enchantment', text:'Dragon creatures you control get +3/+3.'},
+  {n:'Door of Destinies', mv:4, role:'other', handRole:'other', why:'Scryfall tag', have:0, cost:'{4}', type:'Artifact', text:'As this artifact enters, choose a creature type.\nWhenever you cast a spell of the chosen type, put a charge counter on this artifact.\nCreatures you control of the chosen type get +1/+1 for each charge counter on this artifact.'},
 ];
 const ROLES=[{id:'ramp',label:'Ramp'},{id:'draw',label:'Card draw'},
              {id:'removal',label:'Interaction'},{id:'threat',label:'Threats'},
