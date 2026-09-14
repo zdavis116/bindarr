@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Curve on the phone</title>
+<style>
+  :root{
+    --bg:#0a0f1d; --surface:#121829; --surface-2:#1a2137; --surface-3:#232c47;
+    --border:rgba(255,255,255,.10); --border-2:rgba(255,255,255,.06);
+    --text:#e8ecf7; --text-2:#a3adc7; --text-3:#6b7694;
+    --blue:#0a84ff; --green:#30d158; --red:#ff453a; --amber:#ff9f0a;
+    --radius:14px; --radius-sm:9px;
+    --ramp:#30d158; --draw:#0a84ff; --removal:#ff9f0a; --threat:#ff453a; --other:#6b7694;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070e;color:var(--text);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       display:flex;flex-wrap:wrap;gap:2rem;padding:1.5rem;justify-content:center}
+
+  /* A real phone frame, 390x844 -- the size Zach actually uses. */
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:30px;
+         border:1px solid var(--border);overflow:hidden;position:relative;
+         box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column}
+  .phone .cap{position:absolute;top:-30px;left:0;font-size:.78rem;color:var(--text-3)}
+  .scroll{flex:1;overflow-y:auto;padding:.75rem .75rem 5rem}
+
+  .hdr{display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem .4rem;
+       border-bottom:1px solid var(--border-2)}
+  .hdr .bk{color:var(--blue);font-size:.9rem}
+  .hdr b{font-size:1.05rem}
+
+  /* THE TAB BAR IS FOUR ITEMS, same as everywhere. */
+  .tabbar{position:absolute;bottom:0;left:0;right:0;display:flex;
+          background:var(--bg);border-top:1px solid var(--border);
+          padding:.4rem .25rem .7rem}
+  .tb{flex:1;display:flex;flex-direction:column;align-items:center;gap:.15rem;
+      font-size:.62rem;color:var(--text-3);padding:.3rem 0}
+  .tb.on{color:#5ab0ff;font-weight:700}
+  .tb i{font-style:normal;font-size:1.05rem}
+
+  .chips{display:flex;gap:.35rem;overflow-x:auto;padding:.6rem .1rem;
+         scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:0 0 auto;padding:.35rem .7rem;border-radius:999px;font-size:.78rem;
+        font-weight:600;background:var(--surface-2);color:var(--text-2);
+        border:1px solid var(--border)}
+  .chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
+  .panel{background:var(--surface);border:1px solid var(--border);
+         border-radius:var(--radius);padding:.8rem;margin-bottom:.7rem}
+  .ptitle{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.1rem}
+  .ptitle b{font-size:.92rem}
+  .ptitle span{font-size:.72rem;color:var(--text-3)}
+
+  /* THE CHART. Same eight buckets, sized for a thumb. */
+  .curve{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem;
+         align-items:end;height:150px;margin-top:.7rem}
+  .col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;
+       position:relative}
+  .coltot{text-align:center;font-size:.66rem;font-weight:700;color:var(--text-2);
+          margin-bottom:.2rem;font-variant-numeric:tabular-nums}
+  .stack{display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;
+         overflow:hidden;min-height:2px}
+  .seg{width:100%}
+  .seg.ramp{background:var(--ramp)} .seg.draw{background:var(--draw)}
+  .seg.removal{background:var(--removal)} .seg.threat{background:var(--threat)}
+  .seg.other{background:var(--other)}
+  .xrow{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem;margin-top:.3rem}
+  .colx{text-align:center;font-size:.66rem;color:var(--text-3)}
+  .cmdrlab{position:absolute;right:0;white-space:nowrap;font-size:.58rem;
+           font-weight:700;color:#fff;background:var(--surface-3);
+           border:1px solid var(--border);border-radius:999px;padding:.05rem .3rem}
+
+  .legend{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.7rem;
+          padding-top:.6rem;border-top:1px solid var(--border-2)}
+  .lg{display:flex;align-items:center;gap:.3rem;font-size:.72rem;color:var(--text-2);
+      background:var(--surface-2);border:1px solid var(--border-2);
+      border-radius:999px;padding:.2rem .5rem}
+  .lg.on{border-color:var(--blue);color:var(--text)}
+  .sw{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+
+  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:.45rem;margin-top:.7rem}
+  .stat{background:var(--surface-2);border:1px solid var(--border-2);
+        border-radius:var(--radius-sm);padding:.45rem .55rem}
+  .stat .k{font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)}
+  .stat .v{font-size:1rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .stat .n{font-size:.64rem;color:var(--text-3)}
+
+  .trow{display:flex;align-items:center;gap:.5rem;padding:.25rem 0}
+  .trow .tl{width:44px;font-size:.72rem;color:var(--text-3)}
+  .tbar{flex:1;height:14px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+  .tbar i{display:block;height:100%;background:var(--blue)}
+  .trow .tn{width:28px;text-align:right;font-size:.73rem;font-variant-numeric:tabular-nums}
+
+  /* CARD ROWS. 44px minimum, because this is a thumb not a mouse. */
+  .crow{display:flex;align-items:center;gap:.55rem;min-height:46px;
+        padding:.4rem .2rem;border-bottom:1px solid var(--border-2)}
+  .cdot{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+  .cname{flex:1;min-width:0}
+  .cname b{font-size:.84rem;font-weight:600;display:block;
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cwhat{font-size:.68rem;color:var(--text-3);display:block;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cmv{font-size:.76rem;color:var(--text-3);font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:.1rem .4rem;border-radius:999px;
+        font-size:.63rem;font-weight:700;background:var(--surface-3);color:var(--text-2)}
+  .pill.g{background:rgba(48,209,88,.16);color:#4ade80}
+  .pill.r{background:rgba(255,69,58,.16);color:#f87171}
+
+  /* THE SHEET: a phone's answer to a hover. */
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);
+         border-top-left-radius:20px;border-top-right-radius:20px;
+         border-top:1px solid var(--border);padding:.5rem .9rem 1.4rem;
+         box-shadow:0 -18px 50px rgba(0,0,0,.6);max-height:74%;overflow-y:auto}
+  .grab{width:36px;height:4px;border-radius:2px;background:var(--surface-3);
+        margin:.35rem auto .7rem}
+  .shead{display:flex;gap:.75rem;align-items:flex-start}
+  .simg{width:86px;flex:0 0 86px;aspect-ratio:.718;border-radius:7px;
+        background:linear-gradient(145deg,#2a3350,#1b2238);border:1px solid var(--border);
+        display:grid;place-items:center;font-size:.58rem;color:var(--text-3);
+        text-align:center;padding:.25rem}
+  .stext{font-size:.78rem;line-height:1.45;color:var(--text-2);margin-top:.6rem;
+         padding-top:.6rem;border-top:1px solid var(--border-2)}
+  .snote{font-size:.72rem;color:var(--text-2);margin-top:.5rem;padding:.4rem .5rem;
+         border-left:2px solid var(--blue);background:rgba(10,132,255,.07);
+         border-radius:0 5px 5px 0}
+  .sacts{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.7rem}
+  .btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+       padding:.5rem .7rem;border-radius:var(--radius-sm);font:inherit;
+       font-size:.78rem;min-height:40px}
+  .mp{display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;
+      font-size:.56rem;font-weight:800;font-style:normal;vertical-align:-2px;
+      margin-right:1px;color:#150e05;background:#cac5c0}
+  .mp-w{background:#fffbd5} .mp-u{background:#aae0fa} .mp-b{background:#cbc2bf}
+  .mp-r{background:#f9aa8f} .mp-g{background:#9bd3ae}
+
+  .note{max-width:560px;font-size:.82rem;color:var(--text-2);line-height:1.55}
+  .note h3{color:var(--text);font-size:.95rem;margin:1.2rem 0 .4rem}
+  .note b{color:var(--text)}
+  .note code{background:var(--surface-2);padding:.1rem .3rem;border-radius:4px;
+             font-size:.78rem}
+  table{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:.5rem}
+  th{text-align:left;color:var(--text-3);font-weight:600;padding:.3rem .4rem;
+     border-bottom:1px solid var(--border);font-size:.7rem;text-transform:uppercase}
+  td{padding:.3rem .4rem;border-bottom:1px solid var(--border-2)}
+</style>
+</head>
+<body>
+
+<!-- ============ PHONE 1: the Curve tab ============ -->
+<div style="position:relative">
+<div class="phone">
+  <span class="cap">1 · Curve — 390x844</span>
+  <div class="hdr"><span class="bk">‹</span><b>AI Doom</b>
+    <span style="margin-left:auto;font-size:.72rem;color:var(--text-3)">52% built</span></div>
+  <div class="scroll">
+    <div class="chips">
+      <div class="chip">All 100</div><div class="chip">Have 51</div>
+      <div class="chip">Need 49</div><div class="chip">Considering 7</div>
+      <div class="chip on">Curve</div>
+    </div>
+
+    <div class="panel">
+      <div class="ptitle"><b>Mana curve</b><span id="sub"></span></div>
+      <div class="curve" id="curve"></div>
+      <div class="xrow" id="xrow"></div>
+      <div style="text-align:center;font-size:.64rem;color:var(--text-3);margin-top:.2rem">
+        mana value</div>
+      <div class="legend" id="legend"></div>
+      <div style="font-size:.68rem;color:var(--text-3);margin-top:.5rem;text-align:center">
+        tap a block for its cards · tap a role to filter</div>
+    </div>
+
+    <div class="panel">
+      <div class="ptitle"><b>Health</b></div>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ptitle"><b>Castable by turn</b><span>with your 12 ramp</span></div>
+      <div id="turns" style="margin-top:.4rem"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ptitle"><b>All 63 nonland cards</b></div>
+      <div id="list" style="margin-top:.3rem"></div>
+    </div>
+  </div>
+  <div class="tabbar">
+    <div class="tb"><i>◱</i>Home</div>
+    <div class="tb"><i>▦</i>Collection</div>
+    <div class="tb on"><i>⚔</i>Decks</div>
+    <div class="tb"><i>⚙</i>Settings</div>
+  </div>
+</div>
+</div>
+
+<!-- ============ PHONE 2: the sheet ============ -->
+<div style="position:relative">
+<div class="phone">
+  <span class="cap">2 · Tapping a card — the sheet replaces the hover</span>
+  <div class="hdr"><span class="bk">‹</span><b>AI Doom</b>
+    <span style="margin-left:auto;font-size:.72rem;color:var(--text-3)">52% built</span></div>
+  <div class="scroll" style="filter:brightness(.55)">
+    <div class="chips">
+      <div class="chip">All 100</div><div class="chip">Have 51</div>
+      <div class="chip">Need 49</div><div class="chip on">Curve</div>
+    </div>
+    <div class="panel"><div class="ptitle"><b>Mana curve</b></div>
+      <div class="curve" id="curve2"></div>
+      <div class="xrow" id="xrow2"></div></div>
+    <div class="panel"><div class="ptitle"><b>All 63 nonland cards</b></div>
+      <div id="list2" style="margin-top:.3rem"></div></div>
+  </div>
+
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="shead">
+      <div class="simg">Rhystic Study</div>
+      <div style="min-width:0;flex:1">
+        <b style="font-size:.95rem">Rhystic Study</b>
+        <div style="margin:.2rem 0">
+          <i class="mp mp-c">2</i><i class="mp mp-u">U</i></div>
+        <div style="font-size:.72rem;color:var(--text-3)">Enchantment</div>
+        <div style="margin-top:.35rem">
+          <span class="pill" style="background:rgba(10,132,255,.16);color:#5ab0ff">Card draw</span>
+          <span class="pill r">Not owned</span></div>
+      </div>
+    </div>
+    <div class="stext">Whenever an opponent casts a spell, you may draw a card
+      unless that player pays <i class="mp mp-c">1</i>.</div>
+    <div class="snote"><b>Why Card draw?</b> Its rules text says “draw a card”.
+      Tap to change — your choice is remembered and beats the automatic guess.</div>
+    <div class="sacts">
+      <button class="btn">Change role</button>
+      <button class="btn">Choose printing</button>
+      <button class="btn">Remove</button>
+    </div>
+  </div>
+
+  <div class="tabbar">
+    <div class="tb"><i>◱</i>Home</div>
+    <div class="tb"><i>▦</i>Collection</div>
+    <div class="tb on"><i>⚔</i>Decks</div>
+    <div class="tb"><i>⚙</i>Settings</div>
+  </div>
+</div>
+</div>
+
+<!-- ============ the categories answer ============ -->
+<div class="note">
+  <h3>How the roles are actually derived — the honest answer</h3>
+  <p><b>In the mockup you liked, they were not derived at all. I typed all 63 by
+  hand.</b> You asked the right question, so here is the real one, written and
+  run against these same cards.</p>
+
+  <p>The classifier reads Scryfall's oracle text in a fixed order, first match
+  wins:</p>
+  <table>
+    <tr><th>Role</th><th>Matched on</th></tr>
+    <tr><td style="color:var(--ramp)">Ramp</td>
+        <td><code>add {…} mana</code>, or searches your library for a land, or
+        reduces spell costs</td></tr>
+    <tr><td style="color:var(--removal)">Interaction</td>
+        <td><code>destroy target</code>, <code>exile target</code>,
+        <code>counter target</code>, or deals damage to a target</td></tr>
+    <tr><td style="color:var(--draw)">Card draw</td>
+        <td><code>draw a card</code> / <code>draw N cards</code></td></tr>
+    <tr><td style="color:var(--threat)">Threats</td>
+        <td>a creature or planeswalker that matched none of the above</td></tr>
+    <tr><td style="color:var(--other)">Other</td><td>everything left</td></tr>
+  </table>
+
+  <p style="margin-top:.8rem"><b>Measured: it agrees with my hand labels on
+  45 of 57 cards — 79%.</b> That is not good enough to ship silently, and the
+  failures are interesting rather than random:</p>
+
+  <table>
+    <tr><th>Card</th><th>Auto</th><th>Should be</th><th>Why it trips</th></tr>
+    <tr><td>The Ur-Dragon</td><td>Ramp</td><td>Threat</td>
+        <td>Eminence reduces Dragon costs, so it reads as cost reduction</td></tr>
+    <tr><td>Goldspan Dragon</td><td>Ramp</td><td>Threat</td>
+        <td>Makes treasure — it <i>does</i> ramp, but it is a win condition</td></tr>
+    <tr><td>Savage Ventmaw</td><td>Ramp</td><td>Threat</td>
+        <td>Adds six mana when it attacks</td></tr>
+    <tr><td>Bonecrusher Giant</td><td>Interaction</td><td>Threat</td>
+        <td>Stomp deals damage; the creature half is the card you play</td></tr>
+    <tr><td>Fire // Ice</td><td>Card draw</td><td>Interaction</td>
+        <td>Ice draws a card, so the second face wins the race</td></tr>
+    <tr><td>Farseek</td><td>Other</td><td>Ramp</td>
+        <td>Fetches a “Plains, Island…” — never says the word “land”</td></tr>
+    <tr><td>Sylvan Library</td><td>Other</td><td>Card draw</td>
+        <td>“draw two <i>additional</i> cards” dodges the pattern</td></tr>
+    <tr><td>Fact or Fiction</td><td>Other</td><td>Card draw</td>
+        <td>Puts cards in hand without the word “draw”</td></tr>
+  </table>
+
+  <h3>So what I would actually build</h3>
+  <p><b>Auto-classify, show the reason, and let you override — permanently.</b>
+  Every card's sheet says <i>why</i> it landed in a role, with one tap to change
+  it. Your choice is stored per card and always beats the guess, so the same
+  card never re-classifies itself behind your back.</p>
+  <p>That matters more than the accuracy number. A wrong role is a wrong record,
+  and it would quietly distort the chart you are using to make deck decisions —
+  Goldspan Dragon counted as ramp makes your ramp look fine when it is not.
+  <b>79% silently is worse than 79% visibly.</b></p>
+  <p>The alternative — typing 100 roles per deck by hand — is the thing you would
+  stop doing after one deck. So: the machine guesses, it shows its reasoning,
+  and you correct it in one tap.</p>
+</div>
+
+<script>
+const DECK = [
+
+  // commander (marker only, not in the bars)
+  {n:'The Ur-Dragon', mv:9, role:'threat', have:1, cmdr:true, cost:'{4}{W}{U}{B}{R}{G}', type:'Legendary Creature — Dragon Avatar', text:'Eminence — As long as The Ur-Dragon is in the command zone or on the battlefield, other Dragon spells you cast cost {1} less to cast.\nFlying\nWhenever one or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield.'},
+
+  // --- ramp (12) ---
+  {n:'Sol Ring', mv:1, role:'ramp', have:1, cost:'{1}', type:'Artifact', text:'{T}: Add {C}{C}.'},
+  {n:'Arcane Signet', mv:2, role:'ramp', have:1, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color in your commander\'s color identity.'},
+  {n:'Fellwar Stone', mv:2, role:'ramp', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color that a land an opponent controls could produce.'},
+  {n:'Talisman of Curiosity', mv:2, role:'ramp', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add {C}.\n{T}: Add {G} or {U}. This artifact deals 1 damage to you.'},
+  {n:'Birds of Paradise', mv:1, role:'ramp', have:1, cost:'{G}', type:'Creature — Bird', text:'Flying\n{T}: Add one mana of any color.'},
+  {n:'Llanowar Elves', mv:1, role:'ramp', have:1, cost:'{G}', type:'Creature — Elf Druid', text:'{T}: Add {G}.'},
+  {n:'Cultivate', mv:3, role:'ramp', have:1, cost:'{2}{G}', type:'Sorcery', text:'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.'},
+  {n:"Kodama's Reach", mv:3, role:'ramp', have:0},
+  {n:'Rampant Growth', mv:2, role:'ramp', have:1, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
+  {n:'Farseek', mv:2, role:'ramp', have:0, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a Plains, Island, Swamp, or Mountain card, put it onto the battlefield tapped, then shuffle.'},
+  {n:'Chromatic Lantern', mv:3, role:'ramp', have:0, cost:'{3}', type:'Artifact', text:'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.'},
+  {n:'Mana Crypt', mv:0, role:'ramp', have:0, cost:'{0}', type:'Artifact', text:'At the beginning of your upkeep, flip a coin. If you lose the flip, this artifact deals 3 damage to you.\n{T}: Add {C}{C}.'},
+
+  // --- card draw (11) ---
+  {n:'Rhystic Study', mv:3, role:'draw', have:0, cost:'{2}{U}', type:'Enchantment', text:'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.'},
+  {n:'Mystic Remora', mv:1, role:'draw', have:0, cost:'{U}', type:'Enchantment', text:'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nWhenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}.'},
+  {n:'Phyrexian Arena', mv:3, role:'draw', have:1, cost:'{1}{B}{B}', type:'Enchantment', text:'At the beginning of your upkeep, you draw a card and you lose 1 life.'},
+  {n:'Sylvan Library', mv:2, role:'draw', have:0, cost:'{1}{G}', type:'Enchantment', text:'At the beginning of your draw step, you may draw two additional cards. If you do, choose two cards in your hand drawn this turn. For each of those cards, pay 4 life or put the card on top of your library.'},
+  {n:'Guardian Project', mv:4, role:'draw', have:1, cost:'{3}{G}', type:'Enchantment', text:'Whenever a nontoken creature you control enters, if it doesn\'t have the same name as another creature you control or a creature card in your graveyard, draw a card.'},
+  {n:'Beast Whisperer', mv:4, role:'draw', have:0, cost:'{2}{G}{G}', type:'Creature — Elf Druid', text:'Whenever you cast a creature spell, draw a card.'},
+  {n:'Harmonize', mv:4, role:'draw', have:1, cost:'{2}{G}{G}', type:'Sorcery', text:'Draw three cards.'},
+  {n:'Night\u2019s Whisper', mv:2, role:'draw', have:1},
+  {n:'Read the Bones', mv:3, role:'draw', have:1, cost:'{2}{B}', type:'Sorcery', text:'Scry 2, then draw two cards. You lose 2 life. (To scry 2, look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)'},
+  {n:'Fact or Fiction', mv:4, role:'draw', have:0, cost:'{3}{U}', type:'Instant', text:'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.'},
+  {n:'Blue Sun\u2019s Zenith', mv:1, role:'draw', have:0, note:'X'},
+
+  // --- interaction (14) ---
+  {n:'Swords to Plowshares', mv:1, role:'removal', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller gains life equal to its power.'},
+  {n:'Path to Exile', mv:1, role:'removal', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
+  {n:'Nature\u2019s Claim', mv:1, role:'removal', have:1},
+  {n:'Pongify', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. Its controller creates a 3/3 green Ape creature token.'},
+  {n:'Rapid Hybridization', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. That creature\'s controller creates a 3/3 green Frog Lizard creature token.'},
+  {n:'Beast Within', mv:3, role:'removal', have:1, cost:'{2}{G}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.'},
+  {n:'Generous Gift', mv:3, role:'removal', have:0, cost:'{2}{W}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Elephant creature token.'},
+  {n:'Counterspell', mv:2, role:'removal', have:1, cost:'{U}{U}', type:'Instant', text:'Counter target spell.'},
+  {n:'Swan Song', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Counter target enchantment, instant, or sorcery spell. Its controller creates a 2/2 blue Bird creature token with flying.'},
+  {n:'Anguished Unmaking', mv:3, role:'removal', have:0, cost:'{1}{W}{B}', type:'Instant', text:'Exile target nonland permanent. You lose 3 life.'},
+  {n:'Fire // Ice', mv:2, role:'removal', have:1, note:'//', cost:'{1}{R} // {1}{U}', type:'Instant // Instant', text:'Fire {1}{R} — Fire deals 2 damage divided as you choose among one or two targets.\n//\nIce {1}{U} — Tap target permanent.\nDraw a card.'},
+  {n:'Vandalblast', mv:1, role:'removal', have:1, note:'X', cost:'{R}', type:'Sorcery', text:'Destroy target artifact you don\'t control.\nOverload {4}{R} (You may cast this spell for its overload cost. If you do, change "target" in its text to "each.")'},
+  {n:'Wrath of God', mv:4, role:'removal', have:0, cost:'{2}{W}{W}', type:'Sorcery', text:'Destroy all creatures. They can\'t be regenerated.'},
+  {n:'Blasphemous Act', mv:9, role:'removal', have:1, cost:'{8}{R}', type:'Sorcery', text:'This spell costs {1} less to cast for each creature on the battlefield.\nBlasphemous Act deals 13 damage to each creature.'},
+
+  // --- threats / payoffs (21) ---
+  {n:'Dragonlord Atarka', mv:7, role:'threat', have:0, cost:'{5}{R}{G}', type:'Legendary Creature — Elder Dragon', text:'Flying, trample\nWhen Dragonlord Atarka enters, it deals 5 damage divided as you choose among any number of target creatures and/or planeswalkers your opponents control.'},
+  {n:'Scourge of Valkas', mv:5, role:'threat', have:1, cost:'{2}{R}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever this creature or another Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.\n{R}: This creature gets +1/+0 until end of turn.'},
+  {n:'Dragon Tempest', mv:2, role:'threat', have:1, cost:'{1}{R}', type:'Enchantment', text:'Whenever a creature you control with flying enters, it gains haste until end of turn.\nWhenever a Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.'},
+  {n:'Terror of the Peaks', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nSpells your opponents cast that target this creature cost an additional 3 life to cast.\nWhenever another creature you control enters, this creature deals damage equal to that creature\'s power to any target.'},
+  {n:'Old Gnawbone', mv:7, role:'threat', have:0, cost:'{5}{G}{G}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever a creature you control deals combat damage to a player, create that many Treasure tokens.'},
+  {n:'Ancient Copper Dragon', mv:6, role:'threat', have:0, cost:'{4}{R}{R}', type:'Creature — Elder Dragon', text:'Flying\nWhenever this creature deals combat damage to a player, roll a d20. You create a number of Treasure tokens equal to the result.'},
+  {n:'Miirym, Sentinel Wyrm', mv:6, role:'threat', have:0, cost:'{3}{G}{U}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, ward {2}\nWhenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except the token isn\'t legendary.'},
+  {n:'Lathliss, Dragon Queen', mv:6, role:'threat', have:1, cost:'{4}{R}{R}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever another nontoken Dragon you control enters, create a 5/5 red Dragon creature token with flying.\n{1}{R}: Dragons you control get +1/+0 until end of turn.'},
+  {n:'Bonecrusher Giant', mv:3, role:'threat', have:1, note:'adv', cost:'{2}{R} // {1}{R}', type:'Creature — Giant // Instant — Adventure', text:'Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell\'s controller.\n//\nDamage can\'t be prevented this turn. Stomp deals 2 damage to any target.'},
+  {n:'Goldspan Dragon', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying, haste\nWhenever this creature attacks or becomes the target of a spell, create a Treasure token.\nTreasures you control have "{T}, Sacrifice this artifact: Add two mana of any one color."'},
+  {n:'Thundermaw Hellkite', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nHaste (This creature can attack and {T} as soon as it comes under your control.)\nWhen this creature enters, it deals 1 damage to each creature with flying your opponents control. Tap those creatures.'},
+  {n:'Utvara Hellkite', mv:8, role:'threat', have:0, cost:'{6}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever a Dragon you control attacks, create a 6/6 red Dragon creature token with flying.'},
+  {n:'Hellkite Courser', mv:6, role:'threat', have:1, cost:'{4}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhen this creature enters, you may put a commander you own from the command zone onto the battlefield. It gains haste. Return it to the command zone at the beginning of the next end step.'},
+  {n:'Steel Hellkite', mv:6, role:'threat', have:0, cost:'{6}', type:'Artifact Creature — Dragon', text:'Flying\n{2}: This creature gets +1/+0 until end of turn.\n{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.'},
+  {n:'Dragonspeaker Shaman', mv:3, role:'threat', have:1, cost:'{1}{R}{R}', type:'Creature — Human Barbarian Shaman', text:'Dragon spells you cast cost {2} less to cast.'},
+  {n:'Dragonlord\u2019s Servant', mv:2, role:'threat', have:1},
+  {n:'Sarkhan, Fireblood', mv:3, role:'threat', have:0, cost:'{1}{R}{R}', type:'Legendary Planeswalker — Sarkhan', text:'+1: You may discard a card. If you do, draw a card.\n+1: Add two mana in any combination of colors. Spend this mana only to cast Dragon spells.\n−7: Create four 5/5 red Dragon creature tokens with flying.'},
+  {n:'Kilnmouth Dragon', mv:7, role:'threat', have:0, cost:'{5}{R}{R}', type:'Creature — Dragon', text:'Amplify 3 (As this creature enters, put three +1/+1 counters on it for each Dragon card you reveal in your hand.)\nFlying\n{T}: This creature deals damage equal to the number of +1/+1 counters on it to any target.'},
+  {n:'Bladewing the Risen', mv:7, role:'threat', have:0, cost:'{3}{B}{B}{R}{R}', type:'Legendary Creature — Zombie Dragon', text:'Flying\nWhen Bladewing enters, you may return target Dragon permanent card from your graveyard to the battlefield.\n{B}{R}: Dragon creatures get +1/+1 until end of turn.'},
+  {n:'Savage Ventmaw', mv:6, role:'threat', have:1, cost:'{4}{R}{G}', type:'Creature — Dragon', text:'Flying\nWhenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don\'t lose this mana as steps and phases end.'},
+  {n:'Atsushi, the Blazing Sky', mv:4, role:'threat', have:0, cost:'{2}{R}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, trample\nWhen Atsushi dies, choose one —\n• Exile the top two cards of your library. Until the end of your next turn, you may play those cards.\n• Create three Treasure tokens.'},
+
+  // --- other (5) ---
+  {n:'Herald\u2019s Horn', mv:3, role:'other', have:1},
+  {n:'Urza\u2019s Incubator', mv:3, role:'other', have:0},
+  {n:'Ancestral Vision', mv:0, role:'other', have:0, note:'no cost', cost:'', type:'Sorcery', text:'Suspend 4—{U} (Rather than cast this card from your hand, pay {U} and exile it with four time counters on it. At the beginning of your upkeep, remove a time counter. When the last is removed, you may cast it without paying its mana cost.)\nTarget player draws three cards.'},
+  {n:'Crucible of Fire', mv:4, role:'other', have:1, cost:'{3}{R}', type:'Enchantment', text:'Dragon creatures you control get +3/+3.'},
+  {n:'Door of Destinies', mv:4, role:'other', have:0, cost:'{4}', type:'Artifact', text:'As this artifact enters, choose a creature type.\nWhenever you cast a spell of the chosen type, put a charge counter on this artifact.\nCreatures you control of the chosen type get +1/+1 for each charge counter on this artifact.'},
+];
+const ROLES=[{id:'ramp',label:'Ramp'},{id:'draw',label:'Card draw'},
+             {id:'removal',label:'Interaction'},{id:'threat',label:'Threats'},
+             {id:'other',label:'Other'}];
+const B=[0,1,2,3,4,5,6,7];
+const spells=DECK.filter(c=>!c.cmdr);
+const bk=c=>Math.min(c.mv,7);
+const inB=(b,r)=>spells.filter(c=>bk(c)===b&&(!r||c.role===r));
+const maxN=Math.max(...B.map(b=>inB(b).length));
+
+function mana(cost){if(!cost)return '';return (cost.match(/\{[^}]+\}/g)||[]).map(s=>{
+  const v=s.slice(1,-1);const cl={W:'w',U:'u',B:'b',R:'r',G:'g'}[v]||'c';
+  return `<i class="mp mp-${cl}">${v.replace('/','')}</i>`;}).join('');}
+function gist(t){if(!t)return '';const f=t.split('\n')[0].split(/(?<=\.)\s/)[0];
+  return f.length>58?f.slice(0,55)+'…':f;}
+
+function chart(el,xel,h){
+  el.innerHTML='';xel.innerHTML='';
+  B.forEach(b=>{
+    const n=inB(b).length,col=document.createElement('div');col.className='col';
+    col.innerHTML=`<div class="coltot">${n||''}</div>`;
+    const st=document.createElement('div');st.className='stack';
+    st.style.height=Math.round(n/maxN*h)+'px';
+    ROLES.forEach(r=>{const k=inB(b,r.id).length;if(!k)return;
+      const s=document.createElement('div');s.className='seg '+r.id;
+      s.style.height=(k/n*100)+'%';st.appendChild(s);});
+    col.appendChild(st);
+    if(b===Math.min(DECK.find(c=>c.cmdr).mv,7)){
+      const l=document.createElement('div');l.className='cmdrlab';
+      l.style.bottom=(Math.round(n/maxN*h)+6)+'px';l.textContent='◈ commander';
+      col.appendChild(l);}
+    el.appendChild(col);
+    const x=document.createElement('div');x.className='colx';
+    x.textContent=b===7?'7+':b;xel.appendChild(x);});
+}
+chart(document.getElementById('curve'),document.getElementById('xrow'),110);
+chart(document.getElementById('curve2'),document.getElementById('xrow2'),110);
+
+document.getElementById('sub').textContent=`${spells.length} nonland · 37 lands out`;
+document.getElementById('legend').innerHTML=ROLES.map(r=>
+  `<span class="lg"><i class="sw" style="background:var(--${r.id})"></i>${r.label} ${
+    spells.filter(c=>c.role===r.id).length}</span>`).join('');
+
+const mvs=spells.map(c=>c.mv).sort((a,b)=>a-b);
+const avg=(mvs.reduce((s,n)=>s+n,0)/mvs.length).toFixed(2);
+const ramp=spells.filter(c=>c.role==='ramp').length;
+document.getElementById('stats').innerHTML=[
+  ['Avg MV',avg,'excl. lands'],['Median MV',mvs[Math.floor(mvs.length/2)],'typical 2.5–3.5'],
+  ['Ramp',ramp,ramp>=10?'on target':'thin'],
+  ['6+ drops',spells.filter(c=>c.mv>=6).length,'over ~10 clogs'],
+].map(([k,v,n])=>`<div class="stat"><div class="k">${k}</div>
+   <div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+
+document.getElementById('turns').innerHTML=[1,2,3,4,5,6].map(t=>{
+  const n=spells.filter(c=>c.mv<=t+Math.max(0,Math.floor((t-1)*0.8))).length;
+  return `<div class="trow"><span class="tl">Turn ${t}</span>
+    <div class="tbar"><i style="width:${(n/spells.length*100).toFixed(1)}%"></i></div>
+    <span class="tn">${n}</span></div>`;}).join('');
+
+const rows=spells.slice().sort((a,b)=>a.mv-b.mv||a.n.localeCompare(b.n)).map(c=>
+  `<div class="crow"><span class="cdot" style="background:var(--${c.role})"></span>
+    <span class="cname"><b>${c.n}</b><span class="cwhat">${gist(c.text)}</span></span>
+    <span class="cmv">${c.mv}</span>
+    <span class="pill ${c.have?'g':'r'}">${c.have?c.have:0}</span></div>`).join('');
+document.getElementById('list').innerHTML=rows;
+document.getElementById('list2').innerHTML=rows;
+</script>
+</body>
+</html>
