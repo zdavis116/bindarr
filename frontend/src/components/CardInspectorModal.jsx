@@ -1448,15 +1448,17 @@ function CardInspectorModal({
                     The wording says where the copy goes, because a delete that
                     might destroy a record is not one to guess at. */}
                 {onRemoveFromDeck && (
+                  <div className="ci-footer-acts">
                   <button
                     type="button"
                     className="btn btn-danger"
-                    style={{ width: '100%', marginBottom: '0.85rem' }}
+                    style={{ width: '100%' }}
                     onClick={handleRemoveFromDeck}
                   >
                     <Trash2 size={16} />
                     {t('inspector.removeFromDeck')}
                   </button>
+                  </div>
                 )}
 
               </>)}

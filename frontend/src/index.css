@@ -3264,8 +3264,19 @@ button, input, select, textarea {
        together. Zach: "should not fully be scrollable just the bottom portion
        under the 3 tabs."
        The inspector inside it owns a fixed height and scrolls its own body
-       row, so this only has to hold it in place. */
-    max-height: calc(100vh - 2rem);
+       row, so this only has to hold it in place.
+
+       HEIGHT, not max-height: the pane inside is height:100% and needs a
+       definite box to resolve against, or it falls back to its content and
+       the anchored footer drifts below the fold.
+
+       --pane-top is measured at runtime by DeckView (see useEffect there) and
+       is how far down the page this column actually starts -- ~249px, made of
+       the header, the deck title and the progress block. A pure `100vh - 2rem`
+       ignored that offset and ran the pane 153px past the fold, which is what
+       put the anchored Remove button off-screen. The fallback keeps it sane
+       before the first measurement lands. */
+    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
     overflow: hidden;
   }
 
@@ -3334,11 +3345,18 @@ button, input, select, textarea {
     align-items: start;
     column-gap: 0.9rem;
     row-gap: 0.6rem;
-    /* A HEIGHT, not just a cap: the header must pin, which needs a box to pin
-       against. Viewport-relative so it still fits a laptop screen, and it
-       stops short of the viewport so the page's own padding shows. */
-    height: calc(100vh - 6rem);
-    max-height: calc(100vh - 6rem);
+    /* A HEIGHT, not just a cap: the header must pin and the footer must
+       anchor, which needs a real box.
+
+       THE HEIGHT MUST ACCOUNT FOR WHERE THE PANE STARTS. `100vh - 6rem` was
+       wrong -- the pane begins ~249px down the page (header, deck title,
+       progress block), so it ran 153px PAST the fold and the anchored footer
+       sat below the screen. That is the "cut off" in his screenshot: the
+       button was pinned to the bottom of a box you could not see the bottom
+       of. `sticky top` is 1rem, so the available height is the viewport minus
+       that offset minus a bottom margin. */
+    height: 100%;
+    max-height: 100%;
     overflow: hidden;
   }
 
@@ -3423,6 +3441,47 @@ button, input, select, textarea {
     max-height: none !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
+    /* Room for the anchored footer, which is positioned over the pane's
+       bottom edge. Without this the last row of content hides behind it. */
+    padding-bottom: 0.6rem;
+  }
+
+  /* DESTRUCTIVE ACTIONS ARE ANCHORED, NOT SCROLLED TO.
+     Zach: "the delete button should be anchored at the bottom and I shouldnt
+     have to scroll to that. So really the scroll should be between the top
+     taps and any buttons at the bottom."
+
+     Sticky rather than moved in the JSX: these buttons are rendered per-tab
+     deep inside the body, and hoisting them out would mean restructuring the
+     component for all three tabs plus the phone modal. Sticky pins them to
+     the bottom of the scroll box while leaving them exactly where they are in
+     the DOM -- so tab order and the modal are untouched.
+
+     The opaque background matters: content scrolls UNDER this, and a
+     see-through destructive button with rules text sliding behind it is how
+     you misread which card you are removing. */
+  .card-inspector-inline .ci-footer-acts {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0.85rem -0.25rem 0;
+    padding: 0.6rem 0.25rem 0.1rem;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-glass);
+  }
+
+  /* THE PANE READS SMALLER SO MORE OF IT FITS.
+     Zach: "the UI looks weird here being cut off. Maybe the font needs to be
+     smaller so it fits the screen better." The pane is a 440px column, not a
+     720px dialog -- the modal's type scale leaves every row feeling clipped.
+     Applied to the pane only, so the phone modal keeps its own sizing. */
+  .card-inspector-inline .ci-scroll {
+    font-size: 0.86rem;
+  }
+
+  .card-inspector-inline .ci-scroll .btn {
+    font-size: 0.84rem;
+    padding: 0.5rem 0.8rem;
   }
 
   /* DELETE DECK STAYS SMALL.

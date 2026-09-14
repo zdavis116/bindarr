@@ -133,6 +133,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   const cards = useMemo(() => deck?.cards || [], [deck]);
 
   const isDesktop = useIsDesktop();
+  const sidePaneRef = useRef(null);
 
   // WHICH CARD THE RIGHT PANE IS SHOWING.
   //
@@ -159,6 +160,39 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     // exact confusion the modal's onRemoveFromDeck comment warns about.
     return { ...chosen, deckCardId: chosen.id };
   }, [isDesktop, selectedCardId, cards]);
+
+  // HOW FAR DOWN THE PAGE THE DETAIL PANE STARTS.
+  //
+  // The pane needs a definite height so its header can pin and its Remove
+  // button can anchor to the bottom. That height is "the viewport minus where
+  // the pane begins" -- and where it begins is not a constant: the deck title,
+  // the drift banner and the progress block above it all vary.
+  //
+  // MEASURED, not guessed. A hard-coded `100vh - 6rem` ran the pane 153px past
+  // the fold, so the anchored button sat below the screen -- pinned to the
+  // bottom of a box you could not see the bottom of. Zach reported that as the
+  // UI looking cut off.
+  //
+  // Written to a CSS custom property so the LAYOUT stays in CSS; this only
+  // supplies the one number CSS cannot measure for itself.
+  useEffect(() => {
+    if (!isDesktop) return undefined;
+    const el = sidePaneRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      // Page offset, not viewport offset: getBoundingClientRect().top alone
+      // changes as you scroll, which would resize the pane while scrolling.
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
+    };
+    measure();
+    // The drift banner and progress block can render after a fetch and move
+    // the pane down, so re-measure when the page changes size.
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [isDesktop, detailCard]);
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:
   // "Move considering to the chips like owned and missing." They sit outside
@@ -1137,7 +1171,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             it already has a guard for; remounting makes it impossible rather
             than guarded. */}
         {isDesktop && detailCard ? (
-          <div className="deck-panes-side">
+          <div className="deck-panes-side" ref={sidePaneRef}>
             <CardInspectorModal
               key={detailCard.id || detailCard.card_id}
               card={detailCard}
