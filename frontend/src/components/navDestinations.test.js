@@ -26,16 +26,38 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, '..');
 const app = readFileSync(join(src, 'App.jsx'), 'utf8');
+const navItems = readFileSync(join(src, 'navItems.js'), 'utf8');
 const collection = readFileSync(join(src, 'components', 'CollectionList.jsx'), 'utf8');
 
-// The nav renders from an array, so the destinations are the ids in it.
+// The nav renders from a SHARED array, so the destinations are the ids in it.
+//
+// This used to grep App.jsx between <nav> and </nav>. That stopped being true
+// when the list moved to navItems.js so the phone's tab bar and the desktop
+// rail could not disagree about what exists -- and the test went red while the
+// nav was perfectly correct, which is the cry-wolf failure NAV-TC4 already
+// warns about below.
+//
+// It reads navItems.js now, AND asserts App.jsx actually renders from it. The
+// second half is the point: reading the array alone would pass happily if
+// App.jsx went back to hard-coding its own buttons, which is exactly the drift
+// the shared array exists to prevent.
 function navDestinations() {
-  const start = app.indexOf('<nav className="nav-tabs"');
-  assert.ok(start > 0, 'nav-tabs block not found in App.jsx');
-  const end = app.indexOf('</nav>', start);
-  const block = app.slice(start, end);
+  const start = navItems.indexOf('export const NAV_ITEMS');
+  assert.ok(start > 0, 'NAV_ITEMS not found in navItems.js');
+  const end = navItems.indexOf('];', start);
+  const block = navItems.slice(start, end);
   return [...block.matchAll(/\{ id: '([a-z-]+)'/g)].map(m => m[1]);
 }
+
+test('NAV-TC0: the nav renders FROM the shared list, not a hand-written copy', () => {
+  assert.ok(app.includes("from './navItems.js'"),
+    'App.jsx must import the shared NAV_ITEMS');
+  assert.match(app, /NAV_ITEMS\.map\(/,
+    'App.jsx must render the bar by mapping NAV_ITEMS. If it ever hard-codes '
+    + 'buttons again, the phone bar and the desktop rail can silently disagree '
+    + 'about what exists -- and every other case in this file would be '
+    + 'measuring a list the app no longer uses.');
+});
 
 test('NAV-TC1: exactly four destinations, in the agreed order', () => {
   assert.deepEqual(navDestinations(),
