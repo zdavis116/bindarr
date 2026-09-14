@@ -3278,17 +3278,95 @@ button, input, select, textarea {
 }
 
 @media (min-width: 1024px) {
-  /* The inline pane is 400px, not the modal's ~900px, so the modal's
-     side-by-side image + detail layout has to stack. Without this the detail
-     column is ~150px wide and every card name wraps mid-word. */
-  .card-inspector-inline .ci-image-col {
-    align-self: center;
+  /* ===========================================================================
+     THE INLINE PANE IS BUILT TO THE MOCKUP, not inherited from the modal.
+     ===========================================================================
+     What went wrong the first time: `.card-inspector` carries padding:2.5rem
+     and gap:2.5rem, which are right for a 720px centred dialog and absurd in a
+     400px column -- measured 40px of padding a side, so 80px of a 400px pane
+     was margin before any content. Then stacking it put a centred card image
+     on its own row with nothing beside it.
+
+     The mockup (sketches/desktop.html, right pane) is explicit and this
+     matches it: a SMALL image on the LEFT, name + type + cost beside it,
+     details below. Reusing the component was right; letting it keep the
+     modal's geometry was not.
+  */
+  .card-inspector-inline {
+    width: 100%;
+    max-width: none;
+    /* Height comes from the content. The modal's 82dvh is a dialog rule; in a
+       column it would leave a half-empty panel on a short card and clip a
+       long one. .deck-panes-side owns the scrolling. */
+    height: auto;
+    max-height: none;
+    margin: 0;
+    /* Mockup panel padding, not dialog padding. */
+    padding: 1rem;
+    display: flex;
+    gap: 0.9rem;
+    overflow: visible;
   }
 
+  /* THE PANEL STAYS A ROW: image left, everything else right.
+     `.card-inspector` is already flex-direction:row with .ci-image-col and
+     .ci-info-col as its two children -- that IS the mockup's shape. My first
+     attempt overrode it to `column`, which is what put a centred image on its
+     own row with empty space beside it. The fix is to stop fighting the base
+     layout and just resize it for 400px. */
   .card-inspector-inline {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  /* 120px, from the mockup. Fixed, and NOT allowed to grow: the complaint was
+     the image eating the pane. */
+  .card-inspector-inline .ci-image-col {
+    flex: 0 0 120px !important;
+    width: 120px !important;
+    align-self: flex-start !important;
+    align-items: flex-start !important;
+    min-height: 0 !important;
+    gap: 0.3rem !important;
+  }
+
+  .card-inspector-inline .ci-image-wrap {
+    width: 120px !important;
+    /* Height follows the card's aspect ratio rather than a second fixed
+       number that could disagree with the width. */
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+  }
+
+  .card-inspector-inline .ci-image-wrap img {
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block;
+  }
+
+  /* The info column takes the rest and must be able to SHRINK, or a long name
+     ("Doctor Doom, King of Latveria" -- the live case) pushes the layout wider
+     than the pane instead of wrapping inside it.
+     flex-basis 320px from the modal is wider than the whole pane, so it is
+     overridden to auto. */
+  .card-inspector-inline .ci-info-col {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    width: auto !important;
+    gap: 0.5rem !important;
+  }
+
+  /* The body scrolls with the PAGE, not in its own little window. A ~100px
+     inner scroller inside a pane inside a page is three scroll regions for one
+     card -- that is the cramped Availability box in the screenshot.
+     .deck-panes-side owns the scrolling for this column. */
+  .card-inspector-inline .ci-scroll {
+    flex: 0 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   /* DELETE DECK STAYS SMALL.
