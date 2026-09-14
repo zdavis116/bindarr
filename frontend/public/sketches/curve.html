@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bindarr — Curve tab</title>
+<title>Bindarr — Curve tab (working prototype)</title>
 <style>
   :root{
     --bg:#0a0f1d; --surface:#121829; --surface-2:#1a2137; --surface-3:#232c47;
@@ -11,20 +11,11 @@
     --text:#e8ecf7; --text-2:#a3adc7; --text-3:#6b7694;
     --blue:#0a84ff; --green:#30d158; --red:#ff453a; --amber:#ff9f0a;
     --radius:14px; --radius-sm:9px; --rail:236px;
-
-    /* ROLE COLOURS. Deliberately not the WUBRG colour pie: these are
-       functions, and using Magic's colours for something that is not colour
-       is how a chart lies to someone who reads Magic charts all day. */
-    --ramp:#30d158;      /* green — it is literally what green does */
-    --draw:#0a84ff;
-    --removal:#ff9f0a;
-    --threat:#ff453a;
-    --other:#6b7694;
+    --ramp:#30d158; --draw:#0a84ff; --removal:#ff9f0a; --threat:#ff453a; --other:#6b7694;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);
        font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-
   .app{display:grid;grid-template-columns:var(--rail) 1fr;min-height:100vh}
   .rail{background:var(--surface);border-right:1px solid var(--border);
         padding:1rem .75rem;display:flex;flex-direction:column;gap:.25rem;
@@ -34,8 +25,7 @@
   .brand .dot{width:26px;height:26px;border-radius:6px;background:var(--red);
               display:grid;place-items:center;font-size:13px}
   .nav{display:flex;align-items:center;gap:.65rem;padding:.55rem .6rem;
-       border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;
-       font-size:.88rem;text-decoration:none}
+       border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;font-size:.88rem}
   .nav.on{background:rgba(10,132,255,.14);color:#5ab0ff;font-weight:600}
   .nav .ic{width:17px;text-align:center;opacity:.9}
   .nav .count{margin-left:auto;font-size:.72rem;color:var(--text-3)}
@@ -48,75 +38,74 @@
   .head .sp{margin-left:auto;display:flex;gap:.5rem;align-items:center}
 
   .btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
-       padding:.45rem .8rem;border-radius:var(--radius-sm);font:inherit;
-       font-size:.83rem;cursor:pointer}
+       padding:.45rem .8rem;border-radius:var(--radius-sm);font:inherit;font-size:.83rem;cursor:pointer}
   .btn.sm{padding:.3rem .55rem;font-size:.76rem}
   .btn.on{background:rgba(10,132,255,.16);border-color:var(--blue);color:#5ab0ff;font-weight:600}
   .inp{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
        padding:.45rem .7rem;border-radius:var(--radius-sm);font:inherit;font-size:.83rem}
-
   .panel{background:var(--surface);border:1px solid var(--border);
          border-radius:var(--radius);padding:1rem}
-
   .tabs{display:flex;gap:.3rem;border-bottom:1px solid var(--border);margin-bottom:1rem}
   .tab{padding:.5rem .8rem;font-size:.85rem;color:var(--text-2);cursor:pointer;
        border-bottom:2px solid transparent;margin-bottom:-1px}
   .tab.on{color:#5ab0ff;border-bottom-color:var(--blue);font-weight:600}
-
   .pill{display:inline-block;padding:.12rem .45rem;border-radius:999px;
         font-size:.68rem;font-weight:600;background:var(--surface-3);color:var(--text-2)}
   .pill.g{background:rgba(48,209,88,.16);color:#4ade80}
   .pill.a{background:rgba(255,159,10,.16);color:#fbbf24}
   .pill.r{background:rgba(255,69,58,.16);color:#f87171}
 
-  .why{margin:1.2rem 0 0;padding:.75rem .9rem;border-left:3px solid var(--blue);
-       background:rgba(10,132,255,.07);border-radius:0 var(--radius-sm) var(--radius-sm) 0;
-       font-size:.8rem;color:var(--text-2);max-width:78ch}
-  .why b{color:var(--text)}
-
-  .screens{display:flex;flex-direction:column;gap:3.5rem;padding:1.5rem}
-  .screen{border:1px solid var(--border);border-radius:18px;overflow:hidden;
-          background:var(--bg);box-shadow:0 18px 50px rgba(0,0,0,.45)}
-  .screen > .label{background:var(--surface-2);padding:.6rem 1rem;font-size:.8rem;
-                   color:var(--text-2);border-bottom:1px solid var(--border);
-                   display:flex;gap:.7rem;align-items:center}
-  .screen > .label b{color:var(--text);font-size:.88rem}
-  .screen .frame{height:820px;overflow:auto}
-
-  /* ---------- the curve chart itself ---------- */
+  /* ---------- the chart ---------- */
+  .curvewrap{position:relative}
   .curve{display:grid;grid-template-columns:repeat(8,1fr);gap:.55rem;
-         align-items:end;height:290px;padding:0 .2rem}
-  .col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;
-       position:relative;cursor:pointer}
-  .col:hover .stack{outline:1px solid rgba(255,255,255,.25);outline-offset:2px}
+         align-items:end;height:250px;padding:0 .2rem;
+         /* Headroom so the commander label above the tallest bar is not
+            clipped by the grid's own box. */
+         margin-top:26px}
+  .col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}
+  .coltot{text-align:center;font-size:.78rem;font-weight:700;margin-bottom:.3rem;
+          font-variant-numeric:tabular-nums;color:var(--text-2)}
   .stack{display:flex;flex-direction:column-reverse;border-radius:6px 6px 0 0;
          overflow:hidden;min-height:2px}
-  .seg{width:100%}
-  .seg.ramp{background:var(--ramp)}
-  .seg.draw{background:var(--draw)}
-  .seg.removal{background:var(--removal)}
-  .seg.threat{background:var(--threat)}
+  .seg{width:100%;cursor:pointer;transition:filter .12s, opacity .12s}
+  .seg:hover{filter:brightness(1.35)}
+  .seg.ramp{background:var(--ramp)} .seg.draw{background:var(--draw)}
+  .seg.removal{background:var(--removal)} .seg.threat{background:var(--threat)}
   .seg.other{background:var(--other)}
-  .coltot{text-align:center;font-size:.78rem;font-weight:700;margin-bottom:.3rem;
-          font-variant-numeric:tabular-nums}
+  /* dimmed when another role is hovered in the legend */
+  .curve.focus .seg{opacity:.18}
+  .curve.focus .seg.hot{opacity:1}
   .colx{text-align:center;font-size:.76rem;color:var(--text-3);padding-top:.4rem;
         border-top:1px solid var(--border-2);margin-top:.35rem}
+  .xrow{display:grid;grid-template-columns:repeat(8,1fr);gap:.55rem;padding:0 .2rem}
 
-  /* The commander marker.
-     Short, not full-height: a line spanning the whole chart reads as a
-     threshold that applies to every bar. It marks ONE bucket, so it stops
-     just above that bucket's bar. */
-  .cmdr{position:absolute;left:50%;transform:translateX(-50%);bottom:52px;
-        height:34px;border-left:2px dashed rgba(255,255,255,.5);pointer-events:none}
-  .cmdrlab{position:absolute;left:50%;transform:translateX(-50%);bottom:84px;
+  .cmdr{position:absolute;left:50%;transform:translateX(-50%);
+        border-left:2px dashed rgba(255,255,255,.5);pointer-events:none}
+  .cmdrlab{position:absolute;right:0;
            white-space:nowrap;font-size:.66rem;font-weight:700;color:#fff;
            background:var(--surface-3);border:1px solid var(--border);
-           border-radius:999px;padding:.08rem .42rem}
+           border-radius:999px;padding:.08rem .42rem;pointer-events:none}
 
-  .legend{display:flex;gap:.9rem;flex-wrap:wrap;font-size:.78rem;color:var(--text-2);
+  /* the live tooltip */
+  .tip{position:fixed;z-index:50;pointer-events:none;opacity:0;
+       transform:translateY(4px);transition:opacity .1s, transform .1s;
+       background:var(--surface-2);border:1px solid var(--border);
+       border-radius:var(--radius-sm);padding:.6rem .75rem;font-size:.78rem;
+       color:var(--text-2);width:270px;box-shadow:0 14px 40px rgba(0,0,0,.6)}
+  .tip.show{opacity:1;transform:translateY(0)}
+  .tip b{color:var(--text)}
+  .tiprow{display:flex;gap:.5rem;padding:.14rem 0;align-items:center}
+  .tiprow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tipmv{font-variant-numeric:tabular-nums;color:var(--text-3);font-size:.72rem}
+  .tipfoot{margin-top:.5rem;padding-top:.45rem;border-top:1px solid var(--border-2);
+           font-size:.73rem;color:var(--text-3)}
+
+  .legend{display:flex;gap:.2rem;flex-wrap:wrap;font-size:.78rem;color:var(--text-2);
           margin-top:.9rem;padding-top:.8rem;border-top:1px solid var(--border-2)}
-  .legend span{display:flex;align-items:center;gap:.35rem}
-  .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .lg{display:flex;align-items:center;gap:.35rem;cursor:pointer;padding:.2rem .45rem;
+      border-radius:var(--radius-sm)}
+  .lg:hover{background:var(--surface-2);color:var(--text)}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block;flex:0 0 auto}
 
   .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:.7rem;margin-top:1rem}
   .stat{background:var(--surface-2);border:1px solid var(--border-2);
@@ -125,397 +114,485 @@
   .stat .v{font-size:1.15rem;font-weight:700;margin-top:.15rem;font-variant-numeric:tabular-nums}
   .stat .n{font-size:.7rem;color:var(--text-3);margin-top:.1rem}
 
-  .tip{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);
-       padding:.6rem .75rem;font-size:.78rem;color:var(--text-2);max-width:300px}
-  .tip b{color:var(--text)}
-  .tiprow{display:flex;gap:.5rem;padding:.12rem 0}
-  .tiprow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* the turn view, permanently below the curve */
+  .turns{margin-top:1.1rem;padding-top:.9rem;border-top:1px solid var(--border-2)}
+  .trow{display:flex;align-items:center;gap:.7rem;padding:.12rem 0;cursor:pointer;
+        border-radius:var(--radius-sm)}
+  .trow:hover{background:var(--surface-2)}
+  .trow .tl{width:52px;font-size:.78rem;color:var(--text-3)}
+  .tbar{flex:1;height:18px;background:var(--surface-2);border-radius:5px;overflow:hidden}
+  .tbar i{display:block;height:100%;background:var(--blue);transition:width .25s}
+  .trow .tn{width:66px;text-align:right;font-size:.79rem;font-variant-numeric:tabular-nums}
 
   table{width:100%;border-collapse:collapse;font-size:.84rem}
   th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
      color:var(--text-3);font-weight:600;padding:.45rem .6rem;border-bottom:1px solid var(--border)}
-  td{padding:.45rem .6rem;border-bottom:1px solid var(--border-2)}
+  td{padding:.4rem .6rem;border-bottom:1px solid var(--border-2)}
+  tr.cardrow:hover td{background:var(--surface-2)}
   .num{text-align:right;font-variant-numeric:tabular-nums}
+  .filterbar{display:flex;align-items:center;gap:.6rem;background:rgba(10,132,255,.10);
+             border:1px solid rgba(10,132,255,.30);border-radius:var(--radius-sm);
+             padding:.5rem .7rem;margin-bottom:.7rem;font-size:.82rem}
   .card{aspect-ratio:.718;border-radius:8px;background:linear-gradient(145deg,#2a3350,#1b2238);
         border:1px solid var(--border);display:grid;place-items:center;
         font-size:.62rem;color:var(--text-3);text-align:center;padding:.3rem}
+  .note{margin:1.2rem 0 0;padding:.75rem .9rem;border-left:3px solid var(--blue);
+        background:rgba(10,132,255,.07);border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+        font-size:.8rem;color:var(--text-2);max-width:78ch}
+  .note b{color:var(--text)}
 </style>
 </head>
 <body>
-<div class="screens">
 
-<!-- =============================================== 1. CURVE — the default -->
-<section class="screen">
-  <div class="label"><b>1 · Curve</b> the fifth tab in the deck view — bars stacked by what each card DOES</div>
-  <div class="frame"><div class="app">
-    <nav class="rail">
-      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
-      <a class="nav"><span class="ic">◱</span>Dashboard</a>
-      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
-      <a class="nav"><span class="ic">⚙</span>Settings</a>
-      <div class="railfoot"><a class="nav"><span class="ic">👤</span>admin</a></div>
-    </nav>
-    <div class="main">
-      <div class="head">
-        <span class="sub" style="cursor:pointer">Decks ›</span>
-        <h1 style="margin-left:-.6rem">AI Doom</h1>
-        <span class="sub">Commander · 100 cards</span>
-        <span class="pill a">52% built</span>
-        <div class="sp"><button class="btn">Export</button></div>
-      </div>
+<div class="app">
+  <nav class="rail">
+    <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+    <a class="nav"><span class="ic">◱</span>Dashboard</a>
+    <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+    <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
+    <a class="nav"><span class="ic">⚙</span>Settings</a>
+    <div class="railfoot"><a class="nav"><span class="ic">👤</span>admin</a></div>
+  </nav>
 
-      <div style="display:grid;grid-template-columns:1fr 400px;gap:1.1rem;align-items:start">
-        <div class="panel" style="padding:.6rem">
-          <div style="display:flex;gap:.5rem;padding:.3rem .3rem .6rem">
-            <input class="inp" style="flex:1" placeholder="Search your collection or any card to add…">
-            <button class="btn sm">Filters</button>
+  <div class="main">
+    <div class="head">
+      <span class="sub" style="cursor:pointer">Decks ›</span>
+      <h1 style="margin-left:-.6rem">AI Doom</h1>
+      <span class="sub">Commander · 100 cards</span>
+      <span class="pill a">52% built</span>
+      <div class="sp"><button class="btn">Export</button></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 400px;gap:1.1rem;align-items:start">
+      <div class="panel" style="padding:.6rem">
+        <div style="display:flex;gap:.5rem;padding:.3rem .3rem .6rem">
+          <input class="inp" style="flex:1" placeholder="Search your collection or any card to add…">
+          <button class="btn sm">Filters</button>
+        </div>
+        <div class="tabs" style="margin:0 .3rem 1rem">
+          <div class="tab" data-tab="all">All <span class="pill" style="margin-left:.3rem">100</span></div>
+          <div class="tab" data-tab="have">Have <span class="pill g" style="margin-left:.3rem">51</span></div>
+          <div class="tab" data-tab="need">Need <span class="pill r" style="margin-left:.3rem">49</span></div>
+          <div class="tab" data-tab="consider">Considering <span class="pill" style="margin-left:.3rem">7</span></div>
+          <div class="tab on" data-tab="curve">Curve</div>
+        </div>
+
+        <div style="padding:0 .5rem 0">
+          <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.5rem">
+            <b style="font-size:.95rem">Mana curve</b>
+            <span style="font-size:.76rem;color:var(--text-3)" id="subtitle"></span>
+            <div style="margin-left:auto;display:flex;gap:.3rem">
+              <button class="btn sm on" id="byRole">By role</button>
+              <button class="btn sm" id="byType">By type</button>
+            </div>
           </div>
-          <div class="tabs" style="margin:0 .3rem 1rem">
-            <div class="tab">All <span class="pill" style="margin-left:.3rem">100</span></div>
-            <div class="tab">Have <span class="pill g" style="margin-left:.3rem">51</span></div>
-            <div class="tab">Need <span class="pill r" style="margin-left:.3rem">49</span></div>
-            <div class="tab">Considering <span class="pill" style="margin-left:.3rem">7</span></div>
-            <div class="tab on">Curve</div>
-          </div>
 
-          <div style="padding:0 .5rem">
-            <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.2rem">
-              <b style="font-size:.95rem">Mana curve</b>
-              <span class="sub" style="font-size:.76rem;color:var(--text-3)">
-                63 nonland cards · 37 lands excluded</span>
-              <div style="margin-left:auto;display:flex;gap:.3rem">
-                <button class="btn sm on">By role</button>
-                <button class="btn sm">By type</button>
-              </div>
-            </div>
-
-            <!-- Y axis is implied by the count above each bar. A gridline axis
-                 costs vertical space to restate numbers already printed. -->
-            <div class="curve">
-              <!-- 0 -->
-              <div class="col">
-                <div class="coltot">1</div>
-                <div class="stack" style="height:10px">
-                  <div class="seg ramp" style="height:100%"></div>
-                </div>
-              </div>
-              <!-- 1 -->
-              <div class="col">
-                <div class="coltot">6</div>
-                <div class="stack" style="height:62px">
-                  <div class="seg ramp" style="height:50%"></div>
-                  <div class="seg removal" style="height:33%"></div>
-                  <div class="seg draw" style="height:17%"></div>
-                </div>
-              </div>
-              <!-- 2 -->
-              <div class="col">
-                <div class="coltot">14</div>
-                <div class="stack" style="height:145px">
-                  <div class="seg ramp" style="height:36%"></div>
-                  <div class="seg draw" style="height:21%"></div>
-                  <div class="seg removal" style="height:29%"></div>
-                  <div class="seg threat" style="height:14%"></div>
-                </div>
-              </div>
-              <!-- 3 -->
-              <div class="col">
-                <div class="coltot">16</div>
-                <div class="stack" style="height:166px">
-                  <div class="seg ramp" style="height:19%"></div>
-                  <div class="seg draw" style="height:25%"></div>
-                  <div class="seg removal" style="height:25%"></div>
-                  <div class="seg threat" style="height:25%"></div>
-                  <div class="seg other" style="height:6%"></div>
-                </div>
-              </div>
-              <!-- 4 -->
-              <div class="col">
-                <div class="coltot">11</div>
-                <div class="stack" style="height:114px">
-                  <div class="seg draw" style="height:18%"></div>
-                  <div class="seg removal" style="height:18%"></div>
-                  <div class="seg threat" style="height:55%"></div>
-                  <div class="seg other" style="height:9%"></div>
-                </div>
-              </div>
-              <!-- 5 -->
-              <div class="col">
-                <div class="coltot">7</div>
-                <div class="stack" style="height:73px">
-                  <div class="seg draw" style="height:14%"></div>
-                  <div class="seg threat" style="height:72%"></div>
-                  <div class="seg other" style="height:14%"></div>
-                </div>
-              </div>
-              <!-- 6 -->
-              <div class="col">
-                <div class="coltot">5</div>
-                <div class="stack" style="height:52px">
-                  <div class="seg threat" style="height:80%"></div>
-                  <div class="seg other" style="height:20%"></div>
-                </div>
-                <!-- THE COMMANDER SITS ON ITS OWN BAR, not inside it. -->
-                <div class="cmdr"></div>
-                <div class="cmdrlab">◈ Ur-Dragon</div>
-              </div>
-              <!-- 7+ -->
-              <div class="col">
-                <div class="coltot">3</div>
-                <div class="stack" style="height:31px">
-                  <div class="seg threat" style="height:100%"></div>
-                </div>
-              </div>
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:.55rem;padding:0 .2rem">
-              <div class="colx">0</div><div class="colx">1</div><div class="colx">2</div>
-              <div class="colx">3</div><div class="colx">4</div><div class="colx">5</div>
-              <div class="colx">6</div><div class="colx">7+</div>
-            </div>
-            <div style="text-align:center;font-size:.72rem;color:var(--text-3);margin-top:.35rem">
+          <div class="curvewrap">
+            <div class="curve" id="curve"></div>
+            <div class="xrow" id="xrow"></div>
+            <div style="text-align:center;font-size:.72rem;color:var(--text-3);margin-top:.3rem">
               mana value</div>
-
-            <div class="legend">
-              <span><i class="sw" style="background:var(--ramp)"></i>Ramp 12</span>
-              <span><i class="sw" style="background:var(--draw)"></i>Card draw 11</span>
-              <span><i class="sw" style="background:var(--removal)"></i>Interaction 14</span>
-              <span><i class="sw" style="background:var(--threat)"></i>Threats 21</span>
-              <span><i class="sw" style="background:var(--other)"></i>Other 5</span>
-              <span style="margin-left:auto;color:var(--text-3)">click a block to filter the list</span>
-            </div>
-
-            <div class="stats">
-              <div class="stat">
-                <div class="k">Avg MV</div><div class="v">3.14</div>
-                <div class="n">excl. lands · typical 2.5–3.5</div>
-              </div>
-              <div class="stat">
-                <div class="k">Median MV</div><div class="v">3</div>
-                <div class="n">half your deck is cheaper</div>
-              </div>
-              <div class="stat">
-                <div class="k">Ramp</div><div class="v">12</div>
-                <div class="n"><span class="pill g">on target</span> 10–12</div>
-              </div>
-              <div class="stat">
-                <div class="k">Interaction ≤3</div><div class="v">9</div>
-                <div class="n">cheap answers</div>
-              </div>
-              <div class="stat">
-                <div class="k">6+ drops</div><div class="v">8</div>
-                <div class="n"><span class="pill a">watch</span> over ~10 clogs</div>
-              </div>
-            </div>
           </div>
-        </div>
 
-        <!-- The right pane keeps doing its job: card detail. -->
-        <div class="panel" style="position:sticky;top:1rem">
-          <div style="display:flex;gap:.9rem;align-items:flex-start">
-            <div class="card" style="width:120px;flex:0 0 auto">The Ur-Dragon<br>C17 · #1</div>
-            <div style="min-width:0">
-              <b style="font-size:1.02rem">The Ur-Dragon</b>
-              <div class="sub" style="font-size:.78rem;color:var(--text-2)">Legendary Creature — Dragon Avatar</div>
-              <div style="margin:.35rem 0"><span class="pill">{4}{W}{U}{B}{R}{G}</span> <span class="pill g">commander</span></div>
-              <div style="font-size:.76rem;color:var(--text-3)">Mana value 9 · Commander 2017</div>
+          <div class="legend" id="legend"></div>
+
+          <div class="stats" id="stats"></div>
+
+          <!-- THE TURN VIEW IS ALWAYS HERE, not behind a toggle.
+               Zach: "I value more information then less". -->
+          <div class="turns">
+            <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.5rem">
+              <b style="font-size:.9rem">Castable by turn</b>
+              <span style="font-size:.74rem;color:var(--text-3)">
+                counts the same 63 nonland cards</span>
+              <div style="margin-left:auto;display:flex;gap:.3rem">
+                <button class="btn sm on" id="withRamp">With your 12 ramp</button>
+                <button class="btn sm" id="landsOnly">Lands only</button>
+              </div>
             </div>
+            <div id="turns"></div>
           </div>
-          <p style="font-size:.79rem;line-height:1.5;color:var(--text-2);
-                    border-top:1px solid var(--border);margin:.8rem 0 0;padding-top:.7rem">
-            <b>Eminence</b> — As long as The Ur-Dragon is in the command zone or on the
-            battlefield, other Dragon spells you cast cost {1} less to cast.</p>
-          <p style="font-size:.76rem;color:var(--text-3);border-top:1px solid var(--border);
-                    margin:.7rem 0 0;padding-top:.7rem">
-            Its marker sits on <b style="color:var(--text)">6</b>, not 9 — Eminence is not
-            counted, but the commander's own cost reduction is. Hover the marker to see why.</p>
         </div>
       </div>
 
-      <p class="why"><b>Why bars stacked by ROLE and not by colour or card type.</b>
-      A plain count histogram — what EDHREC, Deckstats and Moxfield draw — tells you the
-      shape but not the problem. A 3-drop Rhystic Study and a 3-drop vanilla beater are the
-      same bar, and they are not the same card. The EDH-specific diagnosis is
-      <b>role imbalance</b>: nothing to do on turn two, or no cheap interaction, or ramp
-      that stops at four. Colour belongs to the manabase question (pips and sources), not
-      here; type is a leaky proxy for role, since Arcane Signet, Llanowar Elves and
-      Cultivate are an artifact, a creature and a sorcery but one thing to a deckbuilder.
-      <b>By type</b> is still a toggle, because that is what Archidekt and Goldfish show.</p>
+      <!-- RIGHT PANE: the deck list, filtered by whatever you clicked. -->
+      <div class="panel" style="position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow:auto">
+        <div id="filterbar"></div>
+        <table>
+          <thead><tr><th>Card</th><th class="num">MV</th><th class="num">Have</th></tr></thead>
+          <tbody id="list"></tbody>
+        </table>
+      </div>
     </div>
-  </div></div>
-</section>
 
-<!-- =============================================== 2. TOOLTIP + drill-down -->
-<section class="screen">
-  <div class="label"><b>2 · Hovering a block, and the 7+ bucket</b> where the honesty lives</div>
-  <div class="frame"><div class="app">
-    <nav class="rail">
-      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
-      <a class="nav"><span class="ic">◱</span>Dashboard</a>
-      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
-      <a class="nav"><span class="ic">⚙</span>Settings</a>
-      <div class="railfoot"><a class="nav"><span class="ic">👤</span>admin</a></div>
-    </nav>
-    <div class="main">
-      <div class="head">
-        <h1>Curve — the details that decide whether it is true</h1>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;align-items:start">
-
-        <div class="panel">
-          <b style="font-size:.92rem">Hover any block</b>
-          <p style="font-size:.79rem;color:var(--text-2);margin:.4rem 0 .8rem">
-            Every block names its cards. A chart you cannot interrogate is a poster.</p>
-          <div class="tip">
-            <b>Interaction · MV 2 · 4 cards</b>
-            <div style="margin-top:.4rem">
-              <div class="tiprow"><span class="nm">Swords to Plowshares</span><span class="pill g">have</span></div>
-              <div class="tiprow"><span class="nm">Nature's Claim</span><span class="pill g">have</span></div>
-              <div class="tiprow"><span class="nm">Pongify</span><span class="pill r">need</span></div>
-              <div class="tiprow"><span class="nm">Rapid Hybridization</span><span class="pill r">need</span></div>
-            </div>
-            <div style="margin-top:.5rem;padding-top:.45rem;border-top:1px solid var(--border-2);
-                        font-size:.74rem;color:var(--text-3)">
-              Click to filter the list to these four.</div>
-          </div>
-
-          <p style="font-size:.79rem;color:var(--text-2);margin:1.1rem 0 .5rem">
-            <b>Owned vs needed is already in the tooltip.</b> Bindarr knows which cards you
-            physically have; a curve that ignores that is describing a deck you cannot play
-            yet. The bars count the decklist; the tooltip says what is cardboard.</p>
-        </div>
-
-        <div class="panel">
-          <b style="font-size:.92rem">The awkward cards, and what I would do</b>
-          <table style="margin-top:.6rem">
-            <thead><tr><th>Case</th><th>Bucket</th><th>Why</th></tr></thead>
-            <tbody>
-              <tr><td>Lands</td><td class="num">—</td><td>Excluded; counted in the 37 beside the title</td></tr>
-              <tr><td><b>X</b> spells<br><span style="font-size:.74rem;color:var(--text-3)">Fireball {X}{R}</span></td>
-                  <td class="num">1 <span class="pill">X</span></td>
-                  <td>X is 0 off the stack (CR 202.3e). Badged, never guessed at</td></tr>
-              <tr><td>Hybrid<br><span style="font-size:.74rem;color:var(--text-3)">{2/B}{2/B}{2/B}</span></td>
-                  <td class="num">6</td><td>Largest half of each symbol — Scryfall already does this</td></tr>
-              <tr><td>Phyrexian<br><span style="font-size:.74rem;color:var(--text-3)">{1}{W/P}{W/P}</span></td>
-                  <td class="num">3</td><td>Each symbol counts 1</td></tr>
-              <tr><td>Split<br><span style="font-size:.74rem;color:var(--text-3)">Fire // Ice</span></td>
-                  <td class="num">2 <span class="pill">//</span></td>
-                  <td><b>Cheaper half</b>, not the rules' combined 4 — that is the turn you can cast it</td></tr>
-              <tr><td>Adventure<br><span style="font-size:.74rem;color:var(--text-3)">Bonecrusher Giant</span></td>
-                  <td class="num">3</td><td>Creature face; adventure's cost in the tooltip</td></tr>
-              <tr><td>MDFC w/ land back</td><td class="num">front</td>
-                  <td>In the curve at its spell cost <b>and</b> a half-mark on the land count</td></tr>
-              <tr><td>No mana cost<br><span style="font-size:.74rem;color:var(--text-3)">Ancestral Vision</span></td>
-                  <td class="num">0</td><td>Badged so bucket 0 is not mistaken for free</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <p class="why"><b>Two places I would deliberately break the rules, and you should
-      veto if you disagree.</b><br><br>
-      <b>1. Split cards bucket at the cheaper half.</b> The rules say Fire // Ice has mana
-      value 4 in your library. But you are reading this chart to answer "what can I cast on
-      turn two", and the answer for that card is yes. Rules-correct here would be
-      practically wrong. It gets a <span class="pill">//</span> badge so it never lies
-      silently.<br><br>
-      <b>2. Ramp is on the curve, not beside it.</b> ManaBox splits "mana curve" from "mana
-      production". I would keep ramp in the stack, because the question "is turn two empty"
-      cannot be answered by a chart that hides your two-mana rocks. The legend still
-      totals it separately.<br><br>
-      <b>And one number I am NOT putting on this screen:</b> a grade. Two decks can both
-      average 3.2 and play nothing alike — one smooth, one a pile of one-drops and
-      nine-drops. Average MV is a small stat with a context band, never a score out of ten.</p>
-    </div>
-  </div></div>
-</section>
-
-<!-- =============================================== 3. Castable by turn -->
-<section class="screen">
-  <div class="label"><b>3 · "Castable by turn N"</b> the optional overlay — the EDH-specific half</div>
-  <div class="frame"><div class="app">
-    <nav class="rail">
-      <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
-      <a class="nav"><span class="ic">◱</span>Dashboard</a>
-      <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
-      <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
-      <a class="nav"><span class="ic">⚙</span>Settings</a>
-      <div class="railfoot"><a class="nav"><span class="ic">👤</span>admin</a></div>
-    </nav>
-    <div class="main">
-      <div class="head"><h1>Castable by turn</h1>
-        <span class="sub">the same 63 cards, counted by when you can actually play them</span></div>
-
-      <div class="panel" style="max-width:820px">
-        <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.9rem">
-          <b style="font-size:.92rem">Cards you could cast by turn…</b>
-          <div style="margin-left:auto;display:flex;gap:.3rem">
-            <button class="btn sm on">With your 12 ramp</button>
-            <button class="btn sm">Lands only</button>
-          </div>
-        </div>
-
-        <div style="display:flex;flex-direction:column;gap:.5rem">
-          <div style="display:flex;align-items:center;gap:.7rem">
-            <span style="width:52px;font-size:.78rem;color:var(--text-3)">Turn 1</span>
-            <div style="flex:1;height:20px;background:var(--surface-2);border-radius:5px;overflow:hidden">
-              <div style="width:11%;height:100%;background:var(--blue)"></div></div>
-            <span style="width:58px;text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums">7</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:.7rem">
-            <span style="width:52px;font-size:.78rem;color:var(--text-3)">Turn 2</span>
-            <div style="flex:1;height:20px;background:var(--surface-2);border-radius:5px;overflow:hidden">
-              <div style="width:33%;height:100%;background:var(--blue)"></div></div>
-            <span style="width:58px;text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums">21</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:.7rem">
-            <span style="width:52px;font-size:.78rem;color:var(--text-3)">Turn 3</span>
-            <div style="flex:1;height:20px;background:var(--surface-2);border-radius:5px;overflow:hidden">
-              <div style="width:59%;height:100%;background:var(--blue)"></div></div>
-            <span style="width:58px;text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums">37</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:.7rem">
-            <span style="width:52px;font-size:.78rem;color:var(--text-3)">Turn 4</span>
-            <div style="flex:1;height:20px;background:var(--surface-2);border-radius:5px;overflow:hidden">
-              <div style="width:76%;height:100%;background:var(--blue)"></div></div>
-            <span style="width:58px;text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums">48</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:.7rem">
-            <span style="width:52px;font-size:.78rem;color:var(--text-3)">Turn 5</span>
-            <div style="flex:1;height:20px;background:var(--surface-2);border-radius:5px;overflow:hidden">
-              <div style="width:89%;height:100%;background:var(--blue)"></div></div>
-            <span style="width:58px;text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums">56</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:.7rem">
-            <span style="width:52px;font-size:.78rem;color:var(--text-3)">Turn 6</span>
-            <div style="flex:1;height:20px;background:var(--surface-2);border-radius:5px;overflow:hidden">
-              <div style="width:100%;height:100%;background:var(--blue)"></div></div>
-            <span style="width:58px;text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums">63</span>
-          </div>
-        </div>
-
-        <p style="font-size:.78rem;color:var(--text-3);margin:1rem 0 0;padding-top:.8rem;
-                  border-top:1px solid var(--border-2)">
-          Assumes you hit your land drops and that ramp arrives on curve. It is a
-          <b style="color:var(--text)">model, not a promise</b> — the label says so, and the
-          "Lands only" toggle shows the unramped floor so the optimistic number is never
-          the only one you see.</p>
-      </div>
-
-      <p class="why"><b>This is the part the other tools do not have, and the part I am
-      least sure about.</b> Every Commander source says the same thing: a raw curve
-      under-describes an EDH deck because ramp moves everything left. With twelve rocks a
-      four-drop is a turn-three play. Moxfield ships a single number for the idea ("81.9%
-      chance of playing these on curve"); a per-turn count is more legible but it is still
-      a simulation with assumptions baked in.<br><br>
-      <b>My recommendation: build screen 1 first, and treat this as a second commit</b> you
-      can kill if it turns out you never look at it. Screen 1 stands alone. This does not.</p>
-    </div>
-  </div></div>
-</section>
-
+    <p class="note"><b>This one is clickable — try it.</b> Hover any coloured block for the
+    cards in it. Hover a legend entry to highlight that role across every bar. Click a block
+    (or a turn row) to filter the list on the right; click the same one again, or
+    <b>Clear</b>, to unfilter. The turn view is permanently below the curve rather than
+    behind a toggle, since you would rather see more.<br><br>
+    There is <b>one screen</b>. Everything here is a hover or a click inside the Curve tab —
+    my earlier screens 2 and 3 were me explaining myself, which is not the same thing as
+    showing you the product, and that is what made them confusing.</p>
+  </div>
 </div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// A REAL 100-CARD LIST, not invented bar heights.
+//
+// The chart is COMPUTED from this array, so the shape cannot flatter itself --
+// if the bucketing rules are wrong, the picture is visibly wrong. mv is the
+// bucketing value; `note` carries the badge for the awkward cases.
+// ---------------------------------------------------------------------------
+const DECK = [
+  // commander (marker only, not in the bars)
+  {n:'The Ur-Dragon', mv:9, role:'threat', have:1, cmdr:true},
+
+  // --- ramp (12) ---
+  {n:'Sol Ring', mv:1, role:'ramp', have:1},
+  {n:'Arcane Signet', mv:2, role:'ramp', have:1},
+  {n:'Fellwar Stone', mv:2, role:'ramp', have:0},
+  {n:'Talisman of Curiosity', mv:2, role:'ramp', have:0},
+  {n:'Birds of Paradise', mv:1, role:'ramp', have:1},
+  {n:'Llanowar Elves', mv:1, role:'ramp', have:1},
+  {n:'Cultivate', mv:3, role:'ramp', have:1},
+  {n:"Kodama's Reach", mv:3, role:'ramp', have:0},
+  {n:'Rampant Growth', mv:2, role:'ramp', have:1},
+  {n:'Farseek', mv:2, role:'ramp', have:0},
+  {n:'Chromatic Lantern', mv:3, role:'ramp', have:0},
+  {n:'Mana Crypt', mv:0, role:'ramp', have:0},
+
+  // --- card draw (11) ---
+  {n:'Rhystic Study', mv:3, role:'draw', have:0},
+  {n:'Mystic Remora', mv:1, role:'draw', have:0},
+  {n:'Phyrexian Arena', mv:3, role:'draw', have:1},
+  {n:'Sylvan Library', mv:2, role:'draw', have:0},
+  {n:'Guardian Project', mv:4, role:'draw', have:1},
+  {n:'Beast Whisperer', mv:4, role:'draw', have:0},
+  {n:'Harmonize', mv:4, role:'draw', have:1},
+  {n:'Night\u2019s Whisper', mv:2, role:'draw', have:1},
+  {n:'Read the Bones', mv:3, role:'draw', have:1},
+  {n:'Fact or Fiction', mv:4, role:'draw', have:0},
+  {n:'Blue Sun\u2019s Zenith', mv:1, role:'draw', have:0, note:'X'},
+
+  // --- interaction (14) ---
+  {n:'Swords to Plowshares', mv:1, role:'removal', have:1},
+  {n:'Path to Exile', mv:1, role:'removal', have:1},
+  {n:'Nature\u2019s Claim', mv:1, role:'removal', have:1},
+  {n:'Pongify', mv:1, role:'removal', have:0},
+  {n:'Rapid Hybridization', mv:1, role:'removal', have:0},
+  {n:'Beast Within', mv:3, role:'removal', have:1},
+  {n:'Generous Gift', mv:3, role:'removal', have:0},
+  {n:'Counterspell', mv:2, role:'removal', have:1},
+  {n:'Swan Song', mv:1, role:'removal', have:0},
+  {n:'Anguished Unmaking', mv:3, role:'removal', have:0},
+  {n:'Fire // Ice', mv:2, role:'removal', have:1, note:'//'},
+  {n:'Vandalblast', mv:1, role:'removal', have:1, note:'X'},
+  {n:'Wrath of God', mv:4, role:'removal', have:0},
+  {n:'Blasphemous Act', mv:4, role:'removal', have:1},
+
+  // --- threats / payoffs (21) ---
+  {n:'Dragonlord Atarka', mv:7, role:'threat', have:0},
+  {n:'Scourge of Valkas', mv:5, role:'threat', have:1},
+  {n:'Dragon Tempest', mv:2, role:'threat', have:1},
+  {n:'Terror of the Peaks', mv:5, role:'threat', have:0},
+  {n:'Old Gnawbone', mv:6, role:'threat', have:0},
+  {n:'Ancient Copper Dragon', mv:6, role:'threat', have:0},
+  {n:'Miirym, Sentinel Wyrm', mv:6, role:'threat', have:0},
+  {n:'Lathliss, Dragon Queen', mv:6, role:'threat', have:1},
+  {n:'Bonecrusher Giant', mv:3, role:'threat', have:1, note:'adv'},
+  {n:'Goldspan Dragon', mv:5, role:'threat', have:0},
+  {n:'Thundermaw Hellkite', mv:5, role:'threat', have:0},
+  {n:'Utvara Hellkite', mv:8, role:'threat', have:0},
+  {n:'Hellkite Courser', mv:5, role:'threat', have:1},
+  {n:'Steel Hellkite', mv:5, role:'threat', have:0},
+  {n:'Dragonspeaker Shaman', mv:3, role:'threat', have:1},
+  {n:'Dragonlord\u2019s Servant', mv:2, role:'threat', have:1},
+  {n:'Sarkhan, Fireblood', mv:3, role:'threat', have:0},
+  {n:'Kilnmouth Dragon', mv:7, role:'threat', have:0},
+  {n:'Bladewing the Risen', mv:7, role:'threat', have:0},
+  {n:'Savage Ventmaw', mv:6, role:'threat', have:1},
+  {n:'Atsushi, the Blazing Sky', mv:4, role:'threat', have:0},
+
+  // --- other (5) ---
+  {n:'Herald\u2019s Horn', mv:3, role:'other', have:1},
+  {n:'Urza\u2019s Incubator', mv:3, role:'other', have:0},
+  {n:'Ancestral Vision', mv:0, role:'other', have:0, note:'no cost'},
+  {n:'Crucible of Fire', mv:4, role:'other', have:1},
+  {n:'Door of Destinies', mv:4, role:'other', have:0},
+];
+
+const LANDS = 37;
+const ROLES = [
+  {id:'ramp',    label:'Ramp'},
+  {id:'draw',    label:'Card draw'},
+  {id:'removal', label:'Interaction'},
+  {id:'threat',  label:'Threats'},
+  {id:'other',   label:'Other'},
+];
+const BUCKETS = [0,1,2,3,4,5,6,7];   // 7 means "7+"
+
+// The 99, excluding the commander -- it gets a marker, not a bar.
+const spells = DECK.filter(c => !c.cmdr);
+const bucketOf = c => Math.min(c.mv, 7);
+
+function cardsIn(b, role) {
+  return spells.filter(c => bucketOf(c) === b && (!role || c.role === role));
+}
+
+// --- state -----------------------------------------------------------------
+let filter = null;          // {bucket, role} | {turn} | null
+let hotRole = null;         // legend hover
+let ramped = true;
+
+// --- the chart -------------------------------------------------------------
+const curve = document.getElementById('curve');
+const xrow  = document.getElementById('xrow');
+const tip   = document.getElementById('tip');
+
+const maxCount = Math.max(...BUCKETS.map(b => cardsIn(b).length));
+const CHART_H = 250, LABEL_H = 22;
+
+function drawCurve() {
+  curve.innerHTML = '';
+  BUCKETS.forEach(b => {
+    const inB = cardsIn(b);
+    const col = document.createElement('div');
+    col.className = 'col';
+
+    const tot = document.createElement('div');
+    tot.className = 'coltot';
+    tot.textContent = inB.length || '';
+    col.appendChild(tot);
+
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    // Height is proportional to the count, against the tallest bucket.
+    const px = Math.round((inB.length / maxCount) * (CHART_H - LABEL_H - 8));
+    stack.style.height = px + 'px';
+
+    ROLES.forEach(r => {
+      const n = cardsIn(b, r.id).length;
+      if (!n) return;
+      const seg = document.createElement('div');
+      seg.className = 'seg ' + r.id + (hotRole === r.id ? ' hot' : '');
+      seg.style.height = (n / inB.length * 100) + '%';
+      seg.dataset.bucket = b;
+      seg.dataset.role = r.id;
+      seg.title = '';
+      stack.appendChild(seg);
+    });
+    col.appendChild(stack);
+
+    // THE COMMANDER MARKER, on its own bucket.
+    //
+    // Ur-Dragon is MV 9, so it lands in 7+ -- the same column as the biggest
+    // threats. The label is therefore anchored to the RIGHT of the column and
+    // offset above the bar, or it sits on top of the cards it is standing
+    // beside. It also names the real MV, because "7+" is not what it costs.
+    if (b === Math.min(DECK.find(c => c.cmdr).mv, 7)) {
+      const cm = DECK.find(c => c.cmdr);
+      const lab = document.createElement('div');
+      lab.className = 'cmdrlab';
+      lab.style.bottom = (px + 30) + 'px';
+      lab.textContent = `◈ ${cm.n} · MV ${cm.mv}`;
+      const line = document.createElement('div');
+      line.className = 'cmdr';
+      line.style.bottom = px + 'px';
+      line.style.height = '28px';
+      col.appendChild(line); col.appendChild(lab);
+    }
+    curve.appendChild(col);
+  });
+
+  curve.classList.toggle('focus', !!hotRole);
+
+  xrow.innerHTML = '';
+  BUCKETS.forEach(b => {
+    const d = document.createElement('div');
+    d.className = 'colx';
+    d.textContent = b === 7 ? '7+' : b;
+    xrow.appendChild(d);
+  });
+}
+
+// --- the live tooltip ------------------------------------------------------
+curve.addEventListener('mousemove', e => {
+  const seg = e.target.closest('.seg');
+  if (!seg) { tip.classList.remove('show'); return; }
+  const b = +seg.dataset.bucket, role = seg.dataset.role;
+  const list = cardsIn(b, role);
+  const roleLabel = ROLES.find(r => r.id === role).label;
+
+  tip.innerHTML =
+    `<b>${roleLabel} · MV ${b === 7 ? '7+' : b} · ${list.length} card${list.length === 1 ? '' : 's'}</b>`
+    + list.map(c => `<div class="tiprow">
+         <span class="nm">${c.n}${c.note ? ` <span class="pill">${c.note}</span>` : ''}</span>
+         ${b === 7 ? `<span class="tipmv">${c.mv}</span>` : ''}
+         <span class="pill ${c.have ? 'g' : 'r'}">${c.have ? 'have' : 'need'}</span>
+       </div>`).join('')
+    + `<div class="tipfoot">Click to filter the list →</div>`;
+
+  tip.classList.add('show');
+  // KEEP IT OFF THE BARS IT DESCRIBES.
+  //
+  // Following the cursor put the tooltip straight over the chart -- you could
+  // not see the shape you were asking about. It is pinned to the chart's
+  // RIGHT EDGE instead, vertically near the cursor, so the bars stay visible
+  // while you read it. Near the right of the screen it flips to the left edge.
+  const w = 270, pad = 14;
+  const cr = document.getElementById('curve').getBoundingClientRect();
+  let x = cr.right + pad;
+  if (x + w > innerWidth - 8) x = cr.left - w - pad;
+  if (x < 8) x = innerWidth - w - 8;
+  let y = e.clientY - 20;
+  const h = tip.offsetHeight;
+  if (y + h > innerHeight - 8) y = innerHeight - h - 8;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+});
+curve.addEventListener('mouseleave', () => tip.classList.remove('show'));
+
+curve.addEventListener('click', e => {
+  const seg = e.target.closest('.seg');
+  if (!seg) return;
+  const b = +seg.dataset.bucket, role = seg.dataset.role;
+  // Clicking the same block again clears it -- no dead end.
+  if (filter && filter.bucket === b && filter.role === role) filter = null;
+  else filter = { bucket: b, role };
+  render();
+});
+
+// --- legend ----------------------------------------------------------------
+function drawLegend() {
+  const lg = document.getElementById('legend');
+  lg.innerHTML = '';
+  ROLES.forEach(r => {
+    const n = spells.filter(c => c.role === r.id).length;
+    const el = document.createElement('div');
+    el.className = 'lg';
+    el.innerHTML = `<i class="sw" style="background:var(--${r.id})"></i>${r.label} ${n}`;
+    el.onmouseenter = () => { hotRole = r.id; drawCurve(); };
+    el.onmouseleave = () => { hotRole = null; drawCurve(); };
+    el.onclick = () => {
+      filter = (filter && filter.role === r.id && filter.bucket === undefined)
+        ? null : { role: r.id };
+      render();
+    };
+    lg.appendChild(el);
+  });
+  const hint = document.createElement('span');
+  hint.style.cssText = 'margin-left:auto;color:var(--text-3);align-self:center';
+  hint.textContent = 'hover a bar for its cards · click to filter';
+  lg.appendChild(hint);
+}
+
+// --- stats -----------------------------------------------------------------
+function drawStats() {
+  const mvs = spells.map(c => c.mv).sort((a,b) => a-b);
+  const avg = (mvs.reduce((s,n) => s+n, 0) / mvs.length).toFixed(2);
+  const med = mvs[Math.floor(mvs.length/2)];
+  const ramp = spells.filter(c => c.role === 'ramp').length;
+  const cheapInt = spells.filter(c => c.role === 'removal' && c.mv <= 3).length;
+  const heavy = spells.filter(c => c.mv >= 6).length;
+
+  document.getElementById('stats').innerHTML = [
+    ['Avg MV', avg, 'excl. lands · typical 2.5–3.5'],
+    ['Median MV', med, 'half your deck is cheaper'],
+    ['Ramp', ramp, ramp >= 10 ? '<span class="pill g">on target</span> 10–12'
+                              : '<span class="pill a">thin</span> aim 10–12'],
+    ['Interaction ≤3', cheapInt, 'cheap answers'],
+    ['6+ drops', heavy, heavy > 10 ? '<span class="pill a">watch</span> over ~10 clogs'
+                                   : 'comfortable'],
+  ].map(([k,v,n]) => `<div class="stat"><div class="k">${k}</div>
+       <div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+
+  document.getElementById('subtitle').textContent =
+    `${spells.length} nonland cards · ${LANDS} lands excluded`;
+}
+
+// --- castable by turn ------------------------------------------------------
+// A MODEL, and it says so. available = turn + (ramp arriving on curve).
+function castableBy(turn) {
+  const extra = ramped ? Math.max(0, Math.floor((turn - 1) * 0.8)) : 0;
+  return spells.filter(c => c.mv <= turn + extra).length;
+}
+function drawTurns() {
+  const el = document.getElementById('turns');
+  el.innerHTML = '';
+  for (let t = 1; t <= 6; t++) {
+    const n = castableBy(t);
+    const row = document.createElement('div');
+    row.className = 'trow';
+    row.innerHTML = `<span class="tl">Turn ${t}</span>
+      <div class="tbar"><i style="width:${(n/spells.length*100).toFixed(1)}%"></i></div>
+      <span class="tn">${n}</span>`;
+    row.onclick = () => {
+      filter = (filter && filter.turn === t) ? null : { turn: t };
+      render();
+    };
+    el.appendChild(row);
+  }
+}
+
+// --- the filtered list -----------------------------------------------------
+function matches(c) {
+  if (!filter) return true;
+  if (filter.turn !== undefined) {
+    const extra = ramped ? Math.max(0, Math.floor((filter.turn - 1) * 0.8)) : 0;
+    return c.mv <= filter.turn + extra;
+  }
+  if (filter.bucket !== undefined && bucketOf(c) !== filter.bucket) return false;
+  if (filter.role && c.role !== filter.role) return false;
+  return true;
+}
+function filterLabel() {
+  if (!filter) return null;
+  if (filter.turn !== undefined) return `Castable by turn ${filter.turn}`;
+  const r = filter.role ? ROLES.find(x => x.id === filter.role).label : null;
+  if (filter.bucket === undefined) return r;
+  return `${r} · MV ${filter.bucket === 7 ? '7+' : filter.bucket}`;
+}
+function drawList() {
+  const shown = spells.filter(matches);
+  const bar = document.getElementById('filterbar');
+  const label = filterLabel();
+  bar.innerHTML = label
+    ? `<div class="filterbar"><span><b>${label}</b> · ${shown.length} cards</span>
+         <button class="btn sm" style="margin-left:auto" id="clear">Clear</button></div>`
+    : `<div style="font-size:.82rem;color:var(--text-3);margin-bottom:.7rem">
+         All ${shown.length} nonland cards. Click a bar or a turn to filter.</div>`;
+  if (label) document.getElementById('clear').onclick = () => { filter = null; render(); };
+
+  document.getElementById('list').innerHTML = shown
+    .sort((a,b) => a.mv - b.mv || a.n.localeCompare(b.n))
+    .map(c => `<tr class="cardrow">
+        <td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;
+              background:var(--${c.role});margin-right:.5rem"></span>${c.n}
+            ${c.note ? `<span class="pill">${c.note}</span>` : ''}</td>
+        <td class="num">${c.mv}</td>
+        <td class="num"><span class="pill ${c.have ? 'g' : 'r'}">${c.have ? c.have : 0}</span></td>
+      </tr>`).join('');
+}
+
+document.getElementById('withRamp').onclick = () => {
+  ramped = true;
+  document.getElementById('withRamp').classList.add('on');
+  document.getElementById('landsOnly').classList.remove('on');
+  render();
+};
+document.getElementById('landsOnly').onclick = () => {
+  ramped = false;
+  document.getElementById('landsOnly').classList.add('on');
+  document.getElementById('withRamp').classList.remove('on');
+  render();
+};
+
+function render() { drawCurve(); drawLegend(); drawStats(); drawTurns(); drawList(); }
+render();
+</script>
 </body>
 </html>
