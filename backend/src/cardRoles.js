@@ -57,18 +57,30 @@ const BULK_INDEX_URL = 'https://api.scryfall.com/bulk-data';
 const ROLE_ROOTS = [
   { role: 'removal', roots: ['counterspell', 'removal'] },
   { role: 'draw', roots: ['card-advantage'] },
-  // RAMP INCLUDES LAND TUTORS.
+  // RAMP IS PUTTING LANDS ONTO THE BATTLEFIELD, NOT FINDING THEM.
   //
-  // Zach: "Roost Seek is being considered a threat when its ramp I believe."
-  // He was right twice over -- the per-face fix got it off 'threat', but it
-  // landed on 'other' because Scryfall files land tutors under `tutor`, not
-  // `ramp`. Their hierarchy classifies by MECHANISM (how the card works);
-  // deckbuilding cares about PURPOSE (what it does for your mana).
+  // I briefly added 'tutor-land' here and Zach caught it: "im not sure a tutor
+  // can be considered Ramp... Ramp puts you ahead in mana." He is right, and
+  // the tag data proves it. Scryfall's own definitions:
   //
-  // Measured on the tag file: the ramp family covers 2,912 taggings,
-  // tutor-land another 1,075 that were falling through to 'other'. Cultivate,
-  // Rampant Growth, Three Visits and every fetchland live in that gap.
-  { role: 'ramp', roots: ['ramp', 'tutor-land'] },
+  //   ramp       "Effects that increase available mana for current or later turns"
+  //   land-ramp  "Ramp spells that net you more lands on your side of the battlefield"
+  //
+  // And the actual taggings separate exactly along that line:
+  //
+  //   Cultivate, Rampant Growth, Three Visits, Farseek -> land-ramp
+  //                                                       (land to BATTLEFIELD)
+  //   Sagu Wildling, Expedition Map -> tutor-to-hand, NOT land-ramp
+  //   Evolving Wilds                -> fetchland,     NOT land-ramp
+  //
+  // A card that puts a land in your HAND costs you mana and gives you a land
+  // you could have drawn anyway -- it fixes colours and hits land drops, it
+  // does not put you ahead on mana. A fetchland replaces itself: same land
+  // count, better colours.
+  //
+  // land-ramp is ALREADY a child of ramp, so the real ramp cards were never
+  // the problem. Reverted to the single root.
+  { role: 'ramp', roots: ['ramp'] },
 ];
 
 const VALID_ROLES = ['ramp', 'draw', 'removal', 'threat', 'other'];

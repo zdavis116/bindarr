@@ -12,7 +12,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import CardSearchResult from './CardSearchResult.jsx';
 import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
-         Trash2, Lightbulb, ArrowDownToLine, ChevronDown } from 'lucide-react';
+         Trash2, Lightbulb, ArrowDownToLine, ChevronDown, BarChart3 } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useIsDesktop } from '../utils/breakpoints';
 import CurveTab from './CurveTab';
@@ -605,12 +605,19 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     { id: 'have', label: t('deck.tabOwned'), n: counts.owned },
     { id: 'need', label: t('deck.tabMissing'), n: counts.missing },
     { id: 'consider', label: t('deck.tabConsidering'), n: counts.considering },
-    // CURVE IS A TAB, not a nav destination. Zach: "Since this is apart of
-    // decks" -- it describes THIS deck, so it belongs beside the other views
-    // of this deck rather than becoming a fifth thing in the bottom bar. The
-    // nav stays four items at every width.
-    { id: 'curve', label: t('deck.tabCurve') },
   ];
+
+  // CURVE SITS ON ITS OWN ROW, ABOVE THE FILTERS.
+  //
+  // Zach: "curve kind of hidden which makes me feel like it shouldn't be right
+  // there... you can put it above the other row."
+  //
+  // It was the fifth chip in a row that already scrolls sideways on a phone,
+  // so it fell off the edge. It is also a different KIND of control: the other
+  // four filter which cards you are looking at, this one changes what the
+  // screen is about. Same row on desktop -- he asked for the two widths to
+  // mirror each other.
+  const isCurve = tab === 'curve';
 
   return (
     // Clears the pinned mobile nav (72px + the home indicator). Without it
@@ -959,6 +966,19 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </button>
         )}
       </label>
+
+      {/* CURVE — its own row, above the filters. See the note by isCurve. */}
+      <div className="deck-analyse-row">
+        <button
+          type="button"
+          className={`deck-analyse-btn${isCurve ? ' on' : ''}`}
+          aria-pressed={isCurve}
+          onClick={() => setTab(isCurve ? 'all' : 'curve')}
+        >
+          <BarChart3 size={15} />
+          {t('deck.tabCurve')}
+        </button>
+      </div>
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: 2, marginBottom: '0.75rem' }}>

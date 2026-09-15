@@ -1,3 +1,5 @@
+import { probLandsByTurn } from './handOdds.js';
+
 // COLOUR SCREW: can you actually cast the thing, not just afford it.
 //
 // handOdds.js answers "do I have N lands by turn N". That is necessary and not
@@ -55,7 +57,7 @@ const parseProduced = (value) => {
   }
 };
 
-const isLandCard = (card) => /\bland\b/i.test(card.type_line || '');
+const isLandCard = (card) => /\bland\b/i.test((card && card.type_line) || '');
 
 /**
  * What colours a card can produce, as a Set of WUBRG letters.
@@ -258,8 +260,26 @@ export function castOdds(cards, card, turn, { trials = 4000, seed = 1 } = {}) {
   // You cannot cast a 5-drop on turn 3 however good the colours are.
   if (mv > turn) return 0;
   if (!Object.keys(pips).length) {
-    // Colourless: only the land count matters, and handOdds already answers it.
-    return null;
+    // COLOURLESS: the question is still "can I cast this on curve", and it
+    // still has an answer -- you just need N lands rather than N lands of the
+    // right colours.
+    //
+    // This used to return null, which is why Sol Ring, Arcane Signet and
+    // Fellwar Stone had no percentage while everything around them did. Zach:
+    // "the castable on turn 1 percentage why doesnt it show on every card".
+    // Falling through to the same simulation with an empty pip requirement
+    // gives the land-count answer, from the same code path, so the two kinds
+    // of card cannot drift apart.
+    const { deck: colourlessDeck } = manaSources(cards);
+    if (!colourlessDeck.length) return 0;
+    // manaSources returns an entry per card: a Set of colours for a land, null
+    // otherwise. So "is a land" is "has an entry", NOT isLandCard -- these are
+    // not card objects. Filtering them as cards counted zero lands and made
+    // every colourless card 0%.
+    const lands = colourlessDeck.filter(Boolean).length;
+    // Needs mv lands by this turn. probLandsByTurn works out how many cards
+    // you have seen, so the assumption stays in one place.
+    return probLandsByTurn(colourlessDeck.length, lands, Math.max(1, mv));
   }
 
   const { deck, commanders } = manaSources(cards);

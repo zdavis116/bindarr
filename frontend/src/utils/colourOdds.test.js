@@ -187,11 +187,26 @@ test('CO-TC11: you cannot cast above your curve', () => {
     'a 5-drop is not castable on turn 3 at any colour quality');
 });
 
-test('CO-TC12: colourless costs return null, not a fake certainty', () => {
-  // There is no colour requirement, so this function has nothing to say --
-  // handOdds already answers it. Returning 1 would imply it had checked.
+test('CO-TC12: colourless costs get the LAND odds, not null', () => {
+  // I originally returned null here, reasoning that handOdds already answered
+  // it. Zach saw the consequence: "the castable on turn 1 percentage why
+  // doesnt it show on every card" -- Sol Ring, Arcane Signet and Fellwar Stone
+  // had no percentage while every coloured card around them did.
+  //
+  // "Can I cast this on curve" HAS an answer for a colourless card: you need
+  // N lands rather than N lands of the right colours. Answering it from the
+  // same function keeps the two kinds of card from drifting apart.
   const cards = monoDeck(100, 37, 'G');
-  assert.equal(castOdds(cards, spell('Sol Ring', '{1}', 1), 3), null);
+  const p = castOdds(cards, spell('Sol Ring', '{1}', 1), 1);
+  assert.ok(p > 0 && p < 1, `a one-drop needs one land: expected a real probability, got ${p}`);
+
+  // More lands, better odds -- the number must actually depend on the deck.
+  const fewer = monoDeck(100, 20, 'G');
+  assert.ok(castOdds(fewer, spell('Sol Ring', '{1}', 1), 1) < p,
+    'a 20-land deck casts a one-drop on turn 1 less often than a 37-land deck');
+
+  // And the mana value still gates it: a six-drop is not castable on turn 1.
+  assert.equal(castOdds(cards, spell('Big Thing', '{6}', 6), 1), 0);
 });
 
 test('CO-TC13: more sources is never worse', () => {

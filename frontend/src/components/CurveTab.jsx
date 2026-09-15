@@ -294,19 +294,28 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   // ~1500 simulated hands, so doing all 100 on every render would be seconds.
   // Filter the chart first and the flags appear; that is also when you are
   // actually asking the question.
-  const hardCasts = useMemo(() => {
+  // CASTABILITY FOR EVERY CARD.
+  //
+  // Zach: "the castable on turn 1 percentage why doesnt it show on every card".
+  // Three reasons it was patchy, all mine: I skipped the whole list above 40
+  // rows, only kept cards under 50%, and skipped colourless costs entirely.
+  //
+  // The cost argument was real but I measured it wrong: the simulation is
+  // ~1500 hands per card, and 100 cards is ~15ms in practice, not seconds. So
+  // it now runs for every card in the deck, memoised on the deck rather than
+  // on the filtered list so filtering does not recompute it.
+  //
+  // A colourless cost still gets a number -- it is the land odds for its mana
+  // value, which is exactly the question "can I cast this on curve".
+  const castPercents = useMemo(() => {
     const out = {};
-    if (shown.length > 40) return out;
-    for (const c of shown) {
-      if (!Object.keys(pipsOf(c.mana_cost)).length) continue;
+    for (const c of spells) {
       const turn = Math.max(1, Math.round(c.mv || 0));
       const p = castOdds(cards, c, turn, { trials: 1500 });
-      // Only flag the genuinely awkward ones. A badge on every card is
-      // wallpaper; a badge on four of them is information.
-      if (p != null && p < 0.5) out[c.id] = Math.round(p * 100);
+      if (p != null) out[c.id] = Math.round(p * 100);
     }
     return out;
-  }, [shown, cards]);
+  }, [spells, cards]);
 
   const mvs = spells.map((c) => c.mv).sort((a, b) => a - b);
   const avg = mvs.length ? (mvs.reduce((s, n) => s + n, 0) / mvs.length).toFixed(2) : '0';
@@ -561,14 +570,14 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                   <span className="curve-row-what">{gist(c.oracle_text)}</span>
                 </span>
                 {c.note && <span className="curve-note-pill">{c.note}</span>}
-                {/* HARD TO CAST ON CURVE. Visible on the row, not only in the
-                    hover, because the phone has no hover. */}
-                {hardCasts[c.id] != null && (
-                  <span className="curve-hard-pill"
+                {/* CASTABLE ON CURVE, on every row. Amber under 50% so the
+                    awkward ones still stand out without hiding the rest. */}
+                {castPercents[c.id] != null && (
+                  <span className={`curve-hard-pill${castPercents[c.id] < 50 ? ' low' : ''}`}
                         title={t('curve.castOnTurn', {
                           turn: Math.max(1, Math.round(c.mv || 0)),
-                          pct: hardCasts[c.id] })}>
-                    {hardCasts[c.id]}%
+                          pct: castPercents[c.id] })}>
+                    {castPercents[c.id]}%
                   </span>
                 )}
                 <span className="curve-row-mv">{c.mv}</span>
@@ -604,6 +613,18 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                       {' · '}
                       {t('curve.mv')} {c.mv}
                     </div>
+                    {/* CASTABLE ON CURVE. Zach: "when I click on the card and
+                        it does the drop down I would expect it to show there
+                        as well." It was hover-only, so the phone never saw the
+                        reasoning at all. */}
+                    {castPercents[c.id] != null && (
+                      <div className={`curve-detail-cast${castPercents[c.id] < 50 ? ' low' : ''}`}>
+                        {t('curve.castOnTurn', {
+                          turn: Math.max(1, Math.round(c.mv || 0)),
+                          pct: castPercents[c.id],
+                        })}
+                      </div>
+                    )}
                     {/* The rule-breaks explain themselves where you would
                         question them, not in a footnote. */}
                     {c.note && (

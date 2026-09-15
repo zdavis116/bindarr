@@ -3778,15 +3778,16 @@ button, input, select, textarea {
   .curve-tip {
     display: block;
     position: fixed;
-    /* Anchored to the RIGHT of the viewport minus the list pane's width, so it
-       sits beside the list rather than over the rows being scanned. */
-    /* BELOW the chart, not beside it. Anchored right of the list pane it was
-       covering the bars -- and the bars are what you are reading when you
-       hover a row to ask "what is this card". Pinned to the bottom-left of the
-       viewport instead: out of the chart, out of the list, always the same
-       place so the eye knows where to look. */
-    left: 1.2rem;
-    bottom: 3.2rem;
+    /* BESIDE THE LIST, NOT ACROSS THE SCREEN.
+       It was pinned bottom-LEFT, which on Zach's 1855px display put it a full
+       screen-width away from the row under his cursor: "when I hover on
+       desktop the box is all the way to the right" -- he is hovering the list
+       on the right and reading an answer on the far left.
+       Now it sits just left of the list pane, at the bottom so it never
+       covers the bars. Same fixed spot every time, but next to what you are
+       actually pointing at. */
+    right: calc(clamp(440px, 30%, 560px) + 1.9rem);
+    bottom: 1.6rem;
     width: 340px;
     z-index: 40;
     background: var(--surface-2);
@@ -3941,3 +3942,25 @@ button, input, select, textarea {
                          min-height: 36px; cursor: pointer; }
 .curve-turnpick button.on { background: var(--accent, #0a84ff); border-color: transparent;
                             color: #fff; }
+
+/* THE CURVE BUTTON — its own row, above the All/Owned/Missing filters.
+   Zach: "curve kind of hidden which makes me feel like it shouldn't be right
+   there... you can put it above the other row."
+   It was the 5th chip in a row that already scrolls sideways on a phone, so it
+   fell off the edge -- and it is a different KIND of control: the others pick
+   which cards you see, this one changes what the screen is about.
+   Identical at both widths, as he asked. */
+.deck-analyse-row { display: flex; margin-bottom: 0.6rem; }
+.deck-analyse-btn { display: inline-flex; align-items: center; gap: 0.4rem;
+                    background: var(--surface-1); border: 1px solid var(--border-glass);
+                    color: var(--text-secondary); font: inherit; font-size: 0.8rem;
+                    font-weight: 600; border-radius: var(--radius-sm);
+                    padding: 0.4rem 0.9rem;
+                    /* 36px: a thumb target. */
+                    min-height: 36px; cursor: pointer; }
+.deck-analyse-btn.on { background: var(--accent-blue); border-color: var(--accent-blue);
+                       color: var(--text-on-accent); }
+
+/* Castable-on-curve inside the expanded card dropdown. */
+.curve-detail-cast { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; }
+.curve-detail-cast.low { color: var(--warning, #ff9f0a); }

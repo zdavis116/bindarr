@@ -167,4 +167,50 @@ for (const { role } of ROLE_ROOTS) {
   pass('CRF-TC5', 'missing or unheadered text degrades safely');
 }
 
+// --- CRF-TC7 -----------------------------------------------------------------
+// RAMP MEANS MORE MANA, NOT "FOUND A LAND".
+//
+// I labelled land tutors as ramp and Zach rejected it: "im not sure a tutor
+// can be considered Ramp... Ramp puts you ahead in mana."
+//
+// The tag data agrees. Scryfall's own descriptions:
+//   ramp       "Effects that increase available mana for current or later turns"
+//   land-ramp  "Ramp spells that net you more lands on your side of the battlefield"
+//
+// And the real taggings split exactly there: Cultivate / Rampant Growth /
+// Three Visits / Farseek carry land-ramp; Sagu Wildling and Expedition Map
+// carry tutor-to-hand and NOT land-ramp; Evolving Wilds carries fetchland.
+{
+  // The ramp family must NOT reach a hand-tutor tag.
+  const rampRoots = ROLE_ROOTS.find((r) => r.role === 'ramp').roots;
+  assert.ok(!rampRoots.includes('tutor-land'),
+    'tutor-land pulls in cards that only FIND a land -- that is not ramp');
+  assert.ok(rampRoots.includes('ramp'),
+    'the ramp root covers land-ramp, mana-rock and mana-dork already');
+
+  // A land tutor that goes to HAND is not ramp: it costs mana and gives you a
+  // land you could have drawn. It falls through to the tag families and lands
+  // wherever its other tags put it -- 'other' is an honest answer here.
+  const toHand = {
+    typeLine: 'Sorcery',
+    oracleText: 'Search your library for a basic land card, put it into your hand.',
+    tagSlugs: new Set(['tutor-land-basic', 'tutor-to-hand']),
+    families,
+  };
+  assert.notStrictEqual(rolesForFaces(toHand).role, 'ramp',
+    'putting a land in hand does not put you ahead on mana');
+
+  // A land tutor that goes to the BATTLEFIELD is ramp, via land-ramp.
+  const toBattlefield = {
+    typeLine: 'Sorcery',
+    oracleText: 'Search your library for a basic land card, put it onto the battlefield tapped.',
+    tagSlugs: new Set(['land-ramp', 'tutor-land-basic']),
+    families: new Map([...families, ['ramp', new Set(['land-ramp', 'mana-rock'])]]),
+  };
+  assert.strictEqual(rolesForFaces(toBattlefield).role, 'ramp',
+    'a land onto the battlefield is an extra land -- that is ramp');
+
+  pass('CRF-TC7', 'ramp is more mana, not merely finding a land');
+}
+
 console.log(`card-roles-faces.test.js: ${passed} cases passed`);
