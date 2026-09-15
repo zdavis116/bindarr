@@ -1590,5 +1590,16 @@
   "curve.roleCounter": "Counterspells",
   "curve.roleTutor": "Tutors",
   "curve.roleProtection": "Protection",
-  "curve.roleRecursion": "Recursion"
+  "curve.roleRecursion": "Recursion",
+  "dash.kpiValue": "Collection value",
+  "dash.kpiNoHistory": "no price history yet",
+  "dash.kpiWeek": "{dir} {amount} this week",
+  "dash.kpiUnique": "{n} unique",
+  "dash.kpiIncomplete": "{n} incomplete",
+  "dash.kpiAllComplete": "all complete",
+  "dash.kpiToFinish": "To finish all decks",
+  "dash.kpiMissing": "{n} cards missing",
+  "dash.kpiNothingMissing": "nothing missing",
+  "dash.mostValuable": "Most valuable",
+  "dash.pricedBy": "top 10 · prices from {source}"
 }

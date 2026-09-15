@@ -3983,3 +3983,67 @@ button, input, select, textarea {
 /* Castable-on-curve inside the expanded card dropdown. */
 .curve-detail-cast { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; }
 .curve-detail-cast.low { color: var(--warning, #ff9f0a); }
+
+/* ===== DASHBOARD =========================================================
+   Zach: "its just like quick glance of everything."
+   MEASURED before building: at 1855x731 this screen was three full-width bars
+   stacked vertically, content ending at 20% of the height -- the phone
+   stretched sideways. The markup is ONE tree in phone order; these rules
+   re-flow it, so the two widths cannot drift apart. */
+.dash { display: flex; flex-direction: column; gap: 1.1rem; }
+
+.dash-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+             gap: 0.55rem; }
+.dash-kpi { display: block; text-align: left; background: var(--surface-1);
+            border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+            padding: 0.7rem 0.8rem; font: inherit; color: var(--text-primary);
+            cursor: pointer; min-height: 44px; }
+.dash-kpi-lbl { display: block; font-size: 0.66rem; letter-spacing: 0.04em;
+                text-transform: uppercase; color: var(--text-muted); }
+.dash-kpi-num { display: block; font-size: 1.3rem; font-weight: 700;
+                letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.dash-kpi-num.warn { color: var(--warning, #ff9f0a); }
+.dash-kpi-sub { display: block; font-size: 0.7rem; color: var(--text-secondary); }
+
+.dash-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
+.dash-col { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
+
+.dash-head { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
+             text-transform: uppercase; letter-spacing: 0.05em;
+             margin-bottom: 0.6rem; display: flex; gap: 0.5rem;
+             align-items: baseline; flex-wrap: wrap; }
+.dash-head-sub { font-size: 0.68rem; font-weight: 400; text-transform: none;
+                 letter-spacing: 0; color: var(--text-muted); }
+
+/* MOST VALUABLE. On a phone this is a sideways strip: ten card images stacked
+   vertically would be a wall you scroll past, and Zach asked for the top ten
+   on the phone too. */
+.dash-top { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.3rem;
+            scroll-snap-type: x mandatory; }
+.dash-topcard { position: relative; flex: 0 0 108px; scroll-snap-align: start;
+                background: var(--surface-2); border: 1px solid var(--border-glass);
+                border-radius: 8px; overflow: hidden; padding: 0; cursor: pointer;
+                font: inherit; color: var(--text-primary); text-align: left; }
+.dash-topcard:hover { border-color: var(--accent-blue); }
+.dash-topcard img { width: 100%; display: block; aspect-ratio: 0.717;
+                    object-fit: cover; }
+.dash-copies { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.78);
+               color: #fff; font-size: 0.64rem; font-weight: 800;
+               padding: 0.05rem 0.3rem; border-radius: 4px; }
+.dash-topcap { display: block; padding: 0.3rem 0.35rem; font-size: 0.7rem; }
+.dash-topcap b { display: block; white-space: nowrap; overflow: hidden;
+                 text-overflow: ellipsis; }
+.dash-topcap span { color: var(--text-secondary); }
+
+@media (min-width: 1024px) {
+  .dash-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.8rem; }
+  .dash-kpi { padding: 0.85rem 0.9rem; }
+  .dash-kpi-num { font-size: 1.6rem; }
+  /* Decks on the left, most valuable on the right. */
+  .dash-cols { grid-template-columns: 1.45fr 1fr; align-items: start; }
+  /* With room to spread, the strip becomes a grid: no hidden cards behind a
+     scroll on a screen that has 1600px to spare. */
+  .dash-top { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+              overflow: visible; }
+  .dash-topcard { flex: none; }
+}

@@ -4,27 +4,264 @@
     "uniqueCards": 2,
     "totalValue": 15.04,
     "totalSpent": 7.64,
-    "roi": { "abs": 7.4, "pct": 96.9 },
+    "roi": {
+      "abs": 7.4,
+      "pct": 96.9
+    },
     "avgCardValue": 2.51,
     "unsortedCount": 0,
     "duplicateCopies": 4,
     "mintRate": 100,
     "vintageRatio": 0,
-    "change7d": { "available": false, "abs": null, "pct": null },
-    "change30d": { "available": false, "abs": null, "pct": null },
-    "change1y": { "available": false, "abs": null, "pct": null },
-    "change5y": { "available": false, "abs": null, "pct": null }
+    "change7d": {
+      "available": false,
+      "abs": null,
+      "pct": null
+    },
+    "change30d": {
+      "available": false,
+      "abs": null,
+      "pct": null
+    },
+    "change1y": {
+      "available": false,
+      "abs": null,
+      "pct": null
+    },
+    "change5y": {
+      "available": false,
+      "abs": null,
+      "pct": null
+    },
+    "priceSources": [
+      {
+        "source": "manapool",
+        "label": "Mana Pool",
+        "count": 10,
+        "total": 394.48999999999995
+      }
+    ]
   },
-  "types": [{ "name": "Red", "value": 6 }],
-  "rarities": [{ "name": "Uncommon", "value": 4 }, { "name": "Common", "value": 2 }],
-  "sets": [
-    { "id": "msc", "name": "Marvel Super Heroes Commander", "count": 4, "value": 13 },
-    { "id": "j22", "name": "Jumpstart 2022", "count": 2, "value": 2.04 }
+  "types": [
+    {
+      "name": "Red",
+      "value": 6
+    }
   ],
-  "conditions": [{ "name": "Near Mint", "value": 6 }],
-  "locations": [{ "name": "MTG Binder", "value": 6 }],
+  "rarities": [
+    {
+      "name": "Uncommon",
+      "value": 4
+    },
+    {
+      "name": "Common",
+      "value": 2
+    }
+  ],
+  "sets": [
+    {
+      "id": "msc",
+      "name": "Marvel Super Heroes Commander",
+      "count": 4,
+      "value": 13
+    },
+    {
+      "id": "j22",
+      "name": "Jumpstart 2022",
+      "count": 2,
+      "value": 2.04
+    }
+  ],
+  "conditions": [
+    {
+      "name": "Near Mint",
+      "value": 6
+    }
+  ],
+  "locations": [
+    {
+      "name": "MTG Binder",
+      "value": 6
+    }
+  ],
   "acquisition": [],
-  "topValuable": [],
+  "topValuable": [
+    {
+      "entry_id": 9004,
+      "card_id": "9f37c5b6-a59c-45cd-9a99-e9357fe9ea1b",
+      "name": "Rhystic Study",
+      "image_url": "https://cards.scryfall.io/normal/front/9/f/9f37c5b6-a59c-45cd-9a99-e9357fe9ea1b.jpg?1783919146",
+      "set_name": "Jumpstart 2022",
+      "set_id": "j22",
+      "number": "114",
+      "rarity": "Rare",
+      "cmc": 3.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 70.75,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9005,
+      "card_id": "861b5889-0183-4bee-afeb-a4b2aa700a8e",
+      "name": "Smothering Tithe",
+      "image_url": "https://cards.scryfall.io/normal/front/8/6/861b5889-0183-4bee-afeb-a4b2aa700a8e.jpg?1783915712",
+      "set_name": "Commander Masters",
+      "set_id": "cmm",
+      "number": "57",
+      "rarity": "Mythic",
+      "cmc": 4.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 58.86,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9002,
+      "card_id": "19992dbd-7a6a-43d3-b1db-01716b2eed27",
+      "name": "Commander's Plate",
+      "image_url": "https://cards.scryfall.io/normal/front/1/9/19992dbd-7a6a-43d3-b1db-01716b2eed27.jpg?1783928762",
+      "set_name": "Commander Legends",
+      "set_id": "cmr",
+      "number": "305",
+      "rarity": "Mythic",
+      "cmc": 1.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 47.89,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 2
+    },
+    {
+      "entry_id": 9009,
+      "card_id": "4d960186-4559-4af0-bd22-63baa15f8939",
+      "name": "Mana Crypt",
+      "image_url": "https://cards.scryfall.io/normal/front/4/d/4d960186-4559-4af0-bd22-63baa15f8939.jpg?1783930103",
+      "set_name": "Double Masters",
+      "set_id": "2xm",
+      "number": "270",
+      "rarity": "Mythic",
+      "cmc": 0.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 41.72,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9008,
+      "card_id": "d7183700-6941-4a3d-a581-4f33bea795e9",
+      "name": "Jeweled Lotus",
+      "image_url": "https://cards.scryfall.io/normal/front/d/7/d7183700-6941-4a3d-a581-4f33bea795e9.jpg?1783915595",
+      "set_name": "Commander Masters",
+      "set_id": "cmm",
+      "number": "396",
+      "rarity": "Mythic",
+      "cmc": 0.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 41.23,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9001,
+      "card_id": "10d42b35-844f-4a64-9981-c6118d45e826",
+      "name": "The Ur-Dragon",
+      "image_url": "https://cards.scryfall.io/normal/front/1/0/10d42b35-844f-4a64-9981-c6118d45e826.jpg?1783915607",
+      "set_name": "Commander Masters",
+      "set_id": "cmm",
+      "number": "361",
+      "rarity": "Mythic",
+      "cmc": 9.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 40.08,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9006,
+      "card_id": "dfb7c4b9-f2f4-4d4e-baf2-86551c8150fe",
+      "name": "Cyclonic Rift",
+      "image_url": "https://cards.scryfall.io/normal/front/d/f/dfb7c4b9-f2f4-4d4e-baf2-86551c8150fe.jpg?1783913339",
+      "set_name": "Ravnica Remastered",
+      "set_id": "rvr",
+      "number": "40",
+      "rarity": "Mythic",
+      "cmc": 2.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 39.32,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9000,
+      "card_id": "d4f6027a-003a-4f9d-929a-0b6da1fa42c9",
+      "name": "Bloodletter of Aclazotz",
+      "image_url": "https://cards.scryfall.io/normal/front/d/4/d4f6027a-003a-4f9d-929a-0b6da1fa42c9.jpg?1783913782",
+      "set_name": "The Lost Caverns of Ixalan",
+      "set_id": "lci",
+      "number": "92",
+      "rarity": "Mythic",
+      "cmc": 4.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 38.3,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9007,
+      "card_id": "9e2e3efb-75cb-430f-b9f4-cb58f3aeb91b",
+      "name": "Dockside Extortionist",
+      "image_url": "https://cards.scryfall.io/normal/front/9/e/9e2e3efb-75cb-430f-b9f4-cb58f3aeb91b.jpg?1783921889",
+      "set_name": "Double Masters 2022",
+      "set_id": "2x2",
+      "number": "107",
+      "rarity": "Mythic",
+      "cmc": 2.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 10.19,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    },
+    {
+      "entry_id": 9003,
+      "card_id": "a934590b-5c70-4f07-af67-fbe817a99531",
+      "name": "Miirym, Sentinel Wyrm",
+      "image_url": "https://cards.scryfall.io/normal/front/a/9/a934590b-5c70-4f07-af67-fbe817a99531.jpg?1783922689",
+      "set_name": "Commander Legends: Battle for Baldur's Gate",
+      "set_id": "clb",
+      "number": "284",
+      "rarity": "Rare",
+      "cmc": 6.0,
+      "quantity": 1,
+      "condition": "Near Mint",
+      "price_trend": 6.15,
+      "price_source": "manapool",
+      "price_source_label": "Mana Pool",
+      "copies": 1
+    }
+  ],
   "setProgress": [],
-  "valueByGame": [{ "name": "Magic: The Gathering", "value": 15.04 }]
+  "valueByGame": [
+    {
+      "name": "Magic: The Gathering",
+      "value": 15.04
+    }
+  ]
 }
