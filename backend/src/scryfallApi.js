@@ -250,6 +250,22 @@ function normalizeCard(raw) {
     price_avg30: null,
     cmc: cmc,
     color_identity: colorIdentity.map(c => COLOR_NAMES[c] || c),
+    // WHAT MANA THIS CARD CAN PRODUCE, as raw WUBRG(C) letters.
+    //
+    // NOT colour identity, which is a different question: Command Tower's
+    // identity is [] and it taps for all five. The colour-screw maths needs
+    // "can this pay a {U} pip", which is exactly this field.
+    //
+    // Kept as LETTERS rather than COLOR_NAMES, unlike color_identity above,
+    // because it is compared against mana-cost pip symbols ({U}, {G}). Mapping
+    // to 'Blue' and back would be a lossy round-trip for no benefit.
+    //
+    // Scryfall returns NULL for fetchlands (Evolving Wilds, Fabled Passage):
+    // they produce no mana themselves, they fetch. Stored as null and handled
+    // explicitly in the odds code rather than silently counting as colourless.
+    produced_mana: Array.isArray(raw.produced_mana) && raw.produced_mana.length
+      ? raw.produced_mana
+      : null,
     oracle_id: raw.oracle_id,
     oracle_name: raw.name || (hasMultipleFaces ? joinedFaceValue('name') : face.name) || '',
     // Present on 648 crossover printings, absent everywhere else. NULL rather

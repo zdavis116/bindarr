@@ -367,6 +367,11 @@ async function availabilityForDeck(database, deckId, userId) {
             -- "can be your commander" and "Partner" live in the rules text,
             -- not the type line.
             cc.oracle_text,
+            -- WHAT MANA THIS CARD MAKES, for the Curve tab's colour odds. Raw
+            -- WUBRG letters; NULL for fetchlands, which produce nothing
+            -- themselves. Not color_identity -- Command Tower's identity is
+            -- empty and it taps for all five.
+            cc.produced_mana,
             -- WHAT THE CARD DOES, for the deck Curve tab. See cardRoles.js.
             --
             -- COALESCE puts the user's override first: card_roles.user_role is

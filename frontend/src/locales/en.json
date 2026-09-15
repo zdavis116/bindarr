@@ -1569,5 +1569,10 @@
   "curve.whyTypeLine": "from its type line",
   "curve.landsInDeck": "{n} lands",
   "curve.turnOddsTitle": "You have {lands} lands by turn {turn} about {pct}% of the time",
-  "curve.oddsAssume": "Percentages are how often you have that many lands by then. Assumes no mulligans and average draws, and that you are on the play."
+  "curve.oddsAssume": "Percentages are how often you have that many lands by then. Assumes no mulligans and average draws, and that you are on the play.",
+  "curve.colourSources": "Colour sources",
+  "curve.byTurnThree": "chance to have one by turn 3",
+  "curve.sourcesN": "{n} sources",
+  "curve.castOnTurn": "Castable on turn {turn} about {pct}% of the time",
+  "curve.colourAssume": "Counts lands only, not mana rocks or dorks — those have to be cast and survive first. Hybrid and Phyrexian pips are not counted as requirements. Fetchlands count as the colours your basics can find."
 }

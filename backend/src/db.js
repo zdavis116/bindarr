@@ -843,6 +843,19 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refreshed_at DATETIME`);
   }
 
+  // WHAT MANA EACH CARD PRODUCES, for the deck Curve tab's colour-screw odds.
+  //
+  // A column on card_cache rather than its own table, unlike card_roles: this
+  // is a property of the PRINTING that Scryfall ships in the same payload the
+  // catalogue already imports, so it costs nothing extra to carry and would
+  // otherwise need a second lookup per card.
+  //
+  // NULL means "no mana" OR "not yet imported" -- the refresh backfills it.
+  const producedManaCols = await all(`PRAGMA table_info(card_cache)`);
+  if (!producedManaCols.some(c => c.name === 'produced_mana')) {
+    await run(`ALTER TABLE card_cache ADD COLUMN produced_mana TEXT`);
+  }
+
   // CARD ROLES, for the deck Curve tab.
   //
   // What a card DOES -- ramp, draw, interaction, threat -- sourced from

@@ -3843,3 +3843,43 @@ button, input, select, textarea {
 .curve-assumes { font-size: 0.68rem; line-height: 1.4; color: var(--text-muted);
                  margin: 0.6rem 0 0; padding-top: 0.5rem;
                  border-top: 1px solid var(--border-glass); }
+
+/* COLOUR SOURCES — the other half of "can I cast this".
+   Land count says you have three mana; this says whether they are the right
+   three. Same rules at both widths; only the panel around it changes. */
+.curve-colours { display: flex; flex-direction: column; gap: 0.35rem;
+                 margin-top: 0.6rem; }
+.curve-colour { display: flex; align-items: center; gap: 0.5rem; }
+
+/* WUBRG pips. Magic's own colours, so the row is readable without the letter,
+   but the letter stays for anyone who cannot distinguish them. */
+.curve-pip { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+             font-style: normal; font-size: 0.62rem; font-weight: 800;
+             display: flex; align-items: center; justify-content: center;
+             color: #1a1a1a; }
+.curve-pip-W { background: #f8f6d8; }
+.curve-pip-U { background: #a5d3ec; }
+.curve-pip-B { background: #b9aeae; }
+.curve-pip-R { background: #eba282; }
+.curve-pip-G { background: #a2ceaa; }
+
+.curve-colour-n { width: 76px; font-size: 0.74rem; color: var(--text-secondary);
+                  font-variant-numeric: tabular-nums; }
+.curve-colour-bar { flex: 1; height: 13px; background: var(--surface-2);
+                    border-radius: 4px; overflow: hidden; }
+.curve-colour-bar i { display: block; height: 100%; background: var(--accent-blue); }
+.curve-colour-p { width: 42px; text-align: right; font-size: 0.74rem;
+                  color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Amber under 14 sources -- the usual deckbuilding floor for a colour you
+   want on curve. Not red: a light splash is a choice, not a mistake. */
+.curve-colour-p.low { color: #ff9f0a; }
+
+/* HARD TO CAST ON CURVE, on the row itself so the phone gets it too. */
+.curve-hard-pill { font-size: 0.62rem; font-weight: 700; padding: 0.1rem 0.4rem;
+                   border-radius: 999px; flex: 0 0 auto;
+                   background: rgba(255, 159, 10, 0.16); color: #ff9f0a; }
+
+.curve-tip-cast { font-size: 0.7rem; color: var(--text-secondary);
+                  margin-top: 0.35rem; padding-top: 0.35rem;
+                  border-top: 1px solid var(--border-glass); }
+.curve-tip-cast.low { color: #ff9f0a; }

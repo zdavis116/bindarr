@@ -33,6 +33,14 @@ const COLUMNS = [
   'oracle_id', 'oracle_name', 'mana_cost', 'oracle_text', 'type_line', 'keywords',
   'legalities', 'finishes', 'layout',
   'tcgplayer_url', 'cardmarket_url',
+  // WHAT MANA THIS CARD PRODUCES (WUBRG/C letters, JSON array), for the deck
+  // Curve tab's colour-screw odds. Distinct from color_identity: Command
+  // Tower's identity is [] and it taps for all five.
+  //
+  // APPENDED AT THE END ON PURPOSE. These three lists are positional and
+  // inserting mid-list shifts every value after it into the wrong column --
+  // which is exactly what happened when flavor_name was added.
+  'produced_mana',
 ];
 
 // A page of results can be 250 cards and one round trip per card cost more than
@@ -76,6 +84,9 @@ async function cacheNormalizedCards(cards, opts = {}) {
         JSON.stringify(c.legalities || {}), JSON.stringify(c.finishes || []),
         c.layout || '',
         c.tcgplayer_url || null, c.cardmarket_url || null,
+        // LAST, matching COLUMNS. null (not '[]') when Scryfall has none, so
+        // "produces nothing" and "we never asked" stay distinguishable.
+        c.produced_mana ? JSON.stringify(c.produced_mana) : null,
       );
     }
     await db.run(

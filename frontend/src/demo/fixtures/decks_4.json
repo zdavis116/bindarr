@@ -43,7 +43,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -69,7 +70,10 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "mana-rock",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C"
+      ]
     },
     {
       "quantity": 1,
@@ -95,7 +99,14 @@
       "quantity_missing": 1,
       "card_role": "ramp",
       "role_source_tag": "mana-rock-with-set-s-mechanic",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -123,7 +134,8 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -151,7 +163,8 @@
       "quantity_missing": 1,
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -179,7 +192,8 @@
       "quantity_missing": 1,
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -207,7 +221,8 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -235,7 +250,8 @@
       "quantity_missing": 1,
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -263,7 +279,8 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -291,7 +308,14 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "mana-dork",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -319,7 +343,10 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "mana-dork",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G"
+      ]
     },
     {
       "quantity": 1,
@@ -345,7 +372,12 @@
       "quantity_missing": 0,
       "card_role": "ramp",
       "role_source_tag": "mana-rock",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C",
+        "R",
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -371,7 +403,14 @@
       "quantity_missing": 1,
       "card_role": "ramp",
       "role_source_tag": "mana-rock",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -399,7 +438,8 @@
       "quantity_missing": 0,
       "card_role": "draw",
       "role_source_tag": "draw-engine",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -427,7 +467,8 @@
       "quantity_missing": 0,
       "card_role": "draw",
       "role_source_tag": "brainstorm",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -455,7 +496,8 @@
       "quantity_missing": 0,
       "card_role": "draw",
       "role_source_tag": "life-for-cards",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -483,7 +525,8 @@
       "quantity_missing": 1,
       "card_role": "draw",
       "role_source_tag": "mulch",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -511,7 +554,8 @@
       "quantity_missing": 1,
       "card_role": "draw",
       "role_source_tag": "burst-draw",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -539,7 +583,8 @@
       "quantity_missing": 1,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -567,7 +612,8 @@
       "quantity_missing": 1,
       "card_role": "draw",
       "role_source_tag": "burst-draw",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -595,7 +641,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "removal-creature",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -623,7 +670,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "counterspell",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -651,7 +699,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "counterspell-enchantment",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -679,7 +728,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "removal-destroy",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -707,7 +757,8 @@
       "quantity_missing": 1,
       "card_role": "removal",
       "role_source_tag": "removal-destroy",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -736,7 +787,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "removal-exile",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -764,7 +816,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "burn-creature",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -792,7 +845,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "removal-artifact",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -820,7 +874,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "disenchant-naturalize",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -848,7 +903,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -876,7 +932,14 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -904,7 +967,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -933,7 +997,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -961,7 +1026,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -989,7 +1055,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1018,7 +1085,11 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "R"
+      ]
     },
     {
       "quantity": 1,
@@ -1046,7 +1117,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1074,7 +1146,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1100,7 +1173,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1128,7 +1202,8 @@
       "quantity_missing": 1,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1184,7 +1259,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "burn-any",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1210,7 +1286,8 @@
       "quantity_missing": 1,
       "card_role": "draw",
       "role_source_tag": "repeatable-card-advantage",
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1236,7 +1313,8 @@
       "quantity_missing": 1,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1264,7 +1342,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1292,7 +1371,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1320,7 +1400,14 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1348,7 +1435,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -1403,7 +1491,14 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1429,7 +1524,14 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1455,7 +1557,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C"
+      ]
     },
     {
       "quantity": 1,
@@ -1481,7 +1586,14 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1507,7 +1619,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "R"
+      ]
     },
     {
       "quantity": 1,
@@ -1533,7 +1649,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1559,7 +1679,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -1585,7 +1709,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "R"
+      ]
     },
     {
       "quantity": 1,
@@ -1611,7 +1739,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1637,7 +1769,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "R",
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -1663,7 +1800,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -1689,7 +1831,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1715,7 +1862,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "R",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1741,7 +1893,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1767,7 +1924,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "R",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1793,7 +1955,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "R",
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -1819,7 +1986,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R"
+      ]
     },
     {
       "quantity": 1,
@@ -1845,7 +2017,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1871,7 +2048,12 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1897,7 +2079,14 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1923,7 +2112,15 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "C",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1949,7 +2146,15 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "C",
+        "G",
+        "R",
+        "U",
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -1975,7 +2180,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C"
+      ]
     },
     {
       "quantity": 1,
@@ -2001,7 +2209,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G"
+      ]
     },
     {
       "quantity": 1,
@@ -2027,7 +2238,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -2053,7 +2267,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "R"
+      ]
     },
     {
       "quantity": 1,
@@ -2079,7 +2296,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "W"
+      ]
     },
     {
       "quantity": 1,
@@ -2105,7 +2325,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B"
+      ]
     },
     {
       "quantity": 1,
@@ -2131,7 +2354,8 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -2157,7 +2381,8 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": null
     },
     {
       "quantity": 1,
@@ -2183,7 +2408,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C"
+      ]
     },
     {
       "quantity": 1,
@@ -2209,7 +2437,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C"
+      ]
     },
     {
       "quantity": 1,
@@ -2235,7 +2466,10 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "C"
+      ]
     },
     {
       "quantity": 1,
@@ -2261,7 +2495,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "G",
+        "U"
+      ]
     },
     {
       "quantity": 1,
@@ -2287,7 +2525,11 @@
       "quantity_missing": 0,
       "card_role": "other",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "produced_mana": [
+        "B",
+        "U"
+      ]
     }
   ]
 }

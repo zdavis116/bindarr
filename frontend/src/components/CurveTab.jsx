@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useT } from '../utils/i18n';
 import { probLandsByTurn } from '../utils/handOdds';
+import { sourceCounts, castOdds, pipsOf, COLOURS } from '../utils/colourOdds';
 
 // THE CURVE TAB.
 //
@@ -140,6 +141,29 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const castableBy = (turn) => spells.filter((c) => c.mv <= turn).length;
   const landOdds = (turn) => probLandsByTurn(librarySize, landCount, turn);
 
+  // COLOUR SOURCES. Memoised because it walks every card, and it only changes
+  // when the deck does.
+  const colourSources = useMemo(() => sourceCounts(cards), [cards]);
+
+  // Only the colours this deck actually plays. Showing five rows with three
+  // zeroes would bury the signal in noise.
+  const liveColours = COLOURS.filter((c) => colourSources[c] > 0);
+
+  // PER-CARD CASTABILITY, for the one card being previewed.
+  //
+  // Computed here rather than per row: this simulates thousands of hands, and
+  // doing it for all 100 cards on every render would be ~600 simulations. For
+  // the single hovered card it is a few milliseconds.
+  const hoverOdds = useMemo(() => {
+    if (!hover) return null;
+    const pips = pipsOf(hover.mana_cost);
+    if (!Object.keys(pips).length) return null;
+    const mv = Math.max(1, Math.round(hover.mv || 0));
+    // The turn it first COULD be cast, which is the interesting one -- odds on
+    // turn 9 are always fine and tell you nothing.
+    return { turn: mv, p: castOdds(cards, hover, mv) };
+  }, [hover, cards]);
+
   const matches = (c) => {
     if (!filter) return true;
     if (filter.turn != null) return c.mv <= filter.turn;
@@ -147,6 +171,31 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   };
 
   const shown = spells.filter(matches);
+
+  // WHICH CARDS ARE HARD TO CAST ON CURVE.
+  //
+  // THIS IS THE NUMBER THAT HAS TO REACH THE PHONE. There is no hover there,
+  // so the tooltip cannot be the only place it lives -- the row itself has to
+  // carry it.
+  //
+  // Only for the SHOWN list, and only while that list is short: each card is
+  // ~1500 simulated hands, so doing all 100 on every render would be seconds.
+  // Filter the chart first and the flags appear; that is also when you are
+  // actually asking the question.
+  const hardCasts = useMemo(() => {
+    const out = {};
+    if (shown.length > 40) return out;
+    for (const c of shown) {
+      if (!Object.keys(pipsOf(c.mana_cost)).length) continue;
+      const turn = Math.max(1, Math.round(c.mv || 0));
+      const p = castOdds(cards, c, turn, { trials: 1500 });
+      // Only flag the genuinely awkward ones. A badge on every card is
+      // wallpaper; a badge on four of them is information.
+      if (p != null && p < 0.5) out[c.id] = Math.round(p * 100);
+    }
+    return out;
+  }, [shown, cards]);
+
   const mvs = spells.map((c) => c.mv).sort((a, b) => a - b);
   const avg = mvs.length ? (mvs.reduce((s, n) => s + n, 0) / mvs.length).toFixed(2) : '0';
   const median = mvs.length ? mvs[Math.floor(mvs.length / 2)] : 0;
@@ -282,6 +331,45 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
         <p className="curve-assumes">{t('curve.oddsAssume')}</p>
       </div>
 
+      {/* COLOUR SOURCES.
+          The other half of "can I cast this". Land COUNT says you have three
+          mana; this says whether they are the right three. Zach: "three lands
+          that cannot cast your three-drop is not three mana."
+
+          Only the colours the deck actually plays -- five rows with three
+          zeroes would bury the signal. */}
+      {liveColours.length > 0 && (
+        <div className="curve-panel">
+          <div className="curve-head">
+            <b>{t('curve.colourSources')}</b>
+            <span>{t('curve.byTurnThree')}</span>
+          </div>
+          <div className="curve-colours">
+            {liveColours.map((colour) => {
+              const n = colourSources[colour];
+              // P(at least one source by turn 3) -- the usual deckbuilding
+              // yardstick, and the one the ~14-source rule of thumb refers to.
+              const p = probLandsByTurn(librarySize, n, 1, 9);
+              return (
+                <div key={colour} className="curve-colour">
+                  <i className={`curve-pip curve-pip-${colour}`}>{colour}</i>
+                  <span className="curve-colour-n">
+                    {t('curve.sourcesN', { n })}
+                  </span>
+                  <span className="curve-colour-bar">
+                    <i style={{ width: `${Math.round(p * 100)}%` }} />
+                  </span>
+                  <span className={`curve-colour-p${n < 14 ? ' low' : ''}`}>
+                    {Math.round(p * 100)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="curve-assumes">{t('curve.colourAssume')}</p>
+        </div>
+      )}
+
       {/* THE LIST the chart filters.
           The filter bar is STICKY: the list runs to 49+ rows, so by the time
           you have scrolled into it the chart and the Clear button are both off
@@ -327,6 +415,16 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                   <span className="curve-row-what">{gist(c.oracle_text)}</span>
                 </span>
                 {c.note && <span className="curve-note-pill">{c.note}</span>}
+                {/* HARD TO CAST ON CURVE. Visible on the row, not only in the
+                    hover, because the phone has no hover. */}
+                {hardCasts[c.id] != null && (
+                  <span className="curve-hard-pill"
+                        title={t('curve.castOnTurn', {
+                          turn: Math.max(1, Math.round(c.mv || 0)),
+                          pct: hardCasts[c.id] })}>
+                    {hardCasts[c.id]}%
+                  </span>
+                )}
                 <span className="curve-row-mv">{c.mv}</span>
               </button>
             ))}
@@ -357,6 +455,15 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                 ? t('curve.whyTag', { tag: hover.role_source_tag })
                 : t('curve.whyTypeLine')}
           </div>
+          {/* CAN YOU ACTUALLY CAST IT. Simulated for this card's exact cost,
+              so double pips and dual lands are both handled. Only shown for
+              coloured costs -- a colourless card has nothing to screw up. */}
+          {hoverOdds && hoverOdds.p != null && (
+            <div className={`curve-tip-cast${hoverOdds.p < 0.5 ? ' low' : ''}`}>
+              {t('curve.castOnTurn', {
+                turn: hoverOdds.turn, pct: Math.round(hoverOdds.p * 100) })}
+            </div>
+          )}
         </div>
       )}
 

@@ -172,6 +172,8 @@ function stagingParams(card) {
     JSON.stringify(card.legalities || {}), JSON.stringify(card.finishes || []),
     card.layout || '',
     card.tcgplayer_url || null, card.cardmarket_url || null,
+    // LAST, matching CARD_CACHE_COLUMNS and cardCache.js's params list.
+    card.produced_mana ? JSON.stringify(card.produced_mana) : null,
   ];
 }
 
