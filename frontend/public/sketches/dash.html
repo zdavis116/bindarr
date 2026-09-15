@@ -55,7 +55,11 @@
   .pill.g{background:rgba(74,222,128,.15);color:var(--good)}
   .pill.a{background:rgba(251,191,36,.15);color:var(--warn)}
 
-  .cards{display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem}
+  .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:.5rem}
+  .card{position:relative}
+  .copies{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.78);
+          color:#fff;font-size:.64rem;font-weight:800;padding:.05rem .3rem;
+          border-radius:4px;line-height:1.4}
   .card{border-radius:7px;overflow:hidden;background:var(--s2);cursor:pointer;
         border:1px solid var(--line)}
   .card img{width:100%;display:block;aspect-ratio:.717;object-fit:cover}
@@ -70,6 +74,32 @@
 
   .bar{display:flex;height:9px;border-radius:5px;overflow:hidden;margin:.35rem 0 .5rem}
   .bar i{display:block}
+
+  /* PHONE. Zach: "I would like to maybe see top 10 most valuable on my
+     dashboard on my phone as well." The rail becomes the existing bottom nav,
+     the KPI grid halves, and the columns stack -- but the top-10 block stays,
+     scrolling sideways so ten cards do not become a tall wall of images. */
+  @media(max-width:760px){
+    .shell{grid-template-columns:minmax(0,1fr)}
+    .rail{display:none}
+    .main{padding:.8rem}
+    .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
+    .big{font-size:1.3rem}
+    .cols{grid-template-columns:minmax(0,1fr);gap:.8rem}
+    /* Grid and flex children default to min-width:auto, so the
+       sideways card strip would push the whole page wide instead
+       of scrolling inside its panel. Measured: doc scrollWidth
+       1194 on a 390px screen. */
+    .cols > *, .panel{min-width:0}
+    .cards{display:flex;overflow-x:auto;gap:.5rem;padding-bottom:.3rem;
+           scroll-snap-type:x mandatory}
+    .cards .card{flex:0 0 108px;scroll-snap-align:start}
+    table{font-size:.78rem}
+    /* The deck table loses its two money columns on a phone: name, built and
+       missing are what you check on the move. */
+    #decktable th:nth-child(4), #decktable td:nth-child(4),
+    #decktable th:nth-child(5), #decktable td:nth-child(5){display:none}
+  }
 
   .note{background:#17170c;border:1px solid #3d3a1f;border-radius:10px;
         padding:.55rem .7rem;font-size:.73rem;color:#e8dfae;margin-top:1rem}
@@ -100,7 +130,7 @@
           <table id="decktable"></table>
         </div>
         <div class="panel">
-          <h3>Most valuable</h3>
+          <h3>Most valuable <span class="sub" style="font-weight:400">top 10 · live prices</span></h3>
           <div class="cards" id="top"></div>
         </div>
       </div>
@@ -185,9 +215,12 @@ function deckTable(){
 }
 
 function topCards(){
+  // TEN, one per PRINTING. The x2 badge is on the card because a duplicate
+  // must be visible as one card you own twice, not two cards.
   document.getElementById('top').innerHTML = D.top.map(c=>`
-    <div class="card" title="${c.name} — ${c.set||''}">
+    <div class="card" title="${c.name} — ${c.set||''} · ${money(c.price)}${c.copies>1?' · '+c.copies+' copies':''}">
       ${c.img?`<img src="${c.img}" alt="${c.name}">`:''}
+      ${c.copies>1?`<span class="copies">x${c.copies}</span>`:''}
       <div class="cap"><b>${c.name}</b><span class="sub">${money(c.price)}</span></div>
     </div>`).join('');
 }
