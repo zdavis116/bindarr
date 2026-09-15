@@ -3797,16 +3797,16 @@ button, input, select, textarea {
   .curve-tip {
     display: block;
     position: fixed;
-    /* BESIDE THE LIST, NOT ACROSS THE SCREEN.
-       It was pinned bottom-LEFT, which on Zach's 1855px display put it a full
-       screen-width away from the row under his cursor: "when I hover on
-       desktop the box is all the way to the right" -- he is hovering the list
-       on the right and reading an answer on the far left.
-       Now it sits just left of the list pane, at the bottom so it never
-       covers the bars. Same fixed spot every time, but next to what you are
-       actually pointing at. */
-    right: calc(clamp(440px, 30%, 560px) + 1.9rem);
-    bottom: 1.6rem;
+    /* OVER THE LIST, LEVEL WITH THE ROW. Never over the chart.
+       Three failed attempts before this, all placing the box in the LEFT
+       column: bottom-left was a screen-width from the cursor, beside-the-list
+       sat on the bars, and "below the chart" does not fit -- Zach's window is
+       1855x731 and the chart ends at y=687.
+       Anchored to the list pane's right edge instead, which starts where the
+       chart stops, so no height can make them overlap. --tip-top is measured
+       from the hovered row in JS. */
+    right: 1.2rem;
+    top: var(--tip-top, 20vh);
     width: 340px;
     z-index: 40;
     background: var(--surface-2);

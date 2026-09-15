@@ -335,6 +335,43 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const bigCount = spells.filter((c) => c.mv >= 6).length;
 
   const roleLabel = (id) => t(ROLES.find((r) => r.id === id).key);
+
+  // WHERE THE HOVER PREVIEW SITS.
+  //
+  // Measured, not guessed, because two fixed-corner attempts both failed:
+  // bottom-left was a screen away from the cursor, and beside-the-list put the
+  // box straight over the bars. The rules are:
+  //
+  //   1. level with the row you are pointing at, so the eye does not travel
+  //   2. NEVER above the chart's bottom edge -- the chart is what the preview
+  //      is helping you read
+  //   3. never past the bottom of the window
+  //
+  // Written as a CSS variable rather than inline styles so the media query
+  // still owns the layout: on a phone .curve-tip is display:none and this
+  // value is simply ignored.
+  const placeTip = (rowEl) => {
+    if (typeof window === 'undefined' || !rowEl) return;
+    const row = rowEl.getBoundingClientRect();
+    const tip = document.querySelector('.curve-tip');
+    const tipH = (tip && tip.getBoundingClientRect().height) || 200;
+
+    // OVER THE LIST, NEVER OVER THE CHART.
+    //
+    // Three attempts failed before this, all trying to place the box in the
+    // LEFT column: bottom-left was a screen away from the cursor, beside-the-
+    // list sat straight on the bars, and "below the chart" is impossible on
+    // Zach's actual window -- measured 1855x731 with the chart ending at
+    // y=687, which leaves 44px.
+    //
+    // So the box goes over the LIST pane instead. The list starts right of
+    // where the chart ends (measured: list x=1356, chart right edge 1320), so
+    // this cannot overlap the chart at any height. It costs a few list rows,
+    // which you can scroll back to -- the chart is the thing you are reading
+    // while you hover, and it stays whole.
+    const top = Math.max(8, Math.min(row.top, window.innerHeight - tipH - 12));
+    document.documentElement.style.setProperty('--tip-top', `${Math.round(top)}px`);
+  };
   const filterLabel = () => {
     if (filter) {
       if (filter.turn != null) return t('curve.castableByTurn', { turn: filter.turn });
@@ -599,11 +636,11 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                 // was the whole point of putting rules text in the tooltip.
                 // Pointer events only: on a phone there is no hover and the
                 // tap opens the card, which is the same information.
-                onMouseEnter={() => setHover(c)}
+                onMouseEnter={(e) => { setHover(c); placeTip(e.currentTarget); }}
                 onMouseLeave={() => setHover(null)}
                 // Keyboard parity: the preview is the only place the rules text
                 // appears without opening the card, so tabbing must reach it.
-                onFocus={() => setHover(c)}
+                onFocus={(e) => { setHover(c); placeTip(e.currentTarget); }}
                 onBlur={() => setHover(null)}
               >
                 <i className={`curve-dot curve-${c.role}`} />
