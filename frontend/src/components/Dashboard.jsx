@@ -17,6 +17,11 @@
 // do I do now", which is the only question a landing screen should answer.
 
 import { useState, useEffect } from 'react';
+// ONE rule for which name to show. Zach: "my most expensive card is cast off
+// consort but it's using the blood letter of Alcatraz which isn't right."
+// utils/cardName.js has said so since the Splinter/Ink-Eyes bug; this screen
+// was new and simply never asked it.
+import { displayName, secondaryName } from '../utils/cardName';
 import { Camera, ChevronRight } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
@@ -102,19 +107,26 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
   const missingCards = decks.reduce(
     (t, d) => t + Math.max(0, (d.target_size || 0) - (d.owned_cards || 0)), 0);
 
-  // Decks that are NOT finished, worst-completed first: the point of this list
-  // is what still needs work. A completed deck is not "in progress", and
-  // showing it here would push the unfinished ones down.
+  // DECKS IN PROGRESS = decks that are NOT finished.
+  //
+  // Zach: "decks in progress should just be the decks that aren't complete."
+  // It was showing all four of his decks, three of them at 100% and labelled
+  // "Ready to play" -- so the phone dashboard spent four tall rows telling him
+  // nothing needed doing, and pushed the top ten below the fold.
+  //
+  // Worst-completed FIRST now: the one furthest from done is the one you are
+  // most likely to act on.
   const inProgress = decks
-    .filter(d => (d.target_size || 0) > 0)
-    .map(d => ({
+    .filter((d) => (d.target_size || 0) > 0)
+    .map((d) => ({
       ...d,
       // OWNED, not listed. total_cards counts what the list says; a freshly
       // imported deck is fully listed and entirely unowned, and this read 97%
       // for a deck holding three of its ninety-seven cards.
       pct: Math.min(100, Math.round(((d.owned_cards || 0) / d.target_size) * 100)),
     }))
-    .sort((a, b) => b.pct - a.pct);
+    .filter((d) => d.pct < 100)
+    .sort((a, b) => a.pct - b.pct);
 
   if (loading) {
     return (
@@ -236,54 +248,47 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
         </span>
       </button>
 
-      {/* DECKS IN PROGRESS -- "continue where you left off", and the screen's
-          real job. Each row answers the buying question at a glance. */}
+      {/* DECKS IN PROGRESS, as side-scrolling cards.
+          Zach: "it should only show 3 at a time and be a scroll and I like the
+          idea of it being a side scroll so maybe they should be like cards."
+          Four tall rows were eating the phone's whole fold; three cards in a
+          sideways strip cost one row of height and still show the commander
+          art, which is how he recognises a deck. */}
       {inProgress.length > 0 && (
         <div>
-          <div style={{
-            fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)',
-            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem',
-          }}>
+          <div className="dash-head">
             {t('dash.decksInProgress')}
+            <span className="dash-head-sub">
+              {t('dash.deckCount', { n: inProgress.length })}
+            </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
-            {inProgress.slice(0, 5).map(deck => (
+          <div className="dash-decks">
+            {inProgress.map((deck) => (
               <button
                 key={deck.id}
+                className="dash-deck"
                 // Open THIS deck, not the deck list. Zach: "when you click
                 // on the deck in the deck in progress it should take you
                 // into that deck." Falls back to the list if the handler is
-                // missing, so the row is never a dead tap.
+                // missing, so the card is never a dead tap.
                 onClick={() => (onOpenDeck ? onOpenDeck(deck.id) : onNavigate && onNavigate('deckbuilder'))}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.8rem', width: '100%',
-                  textAlign: 'left', border: 0, cursor: 'pointer', font: 'inherit',
-                  background: 'var(--surface-1)', color: 'var(--text-primary)',
-                  borderRadius: 'var(--radius-md)', padding: '0.8rem 0.9rem', minHeight: 44,
-                }}
               >
-                <ProgressRing pct={deck.pct} />
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{
-                    display: 'block', fontSize: '0.95rem', fontWeight: 600,
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>
-                    {deck.name}
+                {deck.commander_image_url
+                  ? <img src={deck.commander_image_url} alt="" loading="lazy" />
+                  : <span className="dash-deck-noart" />}
+                <span className="dash-deck-body">
+                  <span className="dash-deck-name">{deck.name}</span>
+                  <span className="dash-deck-sub">
+                    {t('dash.deckCards', { have: deck.owned_cards || 0, want: deck.target_size })}
                   </span>
-                  {/* WHICH DECKS MIRROR MOXFIELD.
-                      Only the Moxfield ones are badged: marking every local
-                      deck would be noise on the common case. Reuses the deck
-                      list's badge so the two screens cannot drift apart. */}
-                  {deck.moxfield_public_id ? (
-                    <span className="deck-source-badge">{t('decks.moxfieldBadge')}</span>
+                  {/* The buying question, which is why this card is here. */}
+                  {Number(deck.missing_cost) > 0 ? (
+                    <span className="dash-deck-cost">
+                      ${Number(deck.missing_cost).toFixed(2)}
+                    </span>
                   ) : null}
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {deck.pct >= 100
-                      ? t('dash.deckReady')
-                      : t('dash.deckCards', { have: deck.owned_cards || 0, want: deck.target_size })}
-                  </span>
                 </span>
-                <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <span className="dash-deck-ring"><ProgressRing pct={deck.pct} /></span>
               </button>
             ))}
           </div>
@@ -314,13 +319,13 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
                 <button
                   key={c.entry_id || c.card_id}
                   className="dash-topcard"
-                  title={`${c.name} — $${Number(c.price_trend || 0).toFixed(2)}${c.copies > 1 ? ` · ${c.copies} copies` : ''}`}
+                  title={`${displayName(c)}${secondaryName(c) ? ` (${secondaryName(c)})` : ''} — $${Number(c.price_trend || 0).toFixed(2)}${c.copies > 1 ? ` · ${c.copies} copies` : ''}`}
                   onClick={() => onNavigate && onNavigate('collection')}
                 >
-                  {c.image_url ? <img src={c.image_url} alt={c.name} loading="lazy" /> : null}
+                  {c.image_url ? <img src={c.image_url} alt={displayName(c)} loading="lazy" /> : null}
                   {c.copies > 1 ? <span className="dash-copies">x{c.copies}</span> : null}
                   <span className="dash-topcap">
-                    <b>{c.name}</b>
+                    <b>{displayName(c)}</b>
                     <span>${Number(c.price_trend || 0).toFixed(2)}</span>
                   </span>
                 </button>

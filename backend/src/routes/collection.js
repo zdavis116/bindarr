@@ -1697,6 +1697,14 @@ router.get('/collection', async (req, res) => {
         c.list_type,
         c.notes,
         cc.name,
+        -- THE NAME PRINTED ON THE CARD, when it differs from the catalogue
+        -- name. Zach: "I noticed in collections if I try and sort by cast off
+        -- consort I don't find anything" -- Cast-Off Consort is the flavor
+        -- name on a Secret Lair whose real name is Bloodletter of Aclazotz.
+        -- 640 cards in his catalogue carry one, and it is what he can read
+        -- while holding the card. utils/cardName.js already knew how to
+        -- display it; the column was simply never served.
+        cc.flavor_name,
         cc.oracle_id,
         cc.supertype,
         cc.subtypes,

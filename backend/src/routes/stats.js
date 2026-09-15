@@ -164,7 +164,7 @@ router.get('/stats', async (req, res) => {
         c.id AS entry_id, c.location_id, (SELECT name FROM locations WHERE id = c.location_id) AS location_name,
         (SELECT type FROM locations WHERE id = c.location_id) AS location_type,
         c.quantity, c.condition, c.printing, c.purchase_price, c.is_trade, c.favorite, c.list_type,
-        cc.id as card_id, cc.name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
+        cc.id as card_id, cc.name, cc.flavor_name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
         cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity, cc.price_trend,
         cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
         ${MARKETPLACE_PRICE_COLUMNS}
@@ -299,7 +299,7 @@ router.get('/stats', async (req, res) => {
       SELECT c.id AS entry_id, c.location_id, (SELECT name FROM locations WHERE id = c.location_id) AS location_name,
              (SELECT type FROM locations WHERE id = c.location_id) AS location_type,
              c.quantity, c.condition, c.printing, c.added_at, c.is_trade, c.favorite, c.list_type,
-             cc.id as card_id, cc.name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
+             cc.id as card_id, cc.name, cc.flavor_name, cc.rarity, cc.set_name, cc.set_id, cc.number, cc.image_url,
              cc.supertype, cc.subtypes, cc.types, cc.cmc, cc.color_identity,
              cc.price_trend, cc.price_normal, cc.price_holofoil, cc.price_reverse_holofoil,
              ${MARKETPLACE_PRICE_COLUMNS}

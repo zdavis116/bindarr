@@ -4047,3 +4047,41 @@ button, input, select, textarea {
               overflow: visible; }
   .dash-topcard { flex: none; }
 }
+
+/* DECKS IN PROGRESS as a sideways strip.
+   Zach: "it should only show 3 at a time and be a scroll... maybe they should
+   be like cards." Four tall rows were eating the phone's entire fold and
+   pushing the top ten off-screen; three cards cost ONE row of height.
+   3 at a time on a phone: (100% - 2 gaps) / 3. */
+.dash-decks { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.3rem;
+              scroll-snap-type: x mandatory; }
+.dash-deck { position: relative; flex: 0 0 calc((100% - 1rem) / 3);
+             scroll-snap-align: start; background: var(--surface-1);
+             border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+             overflow: hidden; padding: 0; cursor: pointer; font: inherit;
+             color: var(--text-primary); text-align: left; }
+.dash-deck:hover { border-color: var(--accent-blue); }
+/* Commander art, cropped to the face. A full card image would make these tall
+   again, which is the thing being fixed. */
+.dash-deck img, .dash-deck-noart { display: block; width: 100%; height: 54px;
+                                   object-fit: cover; object-position: 50% 18%;
+                                   background: var(--surface-3); }
+.dash-deck-body { display: block; padding: 0.4rem 0.45rem 0.45rem; }
+.dash-deck-name { display: block; font-size: 0.78rem; font-weight: 600;
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-deck-sub { display: block; font-size: 0.66rem; color: var(--text-secondary);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-deck-cost { display: block; font-size: 0.7rem; font-weight: 700;
+                  color: var(--warning, #ff9f0a); font-variant-numeric: tabular-nums; }
+/* The ring sits ON the art: it is a glance, not a column of its own. */
+.dash-deck-ring { position: absolute; top: 4px; right: 4px; transform: scale(0.72);
+                  transform-origin: top right; }
+
+@media (min-width: 1024px) {
+  /* Desktop has the width for all of them side by side, no scrolling. */
+  .dash-decks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+                overflow: visible; }
+  .dash-deck { flex: none; }
+  .dash-deck img, .dash-deck-noart { height: 76px; }
+  .dash-deck-name { font-size: 0.85rem; }
+}

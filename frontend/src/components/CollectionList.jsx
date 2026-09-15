@@ -287,7 +287,16 @@ const cardTypesOf = (card) => {
       // NAME ONLY. Set has its own filter, and matching set names here meant
       // typing a set returned every card in it -- drowning the card actually
       // being looked for.
-      const matchesSearch = !q || item.name.toLowerCase().includes(q);
+      //
+      // BOTH NAMES, THOUGH. Zach: "I noticed in collections if I try and sort
+      // by cast off consort I don't find anything." Cast-Off Consort is the
+      // FLAVOR name printed in large type on a Secret Lair card whose real
+      // name is Bloodletter of Aclazotz -- 640 cards in his catalogue carry
+      // one. Searching only `name` means the words actually printed on the
+      // card he is holding find nothing.
+      const matchesSearch = !q
+        || item.name.toLowerCase().includes(q)
+        || (item.flavor_name || '').toLowerCase().includes(q);
 
       // ANY-OF for every multi-select. Tapping B and G shows black cards, green
       // cards AND Golgari cards -- what a player means by two taps. ALL-OF

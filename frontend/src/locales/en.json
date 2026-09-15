@@ -1601,5 +1601,6 @@
   "dash.kpiMissing": "{n} cards missing",
   "dash.kpiNothingMissing": "nothing missing",
   "dash.mostValuable": "Most valuable",
-  "dash.pricedBy": "top 10 · prices from {source}"
+  "dash.pricedBy": "top 10 · prices from {source}",
+  "dash.deckCount": "{n} to finish"
 }

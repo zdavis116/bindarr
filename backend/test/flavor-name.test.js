@@ -140,5 +140,60 @@ function pass(id, msg) { console.log(`PASS: ${id} ${msg}`); passed++; }
   }
   pass('FFLV-TC6', 'BOTH positional value lists stay in lock-step with the columns');
 
-  console.log(`\nflavor-name.test.js: ${passed} cases passed`);
+  // --- FFLV-TC7 ----------------------------------------------------------------
+// THE ROUTES MUST ACTUALLY SERVE flavor_name.
+//
+// Zach: "my most expensive card is cast off consort but it's using the blood
+// letter of Alcatraz which isn't right. I thought we fixed it" and "in
+// collections if I try and sort by cast off consort I don't find anything."
+//
+// It HAD been fixed -- normalizeCard stores it, card_cache has the column, 640
+// of his cards carry one, and utils/cardName.js has known how to display it
+// since the Splinter/Ink-Eyes bug. The gap was that the SELECT lists never
+// included it, so the frontend received rows where flavor_name was undefined
+// and every display fell back to the catalogue name.
+//
+// Measured before fixing: /api/collection returned 500 rows, 0 with a
+// flavor_name, and the field was absent from the key list entirely.
+{
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const routes = path.join(__dirname, '..', 'src', 'routes');
+
+  const collection = fs.readFileSync(path.join(routes, 'collection.js'), 'utf8');
+  assert.ok(/cc\.flavor_name/.test(collection),
+    'collection.js must SELECT cc.flavor_name or the collection list and its '
+    + 'search cannot see the name printed on the card');
+
+  const stats = fs.readFileSync(path.join(routes, 'stats.js'), 'utf8');
+  const statsHits = (stats.match(/cc\.flavor_name/g) || []).length;
+  assert.ok(statsHits >= 2,
+    'stats.js must SELECT cc.flavor_name in BOTH topValuable and '
+    + `recentAdditions -- found ${statsHits}`);
+
+  pass('FFLV-TC7', 'the routes serve flavor_name, not just the column');
+}
+
+// --- FFLV-TC8 ----------------------------------------------------------------
+// THE DASHBOARD MUST USE THE ONE HELPER.
+//
+// utils/cardName.js exists precisely so ~113 render sites cannot each invent
+// their own answer. The Dashboard was new and simply never asked it, so the
+// top-ten panel showed "Bloodletter of Aclazotz" over art reading "Cast-Off
+// Consort".
+{
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dash = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'components', 'Dashboard.jsx'), 'utf8');
+
+  assert.ok(/from '\.\.\/utils\/cardName'/.test(dash),
+    'Dashboard.jsx must import the shared name helper');
+  assert.ok(/displayName\(/.test(dash),
+    'and must call displayName() rather than rendering card.name directly');
+
+  pass('FFLV-TC8', 'the dashboard renders names through utils/cardName');
+}
+
+console.log(`\nflavor-name.test.js: ${passed} cases passed`);
 })().catch((e) => { console.error('FAIL: FFLV', e.message); process.exit(1); });
