@@ -881,9 +881,29 @@ async function initDb() {
       role TEXT NOT NULL,
       source_tag TEXT,
       user_role TEXT,
+      back_role TEXT,
+      back_source_tag TEXT,
+      back_user_role TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // PER-FACE ROLES for Adventures, Omens, Prepare and modal DFCs.
+  //
+  // The role used to be derived once from the JOINED type line, so
+  // 'Creature - Dragon // Sorcery - Omen' contained 'creature' and the whole
+  // card became a Threat -- including its Sorcery half, which Zach spotted on
+  // Roost Seek. back_role holds the second face's own classification.
+  //
+  // Columns on the same row rather than a second table: it is one card with
+  // at most two faces, the pair is always read together, and a face has no
+  // identity of its own to key on.
+  const cardRolesCols = await all(`PRAGMA table_info(card_roles)`);
+  for (const col of ['back_role', 'back_source_tag', 'back_user_role']) {
+    if (!cardRolesCols.some(c => c.name === col)) {
+      await run(`ALTER TABLE card_roles ADD COLUMN ${col} TEXT`);
+    }
+  }
 
   if (!appSettingsCols.some(c => c.name === 'card_roles_updated_at')) {
     await run(`ALTER TABLE app_settings ADD COLUMN card_roles_updated_at TEXT`);

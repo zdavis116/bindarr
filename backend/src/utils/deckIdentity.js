@@ -394,6 +394,12 @@ async function availabilityForDeck(database, deckId, userId) {
             COALESCE(cr.user_role, cr.role) AS card_role,
             cr.source_tag AS role_source_tag,
             cr.user_role AS role_is_override,
+            -- THE SECOND FACE'S OWN ROLE. An Adventure's Sorcery half is not
+            -- a creature, so it is not automatically a Threat -- Roost Seek
+            -- is ramp. NULL for single-faced cards.
+            COALESCE(cr.back_user_role, cr.back_role) AS back_card_role,
+            cr.back_source_tag AS back_role_source_tag,
+            cr.back_user_role AS back_role_is_override,
             -- Price for "cost to finish" and the per-card figure on the Missing
             -- tab.
             --

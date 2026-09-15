@@ -1395,7 +1395,9 @@
       "layout": "adventure",
       "display_name": "Bonecrusher Giant // Stomp",
       "back_name": "Stomp",
-      "back_type_line": "Instant \u2014 Adventure"
+      "back_type_line": "Instant \u2014 Adventure",
+      "back_card_role": "removal",
+      "back_role_source_tag": "damage-creature"
     },
     {
       "quantity": 1,
@@ -1657,7 +1659,9 @@
       "layout": "split",
       "display_name": "Fire // Ice",
       "back_name": "Ice",
-      "back_type_line": "Instant"
+      "back_type_line": "Instant",
+      "back_card_role": "draw",
+      "back_role_source_tag": "cantrip"
     },
     {
       "quantity": 1,
@@ -2937,7 +2941,9 @@
       "display_name": "Tony Stark // The Invincible Iron Man",
       "back_name": "The Invincible Iron Man",
       "back_type_line": "Legendary Artifact Creature \u2014 Human Hero",
-      "back_image_url": "https://cards.scryfall.io/normal/back/4/c/4cea42fd-035e-4b8f-8b1d-ff363b694f14.jpg?1783902955"
+      "back_image_url": "https://cards.scryfall.io/normal/back/4/c/4cea42fd-035e-4b8f-8b1d-ff363b694f14.jpg?1783902955",
+      "back_card_role": "threat",
+      "back_role_source_tag": null
     },
     {
       "quantity": 1,
@@ -2973,7 +2979,9 @@
       "role_is_override": null,
       "display_name": "Sagu Wildling // Roost Seek",
       "back_name": "Roost Seek",
-      "back_type_line": "Sorcery \u2014 Omen"
+      "back_type_line": "Sorcery \u2014 Omen",
+      "back_card_role": "ramp",
+      "back_role_source_tag": "search-for-basic-land"
     }
   ]
 }

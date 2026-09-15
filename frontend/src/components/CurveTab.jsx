@@ -107,7 +107,6 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const [filter, setFilter] = useState(null);   // {bucket, role} | {turn} | null
   const [hotRole, setHotRole] = useState(null);
   const [hover, setHover] = useState(null);   // the card being previewed
-  const [sort, setSort] = useState('mv');     // 'mv' | 'name' | 'role'
   // WHICH ROW IS EXPANDED.
   //
   // Zach: "On desktop it opens as a DROP DOWN not a modal I want the same
@@ -121,6 +120,8 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   //
   // Identical at both widths, so there is one behaviour to learn.
   const [openCard, setOpenCard] = useState(null);
+  // WHICH TURN THE COLOUR ODDS ANSWER FOR. Was hardcoded to 3.
+  const [colourTurn, setColourTurn] = useState(3);
 
   // The spells the chart describes: nonland, and not the considering pile --
   // considering cards are not in the deck yet, so counting them would tell you
@@ -161,7 +162,17 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
       // description."
       oracle_text: entry.faceText ?? c.oracle_text,
       image_url: entry.faceImage || c.image_url,
-      role: c.card_role || 'other',
+      // THE FACE'S OWN ROLE. Zach: "Roost Seek is being considered a threat
+      // when its ramp." The back face of an Adventure is a Sorcery, not a
+      // creature, so it gets classified on its own terms. Falls back to the
+      // card role when the catalogue has not been re-imported yet.
+      role: (entry.faceIndex === 1 ? c.back_card_role : c.card_role) || c.card_role || 'other',
+      role_source_tag: entry.faceIndex === 1
+        ? (c.back_role_source_tag ?? c.role_source_tag)
+        : c.role_source_tag,
+      role_is_override: entry.faceIndex === 1
+        ? c.back_role_is_override
+        : c.role_is_override,
     }))),
   [cards]);
 
@@ -450,14 +461,20 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
         <div className="curve-panel">
           <div className="curve-head">
             <b>{t('curve.colourSources')}</b>
-            <span>{t('curve.byTurnThree')}</span>
+            <span>{t('curve.byTurnN', { turn: colourTurn })}</span>
           </div>
           <div className="curve-colours">
             {liveColours.map((colour) => {
               const n = colourSources[colour];
-              // P(at least one source by turn 3) -- the usual deckbuilding
-              // yardstick, and the one the ~14-source rule of thumb refers to.
-              const p = probLandsByTurn(librarySize, n, 1, 9);
+              // ODDS OF A SOURCE BY THE SELECTED TURN.
+              //
+              // Zach: "I asked for the turns selection to filter on color
+              // source so I could see percentage of what color I might get on
+              // turn 1 not just turn 3." Turn 3 was hardcoded, so the panel
+              // answered a question he had not asked.
+              //
+              // Cards seen by turn N on the play: 7 opening + (N-1) draws.
+              const p = probLandsByTurn(librarySize, n, 1, 6 + colourTurn);
               return (
                 <div key={colour} className="curve-colour">
                   <i className={`curve-pip curve-pip-${colour}`}>{colour}</i>
@@ -474,6 +491,21 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
               );
             })}
           </div>
+          {/* TURN PICKER for the colour odds. The turn rows above filter the
+              CARD LIST, which is a different question -- this one asks "what
+              are my chances of having this colour by then". */}
+          <div className="curve-turnpick">
+            {[1, 2, 3, 4, 5, 6].map((turn) => (
+              <button
+                key={turn}
+                type="button"
+                className={colourTurn === turn ? 'on' : ''}
+                onClick={() => setColourTurn(turn)}
+              >
+                {turn}
+              </button>
+            ))}
+          </div>
           <p className="curve-assumes">{t('curve.colourAssume')}</p>
         </div>
       )}
@@ -485,26 +517,6 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
           cannot see and cannot undo is how you end up reading a partial deck
           and thinking it is the whole one. */}
       <div className="curve-panel curve-listpanel">
-        {/* SORT. Zach: "it should be sortable by turn."
-            Mana value IS the turn you can first cast a card, so this sorts by
-            the number already in the row rather than inventing a second one.
-            Name is the other way you look for a card you know you own. */}
-        <div className="curve-sortbar">
-          {[
-            ['mv', t('curve.sortTurn')],
-            ['name', t('curve.sortName')],
-            ['role', t('curve.sortRole')],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={sort === id ? 'on' : ''}
-              onClick={() => setSort(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         {filterLabel() ? (
           <div className="curve-filterbar">
             <span><b>{filterLabel()}</b> · {shown.length}</span>
@@ -518,17 +530,9 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
         <div className="curve-list">
           {shown
             .slice()
-            .sort((a, b) => {
-              const byName = (a.name || '').localeCompare(b.name || '');
-              if (sort === 'name') return byName;
-              if (sort === 'role') {
-                // Legend order, so the list and the stacked bars read the same
-                // way round instead of one being alphabetical.
-                const ri = (c) => ROLES.findIndex((r) => r.id === c.role);
-                return ri(a) - ri(b) || a.mv - b.mv || byName;
-              }
-              return a.mv - b.mv || byName;
-            })
+            // Cheapest first: the list is read alongside the curve, so it
+            // should run the same way the bars do.
+            .sort((a, b) => a.mv - b.mv || (a.name || '').localeCompare(b.name || ''))
             .map((c) => (
               <div key={c.id} className="curve-row-wrap">
               <button

@@ -112,6 +112,28 @@ function expandFamilies(tagsById, slugToId) {
 // creature. Everything else with a body is a threat.
 const TAPS_FOR_MANA = /\{t\}:\s*add/i;
 
+// SPLIT A JOINED FACE STRING. Bindarr stores multi-face cards joined:
+// type_line as 'Creature - Dragon // Sorcery - Omen', oracle_text under
+// '=== Name ===' headers.
+function faceTypeLines(typeLine) {
+  return String(typeLine || '').split('//').map((s) => s.trim()).filter(Boolean);
+}
+
+function faceOracleTexts(oracleText) {
+  const raw = String(oracleText || '');
+  if (!raw.includes('===')) return [raw];
+  const parts = [];
+  const re = /===\s*(.+?)\s*===\n?/g;
+  let m = re.exec(raw);
+  while (m) {
+    const start = re.lastIndex;
+    const next = re.exec(raw);
+    parts.push(raw.slice(start, next ? next.index : raw.length).trim());
+    m = next;
+  }
+  return parts.length ? parts : [raw];
+}
+
 function roleForCard({ typeLine, oracleText, tagSlugs, families }) {
   const type = (typeLine || '').toLowerCase();
   const text = oracleText || '';
@@ -131,6 +153,51 @@ function roleForCard({ typeLine, oracleText, tagSlugs, families }) {
     if (hit) return { role, tag: hit };
   }
   return { role: 'other', tag: null };
+}
+
+/**
+ * ROLES FOR EACH CASTABLE FACE.
+ *
+ * Zach: "Roost Seek is being considered a threat when its ramp I believe. So
+ * cards like that, that have 2 different types should reflect appropriately."
+ *
+ * He is right. Roles were derived once per oracle_id from the JOINED type line
+ * -- 'Creature - Dragon // Sorcery - Omen' contains 'creature', so the whole
+ * card became a Threat, and the curve then showed that role on the Sorcery
+ * half too. Every Adventure and Prepare card in the catalogue was a Threat on
+ * both halves.
+ *
+ * The tags stay card-level: Scryfall tags an oracle_id, not a face. What
+ * changes is the TYPE-LINE judgement, which is genuinely per-face -- a Sorcery
+ * half is not a creature, so it falls through to the tag families and picks up
+ * ramp / removal / draw properly.
+ *
+ * Returns { role, tag, backRole, backTag } -- backRole is null for
+ * single-faced cards.
+ */
+function rolesForFaces({ typeLine, oracleText, tagSlugs, families }) {
+  const types = faceTypeLines(typeLine);
+  const texts = faceOracleTexts(oracleText);
+
+  const front = roleForCard({
+    typeLine: types[0] || typeLine,
+    oracleText: texts[0] || oracleText,
+    tagSlugs,
+    families,
+  });
+
+  if (types.length < 2) {
+    return { role: front.role, tag: front.tag, backRole: null, backTag: null };
+  }
+
+  const back = roleForCard({
+    typeLine: types[1],
+    oracleText: texts[1] || texts[0] || oracleText,
+    tagSlugs,
+    families,
+  });
+
+  return { role: front.role, tag: front.tag, backRole: back.role, backTag: back.tag };
 }
 
 // --- import ------------------------------------------------------------------
@@ -230,13 +297,13 @@ async function refreshRoles(options = {}) {
   for (const card of cards) {
     const tagSlugs = byOracle.get(card.oracle_id) || new Set();
     if (!tagSlugs.size) untagged += 1;
-    const { role, tag } = roleForCard({
+    const { role, tag, backRole, backTag } = rolesForFaces({
       typeLine: card.type_line,
       oracleText: card.oracle_text,
       tagSlugs,
       families,
     });
-    rows.push([card.oracle_id, role, tag]);
+    rows.push([card.oracle_id, role, tag, backRole, backTag]);
     classified += 1;
   }
 
@@ -247,14 +314,16 @@ async function refreshRoles(options = {}) {
   try {
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
-      const placeholders = chunk.map(() => '(?, ?, ?)').join(', ');
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?)').join(', ');
       const params = chunk.flat();
       await db.run(
-        `INSERT INTO card_roles (oracle_id, role, source_tag)
+        `INSERT INTO card_roles (oracle_id, role, source_tag, back_role, back_source_tag)
          VALUES ${placeholders}
          ON CONFLICT(oracle_id) DO UPDATE SET
            role = excluded.role,
            source_tag = excluded.source_tag,
+           back_role = excluded.back_role,
+           back_source_tag = excluded.back_source_tag,
            updated_at = CURRENT_TIMESTAMP`,
         params
       );
@@ -282,6 +351,7 @@ module.exports = {
   // exported for tests
   expandFamilies,
   roleForCard,
+  rolesForFaces,
   VALID_ROLES,
   ROLE_ROOTS,
 };

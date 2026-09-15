@@ -3884,19 +3884,6 @@ button, input, select, textarea {
                   border-top: 1px solid var(--border-glass); }
 .curve-tip-cast.low { color: #ff9f0a; }
 
-/* SORT CONTROL on the curve's card list. Same segmented-control shape as the
-   rest of the app so it reads as a control, not a filter chip row. */
-.curve-sortbar { display: flex; gap: 3px; background: var(--surface-2);
-                 border-radius: 9px; padding: 3px; border: 1px solid var(--border-glass);
-                 margin-bottom: 0.5rem; }
-.curve-sortbar button { flex: 1; background: none; border: 0; color: var(--text-muted);
-                        font: inherit; font-size: 0.74rem; font-weight: 600;
-                        padding: 0.35rem; border-radius: 7px;
-                        /* 34px: a thumb target. */
-                        min-height: 34px; cursor: pointer; }
-.curve-sortbar button.on { background: var(--surface-3, var(--surface-1));
-                           color: var(--text-primary); }
-
 /* THE CARD DROPDOWN in the curve list.
    Zach: "On desktop it opens as a DROP DOWN not a modal I want the same action
    phone." Expands in place under the row you clicked, identically at both
@@ -3940,3 +3927,17 @@ button, input, select, textarea {
 .curve-mp-B { background: #cbc2bf; }
 .curve-mp-R { background: #f9aa8f; }
 .curve-mp-G { background: #9bd3ae; }
+
+/* TURN PICKER for the color-source odds.
+   Zach: "I asked for the turns selection to filter on color source so I could
+   see percentage of what color I might get on turn 1 not just turn 3."
+   Six small targets rather than a segmented control: they are numbers, and a
+   number reads faster than a word. */
+.curve-turnpick { display: flex; gap: 4px; margin-top: 0.6rem; }
+.curve-turnpick button { flex: 1; background: var(--surface-2); border: 1px solid var(--border-glass);
+                         color: var(--text-muted); font: inherit; font-size: 0.76rem;
+                         font-weight: 700; border-radius: 8px;
+                         /* 36px: a thumb target on the phone. */
+                         min-height: 36px; cursor: pointer; }
+.curve-turnpick button.on { background: var(--accent, #0a84ff); border-color: transparent;
+                            color: #fff; }
