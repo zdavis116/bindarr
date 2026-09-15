@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useT } from '../utils/i18n';
 import { probLandsByTurn } from '../utils/handOdds';
-import { sourceCounts, castOdds, pipsOf, COLOURS } from '../utils/colourOdds';
+import { sourceCounts, castOdds, COLOURS } from '../utils/colourOdds';
 // bucketFor lives in utils so it can be unit-tested: node --test cannot
 // import .jsx. Re-exported here because other modules already import it
 // from this file.
@@ -266,19 +266,6 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
 
   // PER-CARD CASTABILITY, for the one card being previewed.
   //
-  // Computed here rather than per row: this simulates thousands of hands, and
-  // doing it for all 100 cards on every render would be ~600 simulations. For
-  // the single hovered card it is a few milliseconds.
-  const hoverOdds = useMemo(() => {
-    if (!hover) return null;
-    const pips = pipsOf(hover.mana_cost);
-    if (!Object.keys(pips).length) return null;
-    const mv = Math.max(1, Math.round(hover.mv || 0));
-    // The turn it first COULD be cast, which is the interesting one -- odds on
-    // turn 9 are always fine and tell you nothing.
-    return { turn: mv, p: castOdds(cards, hover, mv) };
-  }, [hover, cards]);
-
   const matches = (c) => {
     if (!filter) return true;
     if (filter.turn != null) return c.mv <= filter.turn;
@@ -327,6 +314,26 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
     }
     return out;
   }, [spells, cards]);
+
+  // Computed here rather than per row: this simulates thousands of hands, and
+  // doing it for all 100 cards on every render would be ~600 simulations. For
+  // the single hovered card it is a few milliseconds.
+  // THE HOVERED CARD'S ODDS.
+  //
+  // Reads the SAME castPercents map the rows and the dropdown use. It used to
+  // recompute its own value and bail early on colourless costs -- a leftover
+  // from when castOdds() returned null for them. I fixed castOdds but not
+  // this, so Sol Ring showed a percentage on its row and nothing in the hover
+  // or the dropdown. Zach: "on hover and on click... not all cards show
+  // castable on turn x why is that?"
+  //
+  // One source, three places to read it: they cannot disagree again.
+  const hoverOdds = useMemo(() => {
+    if (!hover) return null;
+    const pct = castPercents[hover.id];
+    if (pct == null) return null;
+    return { turn: Math.max(1, Math.round(hover.mv || 0)), pct };
+  }, [hover, castPercents]);
 
   const mvs = spells.map((c) => c.mv).sort((a, b) => a - b);
   const avg = mvs.length ? (mvs.reduce((s, n) => s + n, 0) / mvs.length).toFixed(2) : '0';
@@ -753,13 +760,14 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                 ? t('curve.whyTag', { tag: hover.role_source_tag })
                 : t('curve.whyTypeLine')}
           </div>
-          {/* CAN YOU ACTUALLY CAST IT. Simulated for this card's exact cost,
-              so double pips and dual lands are both handled. Only shown for
-              coloured costs -- a colourless card has nothing to screw up. */}
-          {hoverOdds && hoverOdds.p != null && (
-            <div className={`curve-tip-cast${hoverOdds.p < 0.5 ? ' low' : ''}`}>
+          {/* CAN YOU ACTUALLY CAST IT ON CURVE. Simulated for this card's
+              exact cost, so double pips and dual lands are both handled, and
+              shown for EVERY card -- a colourless cost still has an answer,
+              it is just the land count rather than the colours. */}
+          {hoverOdds && (
+            <div className={`curve-tip-cast${hoverOdds.pct < 50 ? ' low' : ''}`}>
               {t('curve.castOnTurn', {
-                turn: hoverOdds.turn, pct: Math.round(hoverOdds.p * 100) })}
+                turn: hoverOdds.turn, pct: hoverOdds.pct })}
             </div>
           )}
         </div>
