@@ -2986,3 +2986,1000 @@ button, input, select, textarea {
   background: rgba(63, 185, 80, 0.13); color: #3fb950; white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ============================================================================
+   DESKTOP SHELL — the sidebar rail (>=1024px)
+   ============================================================================
+   The mockup's rail is not a new navigation. It is the SAME header, rotated:
+   brand, the four NAV_ITEMS in the same order, user at the foot. That is why
+   this is CSS only -- no JSX, no second nav array, no isDesktop branch in
+   React. navItems.js stays the single place that says what exists, so the
+   phone's tab bar and this rail cannot drift apart.
+
+   1024px, not 769px: a landscape tablet at 800-1000px does not have room for
+   a 236px rail plus a two-pane deck view without the panes getting squeezed.
+   Below this it keeps the existing top bar.
+
+   Zach's rule: "there is 4 nav items on my phone it should be the same on my
+   desktop." Width is not a reason to add destinations, so there is nothing
+   here the phone does not also have.
+*/
+@media (min-width: 1024px) {
+  :root { --rail-w: 236px; }
+
+  .app-container {
+    display: grid;
+    grid-template-columns: var(--rail-w) 1fr;
+    grid-template-areas: "rail main";
+    align-items: start;
+    padding: 0;
+    gap: 0;
+  }
+
+  /* The header BECOMES the rail: a sticky full-height column on the left. */
+  .app-header {
+    grid-area: rail;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 1rem 0.75rem;
+    background: var(--bg-secondary);
+    border-bottom: none;
+    border-right: 1px solid var(--border-glass);
+    overflow-y: auto;
+  }
+
+  .app-header > .logo-section { padding: 0.25rem 0.6rem 1rem; }
+  .logo-icon { width: 30px; height: 30px; animation: none; }
+  .logo-text { font-size: 1.2rem; }
+
+  .app-header .nav-tabs {
+    flex-direction: column;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    gap: 0.15rem;
+  }
+
+  .app-header .nav-tab {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.7rem;
+    padding: 0.6rem 0.65rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .app-header .nav-tab.active {
+    background: var(--surface-1);
+    font-weight: 700;
+    box-shadow: none;
+  }
+
+  /* The greeting + logout block drops to the foot of the rail, above the fold
+     of nothing -- it is the least-used control on the screen and should not sit
+     at eye level. `margin-top:auto` inside the flex column does that without a
+     fixed height that would break if the nav ever gains a fifth item. */
+  .app-header > div:last-child {
+    margin-top: auto;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.5rem !important;
+    border-top: 1px solid var(--border-glass);
+    padding-top: 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  /* `align-items: stretch` on the column above made the icon-only logout
+     button grow to the full height of the remaining space -- a ~200px tall
+     box with a tiny icon floating in it. Measured at 1440x900 before the
+     fix. flex-start sizes it to its content. */
+  .app-header > div:last-child > .btn-icon-only {
+    flex: 0 0 auto;
+    align-self: flex-start;
+  }
+
+  .app-container > main {
+    grid-area: main;
+    margin-top: 0 !important;
+    padding: 1.4rem 1.6rem 3rem;
+    min-width: 0;   /* lets tables/grids inside shrink instead of overflowing */
+  }
+}
+
+/* ============================================================================
+   DECK LIST — one component, two shapes
+   ============================================================================
+   The phone keeps the 68px row it already had. Desktop turns the SAME markup
+   into the mockup's tile grid: commander art on top, name, completion bar,
+   what it costs to finish.
+
+   These were inline styles on the <button>. They moved into a class for one
+   reason: an inline style cannot be overridden by a media query, so the
+   desktop shape was impossible without either duplicating the component or
+   branching on window width in React. A second component drifts; a width
+   branch in JS disagrees with the CSS breakpoint. This is one element that
+   reads its own layout from the viewport, which is what the breakpoint is for.
+*/
+.deck-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.deck-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.85rem 0.9rem;
+  min-height: 68px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-glass);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  transition: var(--transition-smooth);
+}
+
+.deck-row.is-selected {
+  border: 2px solid var(--accent-blue);
+  background: var(--surface-2);
+}
+
+.deck-row-body { flex: 1; min-width: 0; }
+
+/* No art on the phone. The row is scanned one-handed while holding cards --
+   a thumbnail costs width that the deck name needs, and it is a network
+   fetch per row on a mobile connection. */
+.deck-row-art { display: none; }
+
+@media (min-width: 1024px) {
+  .deck-rows {
+    display: grid;
+    /* auto-fill + minmax rather than a fixed repeat(4): at 1440px with the
+       236px rail this lands on four columns, but it stays legible on a
+       1024px laptop (two) and a 2560px monitor (six) without another
+       breakpoint per width. */
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 0.9rem;
+  }
+
+  .deck-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .deck-row-art {
+    display: block;
+    height: 112px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+
+  /* art_crop is the wrong aspect for a wide tile, so the full card image is
+     cropped to the art band. object-position at 22% shows the illustration
+     rather than the title bar and mana cost at the very top. */
+  .deck-row-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 22%;
+    display: block;
+  }
+
+  .deck-row-body {
+    padding: 0.7rem 0.75rem 0.8rem;
+    flex: 1;
+  }
+
+  /* The ring sits over the art's bottom-left corner instead of taking a
+     column of its own -- completion is the thing being scanned for, so it
+     stays visible, but it does not push the deck name around. */
+  .deck-row > svg:not(.deck-row-chevron),
+  .deck-row > span:not(.deck-row-art):not(.deck-row-body) {
+    position: absolute;
+    margin: 74px 0 0 0.6rem;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.6));
+  }
+
+  .deck-row { position: relative; }
+
+  /* A chevron says "this row leads somewhere" in a list. A tile is already
+     obviously clickable and the chevron would float in whitespace. */
+  .deck-row-chevron { display: none; }
+}
+
+/* Deck list header. On the phone: title left, Select right. On desktop the
+   mockup adds the subtitle and New deck, so it becomes a three-part bar with
+   the actions pushed to the end. */
+.deck-list-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.deck-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+.deck-list-sub {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  /* Baseline, not center: it reads as a continuation of the title rather than
+     a second thing sitting next to it. */
+  align-self: baseline;
+}
+
+/* ============================================================================
+   DECK VIEW — two panes on desktop
+   ============================================================================
+   Left: search, tabs, the card list. Right: card detail that follows the
+   selection, pinned so it stays put while the list scrolls.
+
+   On the phone this is a plain block and the grid never applies, so the
+   single-column screen Zach already uses is untouched.
+*/
+.deck-panes { display: block; }
+
+@media (min-width: 1024px) {
+  .deck-panes {
+    display: grid;
+    /* A FIXED right column, not a fraction. Card detail has a card image in
+       it, which has a fixed aspect ratio -- letting it scale with the window
+       makes the image jump size on every resize. The LIST takes the slack. */
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 1.1rem;
+    align-items: start;
+  }
+
+  .deck-panes-main { min-width: 0; }
+
+  .deck-panes-side {
+    position: sticky;
+    /* 1rem below the top of the scroll container. The rail is its own
+       scroller, so this only has to clear the page padding. */
+    top: 1rem;
+    /* THIS WRAPPER DOES NOT SCROLL. It used to be overflow-y:auto, which is
+       what made the WHOLE pane scrollable -- art, name and tabs slid away
+       together. Zach: "should not fully be scrollable just the bottom portion
+       under the 3 tabs."
+       The inspector inside it owns a fixed height and scrolls its own body
+       row, so this only has to hold it in place.
+
+       HEIGHT, not max-height: the pane inside is height:100% and needs a
+       definite box to resolve against, or it falls back to its content and
+       the anchored footer drifts below the fold.
+
+       --pane-top is measured at runtime by DeckView (see useEffect there) and
+       is how far down the page this column actually starts -- ~249px, made of
+       the header, the deck title and the progress block. A pure `100vh - 2rem`
+       ignored that offset and ran the pane 153px past the fold, which is what
+       put the anchored Remove button off-screen. The fallback keeps it sane
+       before the first measurement lands. */
+    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    overflow: hidden;
+  }
+
+  /* The inline inspector is a block in a column, not a centred dialog. The
+     modal's sizing (90vh, centred, fixed width) would fight the grid. */
+  .card-inspector-inline {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    height: auto;
+    margin: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* ===========================================================================
+     THE INLINE PANE IS BUILT TO THE MOCKUP, not inherited from the modal.
+     ===========================================================================
+     What went wrong the first time: `.card-inspector` carries padding:2.5rem
+     and gap:2.5rem, which are right for a 720px centred dialog and absurd in a
+     400px column -- measured 40px of padding a side, so 80px of a 400px pane
+     was margin before any content. Then stacking it put a centred card image
+     on its own row with nothing beside it.
+
+     The mockup (sketches/desktop.html, right pane) is explicit and this
+     matches it: a SMALL image on the LEFT, name + type + cost beside it,
+     details below. Reusing the component was right; letting it keep the
+     modal's geometry was not.
+  */
+  .card-inspector-inline {
+    width: 100%;
+    max-width: none;
+    /* Height is set in the grid rule below -- the pane needs a real box so the
+       header can pin while the body row scrolls. (This used to say `auto`,
+       back when the wrapper did the scrolling and took the header with it.) */
+    margin: 0;
+    /* Mockup panel padding, not dialog padding. */
+    padding: 1rem;
+    display: flex;
+    gap: 0.9rem;
+    overflow: visible;
+  }
+
+  /* THE PANEL IS A GRID: image beside the identity, then FULL-WIDTH rows.
+     Zach: "make the tabs inside the card detail view span the entire width
+     of that pane."
+
+     The tabs and the body are children of .ci-info-col, which is the narrow
+     right-hand column -- so no amount of width on the tabs themselves could
+     make them span the pane. `display: contents` on the info column removes
+     that box from the layout and promotes its children (head, tabs, body)
+     into THIS grid, where the tabs and body can each span both columns while
+     the head stays beside the image.
+
+     It is the one CSS feature that solves this without restructuring the
+     component's JSX and breaking the modal that shares it. */
+  .card-inspector-inline {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    /* THREE ROWS: [art | identity], tabs, then the body.
+       The body row is minmax(0, 1fr) so it takes the leftover height and can
+       shrink below its content -- without the 0 minimum it would refuse to
+       shrink and the overflow would push the pane taller instead of
+       scrolling inside it. */
+    grid-template-rows: auto auto minmax(0, 1fr);
+    align-items: start;
+    column-gap: 0.9rem;
+    row-gap: 0.6rem;
+    /* A HEIGHT, not just a cap: the header must pin and the footer must
+       anchor, which needs a real box.
+
+       THE HEIGHT MUST ACCOUNT FOR WHERE THE PANE STARTS. `100vh - 6rem` was
+       wrong -- the pane begins ~249px down the page (header, deck title,
+       progress block), so it ran 153px PAST the fold and the anchored footer
+       sat below the screen. That is the "cut off" in his screenshot: the
+       button was pinned to the bottom of a box you could not see the bottom
+       of. `sticky top` is 1rem, so the available height is the viewport minus
+       that offset minus a bottom margin. */
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .card-inspector-inline .ci-info-col {
+    display: contents !important;
+  }
+
+  /* Row 1, column 2: badges, name, type line, set -- beside the image.
+     .ci-head is ONE box here (not display:contents): dissolving it made every
+     child its own grid row, so an empty badge wrapper took the slot next to
+     the art and pushed the name below it. Measured: image top 266, name 442. */
+  .card-inspector-inline .ci-head {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* FULL-WIDTH ROWS. Both are now direct children of .ci-info-col, which is
+     display:contents, so they are real grid items of the pane and simply span
+     both columns. The tabs had to be un-nested from .ci-head in the JSX for
+     this to be possible -- CSS alone could not do it without either breaking
+     the header apart or sliding the tabs under the card image. */
+  .card-inspector-inline .ci-tabs,
+  .card-inspector-inline .ci-scroll {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  /* 120px, from the mockup. Fixed, and NOT allowed to grow: the complaint was
+     the image eating the pane. */
+  .card-inspector-inline .ci-image-col {
+    grid-column: 1;
+    grid-row: 1;
+    width: 120px !important;
+    align-self: start !important;
+    align-items: flex-start !important;
+    min-height: 0 !important;
+    gap: 0.3rem !important;
+  }
+
+  .card-inspector-inline .ci-image-wrap {
+    width: 120px !important;
+    /* Height follows the card's aspect ratio rather than a second fixed
+       number that could disagree with the width. */
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+  }
+
+  .card-inspector-inline .ci-image-wrap img {
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block;
+  }
+
+  /* ONLY THE BODY UNDER THE TABS SCROLLS.
+     Zach: "the card detail pane should not fully be scrollable just the
+     bottom portion under the 3 tabs."
+
+     I had this backwards. Earlier I removed the inner scroller because a
+     cramped ~100px box looked wrong -- but the box was cramped because the
+     PANE had no height, not because scrolling there was wrong. Letting the
+     whole pane scroll means the card art and the tabs slide away, so you lose
+     the thing you are looking at and the control you switch with.
+
+     The pane takes a fixed viewport-relative height, the image/name/tabs rows
+     size to their content, and this row takes whatever is left and scrolls
+     inside it. minmax(0, 1fr) is load-bearing: a grid row defaults to min
+     auto, which refuses to shrink below its content, and the overflow would
+     escape the pane instead of scrolling within it. */
+  .card-inspector-inline .ci-scroll {
+    grid-column: 1 / -1;
+    /* Fill the row rather than sitting at its top: align-items:start on the
+       grid would otherwise size this to its content, leaving the scroll box
+       short and the space below it empty. */
+    align-self: stretch;
+    height: 100%;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    /* Room for the anchored footer, which is positioned over the pane's
+       bottom edge. Without this the last row of content hides behind it. */
+    padding-bottom: 0.6rem;
+  }
+
+  /* DESTRUCTIVE ACTIONS ARE ANCHORED, NOT SCROLLED TO.
+     Zach: "the delete button should be anchored at the bottom and I shouldnt
+     have to scroll to that. So really the scroll should be between the top
+     taps and any buttons at the bottom."
+
+     Sticky rather than moved in the JSX: these buttons are rendered per-tab
+     deep inside the body, and hoisting them out would mean restructuring the
+     component for all three tabs plus the phone modal. Sticky pins them to
+     the bottom of the scroll box while leaving them exactly where they are in
+     the DOM -- so tab order and the modal are untouched.
+
+     The opaque background matters: content scrolls UNDER this, and a
+     see-through destructive button with rules text sliding behind it is how
+     you misread which card you are removing. */
+  .card-inspector-inline .ci-footer-acts {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0.85rem -0.25rem 0;
+    padding: 0.6rem 0.25rem 0.1rem;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-glass);
+  }
+
+  /* THE PANE READS SMALLER SO MORE OF IT FITS.
+     Zach: "the UI looks weird here being cut off. Maybe the font needs to be
+     smaller so it fits the screen better." The pane is a 440px column, not a
+     720px dialog -- the modal's type scale leaves every row feeling clipped.
+     Applied to the pane only, so the phone modal keeps its own sizing. */
+  .card-inspector-inline .ci-scroll {
+    font-size: 0.86rem;
+  }
+
+  .card-inspector-inline .ci-scroll .btn {
+    font-size: 0.84rem;
+    padding: 0.5rem 0.8rem;
+  }
+
+  /* DELETE DECK STAYS SMALL.
+     It was width:100% under a single column, which was fine at 390px and
+     became a 1150px red target spanning both panes on desktop. The size of a
+     destructive control should reflect how often you mean to press it, not
+     how much room the layout happens to have. */
+  .deck-delete-row {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  .deck-delete-row > button {
+    width: auto !important;
+    min-width: 160px;
+  }
+}
+
+/* ============================================================================
+   DECK BUILDER WRAPPER — the 1200px cap, and where it stops applying
+   ============================================================================
+   These were inline styles on the wrapper in DeckBuilder.jsx. Moved into a
+   class for the same reason .deck-row was: an inline style cannot be
+   overridden by a media query, so the cap could not be lifted for desktop
+   without a width branch in JS.
+
+   Below 1024px this is byte-for-byte the old behaviour.
+*/
+.deckbuilder-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  /* NO READING CAP ON A TWO-PANE SCREEN.
+     Measured at 1743px: the cap left 307px of dead gutter -- ~128px of
+     nothing down each side of a screen whose whole point is fitting a list
+     and a card beside each other. */
+  .deckbuilder-wrap {
+    max-width: none;
+    margin: 0;
+  }
+
+  /* Tighter page padding too. 1.6rem of page padding plus the rail's own
+     border was reading as more margin on top of the gutters. */
+  .app-container > main {
+    padding: 1.2rem 1.2rem 3rem;
+  }
+
+  /* THE DETAIL PANE GETS THE RECLAIMED WIDTH.
+     400px was chosen to match the mockup when the list had 1200px to share.
+     With the cap gone there is room for the card text to breathe, which is
+     the pane's actual job. clamp() rather than a fixed number so it stays
+     sensible on a 1280px laptop (440) and a 2560px monitor (560). */
+  .deck-panes {
+    grid-template-columns: minmax(0, 1fr) clamp(440px, 30%, 560px);
+    gap: 1rem;
+  }
+}
+
+/* ============================================================================
+   THE CURVE TAB
+   One set of rules for both widths. The phone and desktop prototypes behaved
+   identically; only the chrome differed. Sizes step up inside the desktop
+   media query at the end rather than in a second component.
+   ========================================================================== */
+
+/* The tab's own wrapper. Bottom padding clears the pinned mobile nav so the
+   last card row is not trapped under it -- the deck screen does the same. */
+.curve-tab {
+  display: block;
+  padding-bottom: 0.5rem;
+}
+
+/* The filtered card list. Its own box so the sticky filter bar above it has a
+   scroll parent to stick within, and so a long list cannot spill past the
+   panel's rounded corner. */
+.curve-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.curve-panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+.curve-head { display: flex; align-items: baseline; gap: 0.5rem; }
+.curve-head b { font-size: 0.92rem; }
+.curve-head span { font-size: 0.72rem; color: var(--text-muted); }
+
+/* THE CHART. align-items:end so bars grow up from a shared baseline. */
+.curve-chart {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.3rem;
+  align-items: end;
+  height: 170px;
+  /* Headroom for the commander label, which sits ABOVE the tallest bar and
+     would otherwise be clipped by the panel. */
+  padding-top: 1.1rem;
+  margin-top: 0.6rem;
+}
+
+.curve-col { position: relative; display: flex; flex-direction: column;
+             justify-content: flex-end; height: 100%; }
+.curve-total { text-align: center; font-size: 0.66rem; font-weight: 700;
+               color: var(--text-secondary); margin-bottom: 0.2rem;
+               font-variant-numeric: tabular-nums; }
+
+/* column-reverse stacks the first role at the BOTTOM, so the legend order and
+   the stacking order agree -- otherwise the key reads upside down. */
+.curve-stack { display: flex; flex-direction: column-reverse;
+               border-radius: 4px 4px 0 0; overflow: hidden; min-height: 2px; }
+
+.curve-seg { width: 100%; min-height: 3px; border: 0; padding: 0;
+             cursor: pointer; transition: opacity 0.12s; }
+.curve-seg.dim { opacity: 0.18; }
+.curve-seg.sel { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+
+/* TEN ROLE COLOURS. Five was already near the limit for a stacked bar, so
+   these are spaced deliberately round the wheel rather than "three more of
+   what we had". The four originals keep their colours so the chart does not
+   re-learn itself between releases. */
+.curve-ramp, .curve-seg.curve-ramp { background: var(--type-grass, #30d158); }
+.curve-draw, .curve-seg.curve-draw { background: var(--accent-blue, #0a84ff); }
+.curve-removal, .curve-seg.curve-removal { background: #ff9f0a; }
+.curve-threat, .curve-seg.curve-threat { background: #ff453a; }
+.curve-wipe, .curve-seg.curve-wipe { background: #fb7185; }
+.curve-counter, .curve-seg.curve-counter { background: #a78bfa; }
+.curve-tutor, .curve-seg.curve-tutor { background: #f0a3ff; }
+.curve-protection, .curve-seg.curve-protection { background: #2dd4bf; }
+.curve-recursion, .curve-seg.curve-recursion { background: #94a3b8; }
+.curve-other, .curve-seg.curve-other { background: var(--text-muted, #6b7694); }
+
+/* THE DECK MIX BAR — the part of the mockup that carried its weight.
+   One row, every category, counts in place: with ten roles a stacked curve
+   becomes a legend-hunting exercise, and this answers "what is this deck made
+   of" in a single glance without one. */
+.curve-mix { display: flex; height: 30px; border-radius: 7px;
+             overflow: hidden; margin-bottom: 0.5rem; margin-top: 0.7rem;
+             border-top: 0; }
+.curve-mix button { display: grid; place-items: center; border: 0; padding: 0;
+                    font: inherit; font-size: 0.66rem; font-weight: 800;
+                    color: #0c0c0e; cursor: pointer;
+                    transition: opacity 0.12s; min-width: 0; }
+.curve-mix button.dim { opacity: 0.28; }
+.curve-mixkey { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; }
+.curve-mixkey button { display: inline-flex; align-items: center; gap: 0.32rem;
+                       background: none; border: 0; color: var(--text-secondary);
+                       font: inherit; font-size: 0.71rem; cursor: pointer;
+                       padding: 0.25rem 0; min-height: 30px; }
+.curve-mixkey button.dim { opacity: 0.4; }
+.curve-mixkey i { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.curve-mixkey b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.curve-xrow { display: grid; grid-template-columns: repeat(8, 1fr);
+              gap: 0.3rem; margin-top: 0.3rem; }
+.curve-x { text-align: center; font-size: 0.66rem; color: var(--text-muted); }
+.curve-axis { text-align: center; font-size: 0.64rem; color: var(--text-muted);
+              margin-top: 0.15rem; }
+
+/* Anchored right, not centred: the commander is usually a 6+ drop, so a
+   centred label on the last column overflows the panel. */
+.curve-cmdr { position: absolute; right: 0; white-space: nowrap;
+              font-size: 0.58rem; font-weight: 700; color: var(--text-primary);
+              background: var(--surface-2); border: 1px solid var(--border-glass);
+              border-radius: 999px; padding: 0.05rem 0.35rem; pointer-events: none; }
+
+.curve-stats { display: grid; grid-template-columns: repeat(2, 1fr);
+               gap: 0.45rem; margin-top: 0.7rem; }
+.curve-stat { background: var(--surface-2); border: 1px solid var(--border-glass);
+              border-radius: var(--radius-sm); padding: 0.45rem 0.55rem; }
+.curve-stat-k { font-size: 0.62rem; text-transform: uppercase;
+                letter-spacing: 0.04em; color: var(--text-muted); }
+.curve-stat-v { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.curve-stat-n { font-size: 0.64rem; color: var(--text-muted); }
+
+.curve-toggle { display: flex; gap: 3px; background: var(--surface-2);
+                border-radius: 9px; padding: 3px; border: 1px solid var(--border-glass);
+                margin-top: 0.6rem; }
+.curve-toggle button { flex: 1; background: none; border: 0; color: var(--text-muted);
+                       font: inherit; font-size: 0.74rem; font-weight: 600;
+                       padding: 0.4rem; border-radius: 7px; min-height: 34px;
+                       cursor: pointer; }
+.curve-toggle button.on { background: var(--surface-3, var(--surface-1));
+                          color: var(--text-primary); }
+
+.curve-turns { margin-top: 0.5rem; }
+.curve-turn { display: flex; align-items: center; gap: 0.5rem; width: 100%;
+              background: none; border: 0; font: inherit; padding: 0.3rem 0;
+              min-height: 36px; cursor: pointer; }
+.curve-turn-l { width: 52px; font-size: 0.73rem; color: var(--text-muted);
+                text-align: left; }
+.curve-turn-bar { flex: 1; height: 15px; background: var(--surface-2);
+                  border-radius: 4px; overflow: hidden; }
+.curve-turn-bar i { display: block; height: 100%; background: var(--accent-blue);
+                    transition: width 0.2s; }
+.curve-turn.on .curve-turn-bar i { background: #5ab0ff; }
+.curve-turn-n { width: 30px; text-align: right; font-size: 0.73rem;
+                color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* STICKY so the active filter and its undo stay reachable: with 49+ rows the
+   Clear button measured y=1279 in a 950px viewport -- a filter you cannot see
+   and cannot undo. */
+.curve-filterbar { position: sticky; top: 0; z-index: 2;
+                   display: flex; align-items: center; gap: 0.6rem;
+                   background: rgba(10, 132, 255, 0.12);
+                   border: 1px solid rgba(10, 132, 255, 0.32);
+                   border-radius: var(--radius-sm); padding: 0.45rem 0.6rem;
+                   margin-bottom: 0.5rem; font-size: 0.78rem;
+                   backdrop-filter: blur(8px); }
+.curve-filterbar button { margin-left: auto; background: var(--surface-2);
+                          border: 1px solid var(--border-glass); color: var(--text-primary);
+                          border-radius: 7px; font: inherit; font-size: 0.74rem;
+                          padding: 0.3rem 0.6rem; min-height: 32px; cursor: pointer; }
+.curve-listhint { font-size: 0.76rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+.curve-row { display: flex; align-items: center; gap: 0.55rem; width: 100%;
+             /* 48px minimum: this list is tapped, not clicked. */
+             min-height: 48px; padding: 0.4rem 0.2rem; background: none;
+             border: 0; border-bottom: 1px solid var(--border-glass);
+             font: inherit; text-align: left; cursor: pointer; }
+.curve-dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+.curve-row-name { flex: 1; min-width: 0; }
+.curve-row-name b { font-size: 0.84rem; font-weight: 600; display: block;
+                    color: var(--text-primary); overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+.curve-row-what { font-size: 0.68rem; color: var(--text-muted); display: block;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.curve-row-mv { font-size: 0.76rem; color: var(--text-muted);
+                font-variant-numeric: tabular-nums; }
+.curve-note-pill { font-size: 0.62rem; font-weight: 700; padding: 0.1rem 0.4rem;
+                   border-radius: 999px; background: var(--surface-2);
+                   color: var(--text-secondary); flex: 0 0 auto; }
+
+.curve-source { font-size: 0.72rem; color: var(--text-muted); margin: 0.2rem 0 0;
+                padding: 0 0.2rem; }
+
+/* DESKTOP: more room, so the chart gets taller and the stats go four across.
+   Same component, same markup -- only the dimensions change. */
+@media (min-width: 1024px) {
+  .curve-chart { height: 240px; gap: 0.5rem; }
+  .curve-xrow { gap: 0.5rem; }
+  .curve-stats { grid-template-columns: repeat(4, 1fr); }
+  .curve-panel { padding: 1rem; }
+  .curve-turn-l { width: 60px; }
+}
+
+/* ============================================================================
+   CURVE ON DESKTOP — the list takes the right pane
+   Zach: "that list should replace the card detail pane instead of having to
+   scroll to the bottom." On this tab the filtered list IS the detail: you tap
+   a bar to ask "which cards are these", and the answer belongs beside the
+   question, not 1200px below it.
+   ========================================================================== */
+@media (min-width: 1024px) {
+  /* The Curve tab drops the deck screen's two-pane split: the card detail pane
+     is not shown here, so the main column takes the whole width and the curve
+     makes its own columns below. */
+  .deck-panes-curve { grid-template-columns: minmax(0, 1fr) !important; }
+
+  /* Chart, health and turns on the left; the card list pinned on the right at
+     the same width as the detail pane it replaces, so the eye does not have to
+     re-learn the screen between tabs. */
+  .curve-tab {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(440px, 30%, 560px);
+    gap: 1.2rem;
+    align-items: start;
+  }
+
+  /* Everything except the list stacks in column 1. */
+  .curve-tab > .curve-panel:not(.curve-listpanel),
+  .curve-tab > .curve-source { grid-column: 1; }
+
+  /* THE LIST PANE. Sticky and self-scrolling, exactly like the card detail
+     pane: the chart above it is what you are interacting with, so it must not
+     scroll away while you read the answer. */
+  .curve-tab > .curve-listpanel {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    position: sticky;
+    top: 1rem;
+    /* A definite height so the list scrolls INSIDE the pane rather than
+       running past the fold -- the same bug the detail pane had. */
+    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Only the rows scroll; the filter bar above them stays put. */
+  .curve-tab > .curve-listpanel .curve-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+/* THE HOVER PREVIEW on the curve's card list.
+   Desktop only: there is no hover on a phone, where tapping the row opens the
+   card sheet and shows the same information. */
+.curve-tip { display: none; }
+
+@media (min-width: 1024px) {
+  .curve-tip {
+    display: block;
+    position: fixed;
+    /* OVER THE LIST, LEVEL WITH THE ROW. Never over the chart.
+       Three failed attempts before this, all placing the box in the LEFT
+       column: bottom-left was a screen-width from the cursor, beside-the-list
+       sat on the bars, and "below the chart" does not fit -- Zach's window is
+       1855x731 and the chart ends at y=687.
+       Anchored to the list pane's right edge instead, which starts where the
+       chart stops, so no height can make them overlap. --tip-top is measured
+       from the hovered row in JS. */
+    right: 1.2rem;
+    top: var(--tip-top, 20vh);
+    width: 340px;
+    z-index: 40;
+    background: var(--surface-2);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.75rem;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    font-size: 0.78rem;
+  }
+  .curve-tip b { color: var(--text-primary); font-size: 0.86rem; }
+  .curve-tip-type { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.1rem; }
+  .curve-tip-text { font-size: 0.76rem; line-height: 1.45; color: var(--text-secondary);
+                    margin: 0.45rem 0; padding: 0.45rem 0;
+                    border-top: 1px solid var(--border-glass);
+                    border-bottom: 1px solid var(--border-glass);
+                    white-space: pre-wrap; }
+  .curve-tip-foot { font-size: 0.7rem; color: var(--text-muted); }
+}
+
+@media (min-width: 1024px) {
+  /* A CARD IS SELECTED: the detail pane takes the right column, so the curve
+     collapses to one column and its list goes back under the chart.
+     Two panes cannot share one slot -- when they tried, the detail pane
+     mounted below the fold and clicking a card looked like nothing happened.
+     .deck-panes-curve is only applied when NO card is selected, so the absence
+     of that class is the signal here. */
+  .deck-panes:not(.deck-panes-curve) .curve-tab {
+    display: block;
+  }
+  .deck-panes:not(.deck-panes-curve) .curve-tab > .curve-listpanel {
+    position: static;
+    height: auto;
+    max-height: 60vh;
+  }
+  .deck-panes:not(.deck-panes-curve) .curve-tab > .curve-listpanel .curve-list {
+    max-height: 48vh;
+  }
+  /* No hover preview while the detail pane is open: the pane already shows the
+     card's rules text, and a tooltip repeating it over the chart is noise. */
+  .deck-panes:not(.deck-panes-curve) .curve-tip { display: none; }
+}
+
+/* THE LAND ODDS beside each turn's card count.
+   The count says how many cards are cheap enough; the percentage says how
+   often you actually have the mana. Both, because the count alone implies a
+   certainty it does not have. */
+.curve-turn-odds { width: 44px; text-align: right; font-size: 0.72rem;
+                   color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Amber below 50%: at that point the turn is likelier to miss than hit. Not
+   red -- a thin manabase is a trade-off, not an error. */
+.curve-turn-odds.low { color: #ff9f0a; }
+
+.curve-assumes { font-size: 0.68rem; line-height: 1.4; color: var(--text-muted);
+                 margin: 0.6rem 0 0; padding-top: 0.5rem;
+                 border-top: 1px solid var(--border-glass); }
+
+/* COLOUR SOURCES — the other half of "can I cast this".
+   Land count says you have three mana; this says whether they are the right
+   three. Same rules at both widths; only the panel around it changes. */
+.curve-colours { display: flex; flex-direction: column; gap: 0.35rem;
+                 margin-top: 0.6rem; }
+.curve-colour { display: flex; align-items: center; gap: 0.5rem; }
+
+/* WUBRG pips. Magic's own colours, so the row is readable without the letter,
+   but the letter stays for anyone who cannot distinguish them. */
+.curve-pip { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+             font-style: normal; font-size: 0.62rem; font-weight: 800;
+             display: flex; align-items: center; justify-content: center;
+             color: #1a1a1a; }
+.curve-pip-W { background: #f8f6d8; }
+.curve-pip-U { background: #a5d3ec; }
+.curve-pip-B { background: #b9aeae; }
+.curve-pip-R { background: #eba282; }
+.curve-pip-G { background: #a2ceaa; }
+
+.curve-colour-n { width: 76px; font-size: 0.74rem; color: var(--text-secondary);
+                  font-variant-numeric: tabular-nums; }
+.curve-colour-bar { flex: 1; height: 13px; background: var(--surface-2);
+                    border-radius: 4px; overflow: hidden; }
+.curve-colour-bar i { display: block; height: 100%; background: var(--accent-blue); }
+.curve-colour-p { width: 42px; text-align: right; font-size: 0.74rem;
+                  color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Amber under 14 sources -- the usual deckbuilding floor for a colour you
+   want on curve. Not red: a light splash is a choice, not a mistake. */
+.curve-colour-p.low { color: #ff9f0a; }
+
+/* HARD TO CAST ON CURVE, on the row itself so the phone gets it too. */
+.curve-hard-pill { font-size: 0.62rem; font-weight: 700; padding: 0.1rem 0.4rem;
+                   border-radius: 999px; flex: 0 0 auto;
+                   background: rgba(255, 159, 10, 0.16); color: #ff9f0a; }
+
+.curve-tip-cast { font-size: 0.7rem; color: var(--text-secondary);
+                  margin-top: 0.35rem; padding-top: 0.35rem;
+                  border-top: 1px solid var(--border-glass); }
+.curve-tip-cast.low { color: #ff9f0a; }
+
+/* THE CARD DROPDOWN in the curve list.
+   Zach: "On desktop it opens as a DROP DOWN not a modal I want the same action
+   phone." Expands in place under the row you clicked, identically at both
+   widths -- this is what the approved prototype did. */
+.curve-row-wrap { display: block; }
+.curve-row.open { background: rgba(10, 132, 255, 0.10); }
+
+.curve-detail { display: flex; gap: 0.7rem; padding: 0.7rem 0.4rem 0.8rem;
+                background: var(--surface-2);
+                border-bottom: 1px solid var(--border-glass); }
+/* Small: this is a reminder of the card, not a replacement for opening it.
+   The last time art dominated a panel Zach said "the image takes up too much
+   space". */
+.curve-detail-img { width: 86px; height: auto; align-self: flex-start;
+                    border-radius: 5px; flex: 0 0 auto; }
+.curve-detail-body { min-width: 0; flex: 1; }
+.curve-detail-title { display: flex; align-items: center; gap: 0.4rem;
+                      flex-wrap: wrap; color: var(--text-primary);
+                      font-size: 0.86rem; }
+.curve-detail-type { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.1rem; }
+.curve-detail-text { font-size: 0.76rem; line-height: 1.45;
+                     color: var(--text-secondary); margin-top: 0.4rem;
+                     white-space: pre-wrap; }
+.curve-detail-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.45rem; }
+.curve-detail-note { font-size: 0.7rem; line-height: 1.4; color: var(--text-muted);
+                     margin-top: 0.45rem; padding-left: 0.5rem;
+                     border-left: 2px solid var(--border-glass); }
+.curve-detail-more { margin-top: 0.55rem; background: var(--surface-1);
+                     border: 1px solid var(--border-glass); color: var(--text-primary);
+                     border-radius: 7px; font: inherit; font-size: 0.73rem;
+                     padding: 0.35rem 0.7rem; min-height: 34px; cursor: pointer; }
+
+/* MANA PIPS. Round and coloured, the shape every MTG tool uses. */
+.curve-cost { display: inline-flex; gap: 1px; flex-wrap: wrap; }
+.curve-mp { display: inline-grid; place-items: center; width: 15px; height: 15px;
+            border-radius: 50%; font-size: 0.6rem; font-weight: 800;
+            font-style: normal; color: #150e05; background: #cac5c0;
+            box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25); }
+.curve-mp-W { background: #fffbd5; }
+.curve-mp-U { background: #aae0fa; }
+.curve-mp-B { background: #cbc2bf; }
+.curve-mp-R { background: #f9aa8f; }
+.curve-mp-G { background: #9bd3ae; }
+
+/* TURN PICKER for the color-source odds.
+   Zach: "I asked for the turns selection to filter on color source so I could
+   see percentage of what color I might get on turn 1 not just turn 3."
+   Six small targets rather than a segmented control: they are numbers, and a
+   number reads faster than a word. */
+.curve-turnpick { display: flex; gap: 4px; margin-top: 0.6rem; }
+.curve-turnpick button { flex: 1; background: var(--surface-2); border: 1px solid var(--border-glass);
+                         color: var(--text-muted); font: inherit; font-size: 0.76rem;
+                         font-weight: 700; border-radius: 8px;
+                         /* 36px: a thumb target on the phone. */
+                         min-height: 36px; cursor: pointer; }
+.curve-turnpick button.on { background: var(--accent, #0a84ff); border-color: transparent;
+                            color: #fff; }
+
+/* THE CURVE BUTTON — its own row, above the All/Owned/Missing filters.
+   Zach: "curve kind of hidden which makes me feel like it shouldn't be right
+   there... you can put it above the other row."
+   It was the 5th chip in a row that already scrolls sideways on a phone, so it
+   fell off the edge -- and it is a different KIND of control: the others pick
+   which cards you see, this one changes what the screen is about.
+   Identical at both widths, as he asked. */
+.deck-analyse-row { display: flex; margin-bottom: 0.6rem; }
+.deck-analyse-btn { display: inline-flex; align-items: center; gap: 0.4rem;
+                    background: var(--surface-1); border: 1px solid var(--border-glass);
+                    color: var(--text-secondary); font: inherit; font-size: 0.8rem;
+                    font-weight: 600; border-radius: var(--radius-sm);
+                    padding: 0.4rem 0.9rem;
+                    /* 36px: a thumb target. */
+                    min-height: 36px; cursor: pointer; }
+.deck-analyse-btn.on { background: var(--accent-blue); border-color: var(--accent-blue);
+                       color: var(--text-on-accent); }
+
+/* Castable-on-curve inside the expanded card dropdown. */
+.curve-detail-cast { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; }
+.curve-detail-cast.low { color: var(--warning, #ff9f0a); }

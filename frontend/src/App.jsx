@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { LayoutDashboard, Database, Sparkles, Settings as SettingsIcon, LogOut, Swords } from 'lucide-react';
+import { Sparkles, LogOut } from 'lucide-react';
 import Login from './components/Login';
 import Logo from './components/Logo';
 import { pushBackGuard } from './utils/useBackGuard';
 import { useT } from './utils/i18n';
+import { NAV_ITEMS } from './navItems.js';
 
 // View components are code-split so heavy deps (recharts in the chart views)
 // load on demand instead of in the initial bundle.
@@ -98,6 +99,9 @@ function App() {
   const [focusEntryId, setFocusEntryId] = useState(null);
   const [selectedCardFilter, setSelectedCardFilter] = useState('');
   const [toast, setToast] = useState(null);
+  // Set by the service worker when a newer build has finished downloading.
+  const [updateReady, setUpdateReady] = useState(false);
+  const [applyUpdate, setApplyUpdate] = useState(null);
   const [statsTrigger, setStatsTrigger] = useState(0);
 
   const tabGuardRef = useRef(null);
@@ -129,6 +133,26 @@ function App() {
   const showToast = (message) => {
     setToast(message);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { initServiceWorker } = await import('./registerSW.js');
+        const update = initServiceWorker({
+          onUpdateReady: () => { if (!cancelled) setUpdateReady(true); },
+        });
+        // Stored as a thunk: useState calls a bare function argument, which
+        // would fire the update immediately instead of storing it.
+        if (!cancelled) setApplyUpdate(() => update);
+      } catch (err) {
+        // The app must behave exactly as before if this fails. A PWA feature
+        // that can break the website is a bad trade.
+        console.error('Service worker init failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (toast) {
@@ -299,12 +323,10 @@ function App() {
             buttons: a fifth destination is one entry, and the tab order cannot
             silently disagree with itself. */}
         <nav className="nav-tabs" style={{ margin: 0 }}>
-          {[
-            { id: 'dashboard',   icon: LayoutDashboard, label: t('nav.dashboard') },
-            { id: 'collection',  icon: Database,        label: t('nav.collection') },
-            { id: 'deckbuilder', icon: Swords,          label: t('nav.deckBuilder') },
-            { id: 'settings',    icon: SettingsIcon,    label: t('nav.settings') },
-          ].map(({ id, icon: Icon, label }) => (
+          {/* Rendered from the SHARED list in navItems.js, so the bottom bar and
+              the desktop rail cannot disagree about what exists or in what
+              order. Zach: "the nav shouldn't be different on the desktop." */}
+          {NAV_ITEMS.map(({ id, icon: Icon, labelKey }) => (
             <button
               key={id}
               className={`nav-tab ${activeTab === id ? 'active' : ''}`}
@@ -312,7 +334,7 @@ function App() {
               aria-current={activeTab === id ? 'page' : undefined}
             >
               <Icon size={18} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </button>
           ))}
           {/* NO ADMIN TAB. Administration is reached from Settings -> About.
@@ -357,6 +379,46 @@ function App() {
       {toast && (
         <div className="toast">
           {toast}
+        </div>
+      )}
+
+      {/* A NEW BUILD IS READY. Persistent, because he has to act on it, and
+          because an installed PWA has no address bar to pull-to-refresh from --
+          a missed update means running a stale bundle indefinitely.
+
+          He chooses when to take it: auto-updating would swap the running
+          bundle mid-session, and numbers changing under someone recounting
+          cardboard against the screen is exactly the silent state change this
+          app is built to avoid. */}
+      {updateReady && (
+        <div style={{
+          position: 'fixed', left: 12, right: 12,
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)',
+          zIndex: 9999, display: 'flex', alignItems: 'center', gap: '0.7rem',
+          padding: '0.75rem 0.9rem', borderRadius: 'var(--radius-md)',
+          background: 'var(--surface-2)', border: '1px solid var(--accent-blue)',
+          boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+        }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: '0.85rem' }}>
+            {t('app.updateReady')}
+          </span>
+          <button
+            onClick={() => { if (applyUpdate) applyUpdate(true); }}
+            style={{ flexShrink: 0, background: 'var(--accent-blue)', color: '#fff',
+                     border: 0, borderRadius: 'var(--radius-sm)', font: 'inherit',
+                     fontSize: '0.8rem', fontWeight: 700, padding: '0.5rem 0.85rem',
+                     minHeight: 38, cursor: 'pointer' }}>
+            {t('app.updateNow')}
+          </button>
+          {/* Dismissible: he may be mid-count and not want the reload now. */}
+          <button
+            onClick={() => setUpdateReady(false)}
+            aria-label={t('common.close')}
+            style={{ flexShrink: 0, background: 'transparent', border: 0,
+                     color: 'var(--text-tertiary)', font: 'inherit',
+                     fontSize: '1.1rem', cursor: 'pointer', minHeight: 38 }}>
+            ×
+          </button>
         </div>
       )}
     </div>

@@ -362,11 +362,44 @@ async function availabilityForDeck(database, deckId, userId) {
             -- card has a back face, so the flip button never renders.
             cc.display_name, cc.back_image_url, cc.back_name, cc.back_type_line,
             cc.legalities, cc.type_line, cc.mana_cost, cc.cmc, cc.supertype,
+            -- HOW THE FACES RELATE, for the Curve tab's cost maths. A
+            -- transform back face costs nothing (it flips), a modal_dfc back
+            -- face is a second castable cost, and split is either half.
+            -- Without this the curve cannot tell them apart.
+            -- (No backticks in here: this comment sits inside a JS template
+            -- literal and a backtick would close it.)
+            cc.layout,
             cc.subtypes, cc.types, cc.rarity, cc.finishes,
             -- Needed by the commander-legality and partner-pairing warnings:
             -- "can be your commander" and "Partner" live in the rules text,
             -- not the type line.
             cc.oracle_text,
+            -- WHAT MANA THIS CARD MAKES, for the Curve tab's colour odds. Raw
+            -- WUBRG letters; NULL for fetchlands, which produce nothing
+            -- themselves. Not color_identity -- Command Tower's identity is
+            -- empty and it taps for all five.
+            cc.produced_mana,
+            -- WHAT THE CARD DOES, for the deck Curve tab. See cardRoles.js.
+            --
+            -- COALESCE puts the user's override first: card_roles.user_role is
+            -- NULL for the ~95% of cards where the Scryfall tag is right, so a
+            -- NULL means "never corrected" and clearing an override restores
+            -- the tag rather than freezing today's answer.
+            --
+            -- LEFT JOIN, not JOIN: a card with no role row must still appear in
+            -- the deck. The role import runs after the catalogue refresh, so
+            -- there is a real window on a fresh install where these are NULL,
+            -- and dropping cards from a decklist because a nightly job has not
+            -- run yet would be a wrong record, not a cosmetic gap.
+            COALESCE(cr.user_role, cr.role) AS card_role,
+            cr.source_tag AS role_source_tag,
+            cr.user_role AS role_is_override,
+            -- THE SECOND FACE'S OWN ROLE. An Adventure's Sorcery half is not
+            -- a creature, so it is not automatically a Threat -- Roost Seek
+            -- is ramp. NULL for single-faced cards.
+            COALESCE(cr.back_user_role, cr.back_role) AS back_card_role,
+            cr.back_source_tag AS back_role_source_tag,
+            cr.back_user_role AS back_role_is_override,
             -- Price for "cost to finish" and the per-card figure on the Missing
             -- tab.
             --
@@ -399,6 +432,9 @@ async function availabilityForDeck(database, deckId, userId) {
             mp.url AS price_url
      FROM deck_cards dc
      JOIN card_cache cc ON dc.desired_card_id = cc.id
+     -- Joined on ORACLE id, not the printing: a role describes the card, and
+     -- every printing of Sol Ring is the same card for this purpose.
+     LEFT JOIN card_roles cr ON cr.oracle_id = cc.oracle_id
      LEFT JOIN source_prices mp
             ON mp.card_id = cc.id AND mp.source = '${shop}'
      WHERE dc.deck_id = ?

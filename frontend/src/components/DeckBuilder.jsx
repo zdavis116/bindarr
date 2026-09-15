@@ -920,7 +920,21 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   });
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    // THE 1200px CAP IS A PHONE-ERA RULE AND IT STARVES THE DESKTOP.
+    //
+    // Zach: "the margins are horrible still... shrink the margins and widen
+    // the card detail view."
+    //
+    // MEASURED at 1743px wide: main was 1507px, this wrapper clamped its
+    // children to 1200px and split the remaining 307px into two ~128px auto
+    // margins -- the empty gutters he circled in red on both sides. A reading
+    // cap makes sense for a single column of prose; the deck view is a list
+    // beside a detail pane, and both want the room.
+    //
+    // The class does the work so a media query can lift the cap on desktop
+    // without a width branch in JS. Below 1024px it keeps exactly the old
+    // behaviour.
+    <div className="deckbuilder-wrap">
       
       {/* 1. SELECTION MENU VIEW OF ALL DECKS */}
       {/* DECK LIST -- now its own component, built against the approved

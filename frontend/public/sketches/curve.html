@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Curve tab (working prototype)</title>
+<style>
+  :root{
+    --bg:#0a0f1d; --surface:#121829; --surface-2:#1a2137; --surface-3:#232c47;
+    --border:rgba(255,255,255,.10); --border-2:rgba(255,255,255,.06);
+    --text:#e8ecf7; --text-2:#a3adc7; --text-3:#6b7694;
+    --blue:#0a84ff; --green:#30d158; --red:#ff453a; --amber:#ff9f0a;
+    --radius:14px; --radius-sm:9px; --rail:236px;
+    --ramp:#30d158; --draw:#0a84ff; --removal:#ff9f0a; --threat:#ff453a; --other:#6b7694;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .app{display:grid;grid-template-columns:var(--rail) 1fr;min-height:100vh}
+  .rail{background:var(--surface);border-right:1px solid var(--border);
+        padding:1rem .75rem;display:flex;flex-direction:column;gap:.25rem;
+        position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem 1rem}
+  .brand b{font-size:1.15rem;letter-spacing:-.02em}
+  .brand .dot{width:26px;height:26px;border-radius:6px;background:var(--red);
+              display:grid;place-items:center;font-size:13px}
+  .nav{display:flex;align-items:center;gap:.65rem;padding:.55rem .6rem;
+       border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;font-size:.88rem}
+  .nav.on{background:rgba(10,132,255,.14);color:#5ab0ff;font-weight:600}
+  .nav .ic{width:17px;text-align:center;opacity:.9}
+  .nav .count{margin-left:auto;font-size:.72rem;color:var(--text-3)}
+  .railfoot{margin-top:auto;border-top:1px solid var(--border-2);padding-top:.6rem}
+
+  .main{padding:1.4rem 1.6rem 3rem;min-width:0}
+  .head{display:flex;align-items:baseline;gap:1rem;margin-bottom:1.1rem}
+  .head h1{margin:0;font-size:1.5rem;letter-spacing:-.02em}
+  .head .sub{color:var(--text-3);font-size:.85rem}
+  .head .sp{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+
+  .btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+       padding:.45rem .8rem;border-radius:var(--radius-sm);font:inherit;font-size:.83rem;cursor:pointer}
+  .btn.sm{padding:.3rem .55rem;font-size:.76rem}
+  .btn.on{background:rgba(10,132,255,.16);border-color:var(--blue);color:#5ab0ff;font-weight:600}
+  .inp{background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+       padding:.45rem .7rem;border-radius:var(--radius-sm);font:inherit;font-size:.83rem}
+  .panel{background:var(--surface);border:1px solid var(--border);
+         border-radius:var(--radius);padding:1rem}
+  .tabs{display:flex;gap:.3rem;border-bottom:1px solid var(--border);margin-bottom:1rem}
+  .tab{padding:.5rem .8rem;font-size:.85rem;color:var(--text-2);cursor:pointer;
+       border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:#5ab0ff;border-bottom-color:var(--blue);font-weight:600}
+  .pill{display:inline-block;padding:.12rem .45rem;border-radius:999px;
+        font-size:.68rem;font-weight:600;background:var(--surface-3);color:var(--text-2)}
+  .pill.g{background:rgba(48,209,88,.16);color:#4ade80}
+  .pill.a{background:rgba(255,159,10,.16);color:#fbbf24}
+  .pill.r{background:rgba(255,69,58,.16);color:#f87171}
+
+  /* ---------- the chart ---------- */
+  .curvewrap{position:relative}
+  .curve{display:grid;grid-template-columns:repeat(8,1fr);gap:.55rem;
+         align-items:end;height:250px;padding:0 .2rem;
+         /* Headroom so the commander label above the tallest bar is not
+            clipped by the grid's own box. */
+         margin-top:26px}
+  .col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}
+  .coltot{text-align:center;font-size:.78rem;font-weight:700;margin-bottom:.3rem;
+          font-variant-numeric:tabular-nums;color:var(--text-2)}
+  .stack{display:flex;flex-direction:column-reverse;border-radius:6px 6px 0 0;
+         overflow:hidden;min-height:2px}
+  .seg{width:100%;cursor:pointer;transition:filter .12s, opacity .12s}
+  .seg:hover{filter:brightness(1.35)}
+  .seg.ramp{background:var(--ramp)} .seg.draw{background:var(--draw)}
+  .seg.removal{background:var(--removal)} .seg.threat{background:var(--threat)}
+  .seg.other{background:var(--other)}
+  /* dimmed when another role is hovered in the legend */
+  .curve.focus .seg{opacity:.18}
+  .curve.focus .seg.hot{opacity:1}
+  .colx{text-align:center;font-size:.76rem;color:var(--text-3);padding-top:.4rem;
+        border-top:1px solid var(--border-2);margin-top:.35rem}
+  .xrow{display:grid;grid-template-columns:repeat(8,1fr);gap:.55rem;padding:0 .2rem}
+
+  .cmdr{position:absolute;left:50%;transform:translateX(-50%);
+        border-left:2px dashed rgba(255,255,255,.5);pointer-events:none}
+  .cmdrlab{position:absolute;right:0;
+           white-space:nowrap;font-size:.66rem;font-weight:700;color:#fff;
+           background:var(--surface-3);border:1px solid var(--border);
+           border-radius:999px;padding:.08rem .42rem;pointer-events:none}
+
+  /* the live tooltip */
+  .tip{position:fixed;z-index:50;pointer-events:none;opacity:0;
+       transform:translateY(4px);transition:opacity .1s, transform .1s;
+       background:var(--surface-2);border:1px solid var(--border);
+       border-radius:var(--radius-sm);padding:.6rem .75rem;font-size:.78rem;
+       color:var(--text-2);width:330px;max-height:70vh;overflow:hidden;
+       box-shadow:0 14px 40px rgba(0,0,0,.6)}
+  .tip.show{opacity:1;transform:translateY(0)}
+  .tip b{color:var(--text)}
+  .tiprow{display:flex;gap:.5rem;padding:.14rem 0;align-items:center}
+  .tiprow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tipwhat{font-size:.71rem;line-height:1.35;color:var(--text-3);
+           margin:0 0 .45rem;padding-left:.1rem}
+  .tipmv{font-variant-numeric:tabular-nums;color:var(--text-3);font-size:.72rem}
+  .tipfoot{margin-top:.5rem;padding-top:.45rem;border-top:1px solid var(--border-2);
+           font-size:.73rem;color:var(--text-3)}
+
+  .legend{display:flex;gap:.2rem;flex-wrap:wrap;font-size:.78rem;color:var(--text-2);
+          margin-top:.9rem;padding-top:.8rem;border-top:1px solid var(--border-2)}
+  .lg{display:flex;align-items:center;gap:.35rem;cursor:pointer;padding:.2rem .45rem;
+      border-radius:var(--radius-sm)}
+  .lg:hover{background:var(--surface-2);color:var(--text)}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block;flex:0 0 auto}
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:.7rem;margin-top:1rem}
+  .stat{background:var(--surface-2);border:1px solid var(--border-2);
+        border-radius:var(--radius-sm);padding:.6rem .7rem}
+  .stat .k{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3)}
+  .stat .v{font-size:1.15rem;font-weight:700;margin-top:.15rem;font-variant-numeric:tabular-nums}
+  .stat .n{font-size:.7rem;color:var(--text-3);margin-top:.1rem}
+
+  /* the turn view, permanently below the curve */
+  .turns{margin-top:1.1rem;padding-top:.9rem;border-top:1px solid var(--border-2)}
+  .trow{display:flex;align-items:center;gap:.7rem;padding:.12rem 0;cursor:pointer;
+        border-radius:var(--radius-sm)}
+  .trow:hover{background:var(--surface-2)}
+  .trow .tl{width:52px;font-size:.78rem;color:var(--text-3)}
+  .tbar{flex:1;height:18px;background:var(--surface-2);border-radius:5px;overflow:hidden}
+  .tbar i{display:block;height:100%;background:var(--blue);transition:width .25s}
+  .trow .tn{width:66px;text-align:right;font-size:.79rem;font-variant-numeric:tabular-nums}
+
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+     color:var(--text-3);font-weight:600;padding:.45rem .6rem;border-bottom:1px solid var(--border)}
+  td{padding:.4rem .6rem;border-bottom:1px solid var(--border-2)}
+  tr.cardrow{cursor:pointer}
+  tr.cardrow:hover td{background:var(--surface-2)}
+  tr.cardrow.open td{background:rgba(10,132,255,.12)}
+
+  /* CARD DETAIL, expanded inside the list.
+     In place rather than a modal: a dialog over the list hides the list you
+     are working through, which is the same reason the deck view uses a pane. */
+  tr.detailrow td{background:var(--surface-2);padding:.7rem .6rem}
+  .cdet{display:flex;gap:.8rem;align-items:flex-start}
+  .cdet-img{width:92px;flex:0 0 92px;aspect-ratio:.718;border-radius:7px;
+            background:linear-gradient(145deg,#2a3350,#1b2238);
+            border:1px solid var(--border);display:grid;place-items:center;
+            font-size:.6rem;color:var(--text-3);text-align:center;padding:.3rem}
+  .cdet-body{min-width:0;flex:1}
+  .cdet-title{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+  .cdet-type{font-size:.76rem;color:var(--text-3);margin-top:.1rem}
+  .cdet-text{font-size:.79rem;line-height:1.5;color:var(--text-2);margin-top:.45rem}
+  .cdet-meta{font-size:.76rem;color:var(--text-3);margin-top:.45rem}
+
+  /* MANA PIPS. Round, coloured, the shape every MTG tool uses -- a cost
+     written as plain {1}{W}{U} is read letter by letter; pips are read at a
+     glance, which is the whole point of putting the cost here. */
+  .mp{display:inline-grid;place-items:center;width:15px;height:15px;
+      border-radius:50%;font-size:.6rem;font-weight:800;font-style:normal;
+      vertical-align:-2px;margin-right:1px;color:#150e05;
+      background:#cac5c0;box-shadow:inset 0 -1px 0 rgba(0,0,0,.25)}
+  .mp-w{background:#fffbd5} .mp-u{background:#aae0fa} .mp-b{background:#cbc2bf}
+  .mp-r{background:#f9aa8f} .mp-g{background:#9bd3ae}
+  .facesep{border:0;border-top:1px solid var(--border);margin:.5rem 0}
+
+  .tipcost{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-top:.25rem}
+  .tiptype{font-size:.72rem;color:var(--text-3)}
+  .tiptext{font-size:.76rem;line-height:1.45;color:var(--text-2);
+           margin:.4rem 0 .5rem;padding-bottom:.45rem;
+           border-bottom:1px solid var(--border-2)}
+  .cdet-note{font-size:.74rem;color:var(--text-2);margin-top:.45rem;
+             padding:.4rem .5rem;border-left:2px solid var(--blue);
+             background:rgba(10,132,255,.07);border-radius:0 5px 5px 0}
+  .cdet-acts{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.6rem}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .filterbar{display:flex;align-items:center;gap:.6rem;background:rgba(10,132,255,.10);
+             border:1px solid rgba(10,132,255,.30);border-radius:var(--radius-sm);
+             padding:.5rem .7rem;margin-bottom:.7rem;font-size:.82rem}
+  .card{aspect-ratio:.718;border-radius:8px;background:linear-gradient(145deg,#2a3350,#1b2238);
+        border:1px solid var(--border);display:grid;place-items:center;
+        font-size:.62rem;color:var(--text-3);text-align:center;padding:.3rem}
+  .note{margin:1.2rem 0 0;padding:.75rem .9rem;border-left:3px solid var(--blue);
+        background:rgba(10,132,255,.07);border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+        font-size:.8rem;color:var(--text-2);max-width:78ch}
+  .note b{color:var(--text)}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <nav class="rail">
+    <div class="brand"><span class="dot">📕</span><b>Bindarr</b></div>
+    <a class="nav"><span class="ic">◱</span>Dashboard</a>
+    <a class="nav"><span class="ic">▦</span>Collection<span class="count">2,625</span></a>
+    <a class="nav on"><span class="ic">⚔</span>Decks<span class="count">4</span></a>
+    <a class="nav"><span class="ic">⚙</span>Settings</a>
+    <div class="railfoot"><a class="nav"><span class="ic">👤</span>admin</a></div>
+  </nav>
+
+  <div class="main">
+    <div class="head">
+      <span class="sub" style="cursor:pointer">Decks ›</span>
+      <h1 style="margin-left:-.6rem">AI Doom</h1>
+      <span class="sub">Commander · 100 cards</span>
+      <span class="pill a">52% built</span>
+      <div class="sp"><button class="btn">Export</button></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 400px;gap:1.1rem;align-items:start">
+      <div class="panel" style="padding:.6rem">
+        <div style="display:flex;gap:.5rem;padding:.3rem .3rem .6rem">
+          <input class="inp" style="flex:1" placeholder="Search your collection or any card to add…">
+          <button class="btn sm">Filters</button>
+        </div>
+        <div class="tabs" style="margin:0 .3rem 1rem">
+          <div class="tab" data-tab="all">All <span class="pill" style="margin-left:.3rem">100</span></div>
+          <div class="tab" data-tab="have">Have <span class="pill g" style="margin-left:.3rem">51</span></div>
+          <div class="tab" data-tab="need">Need <span class="pill r" style="margin-left:.3rem">49</span></div>
+          <div class="tab" data-tab="consider">Considering <span class="pill" style="margin-left:.3rem">7</span></div>
+          <div class="tab on" data-tab="curve">Curve</div>
+        </div>
+
+        <div style="padding:0 .5rem 0">
+          <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.5rem">
+            <b style="font-size:.95rem">Mana curve</b>
+            <span style="font-size:.76rem;color:var(--text-3)" id="subtitle"></span>
+            <div style="margin-left:auto;display:flex;gap:.3rem">
+              <button class="btn sm on" id="byRole">By role</button>
+              <button class="btn sm" id="byType">By type</button>
+            </div>
+          </div>
+
+          <div class="curvewrap">
+            <div class="curve" id="curve"></div>
+            <div class="xrow" id="xrow"></div>
+            <div style="text-align:center;font-size:.72rem;color:var(--text-3);margin-top:.3rem">
+              mana value</div>
+          </div>
+
+          <div class="legend" id="legend"></div>
+
+          <div class="stats" id="stats"></div>
+
+          <!-- THE TURN VIEW IS ALWAYS HERE, not behind a toggle.
+               Zach: "I value more information then less". -->
+          <div class="turns">
+            <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.5rem">
+              <b style="font-size:.9rem">Castable by turn</b>
+              <span style="font-size:.74rem;color:var(--text-3)">
+                counts the same 63 nonland cards</span>
+              <div style="margin-left:auto;display:flex;gap:.3rem">
+                <button class="btn sm on" id="withRamp">With your 12 ramp</button>
+                <button class="btn sm" id="landsOnly">Lands only</button>
+              </div>
+            </div>
+            <div id="turns"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT PANE: the deck list, filtered by whatever you clicked. -->
+      <div class="panel" style="position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow:auto">
+        <div id="filterbar"></div>
+        <table>
+          <thead><tr><th>Card</th><th class="num">MV</th><th class="num">Have</th></tr></thead>
+          <tbody id="list"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="note"><b>This one is clickable — try it.</b> Hover any coloured block for the
+    cards in it. Hover a legend entry to highlight that role across every bar. Click a block
+    (or a turn row) to filter the list on the right; click the same one again, or
+    <b>Clear</b>, to unfilter. The turn view is permanently below the curve rather than
+    behind a toggle, since you would rather see more.<br><br>
+    There is <b>one screen</b>. Everything here is a hover or a click inside the Curve tab —
+    my earlier screens 2 and 3 were me explaining myself, which is not the same thing as
+    showing you the product, and that is what made them confusing.</p>
+  </div>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// A REAL 100-CARD LIST, not invented bar heights.
+//
+// The chart is COMPUTED from this array, so the shape cannot flatter itself --
+// if the bucketing rules are wrong, the picture is visibly wrong. mv is the
+// bucketing value; `note` carries the badge for the awkward cases.
+// ---------------------------------------------------------------------------
+const DECK = [
+  // commander (marker only, not in the bars)
+  {n:'The Ur-Dragon', mv:9, role:'threat', have:1, cmdr:true, cost:'{4}{W}{U}{B}{R}{G}', type:'Legendary Creature — Dragon Avatar', text:'Eminence — As long as The Ur-Dragon is in the command zone or on the battlefield, other Dragon spells you cast cost {1} less to cast.\nFlying\nWhenever one or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield.'},
+
+  // --- ramp (12) ---
+  {n:'Sol Ring', mv:1, role:'ramp', have:1, cost:'{1}', type:'Artifact', text:'{T}: Add {C}{C}.'},
+  {n:'Arcane Signet', mv:2, role:'ramp', have:1, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color in your commander\'s color identity.'},
+  {n:'Fellwar Stone', mv:2, role:'ramp', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add one mana of any color that a land an opponent controls could produce.'},
+  {n:'Talisman of Curiosity', mv:2, role:'ramp', have:0, cost:'{2}', type:'Artifact', text:'{T}: Add {C}.\n{T}: Add {G} or {U}. This artifact deals 1 damage to you.'},
+  {n:'Birds of Paradise', mv:1, role:'ramp', have:1, cost:'{G}', type:'Creature — Bird', text:'Flying\n{T}: Add one mana of any color.'},
+  {n:'Llanowar Elves', mv:1, role:'ramp', have:1, cost:'{G}', type:'Creature — Elf Druid', text:'{T}: Add {G}.'},
+  {n:'Cultivate', mv:3, role:'ramp', have:1, cost:'{2}{G}', type:'Sorcery', text:'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.'},
+  {n:"Kodama's Reach", mv:3, role:'ramp', have:0},
+  {n:'Rampant Growth', mv:2, role:'ramp', have:1, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
+  {n:'Farseek', mv:2, role:'ramp', have:0, cost:'{1}{G}', type:'Sorcery', text:'Search your library for a Plains, Island, Swamp, or Mountain card, put it onto the battlefield tapped, then shuffle.'},
+  {n:'Chromatic Lantern', mv:3, role:'ramp', have:0, cost:'{3}', type:'Artifact', text:'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.'},
+  {n:'Mana Crypt', mv:0, role:'ramp', have:0, cost:'{0}', type:'Artifact', text:'At the beginning of your upkeep, flip a coin. If you lose the flip, this artifact deals 3 damage to you.\n{T}: Add {C}{C}.'},
+
+  // --- card draw (11) ---
+  {n:'Rhystic Study', mv:3, role:'draw', have:0, cost:'{2}{U}', type:'Enchantment', text:'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.'},
+  {n:'Mystic Remora', mv:1, role:'draw', have:0, cost:'{U}', type:'Enchantment', text:'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nWhenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}.'},
+  {n:'Phyrexian Arena', mv:3, role:'draw', have:1, cost:'{1}{B}{B}', type:'Enchantment', text:'At the beginning of your upkeep, you draw a card and you lose 1 life.'},
+  {n:'Sylvan Library', mv:2, role:'draw', have:0, cost:'{1}{G}', type:'Enchantment', text:'At the beginning of your draw step, you may draw two additional cards. If you do, choose two cards in your hand drawn this turn. For each of those cards, pay 4 life or put the card on top of your library.'},
+  {n:'Guardian Project', mv:4, role:'draw', have:1, cost:'{3}{G}', type:'Enchantment', text:'Whenever a nontoken creature you control enters, if it doesn\'t have the same name as another creature you control or a creature card in your graveyard, draw a card.'},
+  {n:'Beast Whisperer', mv:4, role:'draw', have:0, cost:'{2}{G}{G}', type:'Creature — Elf Druid', text:'Whenever you cast a creature spell, draw a card.'},
+  {n:'Harmonize', mv:4, role:'draw', have:1, cost:'{2}{G}{G}', type:'Sorcery', text:'Draw three cards.'},
+  {n:'Night\u2019s Whisper', mv:2, role:'draw', have:1},
+  {n:'Read the Bones', mv:3, role:'draw', have:1, cost:'{2}{B}', type:'Sorcery', text:'Scry 2, then draw two cards. You lose 2 life. (To scry 2, look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)'},
+  {n:'Fact or Fiction', mv:4, role:'draw', have:0, cost:'{3}{U}', type:'Instant', text:'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.'},
+  {n:'Blue Sun\u2019s Zenith', mv:1, role:'draw', have:0, note:'X'},
+
+  // --- interaction (14) ---
+  {n:'Swords to Plowshares', mv:1, role:'removal', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller gains life equal to its power.'},
+  {n:'Path to Exile', mv:1, role:'removal', have:1, cost:'{W}', type:'Instant', text:'Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.'},
+  {n:'Nature\u2019s Claim', mv:1, role:'removal', have:1},
+  {n:'Pongify', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. Its controller creates a 3/3 green Ape creature token.'},
+  {n:'Rapid Hybridization', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Destroy target creature. It can\'t be regenerated. That creature\'s controller creates a 3/3 green Frog Lizard creature token.'},
+  {n:'Beast Within', mv:3, role:'removal', have:1, cost:'{2}{G}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.'},
+  {n:'Generous Gift', mv:3, role:'removal', have:0, cost:'{2}{W}', type:'Instant', text:'Destroy target permanent. Its controller creates a 3/3 green Elephant creature token.'},
+  {n:'Counterspell', mv:2, role:'removal', have:1, cost:'{U}{U}', type:'Instant', text:'Counter target spell.'},
+  {n:'Swan Song', mv:1, role:'removal', have:0, cost:'{U}', type:'Instant', text:'Counter target enchantment, instant, or sorcery spell. Its controller creates a 2/2 blue Bird creature token with flying.'},
+  {n:'Anguished Unmaking', mv:3, role:'removal', have:0, cost:'{1}{W}{B}', type:'Instant', text:'Exile target nonland permanent. You lose 3 life.'},
+  {n:'Fire // Ice', mv:2, role:'removal', have:1, note:'//', cost:'{1}{R} // {1}{U}', type:'Instant // Instant', text:'Fire {1}{R} — Fire deals 2 damage divided as you choose among one or two targets.\n//\nIce {1}{U} — Tap target permanent.\nDraw a card.'},
+  {n:'Vandalblast', mv:1, role:'removal', have:1, note:'X', cost:'{R}', type:'Sorcery', text:'Destroy target artifact you don\'t control.\nOverload {4}{R} (You may cast this spell for its overload cost. If you do, change "target" in its text to "each.")'},
+  {n:'Wrath of God', mv:4, role:'removal', have:0, cost:'{2}{W}{W}', type:'Sorcery', text:'Destroy all creatures. They can\'t be regenerated.'},
+  {n:'Blasphemous Act', mv:9, role:'removal', have:1, cost:'{8}{R}', type:'Sorcery', text:'This spell costs {1} less to cast for each creature on the battlefield.\nBlasphemous Act deals 13 damage to each creature.'},
+
+  // --- threats / payoffs (21) ---
+  {n:'Dragonlord Atarka', mv:7, role:'threat', have:0, cost:'{5}{R}{G}', type:'Legendary Creature — Elder Dragon', text:'Flying, trample\nWhen Dragonlord Atarka enters, it deals 5 damage divided as you choose among any number of target creatures and/or planeswalkers your opponents control.'},
+  {n:'Scourge of Valkas', mv:5, role:'threat', have:1, cost:'{2}{R}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever this creature or another Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.\n{R}: This creature gets +1/+0 until end of turn.'},
+  {n:'Dragon Tempest', mv:2, role:'threat', have:1, cost:'{1}{R}', type:'Enchantment', text:'Whenever a creature you control with flying enters, it gains haste until end of turn.\nWhenever a Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.'},
+  {n:'Terror of the Peaks', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nSpells your opponents cast that target this creature cost an additional 3 life to cast.\nWhenever another creature you control enters, this creature deals damage equal to that creature\'s power to any target.'},
+  {n:'Old Gnawbone', mv:7, role:'threat', have:0, cost:'{5}{G}{G}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever a creature you control deals combat damage to a player, create that many Treasure tokens.'},
+  {n:'Ancient Copper Dragon', mv:6, role:'threat', have:0, cost:'{4}{R}{R}', type:'Creature — Elder Dragon', text:'Flying\nWhenever this creature deals combat damage to a player, roll a d20. You create a number of Treasure tokens equal to the result.'},
+  {n:'Miirym, Sentinel Wyrm', mv:6, role:'threat', have:0, cost:'{3}{G}{U}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, ward {2}\nWhenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except the token isn\'t legendary.'},
+  {n:'Lathliss, Dragon Queen', mv:6, role:'threat', have:1, cost:'{4}{R}{R}', type:'Legendary Creature — Dragon', text:'Flying\nWhenever another nontoken Dragon you control enters, create a 5/5 red Dragon creature token with flying.\n{1}{R}: Dragons you control get +1/+0 until end of turn.'},
+  {n:'Bonecrusher Giant', mv:3, role:'threat', have:1, note:'adv', cost:'{2}{R} // {1}{R}', type:'Creature — Giant // Instant — Adventure', text:'Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell\'s controller.\n//\nDamage can\'t be prevented this turn. Stomp deals 2 damage to any target.'},
+  {n:'Goldspan Dragon', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying, haste\nWhenever this creature attacks or becomes the target of a spell, create a Treasure token.\nTreasures you control have "{T}, Sacrifice this artifact: Add two mana of any one color."'},
+  {n:'Thundermaw Hellkite', mv:5, role:'threat', have:0, cost:'{3}{R}{R}', type:'Creature — Dragon', text:'Flying\nHaste (This creature can attack and {T} as soon as it comes under your control.)\nWhen this creature enters, it deals 1 damage to each creature with flying your opponents control. Tap those creatures.'},
+  {n:'Utvara Hellkite', mv:8, role:'threat', have:0, cost:'{6}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhenever a Dragon you control attacks, create a 6/6 red Dragon creature token with flying.'},
+  {n:'Hellkite Courser', mv:6, role:'threat', have:1, cost:'{4}{R}{R}', type:'Creature — Dragon', text:'Flying\nWhen this creature enters, you may put a commander you own from the command zone onto the battlefield. It gains haste. Return it to the command zone at the beginning of the next end step.'},
+  {n:'Steel Hellkite', mv:6, role:'threat', have:0, cost:'{6}', type:'Artifact Creature — Dragon', text:'Flying\n{2}: This creature gets +1/+0 until end of turn.\n{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.'},
+  {n:'Dragonspeaker Shaman', mv:3, role:'threat', have:1, cost:'{1}{R}{R}', type:'Creature — Human Barbarian Shaman', text:'Dragon spells you cast cost {2} less to cast.'},
+  {n:'Dragonlord\u2019s Servant', mv:2, role:'threat', have:1},
+  {n:'Sarkhan, Fireblood', mv:3, role:'threat', have:0, cost:'{1}{R}{R}', type:'Legendary Planeswalker — Sarkhan', text:'+1: You may discard a card. If you do, draw a card.\n+1: Add two mana in any combination of colors. Spend this mana only to cast Dragon spells.\n−7: Create four 5/5 red Dragon creature tokens with flying.'},
+  {n:'Kilnmouth Dragon', mv:7, role:'threat', have:0, cost:'{5}{R}{R}', type:'Creature — Dragon', text:'Amplify 3 (As this creature enters, put three +1/+1 counters on it for each Dragon card you reveal in your hand.)\nFlying\n{T}: This creature deals damage equal to the number of +1/+1 counters on it to any target.'},
+  {n:'Bladewing the Risen', mv:7, role:'threat', have:0, cost:'{3}{B}{B}{R}{R}', type:'Legendary Creature — Zombie Dragon', text:'Flying\nWhen Bladewing enters, you may return target Dragon permanent card from your graveyard to the battlefield.\n{B}{R}: Dragon creatures get +1/+1 until end of turn.'},
+  {n:'Savage Ventmaw', mv:6, role:'threat', have:1, cost:'{4}{R}{G}', type:'Creature — Dragon', text:'Flying\nWhenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don\'t lose this mana as steps and phases end.'},
+  {n:'Atsushi, the Blazing Sky', mv:4, role:'threat', have:0, cost:'{2}{R}{R}', type:'Legendary Creature — Dragon Spirit', text:'Flying, trample\nWhen Atsushi dies, choose one —\n• Exile the top two cards of your library. Until the end of your next turn, you may play those cards.\n• Create three Treasure tokens.'},
+
+  // --- other (5) ---
+  {n:'Herald\u2019s Horn', mv:3, role:'other', have:1},
+  {n:'Urza\u2019s Incubator', mv:3, role:'other', have:0},
+  {n:'Ancestral Vision', mv:0, role:'other', have:0, note:'no cost', cost:'', type:'Sorcery', text:'Suspend 4—{U} (Rather than cast this card from your hand, pay {U} and exile it with four time counters on it. At the beginning of your upkeep, remove a time counter. When the last is removed, you may cast it without paying its mana cost.)\nTarget player draws three cards.'},
+  {n:'Crucible of Fire', mv:4, role:'other', have:1, cost:'{3}{R}', type:'Enchantment', text:'Dragon creatures you control get +3/+3.'},
+  {n:'Door of Destinies', mv:4, role:'other', have:0, cost:'{4}', type:'Artifact', text:'As this artifact enters, choose a creature type.\nWhenever you cast a spell of the chosen type, put a charge counter on this artifact.\nCreatures you control of the chosen type get +1/+1 for each charge counter on this artifact.'},
+];
+
+const LANDS = 37;
+const ROLES = [
+  {id:'ramp',    label:'Ramp'},
+  {id:'draw',    label:'Card draw'},
+  {id:'removal', label:'Interaction'},
+  {id:'threat',  label:'Threats'},
+  {id:'other',   label:'Other'},
+];
+const BUCKETS = [0,1,2,3,4,5,6,7];   // 7 means "7+"
+
+// The 99, excluding the commander -- it gets a marker, not a bar.
+const spells = DECK.filter(c => !c.cmdr);
+const bucketOf = c => Math.min(c.mv, 7);
+
+function cardsIn(b, role) {
+  return spells.filter(c => bucketOf(c) === b && (!role || c.role === role));
+}
+
+// --- state -----------------------------------------------------------------
+let filter = null;          // {bucket, role} | {turn} | null
+let hotRole = null;         // legend hover
+let ramped = true;
+let detail = null;          // card NAME whose detail row is expanded, or null
+
+// --- the chart -------------------------------------------------------------
+const curve = document.getElementById('curve');
+const xrow  = document.getElementById('xrow');
+const tip   = document.getElementById('tip');
+
+const maxCount = Math.max(...BUCKETS.map(b => cardsIn(b).length));
+const CHART_H = 250, LABEL_H = 22;
+
+function drawCurve() {
+  curve.innerHTML = '';
+  BUCKETS.forEach(b => {
+    const inB = cardsIn(b);
+    const col = document.createElement('div');
+    col.className = 'col';
+
+    const tot = document.createElement('div');
+    tot.className = 'coltot';
+    tot.textContent = inB.length || '';
+    col.appendChild(tot);
+
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    // Height is proportional to the count, against the tallest bucket.
+    const px = Math.round((inB.length / maxCount) * (CHART_H - LABEL_H - 8));
+    stack.style.height = px + 'px';
+
+    ROLES.forEach(r => {
+      const n = cardsIn(b, r.id).length;
+      if (!n) return;
+      const seg = document.createElement('div');
+      seg.className = 'seg ' + r.id + (hotRole === r.id ? ' hot' : '');
+      seg.style.height = (n / inB.length * 100) + '%';
+      seg.dataset.bucket = b;
+      seg.dataset.role = r.id;
+      seg.title = '';
+      stack.appendChild(seg);
+    });
+    col.appendChild(stack);
+
+    // THE COMMANDER MARKER, on its own bucket.
+    //
+    // Ur-Dragon is MV 9, so it lands in 7+ -- the same column as the biggest
+    // threats. The label is therefore anchored to the RIGHT of the column and
+    // offset above the bar, or it sits on top of the cards it is standing
+    // beside. It also names the real MV, because "7+" is not what it costs.
+    if (b === Math.min(DECK.find(c => c.cmdr).mv, 7)) {
+      const cm = DECK.find(c => c.cmdr);
+      const lab = document.createElement('div');
+      lab.className = 'cmdrlab';
+      lab.style.bottom = (px + 30) + 'px';
+      lab.textContent = `◈ ${cm.n} · MV ${cm.mv}`;
+      const line = document.createElement('div');
+      line.className = 'cmdr';
+      line.style.bottom = px + 'px';
+      line.style.height = '28px';
+      col.appendChild(line); col.appendChild(lab);
+    }
+    curve.appendChild(col);
+  });
+
+  curve.classList.toggle('focus', !!hotRole);
+
+  xrow.innerHTML = '';
+  BUCKETS.forEach(b => {
+    const d = document.createElement('div');
+    d.className = 'colx';
+    d.textContent = b === 7 ? '7+' : b;
+    xrow.appendChild(d);
+  });
+}
+
+// --- the live tooltip ------------------------------------------------------
+curve.addEventListener('mousemove', e => {
+  const seg = e.target.closest('.seg');
+  if (!seg) { tip.classList.remove('show'); return; }
+  const b = +seg.dataset.bucket, role = seg.dataset.role;
+  const list = cardsIn(b, role);
+  const roleLabel = ROLES.find(r => r.id === role).label;
+
+  tip.innerHTML =
+    `<b>${roleLabel} · MV ${b === 7 ? '7+' : b} · ${list.length} card${list.length === 1 ? '' : 's'}</b>`
+    + list.map(c => `<div class="tiprow">
+         <span class="nm">${c.n}${c.note ? ` <span class="pill">${c.note}</span>` : ''}</span>
+         ${b === 7 ? `<span class="tipmv">${c.mv}</span>` : ''}
+         <span class="pill ${c.have ? 'g' : 'r'}">${c.have ? 'have' : 'need'}</span>
+       </div>
+       <div class="tipwhat">${shortText(c.text)}</div>`).join('')
+    + `<div class="tipfoot">Click to filter the list →</div>`;
+
+  tip.classList.add('show');
+  // KEEP IT OFF THE BARS IT DESCRIBES.
+  //
+  // Following the cursor put the tooltip straight over the chart -- you could
+  // not see the shape you were asking about. It is pinned to the chart's
+  // RIGHT EDGE instead, vertically near the cursor, so the bars stay visible
+  // while you read it. Near the right of the screen it flips to the left edge.
+  const w = 330, pad = 14;
+  const cr = document.getElementById('curve').getBoundingClientRect();
+  let x = cr.right + pad;
+  if (x + w > innerWidth - 8) x = cr.left - w - pad;
+  if (x < 8) x = innerWidth - w - 8;
+  let y = e.clientY - 20;
+  const h = tip.offsetHeight;
+  if (y + h > innerHeight - 8) y = innerHeight - h - 8;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+});
+curve.addEventListener('mouseleave', () => tip.classList.remove('show'));
+
+curve.addEventListener('click', e => {
+  const seg = e.target.closest('.seg');
+  if (!seg) return;
+  const b = +seg.dataset.bucket, role = seg.dataset.role;
+  // Clicking the same block again clears it -- no dead end.
+  if (filter && filter.bucket === b && filter.role === role) filter = null;
+  else filter = { bucket: b, role };
+  render();
+});
+
+// --- legend ----------------------------------------------------------------
+function drawLegend() {
+  const lg = document.getElementById('legend');
+  lg.innerHTML = '';
+  ROLES.forEach(r => {
+    const n = spells.filter(c => c.role === r.id).length;
+    const el = document.createElement('div');
+    el.className = 'lg';
+    el.innerHTML = `<i class="sw" style="background:var(--${r.id})"></i>${r.label} ${n}`;
+    el.onmouseenter = () => { hotRole = r.id; drawCurve(); };
+    el.onmouseleave = () => { hotRole = null; drawCurve(); };
+    el.onclick = () => {
+      filter = (filter && filter.role === r.id && filter.bucket === undefined)
+        ? null : { role: r.id };
+      render();
+    };
+    lg.appendChild(el);
+  });
+  const hint = document.createElement('span');
+  hint.style.cssText = 'margin-left:auto;color:var(--text-3);align-self:center';
+  hint.textContent = 'hover a bar for its cards · click to filter';
+  lg.appendChild(hint);
+}
+
+// --- stats -----------------------------------------------------------------
+function drawStats() {
+  const mvs = spells.map(c => c.mv).sort((a,b) => a-b);
+  const avg = (mvs.reduce((s,n) => s+n, 0) / mvs.length).toFixed(2);
+  const med = mvs[Math.floor(mvs.length/2)];
+  const ramp = spells.filter(c => c.role === 'ramp').length;
+  const cheapInt = spells.filter(c => c.role === 'removal' && c.mv <= 3).length;
+  const heavy = spells.filter(c => c.mv >= 6).length;
+
+  document.getElementById('stats').innerHTML = [
+    ['Avg MV', avg, 'excl. lands · typical 2.5–3.5'],
+    ['Median MV', med, 'half your deck is cheaper'],
+    ['Ramp', ramp, ramp >= 10 ? '<span class="pill g">on target</span> 10–12'
+                              : '<span class="pill a">thin</span> aim 10–12'],
+    ['Interaction ≤3', cheapInt, 'cheap answers'],
+    ['6+ drops', heavy, heavy > 10 ? '<span class="pill a">watch</span> over ~10 clogs'
+                                   : 'comfortable'],
+  ].map(([k,v,n]) => `<div class="stat"><div class="k">${k}</div>
+       <div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+
+  document.getElementById('subtitle').textContent =
+    `${spells.length} nonland cards · ${LANDS} lands excluded`;
+}
+
+// --- castable by turn ------------------------------------------------------
+// A MODEL, and it says so. available = turn + (ramp arriving on curve).
+function castableBy(turn) {
+  const extra = ramped ? Math.max(0, Math.floor((turn - 1) * 0.8)) : 0;
+  return spells.filter(c => c.mv <= turn + extra).length;
+}
+function drawTurns() {
+  const el = document.getElementById('turns');
+  el.innerHTML = '';
+  for (let t = 1; t <= 6; t++) {
+    const n = castableBy(t);
+    const row = document.createElement('div');
+    row.className = 'trow';
+    row.innerHTML = `<span class="tl">Turn ${t}</span>
+      <div class="tbar"><i style="width:${(n/spells.length*100).toFixed(1)}%"></i></div>
+      <span class="tn">${n}</span>`;
+    row.onclick = () => {
+      filter = (filter && filter.turn === t) ? null : { turn: t };
+      render();
+    };
+    el.appendChild(row);
+  }
+}
+
+// --- the filtered list -----------------------------------------------------
+function matches(c) {
+  if (!filter) return true;
+  if (filter.turn !== undefined) {
+    const extra = ramped ? Math.max(0, Math.floor((filter.turn - 1) * 0.8)) : 0;
+    return c.mv <= filter.turn + extra;
+  }
+  if (filter.bucket !== undefined && bucketOf(c) !== filter.bucket) return false;
+  if (filter.role && c.role !== filter.role) return false;
+  return true;
+}
+function filterLabel() {
+  if (!filter) return null;
+  if (filter.turn !== undefined) return `Castable by turn ${filter.turn}`;
+  const r = filter.role ? ROLES.find(x => x.id === filter.role).label : null;
+  if (filter.bucket === undefined) return r;
+  return `${r} · MV ${filter.bucket === 7 ? '7+' : filter.bucket}`;
+}
+function drawList() {
+  const shown = spells.filter(matches);
+  const bar = document.getElementById('filterbar');
+  const label = filterLabel();
+  bar.innerHTML = label
+    ? `<div class="filterbar"><span><b>${label}</b> · ${shown.length} cards</span>
+         <button class="btn sm" style="margin-left:auto" id="clear">Clear</button></div>`
+    : `<div style="font-size:.82rem;color:var(--text-3);margin-bottom:.7rem">
+         All ${shown.length} nonland cards. Click a bar or a turn to filter.</div>`;
+  if (label) document.getElementById('clear').onclick = () => { filter = null; render(); };
+
+  document.getElementById('list').innerHTML = shown
+    .sort((a,b) => a.mv - b.mv || a.n.localeCompare(b.n))
+    .map((c, i) => `<tr class="cardrow${detail === c.n ? ' open' : ''}" data-card="${c.n}">
+        <td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;
+              background:var(--${c.role});margin-right:.5rem"></span>${c.n}
+            ${c.note ? `<span class="pill">${c.note}</span>` : ''}</td>
+        <td class="num">${c.mv}</td>
+        <td class="num"><span class="pill ${c.have ? 'g' : 'r'}">${c.have ? c.have : 0}</span></td>
+      </tr>` + (detail === c.n ? detailRow(c) : '')).join('');
+}
+
+// CARD DETAIL, opened in place.
+//
+// Zach: "can I either hover of the cards to see their card details or click on
+// them to show card details" -- so it is BOTH, and they do different jobs:
+//
+//   HOVER  -> a preview that follows the pointer. Cheap, no commitment, good
+//             for skimming a filtered list.
+//   CLICK  -> the detail expands INSIDE the row and stays there, so you can
+//             read it, scroll, and compare without keeping the mouse still.
+//
+// It expands in place rather than opening a modal for the same reason the deck
+// view's detail is a pane: a modal over the list hides the list you are
+// working through.
+function detailRow(c) {
+  const roleLabel = ROLES.find(r => r.id === c.role).label;
+  return `<tr class="detailrow"><td colspan="3">
+    <div class="cdet">
+      <div class="cdet-img">${c.n.split(',')[0]}</div>
+      <div class="cdet-body">
+        <div class="cdet-title"><b>${c.n}</b> ${manaHtml(c.cost)}</div>
+        <div class="cdet-type">${c.type}</div>
+        <div class="cdet-text">${textHtml(c.text)}</div>
+        <div class="cdet-meta">Mana value ${c.mv} ·
+          <span style="color:var(--${c.role})">${roleLabel}</span> ·
+          ${c.have ? `<span class="pill g">You own ${c.have}</span>`
+                   : `<span class="pill r">Not owned</span>`}</div>
+        ${c.note === '//' ? `<div class="cdet-note">Split card — bucketed at the
+            cheaper half (2), not the rules' combined mana value (4), because
+            that is the turn you can actually cast it.</div>` : ''}
+        ${c.note === 'X' ? `<div class="cdet-note">X counts as 0 off the stack
+            (CR 202.3e), so this sits in bucket ${c.mv}. You will usually pay
+            more.</div>` : ''}
+        ${c.note === 'adv' ? `<div class="cdet-note">Adventure — bucketed at the
+            creature face.</div>` : ''}
+        ${c.note === 'no cost' ? `<div class="cdet-note">No mana cost, so its
+            mana value is 0. Not the same as free to cast.</div>` : ''}
+        <div class="cdet-acts">
+          <button class="btn sm">Choose printing</button>
+          <button class="btn sm">Move to considering</button>
+          <button class="btn sm">Remove</button>
+        </div>
+      </div>
+    </div></td></tr>`;
+}
+
+// ORACLE TEXT, rendered.
+//
+// Zach: "I want the card description in there because just name doesnt tell me
+// what it does I dont remember every cards description."
+//
+// The text in DECK is real Scryfall oracle text, fetched from the API -- not
+// typed from memory. That audit also caught four of my own mana values being
+// wrong (Blasphemous Act was 4, it is 9), which is exactly why the data comes
+// from the source rather than from me.
+
+// {1}{W}{U} -> small round pips, the way every MTG tool renders a cost.
+function manaHtml(cost) {
+  if (!cost) return '';
+  return (cost.match(/\{[^}]+\}/g) || []).map(sym => {
+    const s = sym.slice(1, -1);
+    const cls = {W:'w',U:'u',B:'b',R:'r',G:'g'}[s] || 'c';
+    return `<i class="mp mp-${cls}">${s.replace('/', '')}</i>`;
+  }).join('');
+}
+
+// Oracle text: keep the line breaks, render inline mana symbols, and escape
+// everything else -- this is data going into innerHTML.
+function textHtml(text) {
+  if (!text) return '<span style="color:var(--text-3)">No rules text.</span>';
+  const safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return safe
+    .replace(/\{[^}]+\}/g, m => manaHtml(m))
+    .replace(/\n\/\/\n/g, '<hr class="facesep">')
+    .replace(/\n/g, '<br>');
+}
+
+// A one-line gist for the chart tooltip, which lists several cards at once and
+// cannot afford a full rules box each. First sentence, capped -- enough to
+// remember what the card does without turning a hover into a wall of text.
+function shortText(text) {
+  if (!text) return '';
+  const first = text.split('\n')[0].split(/(?<=\.)\s/)[0];
+  const cut = first.length > 96 ? first.slice(0, 93).trimEnd() + '…' : first;
+  return textHtml(cut);
+}
+
+document.getElementById('withRamp').onclick = () => {
+  ramped = true;
+  document.getElementById('withRamp').classList.add('on');
+  document.getElementById('landsOnly').classList.remove('on');
+  render();
+};
+document.getElementById('landsOnly').onclick = () => {
+  ramped = false;
+  document.getElementById('landsOnly').classList.add('on');
+  document.getElementById('withRamp').classList.remove('on');
+  render();
+};
+
+function render() { drawCurve(); drawLegend(); drawStats(); drawTurns(); drawList(); }
+render();
+
+// --- card detail in the list: hover previews, click pins -------------------
+const list = document.getElementById('list');
+
+list.addEventListener('mousemove', e => {
+  const row = e.target.closest('.cardrow');
+  // No preview while a row is expanded -- the detail is already on screen and
+  // a floating copy of it chasing the pointer is just noise.
+  if (!row || detail) { tip.classList.remove('show'); return; }
+  const c = spells.find(x => x.n === row.dataset.card);
+  if (!c) return;
+  const roleLabel = ROLES.find(r => r.id === c.role).label;
+
+  tip.innerHTML = `<b>${c.n}</b>
+    <div class="tipcost">${manaHtml(c.cost)} <span class="tiptype">${c.type}</span></div>
+    <div class="tiptext">${textHtml(c.text)}</div>
+    <div class="tiprow"><span class="nm">Role</span>
+      <span style="color:var(--${c.role});font-weight:600">${roleLabel}</span></div>
+    <div class="tiprow"><span class="nm">In your collection</span>
+      <span class="pill ${c.have ? 'g' : 'r'}">${c.have ? c.have : 'none'}</span></div>
+    ${c.note ? `<div class="tipfoot">Bucketed at ${c.mv} by a <b>${c.note}</b> rule — click for why.</div>`
+             : `<div class="tipfoot">Mana value ${c.mv}</div>`}`;
+  tip.classList.add('show');
+
+  // Left of the list, so it never covers the rows you are scanning.
+  const w = 330, pad = 14;
+  const lr = list.getBoundingClientRect();
+  let x = lr.left - w - pad;
+  if (x < 8) x = lr.right + pad;
+  let y = e.clientY - 20;
+  const h = tip.offsetHeight;
+  if (y + h > innerHeight - 8) y = innerHeight - h - 8;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+});
+list.addEventListener('mouseleave', () => tip.classList.remove('show'));
+
+list.addEventListener('click', e => {
+  const row = e.target.closest('.cardrow');
+  if (!row) return;
+  // Clicking the open row closes it -- same no-dead-end rule as the chart.
+  detail = (detail === row.dataset.card) ? null : row.dataset.card;
+  tip.classList.remove('show');
+  drawList();
+});
+</script>
+</body>
+</html>

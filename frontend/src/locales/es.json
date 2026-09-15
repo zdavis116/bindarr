@@ -137,6 +137,8 @@
   "admin.userCreated": "Usuario «{name}» creado correctamente.",
   "admin.userDeleted": "Usuario «{name}» eliminado.",
   "admin.username": "Username",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "Aplicar el movimiento",
   "bulk.clear": "Quitar",
   "bulk.confirmDelete": "¿Eliminar {count} carta(s)? Puedes deshacerlo.",

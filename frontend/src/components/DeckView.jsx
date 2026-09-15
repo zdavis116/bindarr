@@ -12,8 +12,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import CardSearchResult from './CardSearchResult.jsx';
 import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
-         Trash2, Lightbulb, ArrowDownToLine, ChevronDown } from 'lucide-react';
+         Trash2, Lightbulb, ArrowDownToLine, ChevronDown, BarChart3 } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { useIsDesktop } from '../utils/breakpoints';
+import CurveTab from './CurveTab';
 import { formatPrice } from '../utils/formatPrice';
 import ExportModal from './ExportModal';
 import CardInspectorModal from './CardInspectorModal';
@@ -130,6 +132,68 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   const searchRef = useRef(null);
 
   const cards = useMemo(() => deck?.cards || [], [deck]);
+
+  const isDesktop = useIsDesktop();
+  const sidePaneRef = useRef(null);
+
+  // WHICH CARD THE RIGHT PANE IS SHOWING.
+  //
+  // Separate state from `inspecting` on purpose. `inspecting` means "the user
+  // opened a modal"; this means "the pane has a subject", and the pane always
+  // has one -- it defaults to the commander on load. Sharing one state would
+  // make the phone open a modal on load.
+  const [selectedCardId, setSelectedCardId] = useState(null);
+
+  // The commander is the default subject. Falls back to the first card for a
+  // deck with no command zone (a 60-card deck), and is null only for an empty
+  // deck, which is the one case the pane does not render.
+  const detailCard = useMemo(() => {
+    if (!isDesktop) return null;
+    const pick = selectedCardId
+      ? cards.find(c => String(c.id) === String(selectedCardId))
+      : null;
+    const fallback = cards.find(c => c.board === 'commander') || cards[0] || null;
+    const chosen = pick || fallback;
+    if (!chosen) return null;
+    // The inspector keys off the CARD id (a card_cache row), but remove and
+    // repoint act on the deck_cards row. Both travel, explicitly named, so the
+    // pane cannot delete a collection row that happens to share an id -- the
+    // exact confusion the modal's onRemoveFromDeck comment warns about.
+    return { ...chosen, deckCardId: chosen.id };
+  }, [isDesktop, selectedCardId, cards]);
+
+  // HOW FAR DOWN THE PAGE THE DETAIL PANE STARTS.
+  //
+  // The pane needs a definite height so its header can pin and its Remove
+  // button can anchor to the bottom. That height is "the viewport minus where
+  // the pane begins" -- and where it begins is not a constant: the deck title,
+  // the drift banner and the progress block above it all vary.
+  //
+  // MEASURED, not guessed. A hard-coded `100vh - 6rem` ran the pane 153px past
+  // the fold, so the anchored button sat below the screen -- pinned to the
+  // bottom of a box you could not see the bottom of. Zach reported that as the
+  // UI looking cut off.
+  //
+  // Written to a CSS custom property so the LAYOUT stays in CSS; this only
+  // supplies the one number CSS cannot measure for itself.
+  useEffect(() => {
+    if (!isDesktop) return undefined;
+    const el = sidePaneRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      // Page offset, not viewport offset: getBoundingClientRect().top alone
+      // changes as you scroll, which would resize the pane while scrolling.
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
+    };
+    measure();
+    // The drift banner and progress block can render after a fetch and move
+    // the pane down, so re-measure when the page changes size.
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [isDesktop, detailCard]);
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:
   // "Move considering to the chips like owned and missing." They sit outside
@@ -360,9 +424,39 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     }
   };
 
-  // Absolute-quantity write, shared by the +/- controls and the board moves.
-  // Returns true on success so callers can decide whether to refresh.
+  // CORRECT A CARD'S ROLE.
+  //
+  // Keyed on ORACLE id, so fixing Goldspan Dragon once fixes it in every deck
+  // that plays it rather than once per deck.
+  //
+  // onChanged() refetches the deck rather than patching local state: the role
+  // feeds the chart, the legend counts and the filter, and three derived
+  // numbers updated by hand is three chances to disagree with the server about
+  // what the deck contains.
+  const overrideRole = async (card, role) => {
+    if (busy) return false;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/decks/card-role/${encodeURIComponent(card.oracle_id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || t('deck.saveFailed'));
+      onChanged && onChanged();
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const writeCard = async (entry, { quantity, board }) => {
+    // Absolute-quantity write, shared by the +/- controls and the board moves.
+    // Returns true on success so callers can decide whether to refresh.
     if (busy) return false;
     setBusy(true);
     try {
@@ -512,6 +606,18 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     { id: 'need', label: t('deck.tabMissing'), n: counts.missing },
     { id: 'consider', label: t('deck.tabConsidering'), n: counts.considering },
   ];
+
+  // CURVE SITS ON ITS OWN ROW, ABOVE THE FILTERS.
+  //
+  // Zach: "curve kind of hidden which makes me feel like it shouldn't be right
+  // there... you can put it above the other row."
+  //
+  // It was the fifth chip in a row that already scrolls sideways on a phone,
+  // so it fell off the edge. It is also a different KIND of control: the other
+  // four filter which cards you are looking at, this one changes what the
+  // screen is about. Same row on desktop -- he asked for the two widths to
+  // mirror each other.
+  const isCurve = tab === 'curve';
 
   return (
     // Clears the pinned mobile nav (72px + the home indicator). Without it
@@ -821,25 +927,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </div>
       ) : null}
 
-      {/* TABS */}
-      <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: 2, marginBottom: '0.75rem' }}>
-        {TABS.map(({ id, label, n }) => {
-          const on = tab === id;
-          return (
-            <button key={id} onClick={() => setTab(id)} role="tab" aria-selected={on}
-              style={{ flex: '0 0 auto', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius-sm)',
-                       border: `1px solid ${on ? 'var(--accent-blue)' : 'var(--border-glass)'}`,
-                       background: on ? 'var(--accent-blue)' : 'var(--surface-1)',
-                       color: on ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-                       font: 'inherit', fontSize: '0.8rem', fontWeight: 600,
-                       whiteSpace: 'nowrap', cursor: 'pointer' }}>
-              {label} {n}
-            </button>
-          );
-        })}
-      </div>
+      {/* THE TWO-PANE REGION, on desktop only.
+          Left: search, tabs, the card list. Right: card detail that follows
+          your selection. Below 1024px this is one column and the detail opens
+          as the modal it has always been -- the grid simply collapses, so the
+          phone is untouched. */}
+      {/* THE CURVE LAYOUT APPLIES ONLY WHEN NOTHING IS SELECTED.
+          Gated on selectedCardId, NOT detailCard: detailCard falls back to the
+          commander so the pane is never empty on desktop, which means it is
+          never null and this class would never have applied. Measured: the
+          list stayed at x=255 under the chart instead of taking the right
+          pane. */}
+      <div className={`deck-panes${tab === 'curve' && !(isDesktop && selectedCardId) ? ' deck-panes-curve' : ''}`}>
+        <div className="deck-panes-main">
+      {/* SEARCH SITS ABOVE THE TABS.
+          The mockup puts it there, and the order is the point: search spans
+          every tab (it adds a card to the deck regardless of which filter you
+          are looking at), so placing it under the tabs implied it searched
+          within the selected one.
 
-      {/* ADD A CARD: always visible, not behind a "+". Adding cards is the main
+          Same element, same behaviour, moved -- this is a reorder, not a
+          rewrite.
+
+          ADD A CARD: always visible, not behind a "+". Adding cards is the main
           thing you do on this screen. */}
       <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem',
                       background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
@@ -856,6 +966,55 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </button>
         )}
       </label>
+
+      {/* CURVE — its own row, above the filters. See the note by isCurve. */}
+      <div className="deck-analyse-row">
+        <button
+          type="button"
+          className={`deck-analyse-btn${isCurve ? ' on' : ''}`}
+          aria-pressed={isCurve}
+          onClick={() => setTab(isCurve ? 'all' : 'curve')}
+        >
+          <BarChart3 size={15} />
+          {t('deck.tabCurve')}
+        </button>
+      </div>
+
+      {/* TABS */}
+      <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: 2, marginBottom: '0.75rem' }}>
+        {TABS.map(({ id, label, n }) => {
+          const on = tab === id;
+          return (
+            <button key={id} onClick={() => setTab(id)} role="tab" aria-selected={on}
+              style={{ flex: '0 0 auto', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius-sm)',
+                       border: `1px solid ${on ? 'var(--accent-blue)' : 'var(--border-glass)'}`,
+                       background: on ? 'var(--accent-blue)' : 'var(--surface-1)',
+                       color: on ? 'var(--text-on-accent)' : 'var(--text-secondary)',
+                       font: 'inherit', fontSize: '0.8rem', fontWeight: 600,
+                       whiteSpace: 'nowrap', cursor: 'pointer' }}>
+              {label}{n == null ? '' : ` ${n}`}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* CURVE replaces the card list, it does not sit above it: it IS a view
+          of the same cards. Rendered before the search results block so the
+          add-a-card flow still works from this tab. */}
+      {tab === 'curve' && (
+        <CurveTab
+          cards={deckCards}
+          commander={deckCards.find(c => c.board === 'commander')
+            || deckCards.find(c => /legendary creature/i.test(c.type_line || ''))}
+          onSelectCard={(c) => {
+            // Same routing as every other row on this screen: the pinned pane
+            // on desktop, the modal on the phone.
+            if (isDesktop) setSelectedCardId(c.id);
+            else setInspecting(c);
+          }}
+          onOverrideRole={overrideRole}
+        />
+      )}
 
       {(searching || results.length > 0) && (
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
@@ -945,8 +1104,10 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         </div>
       )}
 
-      {/* CARD LIST, grouped by type. */}
-      {sections.length === 0 ? (
+      {/* CARD LIST, grouped by type. Hidden on the Curve tab, which shows its
+          own list filtered by whatever you tapped on the chart -- two lists of
+          the same cards on one screen is the redundant surface Zach dislikes. */}
+      {tab === 'curve' ? null : sections.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-secondary)',
                       background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
           {tab === 'consider' ? t('deck.noConsidering')
@@ -971,13 +1132,18 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                 <div key={card.id}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.65rem',
                            padding: '0.5rem 0.65rem', borderRadius: 11,
-                           background: missing ? 'rgba(255,159,10,.06)' : 'var(--surface-1)' }}>
+                           background: isDesktop && detailCard && String(detailCard.id) === String(card.id)
+                             ? 'rgba(10,132,255,.12)'
+                             : missing ? 'rgba(255,159,10,.06)' : 'var(--surface-1)' }}>
                   {/* TAP TO INSPECT. Art + name only: the quantity controls
                       are outside this button, because on a phone they sit
-                      millimetres apart and one of them changes a record. */}
+                      millimetres apart and one of them changes a record.
+
+                      On desktop the same click fills the right pane instead of
+                      opening a modal over the list you are working through. */}
                   <button
                     type="button"
-                    onClick={() => setInspecting(card)}
+                    onClick={() => (isDesktop ? setSelectedCardId(card.id) : setInspecting(card))}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '0.6rem',
                       flex: 1, minWidth: 0, padding: 0, border: 0,
@@ -1071,6 +1237,39 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         </div>
       ))}
+        </div>
+
+        {/* RIGHT PANE: card detail that follows the selection.
+            Zach: "the right hand side should show individual card detail so it
+            doesnt have to open up a modal. Like initial load of deck view shows
+            the commander but as you click different cards it shows that card."
+
+            Same CardInspectorModal the phone opens, with inline -- not a second
+            card-detail component that would drift from it.
+
+            `key` forces a remount when the card changes. Without it the
+            inspector keeps its own fetched state (deckUse, switched printing)
+            across a selection change, which is exactly the stale-printing bug
+            it already has a guard for; remounting makes it impossible rather
+            than guarded. */}
+        {isDesktop && detailCard && !(tab === 'curve' && !selectedCardId) ? (
+          <div className="deck-panes-side" ref={sidePaneRef}>
+            <CardInspectorModal
+              key={detailCard.id || detailCard.card_id}
+              card={detailCard}
+              inline
+              readOnly
+              deckId={deck?.id}
+              deckCardId={detailCard.deckCardId ?? null}
+              onRepointed={() => { onChanged && onChanged(); setRepointVersion(v => v + 1); }}
+              onClose={() => {}}
+              showToast={showToast}
+              onRemoveFromDeck={removeCard}
+              deckName={deck?.name || null}
+            />
+          </div>
+        ) : null}
+      </div>
 
       {/* COMMANDER SWAP */}
       {commanderOpen && (
@@ -1171,6 +1370,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           It lives HERE rather than on the list because this screen shows what
           is about to be destroyed, and a list row is a mis-tap waiting to
           happen. */}
+      <div className="deck-delete-row">
       <button
         onClick={confirmDelete}
         disabled={busy}
@@ -1186,6 +1386,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         <Trash2 size={15} />
         {t('deck.deleteDeck')}
       </button>
+      </div>
 
       {/* CARD DETAIL, read-only. A deck card is not a collection entry, so the
           inspector must not be allowed to write through this id. */}

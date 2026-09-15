@@ -3,6 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <!-- THE MANIFEST, ACTUALLY LINKED. It existed in public/ for months and was
+         never referenced here, so no browser ever read it and the install
+         prompt could not appear. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0f1d" />
+    <!-- iOS ignores the manifest for home-screen installs and reads these. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Bindarr" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Bindarr</title>
     <!-- Apply saved theme before first paint so there's no flash of the wrong theme. -->

@@ -33,8 +33,17 @@ const KNOWN_UNSTYLED = new Set([
 test('UI-TC1: useT() is always destructured', () => {
   // The hook returns an object. Assigning it whole gives a `t` that is not
   // callable, and nothing catches that until the component mounts.
+  //
+  // COMMENTS ARE STRIPPED FIRST. This matched the phrase inside a comment that
+  // WARNED against the mistake -- CurveTab documents `const t = useT()` as the
+  // wrong form directly above the correct one, and the guard reported the file
+  // as an offender. A test that fails on prose describing a bug, rather than on
+  // the bug, trains you to ignore it. This repo has been bitten by the same
+  // shape before (CIL-TC1 strips comments for exactly this reason).
   const offenders = components.filter(f => {
-    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    const src = fs.readFileSync(path.join(dir, f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')   // block comments
+      .replace(/\/\/[^\n]*/g, '');        // line comments
     return /const\s+t\s*=\s*useT\(\)/.test(src);
   });
   assert.deepEqual(offenders, [],

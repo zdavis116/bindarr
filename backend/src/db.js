@@ -843,6 +843,72 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refreshed_at DATETIME`);
   }
 
+  // WHAT MANA EACH CARD PRODUCES, for the deck Curve tab's colour-screw odds.
+  //
+  // A column on card_cache rather than its own table, unlike card_roles: this
+  // is a property of the PRINTING that Scryfall ships in the same payload the
+  // catalogue already imports, so it costs nothing extra to carry and would
+  // otherwise need a second lookup per card.
+  //
+  // NULL means "no mana" OR "not yet imported" -- the refresh backfills it.
+  const producedManaCols = await all(`PRAGMA table_info(card_cache)`);
+  if (!producedManaCols.some(c => c.name === 'produced_mana')) {
+    await run(`ALTER TABLE card_cache ADD COLUMN produced_mana TEXT`);
+  }
+
+  // CARD ROLES, for the deck Curve tab.
+  //
+  // What a card DOES -- ramp, draw, interaction, threat -- sourced from
+  // Scryfall's Tagger via its oracle_tags bulk file. See cardRoles.js.
+  //
+  // A SEPARATE TABLE, not a column on card_cache, for two reasons:
+  //   1. A role belongs to an ORACLE ID, not a printing. card_cache holds every
+  //      printing, so a column there would store the same answer 30 times for a
+  //      card like Sol Ring and let those copies disagree.
+  //   2. card_cache is rebuilt wholesale by the catalogue refresh, which swaps a
+  //      staging table into place. A role column would be destroyed on every
+  //      refresh unless the two jobs were kept in lock-step -- and that file
+  //      already warns that its two positional column lists have drifted apart
+  //      four times.
+  //
+  // user_role is the override and always wins. It is NULL for the ~95% of cards
+  // where the tag is right, so a NULL genuinely means "never touched" rather
+  // than "agreed with the tag", and clearing an override restores the tag
+  // rather than freezing today's answer.
+  await run(`
+    CREATE TABLE IF NOT EXISTS card_roles (
+      oracle_id TEXT PRIMARY KEY,
+      role TEXT NOT NULL,
+      source_tag TEXT,
+      user_role TEXT,
+      back_role TEXT,
+      back_source_tag TEXT,
+      back_user_role TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // PER-FACE ROLES for Adventures, Omens, Prepare and modal DFCs.
+  //
+  // The role used to be derived once from the JOINED type line, so
+  // 'Creature - Dragon // Sorcery - Omen' contained 'creature' and the whole
+  // card became a Threat -- including its Sorcery half, which Zach spotted on
+  // Roost Seek. back_role holds the second face's own classification.
+  //
+  // Columns on the same row rather than a second table: it is one card with
+  // at most two faces, the pair is always read together, and a face has no
+  // identity of its own to key on.
+  const cardRolesCols = await all(`PRAGMA table_info(card_roles)`);
+  for (const col of ['back_role', 'back_source_tag', 'back_user_role']) {
+    if (!cardRolesCols.some(c => c.name === col)) {
+      await run(`ALTER TABLE card_roles ADD COLUMN ${col} TEXT`);
+    }
+  }
+
+  if (!appSettingsCols.some(c => c.name === 'card_roles_updated_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_roles_updated_at TEXT`);
+  }
+
   // THE CATALOGUE REFRESH LOCK (PR 6I item 8).
   //
   // It lives in the DATABASE, not in a module variable, because the two things

@@ -109,6 +109,8 @@
   "admin.userCards.other": "{count} cartas",
   "admin.userCreated": "Usuário “{name}” criado com sucesso.",
   "admin.userDeleted": "Usuário “{name}” excluído.",
+  "app.updateNow": "Update",
+  "app.updateReady": "A new version of Bindarr is ready.",
   "bulk.applyMove": "Aplicar a movimentação",
   "bulk.clear": "Limpar",
   "bulk.confirmDelete.many": "Excluir {count} de cartas selecionadas? Não é possível desfazer.",

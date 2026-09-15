@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — 8 categories</title>
+<style>
+  :root{
+    --bg:#0b0b0d; --s1:#151518; --s2:#1c1c21; --s3:#25252b;
+    --line:#2e2e36; --t1:#f2f2f5; --t2:#b9b9c4; --t3:#7d7d8a;
+    --accent:#0a84ff;
+    /* EIGHT ROLE COLOURS. Five was already near the limit for stacked bars;
+       eight needs deliberate spacing round the wheel, not "add three more". */
+    --threat:#ff6b5e; --ramp:#4ade80; --draw:#38bdf8; --removal:#f5b544;
+    --wipe:#fb7185; --counter:#a78bfa; --tutor:#f0a3ff; --protection:#2dd4bf;
+    --recursion:#94a3b8; --other:#5a5a66;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--t1);
+       font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1500px;margin:0 auto;padding:1.1rem}
+  h1{font-size:1rem;margin:0 0 .15rem}
+  .sub{color:var(--t3);font-size:.78rem;margin-bottom:.9rem}
+
+  .deckpick{display:flex;gap:4px;margin-bottom:1rem;flex-wrap:wrap}
+  .deckpick button{background:var(--s1);border:1px solid var(--line);color:var(--t2);
+    font:inherit;font-size:.76rem;font-weight:600;border-radius:8px;
+    padding:.4rem .8rem;min-height:36px;cursor:pointer}
+  .deckpick button.on{background:var(--accent);border-color:transparent;color:#fff}
+
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:1.1rem;align-items:start}
+  @media(max-width:1023px){.cols{grid-template-columns:minmax(0,1fr)}}
+
+  .panel{background:var(--s1);border:1px solid var(--line);border-radius:12px;
+         padding:.85rem;margin-bottom:.9rem}
+  .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.6rem}
+  .head b{font-size:.84rem}
+  .head span{color:var(--t3);font-size:.73rem}
+
+  /* ---- MIX BAR: one row, eight segments, no legend-hunting ---- */
+  .mix{display:flex;height:30px;border-radius:7px;overflow:hidden;margin-bottom:.5rem}
+  .mix i{display:grid;place-items:center;font-size:.66rem;font-weight:800;
+         font-style:normal;color:#0c0c0e;cursor:pointer;transition:opacity .12s}
+  .mix i.dim{opacity:.28}
+  .mixkey{display:flex;flex-wrap:wrap;gap:.1rem .7rem}
+  .mixkey button{display:inline-flex;align-items:center;gap:.32rem;background:none;
+    border:0;color:var(--t2);font:inherit;font-size:.71rem;cursor:pointer;padding:.15rem 0}
+  .mixkey button.dim{opacity:.4}
+  .mixkey i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .mixkey b{color:var(--t1);font-variant-numeric:tabular-nums}
+
+  /* ---- CURVE ---- */
+  .chart{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;
+         align-items:end;height:190px;margin-bottom:.35rem}
+  .col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:2px}
+  .seg{border-radius:2px;min-height:3px;cursor:pointer;transition:opacity .12s}
+  .seg.dim{opacity:.22}
+  .xaxis{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;
+         color:var(--t3);font-size:.68rem;text-align:center}
+  .xaxis b{display:block;color:var(--t2);font-size:.72rem}
+
+  /* ---- LIST ---- */
+  .list{max-height:560px;overflow:auto}
+  .row{display:flex;align-items:center;gap:.5rem;width:100%;text-align:left;
+       background:none;border:0;border-bottom:1px solid var(--line);
+       color:var(--t1);font:inherit;padding:.45rem .2rem;cursor:pointer;min-height:44px}
+  .row:hover{background:var(--s2)}
+  .row.open{background:rgba(10,132,255,.1)}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .rname{flex:1;min-width:0}
+  .rname b{display:block;font-size:.8rem;font-weight:600;
+           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rname span{display:block;color:var(--t3);font-size:.7rem;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rmv{color:var(--t2);font-size:.76rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .detail{display:flex;gap:.65rem;padding:.6rem .3rem .8rem;background:var(--s2);
+          border-bottom:1px solid var(--line)}
+  .detail .why{font-size:.7rem;color:var(--t3);margin-top:.4rem;padding-left:.5rem;
+               border-left:2px solid var(--line)}
+  .detail .txt{font-size:.75rem;color:var(--t2);white-space:pre-wrap;margin-top:.3rem}
+  .pill{font-size:.63rem;font-weight:700;padding:.1rem .4rem;border-radius:5px;
+        background:var(--s3);color:var(--t2)}
+
+  .note{background:#17170c;border:1px solid #3d3a1f;border-radius:10px;
+        padding:.6rem .7rem;font-size:.74rem;color:#e8dfae;margin-bottom:.9rem}
+  .note b{color:#ffe9a3}
+</style></head>
+<body><div class="wrap">
+  <h1>Eight categories — on your real decks</h1>
+  <div class="sub">Live data pulled from bindarr-dev. Click a bar segment or a
+    key entry to filter; click a card for its reasoning.</div>
+
+  <div class="note" id="note"></div>
+
+  <div class="deckpick" id="deckpick"></div>
+
+  <div class="cols">
+    <div>
+      <div class="panel">
+        <div class="head"><b>Deck mix</b><span id="mixsub"></span></div>
+        <div class="mix" id="mix"></div>
+        <div class="mixkey" id="mixkey"></div>
+      </div>
+      <div class="panel">
+        <div class="head"><b>Mana curve</b><span id="curvesub"></span></div>
+        <div class="chart" id="chart"></div>
+        <div class="xaxis" id="xaxis"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="head"><b id="listhead">All cards</b>
+        <span id="listsub"></span></div>
+      <div class="list" id="list"></div>
+    </div>
+  </div>
+</div>
+
+<script src="./roles8-data.js"></script>
+<script>
+// EIGHT ROLES, ordered as the stack reads: the things you DO, then the
+// things that support them, then the leftovers.
+const ROLES = [
+  {id:'threat',     label:'Threats'},
+  {id:'ramp',       label:'Ramp'},
+  {id:'draw',       label:'Card draw'},
+  {id:'removal',    label:'Removal'},
+  {id:'wipe',       label:'Board wipes'},
+  {id:'counter',    label:'Counterspells'},
+  {id:'tutor',      label:'Tutors'},
+  {id:'protection', label:'Protection'},
+  {id:'recursion',  label:'Recursion'},
+  {id:'other',      label:'Other'},
+];
+const COLOUR = r => getComputedStyle(document.documentElement)
+  .getPropertyValue('--' + r).trim() || '#5a5a66';
+
+let deckKey = 'iron', hot = null, open = null;
+
+function cards(){ return DECKS[deckKey].cards; }
+function shown(){ return hot ? cards().filter(c => c.role === hot) : cards(); }
+
+function renderDeckPick(){
+  document.getElementById('deckpick').innerHTML = Object.keys(DECKS).map(k =>
+    `<button data-k="${k}" class="${k===deckKey?'on':''}">${DECKS[k].name}</button>`
+  ).join('');
+}
+
+function renderMix(){
+  const cs = cards(), n = cs.length;
+  const counts = {};
+  for (const c of cs) counts[c.role] = (counts[c.role]||0) + 1;
+  document.getElementById('mixsub').textContent = n + ' nonland cards';
+
+  document.getElementById('mix').innerHTML = ROLES.filter(r=>counts[r.id]).map(r => {
+    const v = counts[r.id], pct = (v/n*100);
+    return `<i data-r="${r.id}" class="${hot&&hot!==r.id?'dim':''}"
+      style="width:${pct}%;background:${COLOUR(r.id)}"
+      title="${r.label}: ${v}">${pct > 7 ? v : ''}</i>`;
+  }).join('');
+
+  document.getElementById('mixkey').innerHTML = ROLES.filter(r=>counts[r.id]).map(r =>
+    `<button data-r="${r.id}" class="${hot&&hot!==r.id?'dim':''}">
+       <i style="background:${COLOUR(r.id)}"></i>${r.label} <b>${counts[r.id]}</b>
+     </button>`).join('');
+}
+
+function renderCurve(){
+  const cs = cards();
+  const buckets = [0,1,2,3,4,5,6,7];
+  const max = Math.max(1, ...buckets.map(b => cs.filter(c=>c.mv===b).length));
+  document.getElementById('chart').innerHTML = buckets.map(b => {
+    const inB = cs.filter(c => c.mv === b);
+    const h = inB.length / max * 100;
+    const segs = ROLES.map(r => {
+      const v = inB.filter(c => c.role === r.id).length;
+      if (!v) return '';
+      return `<div class="seg ${hot&&hot!==r.id?'dim':''}" data-r="${r.id}"
+        style="flex:${v};background:${COLOUR(r.id)}" title="${r.label}: ${v}"></div>`;
+    }).join('');
+    return `<div class="col" style="height:${Math.max(h,2)}%">${segs}</div>`;
+  }).join('');
+  document.getElementById('xaxis').innerHTML = buckets.map(b =>
+    `<div><b>${cs.filter(c=>c.mv===b).length}</b>${b===7?'7+':b}</div>`).join('');
+  const avg = cs.reduce((s,c)=>s+c.mv,0)/cs.length;
+  document.getElementById('curvesub').textContent = 'avg ' + avg.toFixed(2);
+}
+
+function renderList(){
+  const cs = shown().slice().sort((a,b)=>a.mv-b.mv||a.n.localeCompare(b.n));
+  const role = hot ? ROLES.find(r=>r.id===hot) : null;
+  document.getElementById('listhead').textContent = role ? role.label : 'All cards';
+  document.getElementById('listsub').textContent = cs.length + (hot ? ' — tap the key to clear' : '');
+  document.getElementById('list').innerHTML = cs.map(c => {
+    const d = open === c.n ? `
+      <div class="detail"><div>
+        <div><b>${c.n}</b> <span class="pill">${ROLES.find(r=>r.id===c.role).label}</span></div>
+        <div style="color:var(--t3);font-size:.7rem">${c.type}</div>
+        <div class="txt">${c.txt || 'No rules text.'}</div>
+        <div class="why">${c.why ? 'Scryfall tag: ' + c.why : 'No tag — classified by type line.'}</div>
+      </div></div>` : '';
+    return `<button class="row ${open===c.n?'open':''}" data-n="${c.n}">
+      <i class="dot" style="background:${COLOUR(c.role)}"></i>
+      <span class="rname"><b>${c.n}</b><span>${(c.txt||'').split('\n')[0].slice(0,52)}</span></span>
+      <span class="rmv">${c.mv}</span></button>${d}`;
+  }).join('');
+}
+
+function renderNote(){
+  const cs = cards();
+  const other = cs.filter(c=>c.role==='other');
+  document.getElementById('note').innerHTML =
+    `<b>${DECKS[deckKey].name}:</b> ${other.length} of ${cs.length} cards still land in
+     <b>Other</b> even with eight categories.` +
+    (other.length ? ' They are mostly Equipment and static enchantments — see the list.' : '');
+}
+
+function draw(){ renderDeckPick(); renderMix(); renderCurve(); renderList(); renderNote(); }
+
+document.addEventListener('click', e => {
+  const d = e.target.closest('[data-k]');
+  if (d) { deckKey = d.dataset.k; hot = null; open = null; return draw(); }
+  const r = e.target.closest('[data-r]');
+  if (r) { hot = (hot === r.dataset.r) ? null : r.dataset.r; open = null; return draw(); }
+  const row = e.target.closest('[data-n]');
+  if (row) { open = (open === row.dataset.n) ? null : row.dataset.n; return draw(); }
+});
+
+draw();
+</script>
+</body></html>

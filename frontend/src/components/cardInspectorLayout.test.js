@@ -89,8 +89,21 @@ test('CIL-TC3: the close button is outside the scrolling region', () => {
 });
 
 test('CIL-TC4: the tabs stay fixed and every panel scrolls', () => {
-  assert.equal(region("['card', t('inspector.tabCard')"), 'head',
-    'you must always be able to see which tab you are on');
+  // THE TABS ARE A SIBLING OF .ci-head, NOT INSIDE IT.
+  //
+  // They used to be nested in .ci-head, and this asserted 'head'. They were
+  // moved out so the desktop deck view could make them a full-width row of the
+  // pane's grid -- nested two levels down, no CSS could do it without either
+  // breaking the header apart or sliding the tabs under the card image (both
+  // measured, both shipped briefly).
+  //
+  // What MATTERS here is unchanged and is what this now checks: the tabs must
+  // not be inside the scrolling region, or you lose sight of which tab you are
+  // on as soon as you scroll. 'outside' satisfies that as well as 'head' did;
+  // 'scroll' is the failure this test exists to catch.
+  assert.notEqual(region("['card', t('inspector.tabCard')"), 'scroll',
+    'the tabs must not scroll away -- you must always be able to see which '
+    + 'tab you are on');
 
   for (const [label, needle] of [
     ['card tab', "{tab === 'card' && ("],

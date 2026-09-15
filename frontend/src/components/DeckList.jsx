@@ -20,6 +20,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Trash2, Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { useIsDesktop } from '../utils/breakpoints';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
 import { createBuylistSync } from './buylistSync';
 import ExportModal from './ExportModal';
@@ -139,6 +140,21 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
 
   const exitSelect = () => { setSelecting(false); setSelected(new Set()); setBuylist(null); };
 
+  // WHAT EVERY DECK ON SCREEN COSTS TO FINISH.
+  //
+  // Sums the SHOWN decks, not all decks: with a search term active, a total
+  // covering filtered-out decks describes something not on screen.
+  //
+  // missing_cost already excludes the considering board and already prices at
+  // the cheapest listing from the single shop chosen in Settings, so this total
+  // measures the same thing as the per-tile figure by construction.
+  const toFinish = useMemo(
+    () => shown.reduce((sum, d) => sum + (d.missingCost || 0), 0),
+    [shown],
+  );
+
+  const isDesktop = useIsDesktop();
+
   // ONE COPY PER DECK, never deduped. Zach: "if I select 3 decks and even one
   // needs a sol ring there should be 3 sol rings in that list not 1... I'd
   // rather each deck be built ready to go." The server already sums per deck;
@@ -163,20 +179,50 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
     // is two buttons rather than two buttons under three lines of text.
     <div style={{ paddingBottom: selecting && selected.size ? 150 : 0 }}>
       {/* HEADER: title and the one mode switch, as in the mock. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.9rem' }}>
+      <div className="deck-list-head">
         <h2 style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
           {t('deck.decks')}
         </h2>
-        <button
-          onClick={() => (selecting ? exitSelect() : setSelecting(true))}
-          style={{
-            border: 0, background: 'transparent', color: 'var(--accent-blue)',
-            font: 'inherit', fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer',
-            minHeight: 44, padding: '0 0.25rem',
-          }}
-        >
-          {selecting ? t('common.done') : t('collection.select')}
-        </button>
+        {/* WHAT ALL OF THIS COSTS TO FINISH -- desktop only.
+            The mockup puts it beside the title because on a wide screen the
+            tiles fill the eye and the one number that spans them has nowhere
+            else to live. On the phone the same figure would push the first
+            deck below the fold to say something no single row is about.
+
+            It sums missing_cost, which is the cheapest actual listing from the
+            ONE shop chosen in Settings -- the same number each tile shows, so
+            the total and the parts cannot disagree. Hidden entirely when it is
+            zero: "$0.00 to finish" on four complete decks is noise. */}
+        {isDesktop && shown.length > 0 ? (
+          <span className="deck-list-sub">
+            {t('deck.deckCount', { count: shown.length })}
+            {toFinish > 0 ? ` · ${t('deck.toFinishAll', { amount: `$${toFinish.toFixed(2)}` })}` : ''}
+          </span>
+        ) : null}
+        <div className="deck-list-actions">
+          <button
+            onClick={() => (selecting ? exitSelect() : setSelecting(true))}
+            style={{
+              border: 0, background: 'transparent', color: 'var(--accent-blue)',
+              font: 'inherit', fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer',
+              minHeight: 44, padding: '0 0.25rem',
+            }}
+          >
+            {selecting ? t('common.done') : t('collection.select')}
+          </button>
+          {/* On desktop New deck is a header button, the way Storage and Add
+              cards are buttons in Collection's header. Zach's rule: a screen
+              reached only from one parent is a button in that parent's header,
+              never a nav peer -- and a 1400px-wide dashed bar under four tiles
+              is the phone's affordance stretched, not a desktop one. */}
+          {isDesktop && !selecting ? (
+            <button className="btn btn-primary" onClick={onNewDeck}
+                    style={{ padding: '0.5rem 0.9rem', fontSize: '0.88rem' }}>
+              <Plus size={16} />
+              {t('deck.newDeck')}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* SEARCH -- not in the mock, added at Zach's request, in the same place
@@ -216,12 +262,13 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+        <div className="deck-rows">
           {shown.map(deck => {
             const sel = selected.has(deck.id);
             return (
               <button
                 key={deck.id}
+                className={`deck-row${sel ? ' is-selected' : ''}`}
                 onClick={() => (selecting ? toggle(deck.id) : onOpenDeck(deck.id))}
                 onContextMenu={(e) => {
                   // Long-press on a phone arrives as a context menu. Selection
@@ -232,16 +279,21 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                   onDeleteDeck(deck.id, deck.name);
                 }}
                 aria-pressed={selecting ? sel : undefined}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.85rem', width: '100%',
-                  textAlign: 'left', font: 'inherit', cursor: 'pointer',
-                  padding: '0.85rem 0.9rem', minHeight: 68,
-                  borderRadius: 'var(--radius-md)',
-                  border: sel ? '2px solid var(--accent-blue)' : '1px solid var(--border-glass)',
-                  background: sel ? 'var(--surface-2)' : 'var(--surface-1)',
-                  color: 'var(--text-primary)', transition: 'var(--transition-smooth)',
-                }}
               >
+                {/* COMMANDER ART -- desktop only, hidden by CSS on the phone.
+                    It is in the markup unconditionally rather than behind an
+                    isDesktop check because a JS width branch and a CSS media
+                    query are two rules that can disagree; the media query is
+                    the one the layout already obeys.
+
+                    A deck with no commander (60-card, or not yet chosen) gets
+                    the empty placeholder, never a broken image. */}
+                <span className="deck-row-art" aria-hidden="true">
+                  {deck.commander_image_url
+                    ? <img src={deck.commander_image_url} alt="" loading="lazy" />
+                    : null}
+                </span>
+
                 {/* In select mode the ring is REPLACED by the checkbox rather
                     than joined by it -- two indicators in one row is how a
                     glance becomes a decision. */}
@@ -259,7 +311,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                   <Ring pct={deck.pct} />
                 )}
 
-                <span style={{ flex: 1, minWidth: 0 }}>
+                <span className="deck-row-body">
                   <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '0.98rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {deck.name}
@@ -317,7 +369,7 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 </span>
 
                 {!selecting && (
-                  <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <ChevronRight className="deck-row-chevron" size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                 )}
               </button>
             );
@@ -394,8 +446,11 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           per-deck Sync button above. The old button opened a modal whose deck
           list duplicated the list already on this screen. */}
 
-      {/* NEW DECK: a full-width action under the list, as in the mock. */}
-      {!selecting && (
+      {/* NEW DECK: a full-width action under the list, as in the mock.
+          On DESKTOP it moves into the header instead -- see the header above.
+          This is a DOM-order difference, not a style one, which is why it uses
+          the hook rather than a media query. */}
+      {!selecting && !isDesktop && (
         <button
           onClick={onNewDeck}
           style={{

@@ -318,7 +318,30 @@ router.get('/', async (req, res) => {
         COALESCE((SELECT SUM((r.quantity - r.owned_here) * r.price_trend) FROM resolved r
                    WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS missing_cost,
         COALESCE((SELECT SUM(r.quantity * r.price_trend) FROM resolved r
-                   WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS deck_value
+                   WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS deck_value,
+        -- COMMANDER ART, for the deck tile on desktop.
+        --
+        -- The desktop deck list is a shelf you recognise by picture, not a
+        -- table you read -- so the tile needs the commander's image. Two
+        -- scalar subqueries on the SAME statement rather than a per-deck
+        -- lookup from the client: db.js serialises every query onto one global
+        -- queue, so N decks would have cost N round trips of queue wait.
+        --
+        -- ORDER BY dc.id ASC matches how the commander is read everywhere else
+        -- (routes/decks.js:754), so a partner pair shows the FIRST commander
+        -- here and in the deck view rather than disagreeing between screens.
+        --
+        -- NULL for a 60-card deck with no commander, and for a Commander deck
+        -- whose commander is not yet chosen. The client must render a
+        -- placeholder, never a broken image.
+        (SELECT cc.image_url FROM deck_cards dc
+           JOIN card_cache cc ON cc.id = dc.desired_card_id
+          WHERE dc.deck_id = d.id AND dc.board = 'commander'
+          ORDER BY dc.id ASC LIMIT 1) AS commander_image_url,
+        (SELECT cc.name FROM deck_cards dc
+           JOIN card_cache cc ON cc.id = dc.desired_card_id
+          WHERE dc.deck_id = d.id AND dc.board = 'commander'
+          ORDER BY dc.id ASC LIMIT 1) AS commander_name
       FROM decks d
       WHERE d.user_id = ?
       ORDER BY d.created_at DESC
@@ -593,6 +616,76 @@ router.get('/:id', async (req, res) => {
                cards: entries, warnings });
   } catch (error) {
     sendError(res, error, 'Failed to retrieve deck details');
+  }
+});
+
+// OVERRIDE A CARD'S ROLE.
+//
+// The Curve tab derives roles from Scryfall's Tagger (see cardRoles.js), which
+// measured 95% agreement against a hand-labelled Commander deck. The other 5%
+// is five wrong rows in a 100-card deck, and a wrong role silently skews the
+// chart being used to make deck decisions -- so it has to be correctable.
+//
+// Keyed on ORACLE id, not a deck card: correcting Goldspan Dragon once should
+// fix it in every deck that plays it, not once per deck. That is also why this
+// lives outside the deck routes' ownership checks in spirit -- but single-user
+// app, and the route is still behind auth.
+//
+// PUT with role:null CLEARS the override rather than storing a role. Clearing
+// must restore whatever Scryfall says NOW, not freeze today's answer as a
+// user choice -- that is the difference between "I corrected this" and "I
+// happened to agree once".
+router.put('/card-role/:oracleId', async (req, res) => {
+  try {
+    const { oracleId } = req.params;
+    const { role } = req.body;
+
+    if (!oracleId || typeof oracleId !== 'string') {
+      return res.status(400).json({ error: 'A card oracle id is required' });
+    }
+
+    const cardRoles = require('../cardRoles');
+    if (role !== null && role !== undefined && !cardRoles.VALID_ROLES.includes(role)) {
+      return res.status(400).json({
+        error: `Role must be one of: ${cardRoles.VALID_ROLES.join(', ')}, or null to clear`,
+      });
+    }
+
+    // The card must exist in the catalogue. Without this an override could be
+    // written for a typo'd id and would sit there forever, unreachable and
+    // invisible -- a wrong row that nothing ever reads or corrects.
+    const known = await db.get(
+      `SELECT 1 AS ok FROM card_cache WHERE oracle_id = ? LIMIT 1`, [oracleId]
+    );
+    if (!known) {
+      return res.status(404).json({ error: 'No card with that oracle id is in the catalogue' });
+    }
+
+    // The derived role may not exist yet (fresh install, role import has not
+    // run). Insert a row carrying only the override so the user's choice is
+    // never lost waiting for a nightly job; the import fills in role and
+    // source_tag later without touching user_role.
+    await db.run(
+      `INSERT INTO card_roles (oracle_id, role, user_role)
+       VALUES (?, COALESCE((SELECT role FROM card_roles WHERE oracle_id = ?), 'other'), ?)
+       ON CONFLICT(oracle_id) DO UPDATE SET
+         user_role = excluded.user_role,
+         updated_at = CURRENT_TIMESTAMP`,
+      [oracleId, oracleId, role == null ? null : role]
+    );
+
+    const row = await db.get(
+      `SELECT COALESCE(user_role, role) AS card_role, source_tag, user_role
+         FROM card_roles WHERE oracle_id = ?`, [oracleId]
+    );
+    res.json({
+      oracle_id: oracleId,
+      card_role: row ? row.card_role : null,
+      role_source_tag: row ? row.source_tag : null,
+      role_is_override: row ? row.user_role : null,
+    });
+  } catch (error) {
+    sendError(res, error, 'Failed to update card role');
   }
 });
 
