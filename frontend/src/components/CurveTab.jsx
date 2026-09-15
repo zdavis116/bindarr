@@ -18,10 +18,10 @@ const COLOUR_LETTERS = {
 // to 'nocost', so adding 'mdfc-back' would have printed "No mana cost, so it
 // sits at 0" on a six-drop. A missing key here is visible instead.
 const NOTE_KEYS = {
-  '//': 'curve.note.split',
-  adv: 'curve.note.adventure',
-  mdfc: 'curve.note.mdfc',
   'mdfc-back': 'curve.note.mdfc-back',
+  'adventure-half': 'curve.note.adventure-half',
+  'split-half': 'curve.note.split-half',
+  'second-face': 'curve.note.second-face',
   X: 'curve.note.xspell',
   'no cost': 'curve.note.nocost',
 };
@@ -141,8 +141,16 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
       ...entry,
       id: entry.faceIndex ? `${c.id}#${entry.faceIndex}` : c.id,
       cardId: c.id,
+      // THE ROW IS A FACE, SO IT IS NAMED AS THE FACE.
+      //
+      // Zach: "Why does it say Tony stark and not the invincible iron man
+      // because that's wrong." Both rows were showing the joined card name,
+      // so the six-drop row was labelled with the two-drop's name. The
+      // display_name fallback was the culprit -- it carries the full
+      // 'A // B' string and was overriding the face name on face 0.
       name: entry.faceName || c.name,
-      display_name: entry.faceIndex ? entry.faceName : (c.display_name || c.name),
+      display_name: entry.faceName || c.display_name || c.name,
+      type_line: entry.faceType || c.type_line,
       mana_cost: entry.faceCost || c.mana_cost,
       role: c.card_role || 'other',
     }))),

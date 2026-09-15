@@ -9,8 +9,8 @@
   "created_at": "2026-07-11 20:05:43",
   "checked_out": 0,
   "checked_out_at": null,
-  "total_card_types": 86,
-  "total_cards": 86,
+  "total_card_types": 87,
+  "total_cards": 87,
   "user_id": 1,
   "cards": [
     {
@@ -1391,7 +1391,8 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "layout": "adventure"
     },
     {
       "quantity": 1,
@@ -1649,7 +1650,8 @@
       "quantity_missing": 0,
       "card_role": "removal",
       "role_source_tag": "burn-any",
-      "role_is_override": null
+      "role_is_override": null,
+      "layout": "split"
     },
     {
       "quantity": 1,
@@ -2914,6 +2916,39 @@
       "color_identity": [
         "Red",
         "Blue"
+      ],
+      "produced_mana": null,
+      "board": "mainboard",
+      "owned_qty": 1,
+      "quantity_missing": 0,
+      "card_role": "threat",
+      "role_source_tag": null,
+      "role_is_override": null
+    },
+    {
+      "quantity": 1,
+      "id": "mtg-d8b43b00-f4d1-436c-bf3f-6d414cd4ce38",
+      "desired_card_id": "mtg-d8b43b00-f4d1-436c-bf3f-6d414cd4ce38",
+      "oracle_id": "7cee6d43-5dec-4989-85ec-c635ec783ec7",
+      "name": "Sagu Wildling // Roost Seek",
+      "set_id": "tdm",
+      "set_name": "Tarkir: Dragonstorm",
+      "number": "157",
+      "image_url": "https://cards.scryfall.io/normal/front/d/8/d8b43b00-f4d1-436c-bf3f-6d414cd4ce38.jpg?1783907334",
+      "rarity": "Common",
+      "cmc": 5.0,
+      "mana_cost": "{4}{G} // {G}",
+      "type_line": "Creature \u2014 Dragon // Sorcery \u2014 Omen",
+      "oracle_text": "Flying\nWhen this creature enters, you gain 3 life.\n//\nSearch your library for a basic land card, reveal it, put it into your hand, then shuffle. (Also shuffle this card.)",
+      "colors": [
+        "G"
+      ],
+      "supertype": "",
+      "subtypes": [],
+      "types": [],
+      "layout": "adventure",
+      "color_identity": [
+        "Green"
       ],
       "produced_mana": null,
       "board": "mainboard",

@@ -54,27 +54,33 @@ test('CB-TC2: a modal DFC buckets at its FRONT face and says it has two', () => 
   assert.equal(result.note, 'mdfc', 'the second cost must be visible, not silent');
 });
 
-test('CB-TC3: split cards still take the CHEAPER half', () => {
-  // Unchanged and deliberate: you cast one half, and the cheap one answers
-  // "can I use this on turn two".
+test('CB-TC3: bucketFor is the SINGLE-entry fallback, not the curve path', () => {
+  // bucketFor still collapses a split to its cheaper half, and that is fine --
+  // it answers "if this card had to sit in ONE bucket, where". But the curve
+  // no longer asks it that for multi-cost cards: curveEntriesFor returns both
+  // faces instead.
+  //
+  // This test exists so the distinction is deliberate rather than an
+  // inconsistency someone later "fixes" in the wrong direction.
   const fireIce = {
     name: 'Fire // Ice', layout: 'split',
     mana_cost: '{1}{R} // {1}{U}', type_line: 'Instant // Instant', cmc: 4,
   };
-  const result = bucketFor(fireIce);
-  assert.equal(result.mv, 2, 'the cheaper half is the castable turn');
-  assert.equal(result.note, '//');
+  assert.equal(bucketFor(fireIce).mv, 2, 'single-bucket fallback picks the cheaper half');
+  assert.equal(curveEntriesFor(fireIce).length, 2, 'the CURVE shows both halves');
 });
 
-test('CB-TC4: adventures take the CREATURE half, which is the first face', () => {
+test('CB-TC4: an adventure yields the creature AND the spell, in that order', () => {
+  // The creature face is printed first and is the card's identity, so it leads.
   const bonecrusher = {
-    name: 'Bonecrusher Giant', layout: 'adventure',
+    name: 'Bonecrusher Giant // Stomp', layout: 'adventure',
     mana_cost: '{2}{R} // {1}{R}',
     type_line: 'Creature — Giant // Instant — Adventure', cmc: 3,
   };
-  const result = bucketFor(bonecrusher);
-  assert.equal(result.mv, 3, 'the creature half is what the curve is about');
-  assert.equal(result.note, 'adv');
+  const entries = curveEntriesFor(bonecrusher);
+  assert.deepEqual(entries.map((e) => e.faceName), ['Bonecrusher Giant', 'Stomp']);
+  assert.deepEqual(entries.map((e) => e.mv), [3, 2]);
+  assert.equal(entries[1].note, 'adventure-half', 'the second half says why it is here');
 });
 
 test('CB-TC5: ordinary cards are unaffected', () => {
@@ -107,9 +113,11 @@ test('CB-TC7: a modal DFC produces TWO curve entries, one per castable face', ()
   assert.equal(entries[0].note, null, 'the front is an ordinary card');
 });
 
-test('CB-TC8: transform and split cards are NOT doubled', () => {
-  // The rule is specific to modal DFCs. Kefka's back face has NO cost -- you
-  // flip to it, you never cast it, so counting it would invent a spell.
+test('CB-TC8: transform cards are NOT doubled, but adventures and splits ARE', () => {
+  // THE LINE IS "does the second face have its own mana cost you pay".
+  //
+  // Kefka's back face has NO cost -- you flip to it, you never cast it, so
+  // counting it would invent a spell that is not in the deck.
   const kefka = {
     name: 'Kefka, Court Mage // Kefka, Ruler of Ruin', layout: 'transform',
     mana_cost: '{2}{U}{B}{R} // ', type_line: 'Creature // Creature', cmc: 5,
@@ -118,16 +126,97 @@ test('CB-TC8: transform and split cards are NOT doubled', () => {
   assert.equal(kefkaEntries.length, 1, 'a transform card is one spell');
   assert.equal(kefkaEntries[0].mv, 5);
 
-  // And Fire // Ice is ONE spell with two ways to cast it -- you only ever
-  // cast one, so counting both would double the card in the deck.
-  const fireIce = {
-    name: 'Fire // Ice', layout: 'split',
-    mana_cost: '{1}{R} // {1}{U}', type_line: 'Instant // Instant', cmc: 4,
+  // ADVENTURES DO count twice. Zach: "I have sagu wildling that has a sorcery
+  // attached those are not done right either." Sagu Wildling is {4}{G} and
+  // Roost Seek is {G} -- a five-drop and a one-drop, and the curve showed only
+  // the five.
+  const sagu = {
+    name: 'Sagu Wildling // Roost Seek', layout: 'adventure',
+    mana_cost: '{4}{G} // {G}',
+    type_line: 'Creature — Dragon // Sorcery — Omen', cmc: 5,
   };
-  assert.equal(curveEntriesFor(fireIce).length, 1, 'a split card is one spell');
+  const saguEntries = curveEntriesFor(sagu);
+  assert.equal(saguEntries.length, 2, 'both halves are castable spells');
+  assert.deepEqual(saguEntries.map((e) => e.mv), [5, 1]);
+  assert.equal(saguEntries[0].faceName, 'Sagu Wildling');
+  assert.equal(saguEntries[1].faceName, 'Roost Seek');
+
+  // SPLITS too. Wear {1}{R} and Tear {W} are a two-drop and a one-drop; the
+  // old rule kept only the cheaper and hid the other.
+  const wearTear = {
+    name: 'Wear // Tear', layout: 'split',
+    mana_cost: '{1}{R} // {W}', type_line: 'Instant // Instant', cmc: 3,
+  };
+  const wt = curveEntriesFor(wearTear);
+  assert.equal(wt.length, 2);
+  assert.deepEqual(wt.map((e) => e.mv), [2, 1]);
 
   // Ordinary cards, obviously.
   assert.equal(curveEntriesFor({ mana_cost: '{3}{G}', cmc: 4, type_line: 'Creature' }).length, 1);
+
+  // PREPARE cards behave exactly like Adventure -- 108 of them in the real
+  // catalogue. A WHITELIST of layouts missed them silently, which is why the
+  // rule is now structural (exclude flip-only layouts) rather than a list of
+  // mechanics that goes stale every set.
+  const prepare = {
+    name: 'Adventurous Eater // Have a Bite', layout: 'prepare',
+    mana_cost: '{2}{B} // {B}', type_line: 'Creature — Human // Sorcery', cmc: 3,
+  };
+  const pe = curveEntriesFor(prepare);
+  assert.equal(pe.length, 2, 'Prepare cards have two castable costs');
+  assert.deepEqual(pe.map((e) => e.mv), [3, 1]);
+
+  // A layout NOBODY has written a rule for must still split, because the rule
+  // is about structure. This is the future-set case.
+  const unknown = {
+    name: 'Front // Back', layout: 'some_future_mechanic',
+    mana_cost: '{2}{W} // {U}', type_line: 'Creature // Instant', cmc: 3,
+  };
+  assert.equal(curveEntriesFor(unknown).length, 2,
+    'an unknown two-cost layout still counts twice');
+
+  // AND THE FLIP-ONLY SET MUST BE DOING REAL WORK.
+  //
+  // Mutation-testing caught that removing 'transform' from FLIP_ONLY_LAYOUTS
+  // broke NOTHING: the castable filter already drops cost-less faces, so
+  // Kefka stays single for a second, unrelated reason. The Kefka assertion
+  // above was passing for the wrong reason.
+  //
+  // A transform card whose stored string DOES carry a back cost is the case
+  // that separates them. Werewolves print a cost-looking back on some
+  // printings, and a future importer change could reintroduce one. If only
+  // the filter protected us, this would wrongly become two entries.
+  const oddTransform = {
+    name: 'Front // Back', layout: 'transform',
+    mana_cost: '{2}{G} // {4}{G}', type_line: 'Creature // Creature', cmc: 3,
+  };
+  assert.equal(curveEntriesFor(oddTransform).length, 1,
+    'a transform back face is never cast, whatever cost the string carries');
+});
+
+test('CB-TC10: every face carries its OWN name, never the joined string', () => {
+  // Zach: "Why does it say Tony stark and not the invincible iron man because
+  // that's wrong." Both rows were labelled with the full 'A // B' name, so the
+  // six-drop row read as the two-drop.
+  const tony = {
+    name: 'Tony Stark // The Invincible Iron Man', layout: 'modal_dfc',
+    mana_cost: '{1}{U} // {4}{U}{R}',
+    type_line: 'Legendary Creature — Human // Legendary Artifact Creature', cmc: 2,
+  };
+  const [front, back] = curveEntriesFor(tony);
+  assert.equal(front.faceName, 'Tony Stark');
+  assert.equal(back.faceName, 'The Invincible Iron Man');
+  assert.ok(!front.faceName.includes('//'), 'no joined string on a face row');
+  assert.ok(!back.faceName.includes('//'));
+
+  // And each face gets its own type line, so a Sorcery half does not claim to
+  // be a Creature.
+  assert.match(front.faceType, /Creature/);
+  assert.match(back.faceType, /Artifact/);
+
+  // Single-faced cards are unaffected, and a plain name stays plain.
+  const bolt = curveEntriesFor({ name: 'Lightning Bolt', mana_cost: '{R}', cmc: 1, type_line: 'Instant' });
+  assert.equal(bolt[0].faceName, 'Lightning Bolt');
 });
 
 test('CB-TC9: each face is addressable, so the two do not collide', () => {
