@@ -12,6 +12,33 @@ const COLOUR_LETTERS = {
   White: 'W', Blue: 'U', Black: 'B', Red: 'R', Green: 'G',
 };
 
+// MANA PIPS, as the round symbols every Magic tool uses.
+//
+// '{1}{W}{U}' written as plain text is read letter by letter; pips are read at
+// a glance, which is the whole point of showing the cost here. Taken from the
+// approved prototype rather than reinvented.
+function ManaCost({ cost }) {
+  const symbols = String(cost || '').match(/\{[^}]+\}/g) || [];
+  if (!symbols.length) return null;
+  return (
+    <span className="curve-cost">
+      {symbols.map((sym, i) => {
+        const body = sym.slice(1, -1);
+        // ' // ' between faces survives as a literal in the string; render it
+        // so a split cost does not silently look like one cost.
+        const key = `${sym}-${i}`;
+        const colour = ['W', 'U', 'B', 'R', 'G'].includes(body.toUpperCase())
+          ? body.toUpperCase() : null;
+        return (
+          <i key={key} className={`curve-mp${colour ? ` curve-mp-${colour}` : ''}`}>
+            {body}
+          </i>
+        );
+      })}
+    </span>
+  );
+}
+
 // THE CURVE TAB.
 //
 // One component for both widths. The phone and desktop prototypes behaved
@@ -67,6 +94,19 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const [hotRole, setHotRole] = useState(null);
   const [hover, setHover] = useState(null);   // the card being previewed
   const [sort, setSort] = useState('mv');     // 'mv' | 'name' | 'role'
+  // WHICH ROW IS EXPANDED.
+  //
+  // Zach: "On desktop it opens as a DROP DOWN not a modal I want the same
+  // action phone. I don't need the whole card detail modal I just want the
+  // drop down the desktop has."
+  //
+  // This is what the APPROVED PROTOTYPE did -- curve.html expands a detail row
+  // inside the list. I never built it into the real app: I wired clicks to the
+  // side pane on desktop and the full card modal on the phone, neither of
+  // which is what he signed off.
+  //
+  // Identical at both widths, so there is one behaviour to learn.
+  const [openCard, setOpenCard] = useState(null);
 
   // The spells the chart describes: nonland, and not the considering pile --
   // considering cards are not in the deck yet, so counting them would tell you
@@ -441,11 +481,15 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
               return a.mv - b.mv || byName;
             })
             .map((c) => (
+              <div key={c.id} className="curve-row-wrap">
               <button
-                key={c.id}
                 type="button"
-                className="curve-row"
-                onClick={() => onSelectCard && onSelectCard(c)}
+                className={`curve-row${openCard === c.id ? ' open' : ''}`}
+                aria-expanded={openCard === c.id}
+                // CLICK EXPANDS A DROPDOWN IN THE LIST, at BOTH widths.
+                // Not the side pane, not the full card modal -- this is what
+                // the approved prototype did and what Zach asked for again.
+                onClick={() => setOpenCard(openCard === c.id ? null : c.id)}
                 // HOVER PREVIEWS, as in the prototype. The list is 49+ rows of
                 // names, and a name does not tell you what a card does -- that
                 // was the whole point of putting rules text in the tooltip.
@@ -476,6 +520,61 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                 )}
                 <span className="curve-row-mv">{c.mv}</span>
               </button>
+
+              {/* THE DROPDOWN. Expands in place, under the row you clicked,
+                  identically on desktop and phone. */}
+              {openCard === c.id && (
+                <div className="curve-detail">
+                  {c.image_url && (
+                    <img className="curve-detail-img" src={c.image_url}
+                         alt="" loading="lazy" />
+                  )}
+                  <div className="curve-detail-body">
+                    <div className="curve-detail-title">
+                      <b>{c.display_name || c.name}</b>
+                      <ManaCost cost={c.mana_cost} />
+                    </div>
+                    <div className="curve-detail-type">{c.type_line}</div>
+                    <div className="curve-detail-text">
+                      {c.oracle_text || t('curve.noRulesText')}
+                    </div>
+                    <div className="curve-detail-meta">
+                      <span style={{ color: `var(--curve-${c.role}, inherit)` }}>
+                        {roleLabel(c.role)}
+                      </span>
+                      {' · '}
+                      {c.role_is_override
+                        ? t('curve.whyOverride')
+                        : c.role_source_tag
+                          ? t('curve.whyTag', { tag: c.role_source_tag })
+                          : t('curve.whyTypeLine')}
+                      {' · '}
+                      {t('curve.mv')} {c.mv}
+                    </div>
+                    {/* The rule-breaks explain themselves where you would
+                        question them, not in a footnote. */}
+                    {c.note && (
+                      <div className="curve-detail-note">
+                        {t(`curve.note.${c.note === '//' ? 'split'
+                          : c.note === 'adv' ? 'adventure'
+                          : c.note === 'mdfc' ? 'mdfc'
+                          : c.note === 'X' ? 'xspell' : 'nocost'}`)}
+                      </div>
+                    )}
+                    {/* Open the full card only if you actually want it. */}
+                    {onSelectCard && (
+                      <button
+                        type="button"
+                        className="curve-detail-more"
+                        onClick={() => onSelectCard(c)}
+                      >
+                        {t('curve.fullCard')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              </div>
             ))}
         </div>
       </div>

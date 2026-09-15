@@ -3896,3 +3896,47 @@ button, input, select, textarea {
                         min-height: 34px; cursor: pointer; }
 .curve-sortbar button.on { background: var(--surface-3, var(--surface-1));
                            color: var(--text-primary); }
+
+/* THE CARD DROPDOWN in the curve list.
+   Zach: "On desktop it opens as a DROP DOWN not a modal I want the same action
+   phone." Expands in place under the row you clicked, identically at both
+   widths -- this is what the approved prototype did. */
+.curve-row-wrap { display: block; }
+.curve-row.open { background: rgba(10, 132, 255, 0.10); }
+
+.curve-detail { display: flex; gap: 0.7rem; padding: 0.7rem 0.4rem 0.8rem;
+                background: var(--surface-2);
+                border-bottom: 1px solid var(--border-glass); }
+/* Small: this is a reminder of the card, not a replacement for opening it.
+   The last time art dominated a panel Zach said "the image takes up too much
+   space". */
+.curve-detail-img { width: 86px; height: auto; align-self: flex-start;
+                    border-radius: 5px; flex: 0 0 auto; }
+.curve-detail-body { min-width: 0; flex: 1; }
+.curve-detail-title { display: flex; align-items: center; gap: 0.4rem;
+                      flex-wrap: wrap; color: var(--text-primary);
+                      font-size: 0.86rem; }
+.curve-detail-type { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.1rem; }
+.curve-detail-text { font-size: 0.76rem; line-height: 1.45;
+                     color: var(--text-secondary); margin-top: 0.4rem;
+                     white-space: pre-wrap; }
+.curve-detail-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.45rem; }
+.curve-detail-note { font-size: 0.7rem; line-height: 1.4; color: var(--text-muted);
+                     margin-top: 0.45rem; padding-left: 0.5rem;
+                     border-left: 2px solid var(--border-glass); }
+.curve-detail-more { margin-top: 0.55rem; background: var(--surface-1);
+                     border: 1px solid var(--border-glass); color: var(--text-primary);
+                     border-radius: 7px; font: inherit; font-size: 0.73rem;
+                     padding: 0.35rem 0.7rem; min-height: 34px; cursor: pointer; }
+
+/* MANA PIPS. Round and coloured, the shape every MTG tool uses. */
+.curve-cost { display: inline-flex; gap: 1px; flex-wrap: wrap; }
+.curve-mp { display: inline-grid; place-items: center; width: 15px; height: 15px;
+            border-radius: 50%; font-size: 0.6rem; font-weight: 800;
+            font-style: normal; color: #150e05; background: #cac5c0;
+            box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25); }
+.curve-mp-W { background: #fffbd5; }
+.curve-mp-U { background: #aae0fa; }
+.curve-mp-B { background: #cbc2bf; }
+.curve-mp-R { background: #f9aa8f; }
+.curve-mp-G { background: #9bd3ae; }
