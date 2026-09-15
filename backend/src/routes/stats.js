@@ -192,15 +192,43 @@ router.get('/stats', async (req, res) => {
           THEN cc.price_normal
         ELSE cc.price_trend
       END DESC
-      LIMIT 6
+      LIMIT 30
     `;
     const topValuableRows = await db.all(topValuableQuery, statsParams);
-    const topValuable = topValuableRows.map(row => {
+
+    // ONE ROW PER PRINTING, NOT PER COLLECTION ENTRY.
+    //
+    // Zach: "I see commander plate there twice but since they are the same
+    // printing they should be grouped together... if we did top 10 it should
+    // in reality be top 11 cards because of the duplicate not counting twice
+    // just once."
+    //
+    // The collection stores one row per acquisition, so two copies of the same
+    // printing are two rows with the same card_id (measured: Commander's Plate
+    // as entry 3324 and 4940, both card_id 4b470e1e…). "Most valuable" is a
+    // question about CARDS, so the list collapses on card_id and carries the
+    // copy count.
+    //
+    // Over-fetched to 30 above so that collapsing still leaves a full ten --
+    // LIMIT 10 in SQL would have returned nine distinct cards here.
+    const byPrinting = new Map();
+    for (const row of topValuableRows) {
       const priced = resolvePricedCard(row);
-      return { ...row, price_trend: priced.price,
-               price_source: priced.source, price_source_label: priced.sourceLabel,
-               price_url: priced.source && priced.source !== 'scryfall' ? row.mp_url : null };
-    });
+      const existing = byPrinting.get(row.card_id);
+      if (existing) {
+        existing.copies += (row.quantity || 1);
+        continue;
+      }
+      byPrinting.set(row.card_id, {
+        ...row,
+        copies: row.quantity || 1,
+        price_trend: priced.price,
+        price_source: priced.source,
+        price_source_label: priced.sourceLabel,
+        price_url: priced.source && priced.source !== 'scryfall' ? row.mp_url : null,
+      });
+    }
+    const topValuable = [...byPrinting.values()].slice(0, 10);
 
     // Compute progress for top 4 sets in database (estimate set total)
     const setSizes = {
