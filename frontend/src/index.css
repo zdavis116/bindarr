@@ -3608,11 +3608,41 @@ button, input, select, textarea {
 .curve-seg.dim { opacity: 0.18; }
 .curve-seg.sel { outline: 2px solid var(--text-primary); outline-offset: -2px; }
 
+/* TEN ROLE COLOURS. Five was already near the limit for a stacked bar, so
+   these are spaced deliberately round the wheel rather than "three more of
+   what we had". The four originals keep their colours so the chart does not
+   re-learn itself between releases. */
 .curve-ramp, .curve-seg.curve-ramp { background: var(--type-grass, #30d158); }
 .curve-draw, .curve-seg.curve-draw { background: var(--accent-blue, #0a84ff); }
 .curve-removal, .curve-seg.curve-removal { background: #ff9f0a; }
 .curve-threat, .curve-seg.curve-threat { background: #ff453a; }
+.curve-wipe, .curve-seg.curve-wipe { background: #fb7185; }
+.curve-counter, .curve-seg.curve-counter { background: #a78bfa; }
+.curve-tutor, .curve-seg.curve-tutor { background: #f0a3ff; }
+.curve-protection, .curve-seg.curve-protection { background: #2dd4bf; }
+.curve-recursion, .curve-seg.curve-recursion { background: #94a3b8; }
 .curve-other, .curve-seg.curve-other { background: var(--text-muted, #6b7694); }
+
+/* THE DECK MIX BAR — the part of the mockup that carried its weight.
+   One row, every category, counts in place: with ten roles a stacked curve
+   becomes a legend-hunting exercise, and this answers "what is this deck made
+   of" in a single glance without one. */
+.curve-mix { display: flex; height: 30px; border-radius: 7px;
+             overflow: hidden; margin-bottom: 0.5rem; margin-top: 0.7rem;
+             border-top: 0; }
+.curve-mix button { display: grid; place-items: center; border: 0; padding: 0;
+                    font: inherit; font-size: 0.66rem; font-weight: 800;
+                    color: #0c0c0e; cursor: pointer;
+                    transition: opacity 0.12s; min-width: 0; }
+.curve-mix button.dim { opacity: 0.28; }
+.curve-mixkey { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; }
+.curve-mixkey button { display: inline-flex; align-items: center; gap: 0.32rem;
+                       background: none; border: 0; color: var(--text-secondary);
+                       font: inherit; font-size: 0.71rem; cursor: pointer;
+                       padding: 0.25rem 0; min-height: 30px; }
+.curve-mixkey button.dim { opacity: 0.4; }
+.curve-mixkey i { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.curve-mixkey b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 
 .curve-xrow { display: grid; grid-template-columns: repeat(8, 1fr);
               gap: 0.3rem; margin-top: 0.3rem; }
@@ -3626,17 +3656,6 @@ button, input, select, textarea {
               font-size: 0.58rem; font-weight: 700; color: var(--text-primary);
               background: var(--surface-2); border: 1px solid var(--border-glass);
               border-radius: 999px; padding: 0.05rem 0.35rem; pointer-events: none; }
-
-.curve-legend { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.7rem;
-                padding-top: 0.6rem; border-top: 1px solid var(--border-glass); }
-.curve-lg { display: flex; align-items: center; gap: 0.3rem; font: inherit;
-            font-size: 0.73rem; color: var(--text-secondary);
-            background: var(--surface-2); border: 1px solid var(--border-glass);
-            border-radius: 999px; padding: 0.3rem 0.55rem;
-            /* 32px: a thumb target, not a mouse target. */
-            min-height: 32px; cursor: pointer; }
-.curve-lg.on { border-color: var(--accent-blue); color: var(--text-primary); }
-.curve-sw { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
 
 .curve-stats { display: grid; grid-template-columns: repeat(2, 1fr);
                gap: 0.45rem; margin-top: 0.7rem; }

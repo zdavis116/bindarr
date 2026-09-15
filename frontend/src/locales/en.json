@@ -1539,7 +1539,7 @@
   "curve.commander": "commander",
   "curve.roleRamp": "Ramp",
   "curve.roleDraw": "Card draw",
-  "curve.roleInteraction": "Interaction",
+  "curve.roleInteraction": "Removal",
   "curve.roleThreats": "Threats",
   "curve.roleOther": "Other",
   "curve.health": "Health",
@@ -1585,5 +1585,10 @@
   "curve.note.adventure-half": "The Adventure half. It has its own cost and you cast it separately, so it counts on the curve in its own right.",
   "curve.note.split-half": "One half of a split card. Each half has its own cost, so both count on the curve.",
   "curve.note.second-face": "A second castable face with its own cost.",
-  "curve.byTurnN": "chance to have one by turn {turn}"
+  "curve.byTurnN": "chance to have one by turn {turn}",
+  "curve.roleWipe": "Board wipes",
+  "curve.roleCounter": "Counterspells",
+  "curve.roleTutor": "Tutors",
+  "curve.roleProtection": "Protection",
+  "curve.roleRecursion": "Recursion"
 }

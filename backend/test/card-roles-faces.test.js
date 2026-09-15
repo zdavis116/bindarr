@@ -21,9 +21,17 @@ const pass = (id, what) => { console.log(`PASS: ${id} ${what}`); passed += 1; };
 // A stand-in tag universe: the real one is built from Scryfall's tag file, but
 // the judgement under test is the TYPE LINE, not the tags.
 const families = new Map([
-  ['ramp', new Set(['search-for-basic-land', 'mana-rock'])],
+  ['ramp', new Set(['search-for-basic-land', 'mana-rock', 'land-ramp'])],
   ['removal', new Set(['damage-creature'])],
   ['draw', new Set(['cantrip'])],
+  // The five categories added with the 8-role split. Empty is fine for most
+  // cases; what matters is that every role in ROLE_ROOTS has an entry, or the
+  // lookup returns undefined and throws.
+  ['wipe', new Set(['destroy-all-creatures'])],
+  ['counter', new Set(['counter-spell'])],
+  ['tutor', new Set(['tutor-artifact', 'tutor-to-hand'])],
+  ['protection', new Set(['gives-hexproof'])],
+  ['recursion', new Set(['regrowth'])],
 ]);
 for (const { role } of ROLE_ROOTS) {
   if (!families.has(role)) families.set(role, new Set());
@@ -108,13 +116,34 @@ for (const { role } of ROLE_ROOTS) {
   const card = {
     typeLine: 'Creature — Elf Druid // Sorcery',
     oracleText: '=== Llanowar Elves ===\n{T}: Add {G}.\n\n=== Some Spell ===\nDraw a card.',
+    // Tags are CARD-level: both faces see both slugs. The front is a creature
+    // that taps for mana -> ramp. The back is a Sorcery, so it falls through
+    // ROLE_ROOTS, where ramp now outranks draw -- so it lands on ramp too.
+    // That is CORRECT (the card really does carry a ramp tag), so this test
+    // asserts the TEXT-split behaviour it is actually about: the front face's
+    // {T}: Add decides ramp-vs-threat, and the back is judged separately.
     tagSlugs: new Set(['mana-rock', 'cantrip']),
     families,
   };
   const r = rolesForFaces(card);
   assert.strictEqual(r.role, 'ramp',
     'the creature half taps for mana, so it is ramp -- read from ITS text');
-  assert.strictEqual(r.backRole, 'draw', 'the sorcery half is a cantrip');
+  assert.strictEqual(r.backRole, 'ramp',
+    'the back face is not a creature, so it falls through ROLE_ROOTS: ramp '
+    + 'outranks draw and the card carries mana-rock');
+
+  // The text split is what this test is FOR, so prove it separately with a
+  // back face that has only a draw tag.
+  const drawBack = {
+    typeLine: 'Creature — Elf Druid // Sorcery',
+    oracleText: '=== Llanowar Elves ===\n{T}: Add {G}.\n\n=== Some Spell ===\nDraw a card.',
+    tagSlugs: new Set(['cantrip']),
+    families,
+  };
+  assert.strictEqual(rolesForFaces(drawBack).backRole, 'draw',
+    'a sorcery half with only a draw tag is draw');
+  assert.strictEqual(rolesForFaces(drawBack).role, 'threat',
+    'and WITHOUT a ramp tag the creature half is a threat, however its text reads');
 
   pass('CRF-TC4', 'rules text is split per face, not shared');
 }
@@ -211,6 +240,47 @@ for (const { role } of ROLE_ROOTS) {
     'a land onto the battlefield is an extra land -- that is ramp');
 
   pass('CRF-TC7', 'ramp is more mana, not merely finding a land');
+}
+
+// --- CRF-TC8 -----------------------------------------------------------------
+// THE ORDER OF ROLE_ROOTS IS THE PRODUCT DECISION, NOT THE LIST.
+//
+// Most cards carry two or three tag families, so which role wins is decided
+// entirely by this order. EDHREC: "categories don't have to be mutually
+// exclusive, but you should assign each card a primary role."
+//
+// RAMP MUST OUTRANK TUTOR. Cultivate, Farseek and Rampant Growth all carry
+// land-ramp AND tutor-land. With tutor first they showed as Tutors -- the
+// mechanism, not the job -- and Ur-Dragon read 5 tutors when it has 0.
+{
+  const order = ROLE_ROOTS.map((r) => r.role);
+  const idx = (r) => order.indexOf(r);
+
+  assert.ok(idx('ramp') < idx('tutor'),
+    'a card that puts a land on the battlefield is RAMP, even though it searches');
+
+  // card-advantage is the widest family (6,576 cards). Anything below it would
+  // be swallowed, so draw is deliberately last.
+  assert.strictEqual(order[order.length - 1], 'draw',
+    'draw is the widest family and must be the last resort');
+
+  // Board wipes and counterspells are distinct from removal: they are cards
+  // you hold for a different reason, and folding them in loses that.
+  assert.ok(idx('wipe') < idx('removal'), 'a wipe is not just removal');
+  assert.ok(idx('counter') < idx('removal'), 'a counterspell is not just removal');
+
+  // And the concrete case, end to end: a card tagged BOTH land-ramp and
+  // tutor-to-hand is ramp.
+  const cultivateLike = {
+    typeLine: 'Sorcery',
+    oracleText: 'Search your library for two basic lands, put one onto the battlefield.',
+    tagSlugs: new Set(['land-ramp', 'tutor-to-hand']),
+    families,
+  };
+  assert.strictEqual(rolesForFaces(cultivateLike).role, 'ramp',
+    'Cultivate is ramp, not a tutor');
+
+  pass('CRF-TC8', 'ROLE_ROOTS order: ramp beats tutor, draw is last');
 }
 
 console.log(`card-roles-faces.test.js: ${passed} cases passed`);

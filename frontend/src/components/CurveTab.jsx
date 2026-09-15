@@ -68,11 +68,22 @@ function ManaCost({ cost }) {
 // come from Scryfall's Tagger (see backend/src/cardRoles.js), not from
 // anything guessed here.
 
+// THE EIGHT CATEGORIES, in the order the stack and the mix bar read.
+//
+// Approved from sketches/roles8.html, measured on Zach's four real decks. The
+// order here is DISPLAY order; the tie-break order that decides which role a
+// card gets lives in backend/src/cardRoles.js ROLE_ROOTS and is not the same
+// thing -- a wipe outranks removal when classifying, but reads after it here.
 export const ROLES = [
+  { id: 'threat', key: 'curve.roleThreats' },
   { id: 'ramp', key: 'curve.roleRamp' },
   { id: 'draw', key: 'curve.roleDraw' },
   { id: 'removal', key: 'curve.roleInteraction' },
-  { id: 'threat', key: 'curve.roleThreats' },
+  { id: 'wipe', key: 'curve.roleWipe' },
+  { id: 'counter', key: 'curve.roleCounter' },
+  { id: 'tutor', key: 'curve.roleTutor' },
+  { id: 'protection', key: 'curve.roleProtection' },
+  { id: 'recursion', key: 'curve.roleRecursion' },
   { id: 'other', key: 'curve.roleOther' },
 ];
 
@@ -389,18 +400,49 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
         </div>
         <div className="curve-axis">{t('curve.manaValue')}</div>
 
-        <div className="curve-legend">
-          {ROLES.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className={`curve-lg${hotRole === r.id ? ' on' : ''}`}
-              onClick={() => setHotRole(hotRole === r.id ? null : r.id)}
-            >
-              <i className={`curve-sw curve-${r.id}`} />
-              {roleLabel(r.id)} {spells.filter((c) => c.role === r.id).length}
-            </button>
-          ))}
+        {/* THE DECK MIX BAR, replacing the old swatch legend.
+            With ten categories a legend is a list to read; this is one row
+            you glance at. It doubles as the filter control, so there is one
+            place to click rather than two that must agree. Roles with zero
+            cards are omitted -- ten labels where three are empty buries the
+            signal. */}
+        <div className="curve-mix">
+          {ROLES.map((r) => {
+            const n = spells.filter((c) => c.role === r.id).length;
+            if (!n) return null;
+            const pct = (n / Math.max(1, spells.length)) * 100;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                className={`curve-${r.id}${hotRole && hotRole !== r.id ? ' dim' : ''}`}
+                style={{ width: `${pct}%` }}
+                title={`${roleLabel(r.id)}: ${n}`}
+                aria-label={`${roleLabel(r.id)}: ${n}`}
+                onClick={() => setHotRole(hotRole === r.id ? null : r.id)}
+              >
+                {/* The count only fits above ~7%; the title carries it either way. */}
+                {pct > 7 ? n : ''}
+              </button>
+            );
+          })}
+        </div>
+        <div className="curve-mixkey">
+          {ROLES.map((r) => {
+            const n = spells.filter((c) => c.role === r.id).length;
+            if (!n) return null;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                className={hotRole && hotRole !== r.id ? 'dim' : ''}
+                onClick={() => setHotRole(hotRole === r.id ? null : r.id)}
+              >
+                <i className={`curve-${r.id}`} />
+                {roleLabel(r.id)} <b>{n}</b>
+              </button>
+            );
+          })}
         </div>
       </div>
 

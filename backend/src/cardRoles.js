@@ -51,39 +51,45 @@ const db = require('./db');
 
 const BULK_INDEX_URL = 'https://api.scryfall.com/bulk-data';
 
-// The roles the curve stacks by, in the order a tie is broken. Interaction
-// before draw before ramp: a card tagged both `removal` and `draw` (Fire // Ice)
-// is bucketed by the more specific job you keep it for.
+// THE ROLES, IN TIE-BREAK ORDER. Order matters more than the list.
+//
+// Zach approved the eight-category mockup (sketches/roles8.html), measured on
+// his four real decks. EDHREC's guide states the principle: "categories don't
+// have to be mutually exclusive, but you should assign each card a primary
+// role." Many cards carry two or three of these families, so the ORDER here is
+// the actual product decision.
+//
+// RAMP OUTRANKS TUTOR, and that is the whole reason this list is ordered:
+// Cultivate, Farseek and Rampant Growth carry BOTH `land-ramp` and
+// `tutor-land`. Ranking tutor first showed them as Tutors, which describes the
+// mechanism instead of the job -- Ur-Dragon read 5 tutors when it has 0.
+// Measured: fixing the order moved 6 cards across the four decks.
+//
+// Rationale for the rest, most specific first:
+//   wipe        a board wipe is never "just removal" -- it is the card you hold
+//   counter     likewise distinct from removal, and answers things removal cannot
+//   removal     before draw: Fire // Ice is kept for the removal half
+//   ramp        before tutor, see above
+//   tutor       56% of tutors (685 cards) carry no other family at all
+//   protection  before recursion: equipment/auras that shield a commander
+//   recursion   before draw: card-advantage is the widest family (6,576 cards)
+//               and would otherwise swallow everything below it
+//   draw        last, deliberately
 const ROLE_ROOTS = [
-  { role: 'removal', roots: ['counterspell', 'removal'] },
-  { role: 'draw', roots: ['card-advantage'] },
-  // RAMP IS PUTTING LANDS ONTO THE BATTLEFIELD, NOT FINDING THEM.
-  //
-  // I briefly added 'tutor-land' here and Zach caught it: "im not sure a tutor
-  // can be considered Ramp... Ramp puts you ahead in mana." He is right, and
-  // the tag data proves it. Scryfall's own definitions:
-  //
-  //   ramp       "Effects that increase available mana for current or later turns"
-  //   land-ramp  "Ramp spells that net you more lands on your side of the battlefield"
-  //
-  // And the actual taggings separate exactly along that line:
-  //
-  //   Cultivate, Rampant Growth, Three Visits, Farseek -> land-ramp
-  //                                                       (land to BATTLEFIELD)
-  //   Sagu Wildling, Expedition Map -> tutor-to-hand, NOT land-ramp
-  //   Evolving Wilds                -> fetchland,     NOT land-ramp
-  //
-  // A card that puts a land in your HAND costs you mana and gives you a land
-  // you could have drawn anyway -- it fixes colours and hits land drops, it
-  // does not put you ahead on mana. A fetchland replaces itself: same land
-  // count, better colours.
-  //
-  // land-ramp is ALREADY a child of ramp, so the real ramp cards were never
-  // the problem. Reverted to the single root.
+  { role: 'wipe', roots: ['sweeper'] },
+  { role: 'counter', roots: ['counterspell'] },
+  { role: 'removal', roots: ['removal'] },
   { role: 'ramp', roots: ['ramp'] },
+  { role: 'tutor', roots: ['tutor'] },
+  { role: 'protection', roots: ['protection'] },
+  { role: 'recursion', roots: ['recursion'] },
+  { role: 'draw', roots: ['card-advantage'] },
 ];
 
-const VALID_ROLES = ['ramp', 'draw', 'removal', 'threat', 'other'];
+const VALID_ROLES = [
+  'ramp', 'draw', 'removal', 'wipe', 'counter', 'tutor',
+  'protection', 'recursion', 'threat', 'other',
+];
 
 function httpClient() {
   // Required lazily so a missing optional dep cannot break server boot; the
