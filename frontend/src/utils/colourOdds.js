@@ -81,27 +81,11 @@ export function sourceColours(card, fetchColours) {
   return new Set();
 }
 
-/** The coloured pips in a mana cost: '{1}{W}{W}' -> { W: 2 }. */
-export function pipsOf(manaCost) {
-  // SPLIT CARDS ARE TWO COSTS, NOT ONE.
-  //
-  // Scryfall gives Fire // Ice as '{1}{R} // {1}{U}'. Parsed whole, that reads
-  // as needing red AND blue at once -- which is never true, and the UI showed
-  // it as 0% castable. You cast ONE half, so the relevant question is the
-  // EASIER half: if you can cast Fire, the card is live in your hand.
-  //
-  // This matches how the curve already buckets split cards at the cheaper
-  // half, so the two numbers agree instead of contradicting each other.
-  const halves = String(manaCost || '').split('//');
-  if (halves.length > 1) {
-    const parsed = halves.map((half) => pipsOf(half));
-    // Fewest total pips = easiest to cast. Ties keep the first half.
-    return parsed.reduce((best, cur) => {
-      const total = (p) => Object.values(p).reduce((s, n) => s + n, 0);
-      return total(cur) < total(best) ? cur : best;
-    });
-  }
-
+/**
+ * The coloured pips in ONE cost string: '{1}{W}{W}' -> { W: 2 }.
+ * Face-level only -- see castablePips() for how faces are chosen.
+ */
+export function pipsOfFace(manaCost) {
   const pips = {};
   for (const m of String(manaCost || '').matchAll(/\{([^}]+)\}/g)) {
     const sym = m[1].toUpperCase();
@@ -112,6 +96,76 @@ export function pipsOf(manaCost) {
     if (COLOURS.includes(sym)) pips[sym] = (pips[sym] || 0) + 1;
   }
   return pips;
+}
+
+const totalPips = (p) => Object.values(p).reduce((s, n) => s + n, 0);
+
+/**
+ * THE COST YOU ACTUALLY PAY, by card layout.
+ *
+ * Zach found three different things being flattened into one string:
+ *
+ *   transform  (Kefka, Court Mage; Delver of Secrets)
+ *     The back face has NO mana cost -- it flips, you never cast it. Bindarr
+ *     joined every face, producing '{2}{U}{B}{R} // ' with an empty half, and
+ *     the curve read the empty half as a 0-drop. Zach: "his flip doesn't have
+ *     a cost because he transforms so his cost looks like 0 but in reality his
+ *     cost is 5." FRONT FACE ONLY.
+ *
+ *   modal_dfc  (Tony Stark // The Invincible Iron Man)
+ *     BOTH faces are castable and each has its own cost -- {1}{U} and
+ *     {4}{U}{R}. Zach: "you pay to flip him ... we need to be treating them as
+ *     separate cards since each has their own mana cost." Both returned.
+ *
+ *   split      (Fire // Ice)
+ *     Either half, so the EASIER half is what decides castability.
+ *
+ * Returns an ARRAY of pip maps: one per independently castable face.
+ */
+export function castableCosts(card) {
+  const layout = (card.layout || '').toLowerCase();
+  const raw = String(card.mana_cost || '');
+  const halves = raw.split('//').map((h) => h.trim()).filter(Boolean);
+
+  // A transform/flip back face has no cost of its own. Even if the stored
+  // string somehow carries two halves, only the first is castable.
+  if (layout === 'transform' || layout === 'flip' || layout === 'meld') {
+    return [pipsOfFace(halves[0] || raw)];
+  }
+
+  // Both faces castable, each in its own right.
+  if (layout === 'modal_dfc' && halves.length > 1) {
+    return halves.map(pipsOfFace);
+  }
+
+  // Split / adventure: one card, either cost. The cheaper is what matters.
+  if (halves.length > 1) {
+    const parsed = halves.map(pipsOfFace);
+    return [parsed.reduce((best, cur) => (totalPips(cur) < totalPips(best) ? cur : best))];
+  }
+
+  return [pipsOfFace(raw)];
+}
+
+/**
+ * The single cost used for castability: the EASIEST castable face.
+ *
+ * For a modal DFC that is the cheap front -- if you can cast Tony Stark, the
+ * card is live in your hand, which is the question being asked.
+ */
+export function pipsOf(manaCostOrCard) {
+  // Back-compat: a bare string is a single face.
+  if (typeof manaCostOrCard === 'string' || manaCostOrCard == null) {
+    const raw = String(manaCostOrCard || '');
+    const halves = raw.split('//').map((h) => h.trim()).filter(Boolean);
+    if (halves.length > 1) {
+      const parsed = halves.map(pipsOfFace);
+      return parsed.reduce((best, cur) => (totalPips(cur) < totalPips(best) ? cur : best));
+    }
+    return pipsOfFace(raw);
+  }
+  const costs = castableCosts(manaCostOrCard);
+  return costs.reduce((best, cur) => (totalPips(cur) < totalPips(best) ? cur : best));
 }
 
 /**
@@ -191,7 +245,7 @@ function canPay(hand, pips, landLimit) {
  * to run while you hover.
  */
 export function castOdds(cards, card, turn, { trials = 4000, seed = 1 } = {}) {
-  const pips = pipsOf(card.mana_cost);
+  const pips = pipsOf(card);
   // MV, PREFERRING THE CURVE'S VALUE OVER RAW cmc.
   //
   // They disagree on split cards: Scryfall's cmc for Fire // Ice is 4 (both

@@ -11,7 +11,8 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import {
-  pipsOf, sourceColours, sourceCounts, manaSources, castOdds, reliableTurn,
+  pipsOf, pipsOfFace, castableCosts, sourceColours, sourceCounts, manaSources,
+  castOdds, reliableTurn,
 } from './colourOdds.js';
 import { probAtLeast } from './handOdds.js';
 
@@ -242,6 +243,48 @@ test('CO-TC17: a deck with no sources of a colour reports zero, not a crash', ()
   assert.equal(castOdds(cards, spell('Island card', '{U}', 1), 3, { trials: 2000 }), 0);
 });
 
+test('CO-TC19: transform cards use the FRONT face only', () => {
+  // Zach found this: Kefka, Court Mage is '{2}{U}{B}{R}' on the front and
+  // NOTHING on the back -- it transforms, you never cast that side. Bindarr
+  // joins every face, so the stored cost is '{2}{U}{B}{R} // ' and the split
+  // rule (cheaper half) made him a ZERO-DROP with no colour requirement.
+  const kefka = {
+    name: 'Kefka, Court Mage', layout: 'transform',
+    mana_cost: '{2}{U}{B}{R} // ', cmc: 5, mv: 5,
+    type_line: 'Legendary Creature // Legendary Creature',
+  };
+  assert.deepEqual(pipsOf(kefka), { U: 1, B: 1, R: 1 },
+    'the front face costs UBR -- the empty back face must not win');
+
+  const delver = {
+    name: 'Delver of Secrets', layout: 'transform',
+    mana_cost: '{U} // ', cmc: 1, mv: 1, type_line: 'Creature // Creature',
+  };
+  assert.deepEqual(pipsOf(delver), { U: 1 });
+});
+
+test('CO-TC20: modal DFCs keep BOTH costs, because you pay for both', () => {
+  // Zach: "for a card like tony stark we need to be treating them as separate
+  // cards since each has their own mana cost because you have to pay to flip
+  // him." Tony Stark is {1}{U}; The Invincible Iron Man is {4}{U}{R}.
+  const tony = {
+    name: 'Tony Stark', layout: 'modal_dfc',
+    mana_cost: '{1}{U} // {4}{U}{R}', cmc: 2, mv: 2,
+    type_line: 'Legendary Creature // Legendary Artifact Creature',
+  };
+  const costs = castableCosts(tony);
+  assert.equal(costs.length, 2, 'both faces are independently castable');
+  assert.deepEqual(costs[0], { U: 1 });
+  assert.deepEqual(costs[1], { U: 1, R: 1 });
+
+  // Castability asks "is this card live in my hand", so the EASIER face wins.
+  assert.deepEqual(pipsOf(tony), { U: 1 });
+
+  // And a transform card must NOT be treated this way.
+  const kefka = { layout: 'transform', mana_cost: '{2}{U}{B}{R} // ' };
+  assert.equal(castableCosts(kefka).length, 1,
+    'a transform back face is not a second castable cost');
+});
 test('CO-TC18: split cards are ONE half, not both halves at once', () => {
   // FOUND IN THE BROWSER, not by a test. Fire // Ice showed as 0% castable
   // because Scryfall's cost is '{1}{R} // {1}{U}' and parsing it whole

@@ -2,6 +2,15 @@ import { useMemo, useState } from 'react';
 import { useT } from '../utils/i18n';
 import { probLandsByTurn } from '../utils/handOdds';
 import { sourceCounts, castOdds, pipsOf, COLOURS } from '../utils/colourOdds';
+// bucketFor lives in utils so it can be unit-tested: node --test cannot
+// import .jsx. Re-exported here because other modules already import it
+// from this file.
+import { bucketFor } from '../utils/curveBuckets';
+export { bucketFor };
+
+const COLOUR_LETTERS = {
+  White: 'W', Blue: 'U', Black: 'B', Red: 'R', Green: 'G',
+};
 
 // THE CURVE TAB.
 //
@@ -48,39 +57,6 @@ const isLand = (c) => /(^|\s)land(\s|$|—|-)/i.test(c.type_line || '') &&
 //                Bucketed at the creature -- that is the card you are counting.
 //   X SPELLS     X is 0 off the stack (CR 202.3e), so they bucket low. True,
 //                and flagged in the tooltip because you will pay more.
-export function bucketFor(card) {
-  const cost = card.mana_cost || '';
-  const type = card.type_line || '';
-
-  // A split card's mana_cost is "{1}{R} // {1}{U}". Adventures print the same
-  // way, and their creature half is the FIRST face.
-  if (cost.includes('//')) {
-    const halves = cost.split('//').map((h) => manaValueOf(h));
-    const isAdventure = /adventure/i.test(type);
-    const mv = isAdventure ? halves[0] : Math.min(...halves);
-    return { mv, note: isAdventure ? 'adv' : '//' };
-  }
-
-  const mv = typeof card.cmc === 'number' ? card.cmc : manaValueOf(cost);
-  if (/\{X\}/i.test(cost)) return { mv, note: 'X' };
-  if (!cost && mv === 0) return { mv: 0, note: 'no cost' };
-  return { mv, note: null };
-}
-
-// Sum a mana cost string. Hybrid and Phyrexian pips each count 1, matching the
-// rules; {2/W} counts 2 because that is its mana value.
-function manaValueOf(cost) {
-  const symbols = (cost || '').match(/\{[^}]+\}/g) || [];
-  let total = 0;
-  for (const sym of symbols) {
-    const body = sym.slice(1, -1);
-    if (/^\d+$/.test(body)) { total += Number(body); continue; }
-    if (body === 'X' || body === 'Y' || body === 'Z') continue;   // 0 off the stack
-    const generic = body.split('/').find((p) => /^\d+$/.test(p));
-    total += generic ? Number(generic) : 1;
-  }
-  return total;
-}
 
 export default function CurveTab({ cards, commander, onOverrideRole, onSelectCard }) {
   // useT() returns the CONTEXT ({ locale, setLocale, t }), not the function.
@@ -90,6 +66,7 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const [filter, setFilter] = useState(null);   // {bucket, role} | {turn} | null
   const [hotRole, setHotRole] = useState(null);
   const [hover, setHover] = useState(null);   // the card being previewed
+  const [sort, setSort] = useState('mv');     // 'mv' | 'name' | 'role'
 
   // The spells the chart describes: nonland, and not the considering pile --
   // considering cards are not in the deck yet, so counting them would tell you
@@ -145,9 +122,36 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   // when the deck does.
   const colourSources = useMemo(() => sourceCounts(cards), [cards]);
 
-  // Only the colours this deck actually plays. Showing five rows with three
-  // zeroes would bury the signal in noise.
-  const liveColours = COLOURS.filter((c) => colourSources[c] > 0);
+  // ONLY THE COMMANDER'S COLOURS.
+  //
+  // Zach: "iron man deck can only have red and blue, the other colors don't
+  // make sense." He is right, and the cause was counting SOURCES rather than
+  // the deck's identity: Command Tower and Exotic Orchard report all five
+  // colours in produced_mana, so a two-colour deck showed white, black and
+  // green sources it can never use.
+  //
+  // Commander identity is the rule the deck is actually built under, so it is
+  // the right filter. Falls back to whatever the deck produces when there is
+  // no commander (a non-EDH deck), rather than showing nothing.
+  const deckColours = useMemo(() => {
+    const identity = new Set();
+    for (const card of cards || []) {
+      if (card.board !== 'commander') continue;
+      const ci = Array.isArray(card.color_identity)
+        ? card.color_identity
+        : JSON.parse(card.color_identity || '[]');
+      // color_identity is stored as NAMES ('Blue'), not letters.
+      for (const name of ci) {
+        const letter = COLOUR_LETTERS[name] || (COLOURS.includes(name) ? name : null);
+        if (letter) identity.add(letter);
+      }
+    }
+    return identity;
+  }, [cards]);
+
+  const liveColours = COLOURS.filter((c) => (
+    deckColours.size ? deckColours.has(c) : colourSources[c] > 0
+  ));
 
   // PER-CARD CASTABILITY, for the one card being previewed.
   //
@@ -170,7 +174,15 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
     return bk(c) === filter.bucket && c.role === filter.role;
   };
 
-  const shown = spells.filter(matches);
+  // CLICKING A ROLE IN THE LEGEND FILTERS THE LIST TOO.
+  //
+  // Zach: "if I click ramp it highlights in the bar graph but doesn't sort
+  // cards below but it should." It only dimmed the chart, which made the
+  // legend look like a display toggle rather than a filter -- and left the
+  // list showing 49 cards while the chart showed 12.
+  const roleMatches = (c) => !hotRole || c.role === hotRole;
+
+  const shown = spells.filter((c) => matches(c) && roleMatches(c));
 
   // WHICH CARDS ARE HARD TO CAST ON CURVE.
   //
@@ -204,10 +216,17 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
 
   const roleLabel = (id) => t(ROLES.find((r) => r.id === id).key);
   const filterLabel = () => {
-    if (!filter) return null;
-    if (filter.turn != null) return t('curve.castableByTurn', { turn: filter.turn });
-    return `${roleLabel(filter.role)} · ${t('curve.mv')} ${filter.bucket === 7 ? '7+' : filter.bucket}`;
+    if (filter) {
+      if (filter.turn != null) return t('curve.castableByTurn', { turn: filter.turn });
+      return `${roleLabel(filter.role)} · ${t('curve.mv')} ${filter.bucket === 7 ? '7+' : filter.bucket}`;
+    }
+    // A legend role is also a filter, so it needs a Clear affordance too --
+    // otherwise the list silently shows a subset with nothing saying why.
+    if (hotRole) return roleLabel(hotRole);
+    return null;
   };
+
+  const clearFilters = () => { setFilter(null); setHotRole(null); };
 
   const commanderBucket = commander ? Math.min(Math.round(bucketFor(commander).mv), 7) : null;
 
@@ -377,10 +396,30 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
           cannot see and cannot undo is how you end up reading a partial deck
           and thinking it is the whole one. */}
       <div className="curve-panel curve-listpanel">
+        {/* SORT. Zach: "it should be sortable by turn."
+            Mana value IS the turn you can first cast a card, so this sorts by
+            the number already in the row rather than inventing a second one.
+            Name is the other way you look for a card you know you own. */}
+        <div className="curve-sortbar">
+          {[
+            ['mv', t('curve.sortTurn')],
+            ['name', t('curve.sortName')],
+            ['role', t('curve.sortRole')],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={sort === id ? 'on' : ''}
+              onClick={() => setSort(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {filterLabel() ? (
           <div className="curve-filterbar">
             <span><b>{filterLabel()}</b> · {shown.length}</span>
-            <button type="button" onClick={() => setFilter(null)}>{t('curve.clear')}</button>
+            <button type="button" onClick={clearFilters}>{t('curve.clear')}</button>
           </div>
         ) : (
           <div className="curve-listhint">
@@ -390,7 +429,17 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
         <div className="curve-list">
           {shown
             .slice()
-            .sort((a, b) => a.mv - b.mv || (a.name || '').localeCompare(b.name || ''))
+            .sort((a, b) => {
+              const byName = (a.name || '').localeCompare(b.name || '');
+              if (sort === 'name') return byName;
+              if (sort === 'role') {
+                // Legend order, so the list and the stacked bars read the same
+                // way round instead of one being alphabetical.
+                const ri = (c) => ROLES.findIndex((r) => r.id === c.role);
+                return ri(a) - ri(b) || a.mv - b.mv || byName;
+              }
+              return a.mv - b.mv || byName;
+            })
             .map((c) => (
               <button
                 key={c.id}

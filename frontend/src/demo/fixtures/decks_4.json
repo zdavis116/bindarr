@@ -9,8 +9,8 @@
   "created_at": "2026-07-11 20:05:43",
   "checked_out": 0,
   "checked_out_at": null,
-  "total_card_types": 84,
-  "total_cards": 84,
+  "total_card_types": 86,
+  "total_cards": 86,
   "user_id": 1,
   "cards": [
     {
@@ -44,7 +44,15 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Green",
+        "Red",
+        "Blue",
+        "White"
+      ]
     },
     {
       "quantity": 1,
@@ -73,7 +81,9 @@
       "role_is_override": null,
       "produced_mana": [
         "C"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -106,7 +116,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -135,7 +147,11 @@
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -164,7 +180,11 @@
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -193,7 +213,11 @@
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -222,7 +246,11 @@
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -251,7 +279,11 @@
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -280,7 +312,11 @@
       "card_role": "ramp",
       "role_source_tag": "land-ramp",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -315,6 +351,10 @@
         "R",
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green"
       ]
     },
     {
@@ -346,6 +386,10 @@
       "role_is_override": null,
       "produced_mana": [
         "G"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green"
       ]
     },
     {
@@ -377,6 +421,11 @@
         "C",
         "R",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Red",
+        "Blue"
       ]
     },
     {
@@ -410,7 +459,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -439,7 +490,11 @@
       "card_role": "draw",
       "role_source_tag": "draw-engine",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
+      ]
     },
     {
       "quantity": 1,
@@ -468,7 +523,11 @@
       "card_role": "draw",
       "role_source_tag": "brainstorm",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -497,7 +556,11 @@
       "card_role": "draw",
       "role_source_tag": "life-for-cards",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Black"
+      ]
     },
     {
       "quantity": 1,
@@ -526,7 +589,11 @@
       "card_role": "draw",
       "role_source_tag": "mulch",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
+      ]
     },
     {
       "quantity": 1,
@@ -555,7 +622,11 @@
       "card_role": "draw",
       "role_source_tag": "burst-draw",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
+      ]
     },
     {
       "quantity": 1,
@@ -584,7 +655,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -613,7 +688,11 @@
       "card_role": "draw",
       "role_source_tag": "burst-draw",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
+      ]
     },
     {
       "quantity": 1,
@@ -642,7 +721,11 @@
       "card_role": "removal",
       "role_source_tag": "removal-creature",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "White"
+      ]
     },
     {
       "quantity": 1,
@@ -671,7 +754,11 @@
       "card_role": "removal",
       "role_source_tag": "counterspell",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
+      ]
     },
     {
       "quantity": 1,
@@ -700,7 +787,11 @@
       "card_role": "removal",
       "role_source_tag": "counterspell-enchantment",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
+      ]
     },
     {
       "quantity": 1,
@@ -729,7 +820,11 @@
       "card_role": "removal",
       "role_source_tag": "removal-destroy",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -758,7 +853,11 @@
       "card_role": "removal",
       "role_source_tag": "removal-destroy",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "White"
+      ]
     },
     {
       "quantity": 1,
@@ -788,7 +887,12 @@
       "card_role": "removal",
       "role_source_tag": "removal-exile",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "White"
+      ]
     },
     {
       "quantity": 1,
@@ -817,7 +921,11 @@
       "card_role": "removal",
       "role_source_tag": "burn-creature",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -846,7 +954,11 @@
       "card_role": "removal",
       "role_source_tag": "removal-artifact",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -875,7 +987,11 @@
       "card_role": "removal",
       "role_source_tag": "disenchant-naturalize",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -904,7 +1020,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green"
+      ]
     },
     {
       "quantity": 1,
@@ -939,6 +1059,10 @@
         "R",
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Red"
       ]
     },
     {
@@ -968,7 +1092,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -998,7 +1126,12 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1027,7 +1160,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1056,7 +1193,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1089,6 +1230,11 @@
       "produced_mana": [
         "G",
         "R"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Red"
       ]
     },
     {
@@ -1118,7 +1264,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1147,7 +1297,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1174,7 +1328,9 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1203,7 +1359,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1260,7 +1420,11 @@
       "card_role": "removal",
       "role_source_tag": "burn-any",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1287,7 +1451,9 @@
       "card_role": "draw",
       "role_source_tag": "repeatable-card-advantage",
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1314,7 +1480,9 @@
       "card_role": "other",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1343,7 +1511,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1372,7 +1544,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1407,6 +1583,10 @@
         "R",
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Red"
       ]
     },
     {
@@ -1436,7 +1616,11 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": [
+        "Red"
+      ]
     },
     {
       "quantity": 1,
@@ -1498,7 +1682,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1531,7 +1717,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1560,7 +1748,9 @@
       "role_is_override": null,
       "produced_mana": [
         "C"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1593,7 +1783,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -1623,6 +1815,11 @@
       "produced_mana": [
         "G",
         "R"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Red"
       ]
     },
     {
@@ -1653,6 +1850,11 @@
       "produced_mana": [
         "G",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "White"
       ]
     },
     {
@@ -1683,6 +1885,11 @@
       "produced_mana": [
         "B",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Blue"
       ]
     },
     {
@@ -1713,6 +1920,11 @@
       "produced_mana": [
         "B",
         "R"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Red"
       ]
     },
     {
@@ -1743,6 +1955,11 @@
       "produced_mana": [
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Blue",
+        "White"
       ]
     },
     {
@@ -1774,6 +1991,12 @@
         "G",
         "R",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Red",
+        "Blue"
       ]
     },
     {
@@ -1805,6 +2028,12 @@
         "B",
         "G",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Green",
+        "Blue"
       ]
     },
     {
@@ -1836,6 +2065,12 @@
         "R",
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Red",
+        "Blue",
+        "White"
       ]
     },
     {
@@ -1867,6 +2102,12 @@
         "B",
         "R",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Red",
+        "White"
       ]
     },
     {
@@ -1898,6 +2139,12 @@
         "B",
         "G",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Green",
+        "White"
       ]
     },
     {
@@ -1929,6 +2176,12 @@
         "G",
         "R",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Red",
+        "White"
       ]
     },
     {
@@ -1960,6 +2213,12 @@
         "B",
         "R",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Red",
+        "Blue"
       ]
     },
     {
@@ -1991,6 +2250,12 @@
         "B",
         "G",
         "R"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Green",
+        "Red"
       ]
     },
     {
@@ -2022,6 +2287,12 @@
         "G",
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Blue",
+        "White"
       ]
     },
     {
@@ -2053,6 +2324,12 @@
         "B",
         "U",
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Blue",
+        "White"
       ]
     },
     {
@@ -2086,7 +2363,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2120,7 +2399,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2154,7 +2435,9 @@
         "R",
         "U",
         "W"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2183,7 +2466,9 @@
       "role_is_override": null,
       "produced_mana": [
         "C"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2212,6 +2497,10 @@
       "role_is_override": null,
       "produced_mana": [
         "G"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green"
       ]
     },
     {
@@ -2241,6 +2530,10 @@
       "role_is_override": null,
       "produced_mana": [
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Blue"
       ]
     },
     {
@@ -2270,6 +2563,10 @@
       "role_is_override": null,
       "produced_mana": [
         "R"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Red"
       ]
     },
     {
@@ -2299,6 +2596,10 @@
       "role_is_override": null,
       "produced_mana": [
         "W"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "White"
       ]
     },
     {
@@ -2328,6 +2629,10 @@
       "role_is_override": null,
       "produced_mana": [
         "B"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black"
       ]
     },
     {
@@ -2355,7 +2660,9 @@
       "card_role": "other",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2382,7 +2689,9 @@
       "card_role": "other",
       "role_source_tag": null,
       "role_is_override": null,
-      "produced_mana": null
+      "produced_mana": null,
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2411,7 +2720,9 @@
       "role_is_override": null,
       "produced_mana": [
         "C"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2440,6 +2751,10 @@
       "role_is_override": null,
       "produced_mana": [
         "C"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green"
       ]
     },
     {
@@ -2469,7 +2784,9 @@
       "role_is_override": null,
       "produced_mana": [
         "C"
-      ]
+      ],
+      "layout": "normal",
+      "color_identity": []
     },
     {
       "quantity": 1,
@@ -2499,6 +2816,11 @@
       "produced_mana": [
         "G",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Green",
+        "Blue"
       ]
     },
     {
@@ -2529,7 +2851,77 @@
       "produced_mana": [
         "B",
         "U"
+      ],
+      "layout": "normal",
+      "color_identity": [
+        "Black",
+        "Blue"
       ]
+    },
+    {
+      "quantity": 1,
+      "id": "mtg-8fcf3fbb-1ddd-437e-81c1-f5a3133f5ee8",
+      "desired_card_id": "mtg-8fcf3fbb-1ddd-437e-81c1-f5a3133f5ee8",
+      "oracle_id": "6d3ca5cb-781d-4608-b7f1-38c020536376",
+      "name": "Kefka, Court Mage // Kefka, Ruler of Ruin",
+      "set_id": "fin",
+      "set_name": "Final Fantasy",
+      "number": "231",
+      "image_url": "https://cards.scryfall.io/normal/front/8/f/8fcf3fbb-1ddd-437e-81c1-f5a3133f5ee8.jpg?1783906572",
+      "rarity": "Mythic",
+      "cmc": 5.0,
+      "mana_cost": "{2}{U}{B}{R} // ",
+      "type_line": "Legendary Creature \u2014 Human Wizard // Legendary Creature \u2014 Avatar Wizard",
+      "oracle_text": "Whenever Kefka enters or attacks, each player discards a card. Then you draw a card for each card type among cards discarded this way.\n{8}: Each opponent sacrifices a permanent of their choice. Transform Kefka. Activate only as a sorcery.\n//\nFlying\nWhenever an opponent loses life during your turn, you draw that many cards.",
+      "colors": [],
+      "supertype": "",
+      "subtypes": [],
+      "types": [],
+      "layout": "transform",
+      "color_identity": [
+        "Black",
+        "Red",
+        "Blue"
+      ],
+      "produced_mana": null,
+      "board": "mainboard",
+      "owned_qty": 1,
+      "quantity_missing": 0,
+      "card_role": "threat",
+      "role_source_tag": null,
+      "role_is_override": null
+    },
+    {
+      "quantity": 1,
+      "id": "mtg-4cea42fd-035e-4b8f-8b1d-ff363b694f14",
+      "desired_card_id": "mtg-4cea42fd-035e-4b8f-8b1d-ff363b694f14",
+      "oracle_id": "4a46ea59-6c5d-4bed-9951-b5590f9a1bdb",
+      "name": "Tony Stark // The Invincible Iron Man",
+      "set_id": "msh",
+      "set_name": "Marvel Super Heroes",
+      "number": "80",
+      "image_url": "https://cards.scryfall.io/normal/front/4/c/4cea42fd-035e-4b8f-8b1d-ff363b694f14.jpg?1783902955",
+      "rarity": "Mythic",
+      "cmc": 2.0,
+      "mana_cost": "{1}{U} // {4}{U}{R}",
+      "type_line": "Legendary Creature \u2014 Human Artificer Hero // Legendary Artifact Creature \u2014 Human Hero",
+      "oracle_text": "{1}, {T}: Look at the top four cards of your library. You may reveal an artifact card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.\n{4}{U}{R}: Transform Tony Stark. Activate only as a sorcery.\n//\nFlying, haste\nAt the beginning of combat on your turn, you may put an artifact card from your hand onto the battlefield. If it's an Equipment, attach it to The Invincible Iron Man.",
+      "colors": [],
+      "supertype": "",
+      "subtypes": [],
+      "types": [],
+      "layout": "modal_dfc",
+      "color_identity": [
+        "Red",
+        "Blue"
+      ],
+      "produced_mana": null,
+      "board": "mainboard",
+      "owned_qty": 1,
+      "quantity_missing": 0,
+      "card_role": "threat",
+      "role_source_tag": null,
+      "role_is_override": null
     }
   ]
 }

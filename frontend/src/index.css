@@ -3883,3 +3883,16 @@ button, input, select, textarea {
                   margin-top: 0.35rem; padding-top: 0.35rem;
                   border-top: 1px solid var(--border-glass); }
 .curve-tip-cast.low { color: #ff9f0a; }
+
+/* SORT CONTROL on the curve's card list. Same segmented-control shape as the
+   rest of the app so it reads as a control, not a filter chip row. */
+.curve-sortbar { display: flex; gap: 3px; background: var(--surface-2);
+                 border-radius: 9px; padding: 3px; border: 1px solid var(--border-glass);
+                 margin-bottom: 0.5rem; }
+.curve-sortbar button { flex: 1; background: none; border: 0; color: var(--text-muted);
+                        font: inherit; font-size: 0.74rem; font-weight: 600;
+                        padding: 0.35rem; border-radius: 7px;
+                        /* 34px: a thumb target. */
+                        min-height: 34px; cursor: pointer; }
+.curve-sortbar button.on { background: var(--surface-3, var(--surface-1));
+                           color: var(--text-primary); }

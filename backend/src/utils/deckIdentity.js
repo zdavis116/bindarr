@@ -362,6 +362,13 @@ async function availabilityForDeck(database, deckId, userId) {
             -- card has a back face, so the flip button never renders.
             cc.display_name, cc.back_image_url, cc.back_name, cc.back_type_line,
             cc.legalities, cc.type_line, cc.mana_cost, cc.cmc, cc.supertype,
+            -- HOW THE FACES RELATE, for the Curve tab's cost maths. A
+            -- transform back face costs nothing (it flips), a modal_dfc back
+            -- face is a second castable cost, and split is either half.
+            -- Without this the curve cannot tell them apart.
+            -- (No backticks in here: this comment sits inside a JS template
+            -- literal and a backtick would close it.)
+            cc.layout,
             cc.subtypes, cc.types, cc.rarity, cc.finishes,
             -- Needed by the commander-legality and partner-pairing warnings:
             -- "can be your commander" and "Partner" live in the rules text,

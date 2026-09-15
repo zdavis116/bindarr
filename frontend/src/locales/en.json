@@ -1574,5 +1574,9 @@
   "curve.byTurnThree": "chance to have one by turn 3",
   "curve.sourcesN": "{n} sources",
   "curve.castOnTurn": "Castable on turn {turn} about {pct}% of the time",
-  "curve.colourAssume": "Counts lands only, not mana rocks or dorks — those have to be cast and survive first. Hybrid and Phyrexian pips are not counted as requirements. Fetchlands count as the colours your basics can find."
+  "curve.colourAssume": "Counts lands only, not mana rocks or dorks — those have to be cast and survive first. Hybrid and Phyrexian pips are not counted as requirements. Fetchlands count as the colours your basics can find.",
+  "curve.sortTurn": "Turn",
+  "curve.sortName": "Name",
+  "curve.sortRole": "Role",
+  "curve.mdfcNote": "2 sides"
 }
