@@ -29,6 +29,47 @@ const NOTE_FOR_SECOND_FACE = {
 };
 
 /**
+ * Pull one face's rules text out of Bindarr's joined oracle_text.
+ *
+ * Multi-face cards are stored as:
+ *   === Tony Stark ===
+ *   {1}, {T}: Look at the top four...
+ *
+ *   === The Invincible Iron Man ===
+ *   Flying, haste...
+ *
+ * Showing the whole blob on a face row means the six-drop row explains the
+ * two-drop as well -- Zach: "it should say the invincible iron man for the 6
+ * mana one and only have that card description."
+ */
+export function faceTextFrom(oracleText, faceName, faceIndex) {
+  const raw = String(oracleText || '');
+  if (!raw.includes('===')) return raw;
+
+  // Split on the === Name === headers, keeping the names.
+  const parts = [];
+  const re = /===\s*(.+?)\s*===\n?/g;
+  let match = re.exec(raw);
+  while (match) {
+    const start = re.lastIndex;
+    const next = re.exec(raw);
+    parts.push({
+      name: match[1],
+      text: raw.slice(start, next ? next.index : raw.length).trim(),
+    });
+    match = next;
+  }
+  if (!parts.length) return raw;
+
+  // Match by name first -- face order in the text is not guaranteed.
+  const byName = faceName
+    && parts.find((p) => p.name.toLowerCase() === String(faceName).toLowerCase());
+  if (byName) return byName.text;
+
+  return (parts[faceIndex] || parts[0]).text;
+}
+
+/**
  * THE CURVE ENTRIES A CARD PRODUCES — usually one, sometimes two.
  *
  * Zach: "cards that have a flip side both cards should be counted in the mana
@@ -79,30 +120,47 @@ export function curveEntriesFor(card) {
   // invents. The only exclusions are layouts whose back face cannot be cast.
   if (!FLIP_ONLY_LAYOUTS.has(layout) && cost.includes('//')) {
     const halves = cost.split('//').map((h) => h.trim());
-    const names = String(card.name || '').split('//').map((n) => n.trim());
     const types = String(card.type_line || '').split('//').map((s) => s.trim());
 
-    // A face with no cost is not castable -- that is a transform back, and
-    // those are filtered out before this runs. Guard anyway: an empty half
-    // would otherwise become a phantom 0-drop, the Kefka bug again.
+    // FACE NAMES. `name` is NOT reliably the joined string: for Tony Stark the
+    // catalogue stores name='Tony Stark' with the joined form in display_name
+    // and the second face in back_name. Splitting `name` gave BOTH faces the
+    // name 'Tony Stark', which is exactly what Zach saw on the six-drop row.
+    //
+    // Order of trust: the === headers in oracle_text (authoritative, one per
+    // face), then back_name, then display_name, then name.
+    const headerNames = [...String(card.oracle_text || '')
+      .matchAll(/===\s*(.+?)\s*===/g)].map((m) => m[1].trim());
+    const joined = String(card.display_name || card.name || '')
+      .split('//').map((n) => n.trim()).filter(Boolean);
+    const nameFor = (i) => headerNames[i]
+      || (i === 1 ? card.back_name : null)
+      || joined[i]
+      || (i === 0 ? card.name : null)
+      || card.name;
+
     const castable = halves
       .map((half, i) => ({ half, i }))
       .filter(({ half }) => /\{[^}]+\}/.test(half));
 
     if (castable.length > 1) {
-      return castable.map(({ half, i }) => ({
-        mv: manaValueOf(half),
-        // Only the SECOND face is flagged. The first is an ordinary card and
-        // a note on every one of these would be wallpaper.
-        note: i === 0 ? null : NOTE_FOR_SECOND_FACE[layout] || 'second-face',
-        faceIndex: i,
-        // THE FACE'S OWN NAME, not the joined string. Zach: "Why does it say
-        // Tony stark and not the invincible iron man because that's wrong."
-        // The row IS the face, so it must be named as the face.
-        faceName: names[i] || names[0] || card.name,
-        faceType: types[i] || types[0] || card.type_line,
-        faceCost: half,
-      }));
+      return castable.map(({ half, i }) => {
+        const faceName = nameFor(i);
+        return {
+          mv: manaValueOf(half),
+          note: i === 0 ? null : NOTE_FOR_SECOND_FACE[layout] || 'second-face',
+          faceIndex: i,
+          faceName,
+          faceType: types[i] || types[0] || card.type_line,
+          faceCost: half,
+          // ONLY THIS FACE'S RULES TEXT. The row is the face.
+          faceText: faceTextFrom(card.oracle_text, faceName, i),
+          // ...and this face's art. The back face has its own image, and
+          // showing the front's picture on the six-drop row was the other
+          // half of the same bug.
+          faceImage: (i === 1 && card.back_image_url) ? card.back_image_url : card.image_url,
+        };
+      });
     }
   }
 
@@ -113,6 +171,8 @@ export function curveEntriesFor(card) {
     faceName: String(card.name || '').split('//')[0].trim() || card.name,
     faceType: card.type_line,
     faceCost: cost,
+    faceText: card.oracle_text,
+    faceImage: card.image_url,
   }];
 }
 

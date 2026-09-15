@@ -10,7 +10,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert';
-import { bucketFor, curveEntriesFor } from './curveBuckets.js';
+import { bucketFor, curveEntriesFor, faceTextFrom } from './curveBuckets.js';
 
 test('CB-TC1: a transform card is its FRONT face, not the empty back one', () => {
   // THE BUG THAT SHIPPED. Without the layout check this returns mv 0.
@@ -245,4 +245,80 @@ test('CB-TC6: layout beats the string, because both look the same', () => {
   };
   assert.equal(bucketFor(asTransform).mv, 5);
   assert.equal(bucketFor(asSplit).mv, 1, 'a real split card does take the cheap half');
+});
+
+// THE SHAPE BINDARR ACTUALLY STORES for Tony Stark, read off the live dev
+// database. NOT a guess: `name` is the FRONT face only, the joined form lives
+// in display_name, the second face in back_name, and oracle_text carries both
+// faces under === headers. Splitting `name` on '//' therefore gave BOTH rows
+// the name 'Tony Stark' -- the bug Zach screenshotted.
+const TONY = {
+  name: 'Tony Stark',
+  display_name: 'Tony Stark // The Invincible Iron Man',
+  back_name: 'The Invincible Iron Man',
+  back_type_line: 'Legendary Artifact Creature — Human Hero',
+  type_line: 'Legendary Creature — Human Artificer Hero // Legendary Artifact Creature — Human Hero',
+  mana_cost: '{1}{U} // {4}{U}{R}',
+  layout: 'modal_dfc',
+  cmc: 2,
+  image_url: 'https://cards.scryfall.io/normal/front/4/c/4cea.jpg',
+  back_image_url: 'https://cards.scryfall.io/normal/back/4/c/4cea.jpg',
+  oracle_text: [
+    '=== Tony Stark ===',
+    '{1}, {T}: Look at the top four cards of your library.',
+    '{4}{U}{R}: Transform Tony Stark. Activate only as a sorcery.',
+    '',
+    '=== The Invincible Iron Man ===',
+    'Flying, haste',
+    'At the beginning of combat on your turn, you may put an artifact card',
+  ].join('\n'),
+};
+
+test('CB-TC11: the 6-mana row is named The Invincible Iron Man', () => {
+  // Zach, with a screenshot: "it should say the invincible iron man for the 6
+  // mana one". The row showed 'Tony Stark' because `name` has no '//' in it,
+  // so splitting it produced the same string for both faces.
+  const [front, back] = curveEntriesFor(TONY);
+  assert.equal(front.mv, 2);
+  assert.equal(back.mv, 6);
+  assert.equal(front.faceName, 'Tony Stark');
+  assert.equal(back.faceName, 'The Invincible Iron Man',
+    'the six-drop is the back face and must be named as it');
+});
+
+test('CB-TC12: each face shows ONLY its own rules text', () => {
+  // "and only have that card description". The row was printing the whole
+  // joined blob, so the six-drop explained the two-drop as well.
+  const [front, back] = curveEntriesFor(TONY);
+
+  assert.match(front.faceText, /Look at the top four/);
+  assert.ok(!front.faceText.includes('Flying, haste'),
+    'the front face must not carry the back face rules');
+
+  assert.match(back.faceText, /Flying, haste/);
+  assert.ok(!back.faceText.includes('Look at the top four'),
+    'the back face must not carry the front face rules');
+
+  // And the === headers themselves are gone: the row already has a title.
+  assert.ok(!back.faceText.includes('==='), 'no leftover section headers');
+});
+
+test('CB-TC13: the back face uses the BACK art', () => {
+  // The screenshot showed Tony Stark's picture on the six-drop row.
+  const [front, back] = curveEntriesFor(TONY);
+  assert.match(front.faceImage, /\/front\//);
+  assert.match(back.faceImage, /\/back\//, 'the back face has its own image');
+});
+
+test('CB-TC14: faceTextFrom is safe on ordinary and malformed text', () => {
+  // Single-faced cards have no headers and must pass straight through.
+  assert.equal(faceTextFrom('Flying', 'Serra Angel', 0), 'Flying');
+  assert.equal(faceTextFrom('', 'X', 0), '');
+  assert.equal(faceTextFrom(null, 'X', 0), '');
+
+  // Unknown face name falls back to position rather than returning nothing --
+  // a blank rules box is worse than the wrong half.
+  const two = '=== A ===\nalpha\n\n=== B ===\nbeta';
+  assert.equal(faceTextFrom(two, 'Nonexistent', 1), 'beta');
+  assert.equal(faceTextFrom(two, 'B', 0), 'beta', 'name wins over index');
 });

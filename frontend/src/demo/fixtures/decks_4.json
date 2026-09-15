@@ -1370,7 +1370,7 @@
       "id": "mtg-b5b71cd2-de35-451f-b16e-2e3936169407",
       "desired_card_id": "mtg-b5b71cd2-de35-451f-b16e-2e3936169407",
       "oracle_id": "d6d72f5f-8f5d-4180-b514-f22ff5482902",
-      "name": "Bonecrusher Giant // Stomp",
+      "name": "Bonecrusher Giant",
       "set_id": "clb",
       "set_name": "Commander Legends: Battle for Baldur's Gate",
       "number": "781",
@@ -1379,7 +1379,7 @@
       "cmc": 3.0,
       "mana_cost": "{2}{R} // {1}{R}",
       "type_line": "Creature \u2014 Giant // Instant \u2014 Adventure",
-      "oracle_text": "Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell's controller.\n//\nDamage can't be prevented this turn. Stomp deals 2 damage to any target.",
+      "oracle_text": "=== Bonecrusher Giant ===\nWhenever this creature becomes the target of a spell, this creature deals 2 damage to that spell's controller.\n\n=== Stomp ===\nDamage can't be prevented this turn. Stomp deals 2 damage to any target.",
       "colors": [
         "R"
       ],
@@ -1392,7 +1392,10 @@
       "card_role": "threat",
       "role_source_tag": null,
       "role_is_override": null,
-      "layout": "adventure"
+      "layout": "adventure",
+      "display_name": "Bonecrusher Giant // Stomp",
+      "back_name": "Stomp",
+      "back_type_line": "Instant \u2014 Adventure"
     },
     {
       "quantity": 1,
@@ -1628,7 +1631,7 @@
       "id": "mtg-18303862-4726-4136-814f-157aa7006579",
       "desired_card_id": "mtg-18303862-4726-4136-814f-157aa7006579",
       "oracle_id": "ae92942b-919c-4ea9-b693-85fcef765d5a",
-      "name": "Fire // Ice",
+      "name": "Fire",
       "set_id": "dmr",
       "set_name": "Dominaria Remastered",
       "number": "215",
@@ -1637,7 +1640,7 @@
       "cmc": 4.0,
       "mana_cost": "{1}{R} // {1}{U}",
       "type_line": "Instant // Instant",
-      "oracle_text": "Fire deals 2 damage divided as you choose among one or two targets.\n//\nTap target permanent.\nDraw a card.",
+      "oracle_text": "=== Fire ===\nFire deals 2 damage divided as you choose among one or two targets.\n\n=== Ice ===\nTap target permanent.\nDraw a card.",
       "colors": [
         "R",
         "U"
@@ -1651,7 +1654,10 @@
       "card_role": "removal",
       "role_source_tag": "burn-any",
       "role_is_override": null,
-      "layout": "split"
+      "layout": "split",
+      "display_name": "Fire // Ice",
+      "back_name": "Ice",
+      "back_type_line": "Instant"
     },
     {
       "quantity": 1,
@@ -2865,7 +2871,7 @@
       "id": "mtg-8fcf3fbb-1ddd-437e-81c1-f5a3133f5ee8",
       "desired_card_id": "mtg-8fcf3fbb-1ddd-437e-81c1-f5a3133f5ee8",
       "oracle_id": "6d3ca5cb-781d-4608-b7f1-38c020536376",
-      "name": "Kefka, Court Mage // Kefka, Ruler of Ruin",
+      "name": "Kefka, Court Mage",
       "set_id": "fin",
       "set_name": "Final Fantasy",
       "number": "231",
@@ -2874,7 +2880,7 @@
       "cmc": 5.0,
       "mana_cost": "{2}{U}{B}{R} // ",
       "type_line": "Legendary Creature \u2014 Human Wizard // Legendary Creature \u2014 Avatar Wizard",
-      "oracle_text": "Whenever Kefka enters or attacks, each player discards a card. Then you draw a card for each card type among cards discarded this way.\n{8}: Each opponent sacrifices a permanent of their choice. Transform Kefka. Activate only as a sorcery.\n//\nFlying\nWhenever an opponent loses life during your turn, you draw that many cards.",
+      "oracle_text": "=== Kefka, Court Mage ===\nWhenever Kefka enters or attacks, each player discards a card. Then you draw a card for each card type among cards discarded this way.\n{8}: Each opponent sacrifices a permanent of their choice. Transform Kefka. Activate only as a sorcery.\n\n=== Kefka, Ruler of Ruin ===\nFlying\nWhenever an opponent loses life during your turn, you draw that many cards.",
       "colors": [],
       "supertype": "",
       "subtypes": [],
@@ -2891,14 +2897,18 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "display_name": "Kefka, Court Mage // Kefka, Ruler of Ruin",
+      "back_name": "Kefka, Ruler of Ruin",
+      "back_type_line": "Legendary Creature \u2014 Avatar Wizard",
+      "back_image_url": "https://cards.scryfall.io/normal/back/8/f/8fcf3fbb-1ddd-437e-81c1-f5a3133f5ee8.jpg?1783906572"
     },
     {
       "quantity": 1,
       "id": "mtg-4cea42fd-035e-4b8f-8b1d-ff363b694f14",
       "desired_card_id": "mtg-4cea42fd-035e-4b8f-8b1d-ff363b694f14",
       "oracle_id": "4a46ea59-6c5d-4bed-9951-b5590f9a1bdb",
-      "name": "Tony Stark // The Invincible Iron Man",
+      "name": "Tony Stark",
       "set_id": "msh",
       "set_name": "Marvel Super Heroes",
       "number": "80",
@@ -2907,7 +2917,7 @@
       "cmc": 2.0,
       "mana_cost": "{1}{U} // {4}{U}{R}",
       "type_line": "Legendary Creature \u2014 Human Artificer Hero // Legendary Artifact Creature \u2014 Human Hero",
-      "oracle_text": "{1}, {T}: Look at the top four cards of your library. You may reveal an artifact card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.\n{4}{U}{R}: Transform Tony Stark. Activate only as a sorcery.\n//\nFlying, haste\nAt the beginning of combat on your turn, you may put an artifact card from your hand onto the battlefield. If it's an Equipment, attach it to The Invincible Iron Man.",
+      "oracle_text": "=== Tony Stark ===\n{1}, {T}: Look at the top four cards of your library. You may reveal an artifact card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.\n{4}{U}{R}: Transform Tony Stark. Activate only as a sorcery.\n\n=== The Invincible Iron Man ===\nFlying, haste\nAt the beginning of combat on your turn, you may put an artifact card from your hand onto the battlefield. If it's an Equipment, attach it to The Invincible Iron Man.",
       "colors": [],
       "supertype": "",
       "subtypes": [],
@@ -2923,14 +2933,18 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "display_name": "Tony Stark // The Invincible Iron Man",
+      "back_name": "The Invincible Iron Man",
+      "back_type_line": "Legendary Artifact Creature \u2014 Human Hero",
+      "back_image_url": "https://cards.scryfall.io/normal/back/4/c/4cea42fd-035e-4b8f-8b1d-ff363b694f14.jpg?1783902955"
     },
     {
       "quantity": 1,
       "id": "mtg-d8b43b00-f4d1-436c-bf3f-6d414cd4ce38",
       "desired_card_id": "mtg-d8b43b00-f4d1-436c-bf3f-6d414cd4ce38",
       "oracle_id": "7cee6d43-5dec-4989-85ec-c635ec783ec7",
-      "name": "Sagu Wildling // Roost Seek",
+      "name": "Sagu Wildling",
       "set_id": "tdm",
       "set_name": "Tarkir: Dragonstorm",
       "number": "157",
@@ -2939,7 +2953,7 @@
       "cmc": 5.0,
       "mana_cost": "{4}{G} // {G}",
       "type_line": "Creature \u2014 Dragon // Sorcery \u2014 Omen",
-      "oracle_text": "Flying\nWhen this creature enters, you gain 3 life.\n//\nSearch your library for a basic land card, reveal it, put it into your hand, then shuffle. (Also shuffle this card.)",
+      "oracle_text": "=== Sagu Wildling ===\nFlying\nWhen this creature enters, you gain 3 life.\n\n=== Roost Seek ===\nSearch your library for a basic land card, reveal it, put it into your hand, then shuffle. (Also shuffle this card.)",
       "colors": [
         "G"
       ],
@@ -2956,7 +2970,10 @@
       "quantity_missing": 0,
       "card_role": "threat",
       "role_source_tag": null,
-      "role_is_override": null
+      "role_is_override": null,
+      "display_name": "Sagu Wildling // Roost Seek",
+      "back_name": "Roost Seek",
+      "back_type_line": "Sorcery \u2014 Omen"
     }
   ]
 }

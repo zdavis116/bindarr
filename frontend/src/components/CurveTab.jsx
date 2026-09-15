@@ -152,6 +152,15 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
       display_name: entry.faceName || c.display_name || c.name,
       type_line: entry.faceType || c.type_line,
       mana_cost: entry.faceCost || c.mana_cost,
+      // ONLY THIS FACE'S TEXT AND ART.
+      //
+      // The six-drop row was showing the front face's picture and BOTH faces'
+      // rules text, because oracle_text is stored joined with === headers and
+      // the back face has its own image_url. Zach: "it should say the
+      // invincible iron man for the 6 mana one and only have that card
+      // description."
+      oracle_text: entry.faceText ?? c.oracle_text,
+      image_url: entry.faceImage || c.image_url,
       role: c.card_role || 'other',
     }))),
   [cards]);
