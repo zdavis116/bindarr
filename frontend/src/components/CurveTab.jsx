@@ -5,11 +5,25 @@ import { sourceCounts, castOdds, pipsOf, COLOURS } from '../utils/colourOdds';
 // bucketFor lives in utils so it can be unit-tested: node --test cannot
 // import .jsx. Re-exported here because other modules already import it
 // from this file.
-import { bucketFor } from '../utils/curveBuckets';
+import { bucketFor, curveEntriesFor } from '../utils/curveBuckets';
 export { bucketFor };
 
 const COLOUR_LETTERS = {
   White: 'W', Blue: 'U', Black: 'B', Red: 'R', Green: 'G',
+};
+
+// WHY A CARD SITS WHERE IT DOES, keyed by the note bucketFor returns.
+//
+// A lookup, not a ternary chain: the chain silently sent any unrecognised note
+// to 'nocost', so adding 'mdfc-back' would have printed "No mana cost, so it
+// sits at 0" on a six-drop. A missing key here is visible instead.
+const NOTE_KEYS = {
+  '//': 'curve.note.split',
+  adv: 'curve.note.adventure',
+  mdfc: 'curve.note.mdfc',
+  'mdfc-back': 'curve.note.mdfc-back',
+  X: 'curve.note.xspell',
+  'no cost': 'curve.note.nocost',
 };
 
 // MANA PIPS, as the round symbols every Magic tool uses.
@@ -111,9 +125,27 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   // The spells the chart describes: nonland, and not the considering pile --
   // considering cards are not in the deck yet, so counting them would tell you
   // your curve is fixed by cards you have not added.
+  // ONE ENTRY PER CASTABLE FACE, not per card.
+  //
+  // A modal DFC is two spells you pay for, so Tony Stark appears at 2 AND at
+  // 6. Zach: "technically I still need 6 mana to play his flip side."
+  //
+  // flatMap, because most cards yield one entry and modal DFCs yield two. Each
+  // gets its own id suffix so React keys, the expanded dropdown and the
+  // hard-to-cast map all address a FACE rather than a card -- otherwise
+  // clicking the six-drop would open the two-drop's details.
   const spells = useMemo(() => (cards || [])
     .filter((c) => c.board !== 'considering' && !isLand(c))
-    .map((c) => ({ ...c, ...bucketFor(c), role: c.card_role || 'other' })),
+    .flatMap((c) => curveEntriesFor(c).map((entry) => ({
+      ...c,
+      ...entry,
+      id: entry.faceIndex ? `${c.id}#${entry.faceIndex}` : c.id,
+      cardId: c.id,
+      name: entry.faceName || c.name,
+      display_name: entry.faceIndex ? entry.faceName : (c.display_name || c.name),
+      mana_cost: entry.faceCost || c.mana_cost,
+      role: c.card_role || 'other',
+    }))),
   [cards]);
 
   const bk = (c) => Math.min(Math.round(c.mv), 7);
@@ -555,10 +587,7 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                         question them, not in a footnote. */}
                     {c.note && (
                       <div className="curve-detail-note">
-                        {t(`curve.note.${c.note === '//' ? 'split'
-                          : c.note === 'adv' ? 'adventure'
-                          : c.note === 'mdfc' ? 'mdfc'
-                          : c.note === 'X' ? 'xspell' : 'nocost'}`)}
+                        {t(NOTE_KEYS[c.note] || 'curve.note.nocost')}
                       </div>
                     )}
                     {/* Open the full card only if you actually want it. */}
@@ -566,7 +595,7 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                       <button
                         type="button"
                         className="curve-detail-more"
-                        onClick={() => onSelectCard(c)}
+                        onClick={() => onSelectCard({ ...c, id: c.cardId || c.id })}
                       >
                         {t('curve.fullCard')}
                       </button>

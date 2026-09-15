@@ -7,6 +7,48 @@
 //
 // See curveBuckets.test.js.
 
+/**
+ * THE CURVE ENTRIES A CARD PRODUCES — usually one, sometimes two.
+ *
+ * Zach: "cards that have a flip side both cards should be counted in the mana
+ * value like Tony stark should account for 2 and 6 because technically I still
+ * need 6 mana to play his flip side."
+ *
+ * He is right, and it is specific to MODAL DFCs. Both faces are real spells
+ * you cast and pay for, so a curve that shows only the {1}{U} front is hiding
+ * a six-drop -- and the six-drop is exactly the kind of card a curve exists to
+ * warn you about.
+ *
+ * NOT transform cards. Kefka's back face has no cost; you flip to it, you
+ * never cast it. Counting that side would invent a spell that does not exist.
+ *
+ * NOT split cards either: Fire // Ice is ONE spell with two ways to cast it,
+ * and you only ever cast one. Counting both would double the card.
+ *
+ * Returns an array of { mv, note, face } -- one per castable face.
+ */
+export function curveEntriesFor(card) {
+  const layout = (card.layout || '').toLowerCase();
+  const cost = card.mana_cost || '';
+
+  if (layout === 'modal_dfc' && cost.includes('//')) {
+    const halves = cost.split('//').map((h) => h.trim());
+    const names = String(card.name || '').split('//').map((n) => n.trim());
+    return halves.map((half, i) => ({
+      mv: manaValueOf(half),
+      // Only the BACK face is flagged: the front is an ordinary card and a
+      // note on every modal DFC would be wallpaper.
+      note: i === 0 ? null : 'mdfc-back',
+      faceIndex: i,
+      faceName: names[i] || names[0] || card.name,
+      faceCost: half,
+    }));
+  }
+
+  const single = bucketFor(card);
+  return [{ ...single, faceIndex: 0, faceName: card.name, faceCost: cost }];
+}
+
 export function bucketFor(card) {
   const cost = card.mana_cost || '';
   const type = card.type_line || '';

@@ -1582,7 +1582,8 @@
   "curve.fullCard": "Open full card",
   "curve.note.split": "Split card — bucketed at the cheaper half, not the rules' combined mana value, because that is the turn you can actually cast it.",
   "curve.note.adventure": "Adventure — bucketed at the creature face.",
-  "curve.note.mdfc": "Two castable sides, each with its own cost. Bucketed at the front face, which is the turn it first does something.",
+  "curve.note.mdfc": "Two castable sides, each with its own cost. Both are counted — the other side appears separately on the curve.",
   "curve.note.xspell": "X counts as 0 off the stack, so it sits here. You will usually pay more.",
-  "curve.note.nocost": "No mana cost, so it sits at 0."
+  "curve.note.nocost": "No mana cost, so it sits at 0.",
+  "curve.note.mdfc-back": "The back face of a two-sided card. You pay this cost to cast it, so it counts on the curve in its own right."
 }
