@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useT } from '../utils/i18n';
+import { probLandsByTurn } from '../utils/handOdds';
 
 // THE CURVE TAB.
 //
@@ -87,7 +88,6 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const { t } = useT();
   const [filter, setFilter] = useState(null);   // {bucket, role} | {turn} | null
   const [hotRole, setHotRole] = useState(null);
-  const [ramped, setRamped] = useState(true);
   const [hover, setHover] = useState(null);   // the card being previewed
 
   // The spells the chart describes: nonland, and not the considering pile --
@@ -102,20 +102,47 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
   const inBucket = (b, role) => spells.filter((c) => bk(c) === b && (!role || c.role === role));
   const maxCount = Math.max(1, ...BUCKETS.map((b) => inBucket(b).length));
 
-  // Castable by turn N. One land per turn, plus what your ramp realistically
-  // adds -- capped, because a deck does not chain every rock every game. It is
-  // an estimate and the label says so.
-  const castableBy = (turn) => {
-    const extra = ramped ? Math.min(Math.floor((turn - 1) * 0.7), 4) : 0;
-    return spells.filter((c) => c.mv <= turn + extra).length;
-  };
+  // THE DECK'S ACTUAL LAND COUNT.
+  //
+  // Counted from the deck, not assumed: 35 lands and 38 lands are meaningfully
+  // different decks and the old chart could not tell them apart. Excludes the
+  // considering pile for the same reason the curve does -- those are cards you
+  // are thinking about, not cards in the 99.
+  const landCount = useMemo(() => (cards || [])
+    .filter((c) => c.board !== 'considering' && isLand(c))
+    .reduce((n, c) => n + (c.quantity || 1), 0),
+  [cards]);
+
+  // The library is everything except your commander: it starts in the command
+  // zone, so it is never a card you draw.
+  const deckSize = useMemo(() => (cards || [])
+    .filter((c) => c.board !== 'considering')
+    .reduce((n, c) => n + (c.quantity || 1), 0),
+  [cards]);
+  const commanderCount = useMemo(() => (cards || [])
+    .filter((c) => c.board === 'commander')
+    .reduce((n, c) => n + (c.quantity || 1), 0),
+  [cards]);
+  const librarySize = Math.max(1, deckSize - commanderCount);
+
+  // Castable by turn N, counted two ways because they answer different
+  // questions:
+  //
+  //   castableBy  -- how many cards cost little enough to cast by then. This is
+  //                  a fact about the DECK.
+  //   landOdds    -- how often you actually have that many lands. This is a
+  //                  fact about your MANA BASE.
+  //
+  // The old version multiplied a made-up 0.7 ramp factor into the turn number
+  // and presented the result as if it were castability. It assumed you hit
+  // every land drop, and that assumption was invisible. Zach: "if I draw only
+  // 1 land by turn 2 I still can't play 2 mana cards."
+  const castableBy = (turn) => spells.filter((c) => c.mv <= turn).length;
+  const landOdds = (turn) => probLandsByTurn(librarySize, landCount, turn);
 
   const matches = (c) => {
     if (!filter) return true;
-    if (filter.turn != null) {
-      const extra = ramped ? Math.min(Math.floor((filter.turn - 1) * 0.7), 4) : 0;
-      return c.mv <= filter.turn + extra;
-    }
+    if (filter.turn != null) return c.mv <= filter.turn;
     return bk(c) === filter.bucket && c.role === filter.role;
   };
 
@@ -213,23 +240,20 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
         </div>
       </div>
 
-      {/* CASTABLE BY TURN */}
+      {/* CASTABLE BY TURN.
+          The ramp toggle is gone. It scaled the turn number by an invented
+          0.7 factor -- a guess presented in the same typeface as a measurement.
+          What replaces it is the real odds of having the lands, which is the
+          thing that was silently assumed. */}
       <div className="curve-panel">
         <div className="curve-head">
           <b>{t('curve.castableByTurnTitle')}</b>
-          <span>{ramped ? t('curve.withRampN', { count: rampCount, n: rampCount }) : t('curve.landsOnly')}</span>
-        </div>
-        <div className="curve-toggle">
-          <button type="button" className={ramped ? 'on' : ''} onClick={() => setRamped(true)}>
-            {t('curve.withRamp')}
-          </button>
-          <button type="button" className={!ramped ? 'on' : ''} onClick={() => setRamped(false)}>
-            {t('curve.landsOnly')}
-          </button>
+          <span>{t('curve.landsInDeck', { n: landCount })}</span>
         </div>
         <div className="curve-turns">
           {[1, 2, 3, 4, 5, 6].map((turn) => {
             const n = castableBy(turn);
+            const odds = landOdds(turn);
             const on = filter && filter.turn === turn;
             return (
               <button
@@ -237,16 +261,25 @@ export default function CurveTab({ cards, commander, onOverrideRole, onSelectCar
                 type="button"
                 className={`curve-turn${on ? ' on' : ''}`}
                 onClick={() => setFilter(on ? null : { turn })}
+                title={t('curve.turnOddsTitle', {
+                  turn, pct: Math.round(odds * 100), lands: turn })}
               >
                 <span className="curve-turn-l">{t('curve.turnN', { n: turn })}</span>
                 <span className="curve-turn-bar">
                   <i style={{ width: `${spells.length ? (n / spells.length) * 100 : 0}%` }} />
                 </span>
                 <span className="curve-turn-n">{n}</span>
+                {/* THE ODDS, beside the count, because the count alone implies
+                    a certainty it does not have. Amber below 50%: at that
+                    point the turn is more likely to be a miss than a hit. */}
+                <span className={`curve-turn-odds${odds < 0.5 ? ' low' : ''}`}>
+                  {Math.round(odds * 100)}%
+                </span>
               </button>
             );
           })}
         </div>
+        <p className="curve-assumes">{t('curve.oddsAssume')}</p>
       </div>
 
       {/* THE LIST the chart filters.

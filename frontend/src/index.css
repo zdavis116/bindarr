@@ -3829,3 +3829,17 @@ button, input, select, textarea {
      card's rules text, and a tooltip repeating it over the chart is noise. */
   .deck-panes:not(.deck-panes-curve) .curve-tip { display: none; }
 }
+
+/* THE LAND ODDS beside each turn's card count.
+   The count says how many cards are cheap enough; the percentage says how
+   often you actually have the mana. Both, because the count alone implies a
+   certainty it does not have. */
+.curve-turn-odds { width: 44px; text-align: right; font-size: 0.72rem;
+                   color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Amber below 50%: at that point the turn is likelier to miss than hit. Not
+   red -- a thin manabase is a trade-off, not an error. */
+.curve-turn-odds.low { color: #ff9f0a; }
+
+.curve-assumes { font-size: 0.68rem; line-height: 1.4; color: var(--text-muted);
+                 margin: 0.6rem 0 0; padding-top: 0.5rem;
+                 border-top: 1px solid var(--border-glass); }

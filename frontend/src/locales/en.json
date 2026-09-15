@@ -1555,10 +1555,6 @@
   "curve.castableByTurnTitle": "Castable by turn",
   "curve.castableByTurn": "Castable by turn {turn}",
   "curve.turnN": "Turn {n}",
-  "curve.withRamp": "With ramp",
-  "curve.withRampN.one": "with your {n} ramp card",
-  "curve.withRampN.other": "with your {n} ramp cards",
-  "curve.landsOnly": "Lands only",
   "curve.clear": "Clear",
   "curve.allNonland.one": "{n} nonland card. Tap a bar or a turn to filter.",
   "curve.allNonland.other": "All {n} nonland cards. Tap a bar or a turn to filter.",
@@ -1570,5 +1566,8 @@
   "curve.changeRole": "Change role",
   "curve.useScryfall": "Use Scryfall's",
   "curve.noRulesText": "No rules text.",
-  "curve.whyTypeLine": "from its type line"
+  "curve.whyTypeLine": "from its type line",
+  "curve.landsInDeck": "{n} lands",
+  "curve.turnOddsTitle": "You have {lands} lands by turn {turn} about {pct}% of the time",
+  "curve.oddsAssume": "Percentages are how often you have that many lands by then. Assumes no mulligans and average draws, and that you are on the play."
 }
