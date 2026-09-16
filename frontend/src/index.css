@@ -4167,9 +4167,18 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
                 text-transform: uppercase; color: var(--text-muted);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.dash-kpi-num { display: block; font-size: 1.5rem; font-weight: 700;
-                letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-kpi-num {
+  display: block;
+  /* SCALES WITH THE COLUMN. A fixed 1.5rem rendered "$1,316" as "$1,3…" on a
+     390px phone -- four columns of ~88px. Zach: "I can't even read the full
+     numbers." Clamped so it is never larger than looks right and never
+     smaller than is legible. */
+  font-size: clamp(0.95rem, 4.2vw, 1.5rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .dash-kpi-num.warn { color: var(--warning, #ff9f0a); }
 .dash-kpi-sub { display: block; font-size: 0.68rem; color: var(--text-secondary);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4195,16 +4204,20 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 /* MOST VALUABLE. On a phone this is a sideways strip: ten card images stacked
    vertically would be a wall you scroll past, and Zach asked for the top ten
    on the phone too. */
+/* THE STRIP IS AS TALL AS ITS CARDS, AND NOT ONE PIXEL MORE.
+   Zach, three times: "the card boxes in the most valuable card section are
+   way to long look at all of that gray area."
+   The cause was `align-items: stretch` plus `flex: 1 1 auto` here: the strip
+   grew to fill leftover height and stretched every card box to match, while
+   the art kept its 0.717 ratio and the caption stayed fixed -- so the surplus
+   became an empty grey panel under each card. I "fixed" this twice without
+   the edit ever landing on THIS rule, so every later adjustment was built on
+   a stretched base. */
 .dash-top { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.3rem;
-            scroll-snap-type: x mandatory; align-items: stretch;
-            /* basis 0 so flex distributes from zero rather than from the
-               cards' natural height -- that natural height was the floor. */
-            flex-basis: 0;
-            /* The strip takes the leftover height and the art fills it, so the
-               cards grow on a tall screen and shrink on a short one instead of
-               being a fixed 189px that fits exactly one viewport. */
-            flex: 1 1 auto; min-height: 0; }
-.dash-topcard { display: flex; flex-direction: column; min-height: 0; }
+            scroll-snap-type: x mandatory;
+            align-items: flex-start;
+            flex: 0 0 auto; }
+.dash-topcard { display: flex; flex-direction: column; }
 .dash-topcard { position: relative;
                 /* Cards fill the row by getting WIDER; the height follows
                    from the 0.717 aspect ratio, so they are never stretched.

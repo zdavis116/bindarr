@@ -141,4 +141,36 @@ const deckCard = read('DeckCard.jsx');
   pass('DC-TC5', 'two across on both screens');
 }
 
+// --- DC-TC6 ------------------------------------------------------------------
+// THE MOST-VALUABLE STRIP MUST NOT STRETCH ITS CARDS.
+//
+// Zach, three separate times: "why the hell are those card boxes so long look
+// at all of that gray area."
+//
+// Cause: `align-items: stretch` on .dash-top with `flex: 1 1 auto`. The strip
+// grew to fill leftover height and stretched every card BOX to match -- but
+// the art holds a 0.717 aspect ratio and the caption is a fixed height, so the
+// surplus rendered as an empty grey panel under each card.
+//
+// I "fixed" it twice while the edit never landed on this rule, so two later
+// rounds of adjustment were built on a stretched base. This case asserts the
+// rule itself, not the symptom.
+{
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'index.css'), 'utf8');
+
+  const strip = css.slice(css.indexOf('.dash-top { display: flex'));
+  const rule = strip.slice(0, strip.indexOf('}') + 1);
+
+  assert.ok(!/align-items:\s*stretch/.test(rule),
+    'the most-valuable strip must NOT stretch its cards -- the art has a fixed '
+    + 'aspect ratio, so a stretched box becomes an empty grey panel');
+  assert.ok(/align-items:\s*flex-start/.test(rule),
+    'cards must align to the start so each box is only as tall as its content');
+  assert.ok(!/flex:\s*1 1/.test(rule),
+    'the strip must size to its cards, not grow to fill leftover height');
+
+  pass('DC-TC6', 'the most-valuable strip sizes to its cards');
+}
+
 console.log(`deck-card.test.js: ${passed} cases passed`);
