@@ -4161,13 +4161,13 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
              gap: 0.45rem; }
 .dash-kpi { display: block; text-align: left; background: var(--surface-1);
             border: 1px solid var(--border-glass); border-radius: var(--radius-md);
-            padding: 0.6rem 0.55rem; font: inherit; color: var(--text-primary);
+            padding: 0.55rem 0.5rem; font: inherit; color: var(--text-primary);
             cursor: pointer; min-height: 44px; }
-.dash-kpi-lbl { display: block; font-size: 0.56rem; letter-spacing: 0.03em;
+.dash-kpi-lbl { display: block; font-size: 0.6rem; letter-spacing: 0.03em;
                 text-transform: uppercase; color: var(--text-muted);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.dash-kpi-num { display: block; font-size: 1.15rem; font-weight: 700;
+.dash-kpi-num { display: block; font-size: 1.28rem; font-weight: 700;
                 letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-kpi-num.warn { color: var(--warning, #ff9f0a); }
@@ -4205,11 +4205,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
                being a fixed 189px that fits exactly one viewport. */
             flex: 1 1 auto; min-height: 0; }
 .dash-topcard { display: flex; flex-direction: column; min-height: 0; }
-.dash-topcard { position: relative; flex: 0 0 106px; scroll-snap-align: start;
-                /* NO min-height here: it is the last thing pinning the card,
-                   and on a short phone the strip has to be free to shrink.
-                   The img's own min (40px on short screens, 96px otherwise)
-                   keeps the art recognisable. */
+.dash-topcard { position: relative;
+                /* Cards fill the row by getting WIDER; the height follows
+                   from the 0.717 aspect ratio, so they are never stretched.
+                   clamp keeps ~3 visible on a phone and stops them ballooning
+                   on a desktop. */
+                flex: 0 0 clamp(106px, 30%, 150px); scroll-snap-align: start;
                 background: var(--surface-2); border: 1px solid var(--border-glass);
                 border-radius: 8px; overflow: hidden; padding: 0; cursor: pointer;
                 font: inherit; color: var(--text-primary); text-align: left; }
@@ -4219,14 +4220,13 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   display: block;
   object-fit: cover;
   object-position: 50% 12%;
-  /* NO aspect-ratio and NO intrinsic height: both act as a MINIMUM, so the
-     card grew on a tall screen but could not shrink on a short one -- 189px
-     on a 640 and a 740 viewport alike, which is 95px past the nav bar on the
-     small phone. min-height:0 is what lets a flex item actually shrink.
-     (There were two .dash-topcard img rules; the later one won and had no
-     height. One element, two rules -- the same duplication bug again.) */
-  flex: 1 1 auto;
-  min-height: 0;
+  /* A MAGIC CARD IS 0.717 WIDE TO TALL, ALWAYS. Zach: "the cards should not
+     be as an oddly stretched. The card should be proportionally aligned not
+     stretched and narrow."
+     I had dropped the aspect ratio so the image could stretch vertically and
+     soak up leftover space -- which cropped the art to a sliver. Space is
+     filled by making the cards WIDER now, not taller. */
+  aspect-ratio: 0.717;
   height: auto;
 }
 .dash-copies { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.78);
@@ -4285,6 +4285,20 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
    button is the cheapest thing to trim: it is an icon and two lines of text,
    not a banner. Zach's own phone measures ~740 usable, where none of this
    applies. */
+
+
+
+/* THE SCAN BUTTON IS A BUTTON, NOT A BANNER. Zach: "Scan cards also doesn't
+   have to be as big." It was 84px tall on the phone -- the single largest
+   block on a screen meant to be a glance. The text and icon are unchanged;
+   only the padding around them shrinks. */
+.dash-scan { min-height: 62px !important; padding: 0.7rem 0.9rem !important; }
+.dash-scan-icon { width: 38px !important; height: 38px !important; }
+
+/* SHORT PHONES LAST, so these win over the base rules above regardless of
+   what gets appended to this file later -- a plain rule further down beats a
+   media query further up at equal specificity, which is exactly what bit the
+   card sizing here. */
 @media (max-height: 700px) {
   .dash { gap: 0.45rem; }
   .dash-head { margin-bottom: 0.35rem; }
@@ -4298,7 +4312,6 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      Measured at 390x640: 189px cards ran 53px under the nav. The name alone
      identifies the card; the price is one tap away in the detail modal. */
   .dash-topcard { min-height: 0; }
-  .dash-topcard img { min-height: 40px; }
   .dash-topcap { padding: 0.2rem 0.3rem; font-size: 0.6rem; line-height: 1.25; }
   .dash-topcap span { display: none; }
 }

@@ -194,7 +194,11 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
           <button className="dash-kpi" onClick={() => onNavigate && onNavigate('collection')}>
             <span className="dash-kpi-lbl">{t('dash.kpiValue')}</span>
             <span className="dash-kpi-num">
-              {summary.totalValue != null ? `$${Number(summary.totalValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+              {/* NO CENTS in the KPI. Zach's screenshot showed "$1,316…":
+                  $1,316.27 does not fit a quarter-width column, and an
+                  ellipsis hides the most significant digits. The exact figure
+                  is on the Collection screen. */}
+              {summary.totalValue != null ? `$${Math.round(Number(summary.totalValue)).toLocaleString()}` : '—'}
             </span>
             {/* NO INVENTED TREND. The API reports change7d.available=false
                 until price history exists; the mockup's "up $12.40 this week"
@@ -230,7 +234,10 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
           <button className="dash-kpi" onClick={() => onNavigate && onNavigate('deckbuilder')}>
             <span className="dash-kpi-lbl">{t('dash.kpiToFinish')}</span>
             <span className={`dash-kpi-num${toFinish > 0 ? ' warn' : ''}`}>
-              ${toFinish.toFixed(2)}
+              {/* Whole dollars, same as the value KPI: "$139.18" rendered as
+                  "$139…" in a quarter-width column, which hides the digits
+                  that matter. The exact figure is on the deck card. */}
+              ${Math.round(toFinish).toLocaleString()}
             </span>
             <span className="dash-kpi-sub">
               {missingCards ? t('dash.kpiMissing', { n: missingCards }) : t('dash.kpiNothingMissing')}
