@@ -336,7 +336,18 @@ button, input, select, textarea {
 .app-container {
   display: flex;
   flex-direction: column;
+  /* 100vh is the WHOLE SCREEN on a phone -- it does not subtract the browser's
+     address bar, so on a 640px-usable iPhone SE this container was 767px and
+     everything inside it ran under the nav. 100dvh is the viewport you can
+     actually see; the 100vh line stays first as the fallback for browsers
+     without dvh. */
   min-height: 100vh;
+  min-height: 100dvh;
+  /* border-box so the 6rem bottom padding that clears the nav is INSIDE the
+     100dvh, not added to it. Measured on a 640px-usable phone: the container
+     came out 640 + 96 = 767px, so the dashboard could never fit no matter how
+     small its contents got. */
+  box-sizing: border-box;
   max-width: 100%;
   margin: 0 auto;
   /* Safe-area insets so the header/content clear the notch + status bar and the
@@ -4111,28 +4122,67 @@ button, input, select, textarea {
    stacked vertically, content ending at 20% of the height -- the phone
    stretched sideways. The markup is ONE tree in phone order; these rules
    re-flow it, so the two widths cannot drift apart. */
-.dash { display: flex; flex-direction: column; gap: 1.1rem; }
+/* THE DASHBOARD FILLS THE SCREEN. Zach: "I want the screen to be filled but
+   not be scrollable."
+   .app-container is already a flex column with min-height:100vh, so <main>
+   only has to GROW -- it was sizing to its content (measured: main 621px
+   inside a 767px container, leaving a 69px dead band under the cards).
+   Scoped to the dashboard: other screens are legitimately scrollable. */
+/* A body class rather than :has() -- lightningcss rejects `:has(> * > .dash)`
+   ("Expected identifier in class selector"), and a class is clearer anyway. */
+body.on-dashboard .app-container > main { flex: 1 1 auto; min-height: 0; display: flex; }
+body.on-dashboard .view-transition { flex: 1 1 auto; min-height: 0; display: flex; }
+/* HEIGHT, not min-height. min-height:100% is only a FLOOR -- the children
+   could grow into spare room but never shrink, so the top-ten strip stayed a
+   fixed 189px and ran 99px past the nav bar on a 640px phone. */
+body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; height: 100%; }
+
+/* The dashboard is exactly as tall as the viewport, and the most-valuable
+   block takes whatever the other rows leave. With ONE incomplete deck -- his
+   real data, not my four-deck fixture -- the deck strip is a near-empty row,
+   so without this the slack piled up as dead space at the bottom. */
+.dash {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+/* The columns take the slack, and the most-valuable panel inside them grows
+   into it -- the cards get bigger rather than the page getting shorter. */
+.dash-cols { flex: 1 1 auto; min-height: 0; }
+.dash-col:last-child { flex: 1 1 auto; min-height: 0; }
+/* The most-valuable panel is the one that absorbs slack. */
+.dash-col:last-child > div:last-child { display: flex; flex-direction: column;
+                                       flex: 1 1 auto; min-height: 0; }
 
 /* FOUR ACROSS ON A PHONE TOO. Two columns meant two rows at 88px each = 185px
    of a 740px screen for four numbers, and it was the top-ten strip that fell
    off the fold as a result. */
 .dash-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-             gap: 0.4rem; }
+             gap: 0.45rem; }
 .dash-kpi { display: block; text-align: left; background: var(--surface-1);
             border: 1px solid var(--border-glass); border-radius: var(--radius-md);
-            padding: 0.45rem 0.4rem; font: inherit; color: var(--text-primary);
+            padding: 0.6rem 0.55rem; font: inherit; color: var(--text-primary);
             cursor: pointer; min-height: 44px; }
 .dash-kpi-lbl { display: block; font-size: 0.56rem; letter-spacing: 0.03em;
                 text-transform: uppercase; color: var(--text-muted);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dash-kpi-num { display: block; font-size: 1rem; font-weight: 700;
+
+.dash-kpi-num { display: block; font-size: 1.15rem; font-weight: 700;
                 letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-kpi-num.warn { color: var(--warning, #ff9f0a); }
-.dash-kpi-sub { display: block; font-size: 0.6rem; color: var(--text-secondary);
+.dash-kpi-sub { display: block; font-size: 0.66rem; color: var(--text-secondary);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.dash-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
+.dash-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  /* auto ROWS size to content and ignore the flex chain above them: measured
+     280px + 230px = 528 on a 640px phone no matter the room available. The
+     second row (most valuable) takes the slack instead. */
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.9rem;
+}
 .dash-col { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
 
 .dash-head { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
@@ -4146,18 +4196,43 @@ button, input, select, textarea {
    vertically would be a wall you scroll past, and Zach asked for the top ten
    on the phone too. */
 .dash-top { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.3rem;
-            scroll-snap-type: x mandatory; }
-.dash-topcard { position: relative; flex: 0 0 84px; scroll-snap-align: start;
+            scroll-snap-type: x mandatory; align-items: stretch;
+            /* basis 0 so flex distributes from zero rather than from the
+               cards' natural height -- that natural height was the floor. */
+            flex-basis: 0;
+            /* The strip takes the leftover height and the art fills it, so the
+               cards grow on a tall screen and shrink on a short one instead of
+               being a fixed 189px that fits exactly one viewport. */
+            flex: 1 1 auto; min-height: 0; }
+.dash-topcard { display: flex; flex-direction: column; min-height: 0; }
+.dash-topcard { position: relative; flex: 0 0 106px; scroll-snap-align: start;
+                /* NO min-height here: it is the last thing pinning the card,
+                   and on a short phone the strip has to be free to shrink.
+                   The img's own min (40px on short screens, 96px otherwise)
+                   keeps the art recognisable. */
                 background: var(--surface-2); border: 1px solid var(--border-glass);
                 border-radius: 8px; overflow: hidden; padding: 0; cursor: pointer;
                 font: inherit; color: var(--text-primary); text-align: left; }
 .dash-topcard:hover { border-color: var(--accent-blue); }
-.dash-topcard img { width: 100%; display: block; aspect-ratio: 0.717;
-                    object-fit: cover; }
+.dash-topcard img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: 50% 12%;
+  /* NO aspect-ratio and NO intrinsic height: both act as a MINIMUM, so the
+     card grew on a tall screen but could not shrink on a short one -- 189px
+     on a 640 and a 740 viewport alike, which is 95px past the nav bar on the
+     small phone. min-height:0 is what lets a flex item actually shrink.
+     (There were two .dash-topcard img rules; the later one won and had no
+     height. One element, two rules -- the same duplication bug again.) */
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
 .dash-copies { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.78);
                color: #fff; font-size: 0.64rem; font-weight: 800;
                padding: 0.05rem 0.3rem; border-radius: 4px; }
-.dash-topcap { display: block; padding: 0.22rem 0.3rem; font-size: 0.62rem; }
+.dash-topcap { display: block; padding: 0.3rem 0.35rem; font-size: 0.68rem; }
 .dash-topcap b { display: block; white-space: nowrap; overflow: hidden;
                  text-overflow: ellipsis; }
 .dash-topcap span { color: var(--text-secondary); }
@@ -4201,4 +4276,29 @@ button, input, select, textarea {
      card should read the same size on both screens; only how many fit
      changes. */
   .dash-decks > .deck-row { flex: 0 0 calc((100% - 1.2rem) / 3); }
+}
+
+
+/* SHORT PHONES. Measured at 390x640 (iPhone SE): the fixed blocks -- the scan
+   button, one deck card and three headings -- left the most-valuable strip
+   less room than its cards need, so they ran under the nav bar. The scan
+   button is the cheapest thing to trim: it is an icon and two lines of text,
+   not a banner. Zach's own phone measures ~740 usable, where none of this
+   applies. */
+@media (max-height: 700px) {
+  .dash { gap: 0.45rem; }
+  .dash-head { margin-bottom: 0.35rem; }
+  .dash-scan { min-height: 58px !important; padding: 0.6rem 0.8rem !important; }
+  .dash-scan-icon { width: 34px !important; height: 34px !important; }
+  .dash-kpi { padding: 0.4rem 0.5rem; }
+  .dash-kpi-num { font-size: 1rem; }
+  .deck-row-art { height: 46px; }
+  /* The top-ten card is img + caption, and the CAPTION is a fixed ~42px, so
+     the card could not shrink below ~138px however much the art flexed.
+     Measured at 390x640: 189px cards ran 53px under the nav. The name alone
+     identifies the card; the price is one tap away in the detail modal. */
+  .dash-topcard { min-height: 0; }
+  .dash-topcard img { min-height: 40px; }
+  .dash-topcap { padding: 0.2rem 0.3rem; font-size: 0.6rem; line-height: 1.25; }
+  .dash-topcap span { display: none; }
 }

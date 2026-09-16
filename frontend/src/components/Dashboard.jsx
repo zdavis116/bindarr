@@ -67,6 +67,16 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
   // The card opened from the top-ten strip.
   const [inspectorCard, setInspectorCard] = useState(null);
 
+  // FILL THE SCREEN, DON'T SCROLL. Zach: "I want the screen to be filled but
+  // not be scrollable." <main> sizes to its content by default, so a short
+  // deck list left a dead band under the cards. This lets the CSS stretch the
+  // dashboard to the viewport -- scoped to this screen, because every other
+  // screen is legitimately scrollable.
+  useEffect(() => {
+    document.body.classList.add('on-dashboard');
+    return () => document.body.classList.remove('on-dashboard');
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -238,6 +248,7 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
           entirely: "Actually takes away the need to hit the scan button at the
           bottom so scan can be removed from nav bar." */}
       <button
+        className="dash-scan"
         onClick={() => onNavigate && onNavigate('add-cards')}
         style={{
           display: 'flex', alignItems: 'center', gap: '0.9rem', width: '100%',
@@ -247,7 +258,7 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
           padding: '1.1rem', minHeight: 76, boxShadow: 'var(--shadow-accent)',
         }}
       >
-        <span style={{
+        <span className="dash-scan-icon" style={{
           width: 44, height: 44, borderRadius: 12, flexShrink: 0,
           background: 'rgba(255,255,255,0.2)', display: 'grid', placeItems: 'center',
         }}>
