@@ -22,6 +22,7 @@ import { useState, useEffect } from 'react';
 // utils/cardName.js has said so since the Splinter/Ink-Eyes bug; this screen
 // was new and simply never asked it.
 import { displayName, secondaryName } from '../utils/cardName';
+import CardInspectorModal from './CardInspectorModal';
 import { Camera, ChevronRight } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
@@ -61,6 +62,8 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
   const [decks, setDecks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // The card opened from the top-ten strip.
+  const [inspectorCard, setInspectorCard] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +281,13 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
                   : <span className="dash-deck-noart" />}
                 <span className="dash-deck-body">
                   <span className="dash-deck-name">{deck.name}</span>
+                  {/* WHICH DECKS MIRROR MOXFIELD. Lost when these rows became
+                      cards -- Zach: "The card for decks in progress lost the
+                      moxfield bubble can that be added." Same class as the
+                      deck list so the two screens cannot drift. */}
+                  {deck.moxfield_public_id ? (
+                    <span className="deck-source-badge">{t('decks.moxfieldBadge')}</span>
+                  ) : null}
                   <span className="dash-deck-sub">
                     {t('dash.deckCards', { have: deck.owned_cards || 0, want: deck.target_size })}
                   </span>
@@ -320,7 +330,11 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
                   key={c.entry_id || c.card_id}
                   className="dash-topcard"
                   title={`${displayName(c)}${secondaryName(c) ? ` (${secondaryName(c)})` : ''} — $${Number(c.price_trend || 0).toFixed(2)}${c.copies > 1 ? ` · ${c.copies} copies` : ''}`}
-                  onClick={() => onNavigate && onNavigate('collection')}
+                  // Zach: "when I click on the card it just takes me to
+                  // collection but it should just open the card detail modal."
+                  // Dumping him on a 1,500-card list and leaving him to find
+                  // the card again is not what clicking a card means.
+                  onClick={() => setInspectorCard(c)}
                 >
                   {c.image_url ? <img src={c.image_url} alt={displayName(c)} loading="lazy" /> : null}
                   {c.copies > 1 ? <span className="dash-copies">x{c.copies}</span> : null}
@@ -350,6 +364,16 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
             {t('dash.emptyBody')}
           </div>
         </div>
+      )}
+    {inspectorCard && (
+        <CardInspectorModal
+          card={inspectorCard}
+          onClose={() => setInspectorCard(null)}
+          // This screen does not own the stats trigger (the parent passes it
+          // in) and is not given a toast handler, so neither is forwarded --
+          // passing undefined would crash the modal on its first edit.
+          onNavigate={onNavigate}
+        />
       )}
     </div>
   );

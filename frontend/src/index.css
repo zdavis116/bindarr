@@ -3140,10 +3140,73 @@ button, input, select, textarea {
 
 .deck-row-body { flex: 1; min-width: 0; }
 
-/* No art on the phone. The row is scanned one-handed while holding cards --
-   a thumbnail costs width that the deck name needs, and it is a network
-   fetch per row on a mobile connection. */
-.deck-row-art { display: none; }
+/* THE PHONE DECK LIST IS CARDS TOO.
+   Zach: "I like that card view for decks be in the actual deck list I like
+   that view it's cleaner and I think if 3 can fit with that size card then
+   I'm fine with that."
+   Desktop has had this shape since the rail landed; the phone was still tall
+   rows with the art suppressed. Three across, same 114px card the dashboard
+   strip uses, so the two screens read identically. */
+.deck-rows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.deck-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Commander art, cropped to the face. The old comment here said a thumbnail
+   costs width the deck name needs -- true of a ROW, wrong of a card, where
+   the art IS how you recognise the deck. */
+.deck-row-art {
+  display: block;
+  height: 54px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.deck-row-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 18%;
+  display: block;
+}
+
+.deck-row-body { padding: 0.4rem 0.45rem 0.45rem; flex: none; min-width: 0; }
+/* The body's inner lines must be allowed to truncate. Without min-width:0 the
+   subtitle "price unknown · 22 of 60 cards" wrapped to two lines and made the
+   card 172px tall -- taller than the row it replaced. */
+.deck-row-body > span { min-width: 0; }
+.deck-row-body span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The ring sits ON the art. It carries .deck-ring precisely so this rule can
+   reach it: it previously had an inline `position: relative`, which beats any
+   stylesheet -- the selector matched and the ring stayed on the deck name. */
+.deck-ring { position: relative; }
+.deck-rows > .deck-row > .deck-ring {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transform: scale(0.66);
+  transform-origin: top left;
+  z-index: 1;
+}
+
+/* Count first, price second: "22 of 60 cards" is the answer to "is this deck
+   done", and on a 117px card only the first line survives a glance. */
+.deck-row-meta { display: block; font-size: 0.7rem; color: var(--text-secondary); }
+.deck-row-count { display: block; font-weight: 600; color: var(--text-primary); }
+.deck-row-price { display: block; }
+/* A chevron is a row affordance; a card is obviously tappable. */
+.deck-row-chevron { display: none; }
 
 @media (min-width: 1024px) {
   .deck-rows {

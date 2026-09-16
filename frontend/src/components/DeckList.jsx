@@ -32,7 +32,11 @@ function Ring({ pct, size = 42 }) {
   const c = 2 * Math.PI * r;
   const off = c - (c * Math.min(100, Math.max(0, pct))) / 100;
   return (
-    <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
+    // A CLASS, not only inline styles. The card layout needs to pin this over
+    // the commander art, and an inline `position: relative` beats any
+    // stylesheet rule -- measured: the selector matched, computed position
+    // stayed relative, and the ring sat on the deck name.
+    <div className="deck-ring" style={{ width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
         <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--surface-3)" strokeWidth="4" fill="none" />
         <circle
@@ -349,22 +353,31 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                         : t('decks.neverSynced')}
                     </span>
                   ) : null}
-                  <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                  <span className="deck-row-meta">
                     {/* ONE dollar figure: what the deck is worth. Zach: "I
                         didn't want 2 dollar amounts just the total cost".
+
+                        TWO LINES, NOT ONE. On a 117px card these ran together
+                        as "price unknown · 22 of 60 cards" and the ellipsis
+                        ate the card count -- the half that actually answers
+                        "is this deck done". They are separate spans now, so
+                        each truncates on its own.
 
                         READY TO PLAY MEANS FINISHED, not "nothing missing from
                         a one-card list". Avatar Aang holds a single owned card
                         and reported Ready to play, because missing was
                         listed - owned = 0. A deck is ready when the cards it
                         owns reach its target size, and not before. */}
-                    {deck.deckValue > 0
-                      ? `$${deck.deckValue.toFixed(2)}`
-                      : t('deck.priceUnknown')}
-                    {' · '}
-                    {deck.have >= deck.target
-                      ? t('deck.readyToPlay')
-                      : t('deck.deckProgress', { have: deck.have, want: deck.target })}
+                    <span className="deck-row-count">
+                      {deck.have >= deck.target
+                        ? t('deck.readyToPlay')
+                        : t('deck.deckProgress', { have: deck.have, want: deck.target })}
+                    </span>
+                    <span className="deck-row-price">
+                      {deck.deckValue > 0
+                        ? `$${deck.deckValue.toFixed(2)}`
+                        : t('deck.priceUnknown')}
+                    </span>
                   </span>
                 </span>
 

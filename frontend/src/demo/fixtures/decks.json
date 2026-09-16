@@ -15,7 +15,9 @@
     "commander_name": "Niv-Mizzet, Parun",
     "commander_image_url": "https://cards.scryfall.io/art_crop/front/8/6/86c5c337-d25f-4c3e-9762-09ed0c2d36d7.jpg?1783911897",
     "owned_cards": 22,
-    "missing_cost": 48.2
+    "missing_cost": 48.2,
+    "moxfield_public_id": "demo0",
+    "moxfield_synced_at": "2026-09-15T09:14:00.000Z"
   },
   {
     "id": 2,
@@ -33,7 +35,9 @@
     "commander_name": "Meren of Clan Nel Toth",
     "commander_image_url": "https://cards.scryfall.io/art_crop/front/5/0/508b1442-bf2c-4ad6-9bcf-bd894e081ab6.jpg?1783907026",
     "owned_cards": 71,
-    "missing_cost": 86.4
+    "missing_cost": 86.4,
+    "moxfield_public_id": "demo1",
+    "moxfield_synced_at": "2026-09-15T09:14:00.000Z"
   },
   {
     "id": 3,
@@ -51,7 +55,8 @@
     "commander_name": "Winota, Joiner of Forces",
     "commander_image_url": "https://cards.scryfall.io/art_crop/front/5/d/5dd13a6c-23d3-44ce-a628-cb1c19d777c4.jpg?1783931014",
     "owned_cards": 48,
-    "missing_cost": 131.35
+    "missing_cost": 131.35,
+    "moxfield_public_id": null
   },
   {
     "id": 4,
@@ -69,6 +74,7 @@
     "commander_name": "Kinnan, Bonder Prodigy",
     "commander_image_url": "https://cards.scryfall.io/art_crop/front/6/3/63cda4a0-0dff-4edb-ae67-a2b7e2971350.jpg?1783931023",
     "owned_cards": 94,
-    "missing_cost": 12.75
+    "missing_cost": 12.75,
+    "moxfield_public_id": null
   }
 ]
