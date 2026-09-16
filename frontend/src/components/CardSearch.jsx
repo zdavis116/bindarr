@@ -479,6 +479,11 @@ function CardSearch({ onAddSuccess, showToast }) {
     // one card at a time and lose your place."
     // The class does nothing below 1024px, so the phone is untouched.
     <div className="cardsearch">
+      {/* THE LEFT COLUMN, as a real element rather than grid placement. Four
+          attempts at sizing grid rows failed the same way -- the staging pane
+          shared a row with the search panel and the row took the pane's
+          height. A wrapper lets each column size to its own content. */}
+      <div className="cs-main">
       {/* Search Header Panel */}
       <div className="glass-panel" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -889,6 +894,8 @@ function CardSearch({ onAddSuccess, showToast }) {
       {isFullScreen && selectedCard && (
         <CardImageZoom src={selectedCard.image_url} alt={selectedCard.name} onClose={() => setIsFullScreen(false)} />
       )}
+
+      </div>{/* /cs-main */}
 
       {/* STAGING PANE -- desktop only, CSS-hidden below 1024px.
           The mockup's right column: what you have picked, where it is going,

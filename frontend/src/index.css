@@ -4534,56 +4534,38 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
 @media (min-width: 1024px) {
   .cardsearch {
-    display: grid;
+    /* NOT a grid. Four attempts at row sizing all failed the same way: the
+       staging pane and the search panel shared a row, so the row took the
+       PANE's height and left a 290px empty band under a 292px panel.
+       A float-free two-column flexbox sizes each column independently. */
+    display: flex;
+    align-items: flex-start;
     /* Fixed right column, like the dashboard: the staging pane is a known
        shape, the results should take the slack. */
-    grid-template-columns: minmax(0, 1fr) 320px;
-    /* auto-rows + start, or the left column's rows stretch to match the
-       staging pane's height and open a ~90px gap under the search form --
-       measured on dev. Same stretch bug as the dashboard's card boxes. */
-    grid-auto-rows: min-content;
-    gap: 0 1.1rem;
-    align-items: start;
+    gap: 1.1rem;
   }
+  /* The left column: everything that is not the staging pane, stacked. */
+  .cardsearch > .cs-main { flex: 1; min-width: 0; }
   /* Everything that is not the staging pane belongs in the left column. The
      search form, filters and results grid are separate siblings, so they are
      placed by column rather than wrapped in a new element -- less markup
      churn, and the phone tree stays identical. */
-  .cardsearch > *:not(.cardsearch-stage) {
-    grid-column: 1; min-width: 0; margin-bottom: 0.9rem;
-  }
-  /* THE QUICK-ADD DRAWER IS AN OVERLAY, NOT A ROW. It and its backdrop are
-     position:fixed, but as grid children they still claimed a row each --
-     measured a 341px empty band between the search form and the filters with
-     the drawer CLOSED. Taking them out of the grid flow costs nothing: fixed
-     elements position against the viewport regardless. */
+  /* The drawer and its backdrop are fixed overlays; they must not be laid out
+     as flex children of the row. */
   .cardsearch > .quick-add-drawer,
-  .cardsearch > .drawer-backdrop {
-    position: fixed;
-    margin-bottom: 0;
-    /* Pin them to row 1 as well. position:fixed takes an element out of FLOW
-       but it is still a grid ITEM, and auto-placement was giving each its own
-       implicit row -- 290px of empty band between the search form and the
-       filters, with the drawer closed. Sharing row 1 creates no new track. */
-    grid-row: 1;
-  }
+  .cardsearch > .drawer-backdrop { position: fixed; }
 
   /* THE SEARCH FORM WAS EATING THE SCREEN. Measured at 1473x736: header panel
      plus filter panel ran 400px before a single result, so results opened
      below the fold. Tightened, not hidden -- Zach values more information. */
-  .cardsearch > .glass-panel { margin-bottom: 0.9rem !important; padding: 0.85rem 1rem; }
+  .cs-main > .glass-panel { margin-bottom: 0.9rem !important; padding: 0.85rem 1rem; }
 
   .cardsearch-stage {
     display: flex;
     flex-direction: column;
     gap: 0.7rem;
-    grid-column: 2;
-    /* NOT `grid-row: 1 / -1`. Spanning every row makes the single implicit row
-       as tall as the PANE, and the search panel -- the only in-flow left child
-       before results arrive -- stretched to match it: 293px of panel around
-       180px of form. The pane is sticky; it does not need to span anything. */
-    grid-row: 1;
-    align-self: start;
+    flex: 0 0 320px;
+    align-self: flex-start;
     position: sticky;
     top: 0.5rem;
     max-height: calc(100vh - var(--pane-top, 9rem));
@@ -4659,5 +4641,5 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      both, so the bar keeps only what the pane does NOT have -- select all,
      clear, printing, quantity, done. Hidden rather than deleted: the phone has
      no staging pane and still needs the full bar. */
-  .cardsearch .cs-bulkbar .cs-dupe { display: none; }
+  .cs-main .cs-bulkbar .cs-dupe { display: none; }
 }
