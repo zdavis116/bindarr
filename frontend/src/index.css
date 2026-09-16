@@ -3159,18 +3159,27 @@ button, input, select, textarea {
   display: block;
 }
 
-/* The ring sits ON the art. It carries .deck-ring precisely so this rule can
-   reach it: with only an inline `position: relative` the stylesheet lost --
-   measured, the selector matched and the ring stayed on the deck name. */
-.deck-ring { position: relative; }
-.deck-rows .deck-row > .deck-ring,
-.dash-decks .deck-row > .deck-ring {
+/* THE RING LIVES IN THE GREY TEXT AREA, WITH THE PERCENTAGE INSIDE IT.
+   Zach: "Why is the green circle not around the percentage please put it
+   around the percentage like it was before and get it out of the commander
+   image because it's hard to read."
+   Over full-art the digits sat on whatever colour the commander happened to
+   be; here the background is fixed, so the number is always legible. */
+.deck-ring { position: relative; display: grid; place-items: center; }
+.deck-ring svg { position: absolute; inset: 0; }
+.deck-ring-pct {
+  position: relative;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.deck-rows .deck-row-body > .deck-ring,
+.dash-decks .deck-row-body > .deck-ring {
   position: absolute;
-  top: 4px;
-  left: 4px;
-  transform: scale(0.62);
-  transform-origin: top left;
-  z-index: 1;
+  right: 0.45rem;
+  bottom: 0.45rem;
 }
 /* Select mode replaces the ring, in the same spot. */
 .deck-check {
@@ -3186,7 +3195,7 @@ button, input, select, textarea {
 .deck-row-body {
   display: block;
   position: relative;
-  padding: 0.45rem 2.6rem 0.5rem 0.5rem;
+  padding: 0.45rem 3.1rem 0.5rem 0.5rem;
   min-width: 0;
   flex: none;
 }
@@ -3224,15 +3233,6 @@ button, input, select, textarea {
   display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .deck-row-cost { color: var(--warning, #ff9f0a); font-weight: 700; }
-
-/* THE PERCENTAGE, bottom-right of the grey area. Zach: "the percent should be
-   in the bottom right of the card in the gray area so its readable" -- over
-   full-art you register the ring's SHAPE, not the digits. */
-.deck-row-pct {
-  position: absolute; right: 0.5rem; bottom: 0.5rem;
-  font-size: 0.92rem; font-weight: 700; letter-spacing: -0.02em;
-  color: var(--text-primary); font-variant-numeric: tabular-nums;
-}
 
 /* A chevron is a row affordance; a card is obviously tappable. */
 .deck-row-chevron { display: none; }

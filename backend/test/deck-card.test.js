@@ -72,9 +72,12 @@ const deckCard = read('DeckCard.jsx');
 {
   assert.ok(/deck-source-badge/.test(deckCard),
     'the card must render the Moxfield badge -- it was lost once already');
-  assert.ok(/deck-row-pct/.test(deckCard),
-    'the card must render the percentage in its own element so CSS can place '
-    + 'it in the bottom-right of the text area');
+  assert.ok(/deck-ring-pct/.test(deckCard),
+    'the percentage must live INSIDE the ring -- Zach: "put it around the '
+    + 'percentage like it was before". Two separate elements is what let the '
+    + 'ring and the number drift onto opposite corners of the card');
+  assert.ok(/<Ring\b/.test(deckCard),
+    'and the card must render the ring itself');
   assert.ok(/deck-row-art/.test(deckCard) && /deck-row-body/.test(deckCard),
     'the card must render commander art and a text body');
 

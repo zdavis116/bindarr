@@ -16,16 +16,19 @@
 
 import { Check } from 'lucide-react';
 
-// Progress ring. `size` is the only knob: both screens use the same one.
+// Progress ring with the percentage INSIDE it. Zach: "put it around the
+// percentage like it was before." The number is part of the ring, not a
+// separate label -- keeping them as two elements is what let them drift onto
+// opposite corners of the card.
 function Ring({ pct, size = 42 }) {
   const r = (size - 8) / 2;
   const c = 2 * Math.PI * r;
   const off = c - (c * Math.min(100, Math.max(0, pct))) / 100;
   return (
-    // A CLASS, not only inline styles. The card pins this over the art, and an
-    // inline `position: relative` beats any stylesheet rule -- measured once:
-    // the selector matched, computed position stayed relative, and the ring
-    // sat on the deck name.
+    // A CLASS, not only inline styles. The card pins this into the corner of
+    // the text area, and an inline `position: relative` beats any stylesheet
+    // rule -- measured once: the selector matched, computed position stayed
+    // relative, and the ring sat in the wrong place.
     <div className="deck-ring" style={{ width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
         <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--surface-3)" strokeWidth="4" fill="none" />
@@ -35,13 +38,15 @@ function Ring({ pct, size = 42 }) {
           style={{ transition: 'stroke-dashoffset .45s cubic-bezier(.2,.8,.3,1)' }}
         />
       </svg>
+      <span className="deck-ring-pct">{pct}%</span>
     </div>
   );
 }
 
 /**
- * A deck as a card: commander art, name, badges, counts, and the built
- * percentage in the bottom-right of the text area.
+ * A deck as a card: commander art, name, badges, counts, and a progress ring
+ * with the percentage INSIDE it, sitting in the bottom-right of the grey text
+ * area.
  *
  * @param deck       the deck, with pct/have/target already resolved by the caller
  * @param t          the translate function (passed in so this file owns no i18n)
@@ -75,9 +80,7 @@ export default function DeckCard({
         <span className="deck-check" data-on={selected ? '1' : '0'}>
           {selected && <Check size={14} strokeWidth={3.5} />}
         </span>
-      ) : (
-        <Ring pct={pct} />
-      )}
+      ) : null}
 
       <span className="deck-row-body">
         <span className="deck-row-title">
@@ -120,12 +123,15 @@ export default function DeckCard({
           {extra}
         </span>
 
-        {/* THE PERCENTAGE, bottom-right of the grey text area.
-            Zach: "the percent should be in the bottom right of the card in the
-            gray area so its readable." The ring over the art shows it too, but
-            a number on a dark corner of full-art is not readable at a glance --
-            it is the ring's shape you register there, not the digits. */}
-        <span className="deck-row-pct">{pct}%</span>
+        {/* THE RING AND THE NUMBER ARE ONE THING.
+            Zach: "Why is the green circle not around the percentage please put
+            it around the percentage like it was before and get it out of the
+            commander image because it's hard to read."
+            I moved the number into the grey area and left the ring on the art
+            -- so the card showed the same fact twice, once unreadable. The
+            ring now draws around the percentage, in the bottom-right of the
+            text area where the contrast is fixed. */}
+        {!selecting ? <Ring pct={pct} /> : null}
       </span>
     </button>
   );
