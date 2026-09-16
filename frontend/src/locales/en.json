@@ -1616,5 +1616,11 @@
   "dash.dsOff": "not scheduled",
   "dash.dsDue": "due now",
   "dash.dsSelected": "in use",
-  "dash.kpiCards": "Cards"
+  "dash.kpiCards": "Cards",
+  "search.staging": "Staging",
+  "search.stagingEmpty": "Select cards from the results to stage them here.",
+  "search.goingTo": "Going to",
+  "search.unassigned": "Unassigned",
+  "search.value": "Value",
+  "search.unstage": "Remove from staging"
 }

@@ -60,7 +60,9 @@ function CardSearch({ onAddSuccess, showToast }) {
   const [selectedCard, setSelectedCard] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [, setLocations] = useState([]);
+  // Fetched on mount, then thrown away -- `const [, setLocations]`. The
+  // staging pane needs the actual list to offer a destination.
+  const [locations, setLocations] = useState([]);
   
   // Form states
   const [quantity, setQuantity] = useState(1);
@@ -68,7 +70,11 @@ function CardSearch({ onAddSuccess, showToast }) {
   const [printing, setPrinting] = useState('nonfoil');
 
   const [purchasePrice, setPurchasePrice] = useState(0);
-  const [, setLocationId] = useState('');
+  // THE DESTINATION. Zach's mockup has a "Going to: Binder 1" row in the
+  // staging pane, and every add path here hardcoded location_id: null -- the
+  // value was declared as `const [, setLocationId]`, throwing the read away.
+  // Cards landed nowhere and had to be filed afterwards.
+  const [locationId, setLocationId] = useState('');
 
   // Fetch physical locations on mount for the form dropdown
   useEffect(() => {
@@ -254,6 +260,19 @@ function CardSearch({ onAddSuccess, showToast }) {
     else openQuickAdd(card);
   };
 
+  // WHAT THE STAGING PANE IS ABOUT TO ADD.
+  //
+  // Derived from the SAME selection handleBulkAdd sends, so the total on screen
+  // and the rows that get written can never describe different things -- the
+  // recurring bug in this codebase.
+  const stagedCards = filteredAndSortedCards.filter((c) => selectedIds.has(c.id));
+  const stageQty = parseInt(quantity, 10) || 1;
+  const stageCards = stagedCards.length * stageQty;
+  // price_trend is the resolved per-card price the rest of the app uses.
+  const stageValue = `$${stagedCards
+    .reduce((sum, c) => sum + (c.price_trend || 0) * stageQty, 0)
+    .toFixed(2)}`;
+
   const handleBulkAdd = async () => {
     const ids = filteredAndSortedCards.filter(c => selectedIds.has(c.id)).map(c => c.id);
     if (ids.length === 0) { showToast(t('search.errNoneSelected')); return; }
@@ -304,7 +323,7 @@ function CardSearch({ onAddSuccess, showToast }) {
         condition,
         printing,
         purchase_price: parseFloat(purchasePrice) || 0,
-        location_id: null,
+        location_id: locationId || null,
         stackable: true
       })
     });
@@ -423,7 +442,7 @@ function CardSearch({ onAddSuccess, showToast }) {
           condition,
           printing,
           purchase_price: parseFloat(purchasePrice) || 0,
-          location_id: null
+          location_id: locationId || null
         })
       });
 
@@ -454,7 +473,12 @@ function CardSearch({ onAddSuccess, showToast }) {
 
   // Helper to determine location type layout guidance
   return (
-    <div>
+    // TWO PANES ON DESKTOP: the search form and its results on the left, the
+    // staging pane pinned right. sketches/desktop.html section 7 -- "a staging
+    // pane that stays visible while you keep searching; on the phone you add
+    // one card at a time and lose your place."
+    // The class does nothing below 1024px, so the phone is untouched.
+    <div className="cardsearch">
       {/* Search Header Panel */}
       <div className="glass-panel" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -863,6 +887,102 @@ function CardSearch({ onAddSuccess, showToast }) {
       {isFullScreen && selectedCard && (
         <CardImageZoom src={selectedCard.image_url} alt={selectedCard.name} onClose={() => setIsFullScreen(false)} />
       )}
+
+      {/* STAGING PANE -- desktop only, CSS-hidden below 1024px.
+          The mockup's right column: what you have picked, where it is going,
+          at what condition, and what it is worth, all visible while you keep
+          searching. Nothing new is stored -- this drives the SAME selection
+          and the SAME /api/collection/bulk-add the phone already uses, so the
+          two cannot disagree about what "add" means. */}
+      <aside className="cardsearch-stage">
+        <div className="cs-stage-head">
+          <h3>{t('search.staging')}</h3>
+          <span className="cs-stage-count">{selectedIds.size}</span>
+        </div>
+
+        {selectedIds.size === 0 ? (
+          <p className="cs-stage-empty">{t('search.stagingEmpty')}</p>
+        ) : (
+          <>
+            <div className="cs-stage-list">
+              {filteredAndSortedCards
+                .filter((c) => selectedIds.has(c.id))
+                .map((c) => (
+                  <div key={c.id} className="cs-stage-row">
+                    {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
+                    <span className="cs-stage-name">
+                      <b>{c.name}</b>
+                      <span>{(c.set_code || c.set || '').toUpperCase()}</span>
+                    </span>
+                    <span className="cs-stage-qty">
+                      ×{parseInt(quantity, 10) || 1}
+                    </span>
+                    <button
+                      type="button"
+                      className="cs-stage-drop"
+                      aria-label={t('search.unstage')}
+                      onClick={() => setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(c.id);
+                        return next;
+                      })}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+            </div>
+
+            <dl className="cs-stage-facts">
+              <dt>{t('search.goingTo')}</dt>
+              <dd>
+                {/* The destination the mockup drew. Until now every add sent
+                    location_id: null, so cards landed nowhere and had to be
+                    filed afterwards. */}
+                <select
+                  className="input-control"
+                  value={locationId}
+                  onChange={(e) => setLocationId(e.target.value)}
+                >
+                  <option value="">{t('search.unassigned')}</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </dd>
+
+              <dt>{t('card.condition')}</dt>
+              <dd>
+                <select
+                  className="input-control"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                >
+                  {CONDITIONS.map((c) => (
+                    <option key={c.value ?? c} value={c.value ?? c}>
+                      {c.label ?? c}
+                    </option>
+                  ))}
+                </select>
+              </dd>
+
+              <dt>{t('search.value')}</dt>
+              <dd className="cs-stage-value">{stageValue}</dd>
+            </dl>
+
+            <button
+              type="button"
+              className="btn btn-primary cs-stage-add"
+              disabled={bulkAdding}
+              onClick={handleBulkAdd}
+            >
+              {bulkAdding
+                ? t('search.adding')
+                : t('search.addN', { count: stageCards })}
+            </button>
+          </>
+        )}
+      </aside>
     </div>
   );
 }

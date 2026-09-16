@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Camera, Search } from 'lucide-react';
 import CameraScanner from './CameraScanner';
 import CardSearch from './CardSearch';
@@ -7,6 +7,29 @@ import { useT } from '../utils/i18n';
 function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' }) {
   const { t } = useT();
   const [mode, setMode] = useState(initialMode);
+
+  // DESKTOP OPENS ON SEARCH, THE PHONE OPENS ON SCAN.
+  //
+  // sketches/desktop.html section 7: "search and results side by side; scan
+  // still available. camera work belongs on the phone but shouldn't vanish."
+  //
+  // A laptop has no card in front of a camera; a phone does. Defaulting a wide
+  // screen to a camera pane it will not use costs a click on every visit, and
+  // the mockup draws Scan as a button beside the search, not the landing page.
+  const [isWide, setIsWide] = useState(
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e) => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  // Only when the caller did not ask for a specific mode -- a scan deep-link
+  // must still land on the scanner.
+  useEffect(() => {
+    if (isWide && initialMode === 'scan') setMode('search');
+  }, [isWide, initialMode]);
 
   // Demo build has no backend: the camera scanner and live card search can't
   // work, so show a notice instead of a broken UI.

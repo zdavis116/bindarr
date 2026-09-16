@@ -4521,3 +4521,108 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .dashx-next { display: block; font-size: 0.72rem; color: var(--text-muted); }
   .dashx-empty { color: var(--text-muted); font-size: 0.8rem; }
 }
+
+/* ===== ADD CARDS: SEARCH + STAGING, SIDE BY SIDE ========================
+   Zach: "I want add cards now."
+   sketches/desktop.html section 7 -- "search and results side by side; a
+   staging pane that stays visible while you keep searching. On the phone you
+   add one card at a time and lose your place."
+
+   Everything is scoped to min-width:1024px, so the phone renders exactly as it
+   does today: one column, staging pane hidden entirely. */
+.cardsearch-stage { display: none; }
+
+@media (min-width: 1024px) {
+  .cardsearch {
+    display: grid;
+    /* Fixed right column, like the dashboard: the staging pane is a known
+       shape, the results should take the slack. */
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 1.1rem;
+    align-items: start;
+  }
+  /* Everything that is not the staging pane belongs in the left column. The
+     search form, filters and results grid are separate siblings, so they are
+     placed by column rather than wrapped in a new element -- less markup
+     churn, and the phone tree stays identical. */
+  .cardsearch > *:not(.cardsearch-stage) { grid-column: 1; min-width: 0; }
+
+  /* THE SEARCH FORM WAS EATING THE SCREEN. Measured at 1473x736: header panel
+     plus filter panel ran 400px before a single result, so results opened
+     below the fold. Tightened, not hidden -- Zach values more information. */
+  .cardsearch > .glass-panel { margin-bottom: 0.9rem !important; padding: 0.85rem 1rem; }
+
+  .cardsearch-stage {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    grid-column: 2;
+    grid-row: 1 / -1;
+    position: sticky;
+    top: 0.5rem;
+    max-height: calc(100vh - var(--pane-top, 9rem));
+    background: var(--surface-1);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: 0.9rem 1rem;
+    min-width: 0;
+  }
+
+  .cs-stage-head { display: flex; align-items: center; gap: 0.5rem; }
+  .cs-stage-head h3 {
+    margin: 0; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted);
+  }
+  .cs-stage-count {
+    margin-left: auto; padding: 0.05rem 0.45rem; border-radius: 999px;
+    background: var(--accent-blue); color: var(--text-on-accent);
+    font-size: 0.72rem; font-weight: 700;
+  }
+  .cs-stage-empty {
+    margin: 0; font-size: 0.78rem; color: var(--text-muted); line-height: 1.5;
+  }
+
+  /* The list scrolls; the totals and the button below it must not, or the
+     thing you are about to press leaves the screen as you stage more. */
+  .cs-stage-list {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    overflow-y: auto; min-height: 0; flex: 1;
+  }
+  .cs-stage-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: var(--surface-2); border: 1px solid var(--border-glass);
+    border-radius: 6px; padding: 0.25rem 0.4rem;
+  }
+  .cs-stage-row img { width: 26px; border-radius: 3px; flex: 0 0 auto; }
+  .cs-stage-name { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .cs-stage-name b {
+    font-size: 0.76rem; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .cs-stage-name span { font-size: 0.66rem; color: var(--text-muted); }
+  .cs-stage-qty {
+    font-size: 0.72rem; color: var(--text-secondary);
+    font-variant-numeric: tabular-nums; flex: 0 0 auto;
+  }
+  .cs-stage-drop {
+    border: 0; background: none; color: var(--text-muted); cursor: pointer;
+    font-size: 1rem; line-height: 1; padding: 0 0.15rem; flex: 0 0 auto;
+  }
+  .cs-stage-drop:hover { color: #f87171; }
+
+  .cs-stage-facts {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.6rem;
+    margin: 0; align-items: center;
+  }
+  .cs-stage-facts dt {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  .cs-stage-facts dd { margin: 0; font-size: 0.78rem; text-align: right; }
+  .cs-stage-facts dd select { width: 100%; font-size: 0.76rem; padding: 0.2rem 0.3rem; }
+  .cs-stage-value {
+    font-weight: 700; font-variant-numeric: tabular-nums;
+    font-size: 0.95rem !important;
+  }
+  .cs-stage-add { width: 100%; }
+}
