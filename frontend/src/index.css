@@ -4377,3 +4377,116 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   }
   .coll-pane > .card-inspector-inline { width: 100%; }
 }
+
+/* ===== DESKTOP DASHBOARD =================================================
+   Zach: "I want the dashboard to go back to what we had for the mockups for
+   desktop ONLY. Phone is good as is."
+
+   sketches/desktop.html §5. This is a SEPARATE screen from the phone one, not
+   a restyle of it -- the phone shows three deck cards and a top-ten strip, the
+   desktop shows every deck as a table with the buying question answered per
+   row plus a permanent Data sources panel. Own class prefix (.dashx-) so the
+   two cannot reach into each other: the phone tree keeps .dash- untouched.
+
+   Scoped entirely inside min-width:1024px. Below that this file contributes
+   nothing and the phone renders exactly as it does today. */
+@media (min-width: 1024px) {
+  .dashx { display: flex; flex-direction: column; gap: 0.9rem; min-height: 0; }
+
+  .dashx-head { display: flex; align-items: baseline; gap: 0.6rem; }
+  .dashx-head h1 { margin: 0; font-size: 1.35rem; letter-spacing: -0.02em; }
+  .dashx-sub { color: var(--text-muted); font-size: 0.8rem; }
+
+  /* FOUR ACROSS. The numbers checked most, in one glance. */
+  .dashx-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
+  .dashx-kpi {
+    background: var(--surface-1); border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md); padding: 0.8rem 0.9rem;
+    display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;
+  }
+  .dashx-kpi .k {
+    font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .dashx-kpi strong {
+    font-size: 1.7rem; font-weight: 700; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .dashx-kpi strong.warn { color: var(--amber, #fbbf24); }
+  .dashx-kpi .s { font-size: 0.76rem; color: var(--text-secondary); }
+
+  /* 1.4fr / 1fr, from the mockup: the decks table needs the width, the
+     sources panel is a fixed list of four rows. */
+  .dashx-body {
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.1rem;
+    align-items: start; min-height: 0;
+  }
+  .dashx-main, .dashx-side { min-width: 0; display: flex;
+                             flex-direction: column; gap: 1rem; }
+
+  .dashx-panel {
+    background: var(--surface-1); border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md); padding: 0.9rem 1rem; min-width: 0;
+  }
+  .dashx-panel h3 {
+    margin: 0 0 0.6rem; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted);
+  }
+
+  .dashx-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .dashx-table th {
+    text-align: left; font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-muted); font-weight: 600;
+    padding: 0 0 0.35rem;
+  }
+  .dashx-table td {
+    padding: 0.42rem 0; border-top: 1px solid var(--border-glass);
+    color: var(--text-secondary);
+  }
+  .dashx-table td b { color: var(--text-primary); font-weight: 600; }
+  .dashx-table .n { text-align: right; font-variant-numeric: tabular-nums; }
+  .dashx-table tbody tr { cursor: pointer; }
+  .dashx-table tbody tr:hover td { background: var(--bg-secondary); }
+
+  .dashx-pill {
+    display: inline-block; padding: 0.05rem 0.4rem; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 700; background: var(--bg-tertiary);
+  }
+  .dashx-pill.ok { background: rgba(48,209,88,0.16); color: #4ade80; }
+  .dashx-pill.warn { background: rgba(251,191,36,0.16); color: #fbbf24; }
+
+  /* MOST VALUABLE: seven across, as drawn. The art keeps its 0.717 ratio --
+     a stretched card is the bug this dashboard already shipped once. */
+  .dashx-tops { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; }
+  .dashx-top {
+    position: relative; display: flex; flex-direction: column; padding: 0;
+    background: var(--surface-2); border: 1px solid var(--border-glass);
+    border-radius: 8px; overflow: hidden; cursor: pointer;
+    font: inherit; color: var(--text-primary); text-align: left;
+  }
+  .dashx-top:hover { border-color: var(--accent-blue); }
+  .dashx-top img { width: 100%; display: block; aspect-ratio: 0.717;
+                   object-fit: cover; }
+  .dashx-top .cap { padding: 0.25rem 0.35rem; font-size: 0.68rem;
+                    line-height: 1.3; }
+  .dashx-top .cap b { display: block; white-space: nowrap; overflow: hidden;
+                      text-overflow: ellipsis; font-weight: 600; }
+  .dashx-top .cap span { color: var(--text-muted); }
+  .dashx-copies {
+    position: absolute; top: 4px; right: 4px; padding: 0 0.3rem;
+    border-radius: 999px; background: rgba(0,0,0,0.72); color: #fff;
+    font-size: 0.64rem; font-weight: 700;
+  }
+
+  /* DATA SOURCES. Each row: what it is, how fresh, and when it runs next --
+     the countdown Zach asked for, read from the schedulers themselves. */
+  .dashx-ds td { vertical-align: top; }
+  .dashx-ds .dashx-pill { margin-left: 0.35rem; }
+  .dashx-kind { display: inline-block; margin-left: 0.35rem; font-size: 0.68rem;
+                text-transform: uppercase; letter-spacing: 0.04em;
+                color: var(--text-muted); }
+  .dashx-detail { display: block; font-size: 0.72rem; color: var(--text-muted); }
+  .dashx-err { display: block; font-size: 0.72rem; color: #f87171; }
+  .dashx-next { display: block; font-size: 0.72rem; color: var(--text-muted); }
+  .dashx-empty { color: var(--text-muted); font-size: 0.8rem; }
+}

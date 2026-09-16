@@ -67,6 +67,45 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
   // The card opened from the top-ten strip.
   const [inspectorCard, setInspectorCard] = useState(null);
 
+  // DESKTOP GETS ITS OWN SCREEN, not the phone stretched wide.
+  //
+  // Zach: "I want the dashboard to go back to what we had for the mockups for
+  // desktop ONLY. Phone is good as is."
+  //
+  // sketches/desktop.html §5: four KPIs across the top, decks as a SORTABLE
+  // TABLE answering the buying question per row, most-valuable beneath it, and
+  // a permanent Data sources panel on the right. The phone tree below is
+  // untouched -- this is a separate branch, not a restyle of it, because the
+  // two screens genuinely show different things now.
+  const [isWide, setIsWide] = useState(
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e) => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // SYNC STATE, from the endpoints that already serve Settings.
+  //
+  // No new backend: /settings/catalogue carries every scheduler's next run and
+  // the server's own clock, /settings/price-sources carries each shop's last
+  // success and row count. Reading the SAME rows Settings reads is the point --
+  // a second source would drift, which is the bug this file keeps hitting.
+  const [sources, setSources] = useState(null);
+  useEffect(() => {
+    if (!isWide) return undefined;          // the phone panel does not exist
+    let cancelled = false;
+    Promise.all([
+      fetch('/api/settings/catalogue').then(r => (r.ok ? r.json() : null)).catch(() => null),
+      fetch('/api/settings/price-sources').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([cat, price]) => {
+      if (!cancelled) setSources({ cat, price });
+    });
+    return () => { cancelled = true; };
+  }, [isWide, statsTrigger]);
+
   // FILL THE SCREEN, DON'T SCROLL. Zach: "I want the screen to be filled but
   // not be scrollable." <main> sizes to its content by default, so a short
   // deck list left a dead band under the cards. This lets the CSS stretch the
@@ -153,6 +192,29 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
     .filter((d) => d.pct < 100)
     .sort((a, b) => a.pct - b.pct);
 
+  // EVERY deck, for the desktop table. The phone strip shows only what needs
+  // work because it has room for three cards; the table has a row each and the
+  // mockup lists all four, so "100% / 0 / $0.00" is a useful answer rather than
+  // a wasted row.
+  const allDecks = decks
+    .filter((d) => (d.target_size || 0) > 0)
+    .map((d) => {
+      const have = d.owned_cards || 0;
+      const target = d.target_size || 0;
+      return {
+        ...d,
+        have,
+        target,
+        missing: Math.max(0, target - have),
+        // missing_cost, NOT missing_value -- verified against /api/decks on
+        // dev. The wrong name would have rendered $0.00 on every row and
+        // looked like "nothing to buy" rather than a bug.
+        toFinish: d.missing_cost || 0,
+        pct: Math.min(100, Math.round((have / target) * 100)),
+      };
+    })
+    .sort((a, b) => a.pct - b.pct);
+
   if (loading) {
     return (
       <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -171,6 +233,218 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
                 onClick={() => onNavigate && onNavigate('dashboard')}>
           {t('dash.retry')}
         </button>
+      </div>
+    );
+  }
+
+  // ===== DESKTOP: sketches/desktop.html §5 ===================================
+  if (isWide) {
+    const money = (n) => `$${Number(n || 0).toLocaleString(undefined,
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    // Every scheduler's next run, from the SAME payload Settings reads.
+    const cat = sources?.cat || null;
+    const shops = sources?.price?.choices || [];
+    const now = cat?.server_now ? new Date(cat.server_now) : new Date();
+    const until = (iso) => {
+      if (!iso) return null;                       // scheduler disabled
+      const ms = new Date(iso) - now;
+      if (!Number.isFinite(ms)) return null;
+      if (ms <= 0) return t('dash.dsDue');
+      const h = Math.floor(ms / 3600000);
+      const m = Math.round((ms % 3600000) / 60000);
+      return h ? `${h}h ${m}m` : `${m}m`;
+    };
+    const clock = (v) => {
+      if (!v) return '—';
+      // SQLite writes "YYYY-MM-DD HH:MM:SS" (UTC, no zone). Safari returns NaN
+      // for that form, so normalise before parsing -- the same fix DeckView
+      // needed for moxfield_synced_at.
+      const d = new Date(typeof v === 'string' && v.includes(' ')
+        ? `${v.replace(' ', 'T')}Z` : v);
+      return Number.isNaN(d.getTime()) ? '—'
+        : d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    };
+
+    const rows = [
+      ...shops.map((sh) => ({
+        name: sh.label,
+        kind: t('dash.dsPrices'),
+        detail: t('dash.dsRowCount', { n: (sh.row_count || 0).toLocaleString() }),
+        at: sh.last_success_at,
+        next: until(cat?.[`${sh.id}_next_run`]),
+        live: sources?.price?.selected === sh.id,
+        error: sh.last_error,
+      })),
+      {
+        name: 'Scryfall',
+        kind: t('dash.dsCardData'),
+        detail: t('dash.dsCards', { n: (cat?.cards || 0).toLocaleString() }),
+        at: cat?.refreshed_at,
+        next: until(cat?.catalogue_next_run),
+      },
+      {
+        name: 'Moxfield',
+        kind: t('dash.dsDecks'),
+        detail: t('dash.dsDeckCount', { n: decks.length }),
+        // The newest sync across his decks: the poller runs once for all of
+        // them, so one timestamp describes the lot.
+        at: decks.map((d) => d.moxfield_synced_at).filter(Boolean).sort().pop(),
+        next: until(cat?.moxfield_next_run),
+      },
+    ];
+
+    return (
+      <div className="dashx">
+        <div className="dashx-head">
+          <h1>{t('nav.dashboard')}</h1>
+          {sources?.price?.selected && (
+            <span className="dashx-sub">
+              {t('dash.pricesFrom', {
+                shop: shops.find((x) => x.id === sources.price.selected)?.label
+                  || sources.price.selected,
+              })}
+            </span>
+          )}
+        </div>
+
+        {/* FOUR NUMBERS ACROSS THE TOP -- the ones checked most. */}
+        <div className="dashx-kpis">
+          <div className="dashx-kpi">
+            <span className="k">{t('dash.kpiValue')}</span>
+            <strong>{summary ? money(summary.totalValue) : '—'}</strong>
+            <span className="s">
+              {summary?.change7d?.available
+                ? t('dash.kpiWeek', { delta: money(summary.change7d.abs) })
+                : t('dash.kpiNoHistory')}
+            </span>
+          </div>
+          <div className="dashx-kpi">
+            <span className="k">{t('dash.kpiCards')}</span>
+            <strong>{summary ? summary.totalCards.toLocaleString() : '—'}</strong>
+            <span className="s">
+              {t('dash.kpiUnique', { n: (summary?.uniqueCards || 0).toLocaleString() })}
+            </span>
+          </div>
+          <div className="dashx-kpi">
+            <span className="k">{t('nav.deckBuilder')}</span>
+            <strong>{decks.length}</strong>
+            <span className="s">
+              {inProgress.length
+                ? t('dash.kpiIncomplete', { n: inProgress.length })
+                : t('dash.kpiAllComplete')}
+            </span>
+          </div>
+          <div className="dashx-kpi">
+            <span className="k">{t('dash.kpiToFinish')}</span>
+            <strong className={toFinish > 0 ? 'warn' : ''}>{money(toFinish)}</strong>
+            <span className="s">
+              {missingCards
+                ? t('dash.kpiMissing', { n: missingCards })
+                : t('dash.kpiNothingMissing')}
+            </span>
+          </div>
+        </div>
+
+        <div className="dashx-body">
+          <div className="dashx-main">
+            {/* DECKS AS A TABLE, with the buying question answered per row. */}
+            <section className="dashx-panel">
+              <h3>{t('dash.yourDecks')}</h3>
+              <table className="dashx-table">
+                <thead>
+                  <tr>
+                    <th>{t('dash.thDeck')}</th>
+                    <th>{t('dash.thFormat')}</th>
+                    <th className="n">{t('dash.thBuilt')}</th>
+                    <th className="n">{t('dash.thMissing')}</th>
+                    <th className="n">{t('dash.thToFinish')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allDecks.map((d) => (
+                    <tr key={d.id} onClick={() => onOpenDeck && onOpenDeck(d)}>
+                      <td><b>{d.name}</b></td>
+                      <td>{d.format || '—'}</td>
+                      <td className="n">
+                        <span className={`dashx-pill${d.pct >= 100 ? ' ok' : ' warn'}`}>
+                          {d.pct}%
+                        </span>
+                      </td>
+                      <td className="n">{d.missing}</td>
+                      <td className="n">{money(d.toFinish)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            {/* MOST VALUABLE, beneath the decks -- same panel in the mockup. */}
+            {!!topValuable.length && (
+              <section className="dashx-panel">
+                <h3>{t('dash.topValuable')}</h3>
+                <div className="dashx-tops">
+                  {topValuable.map((c) => (
+                    <button
+                      key={c.card_id || c.entry_id}
+                      type="button"
+                      className="dashx-top"
+                      onClick={() => setInspectorCard(c)}
+                    >
+                      {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
+                      <span className="cap">
+                        <b>{displayName(c)}</b>
+                        <span>{money(c.price_trend)}</span>
+                      </span>
+                      {c.copies > 1 && <span className="dashx-copies">x{c.copies}</span>}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          {/* DATA SOURCES: what is fresh, and when it next runs. */}
+          <aside className="dashx-side">
+            <section className="dashx-panel">
+              <h3>{t('dash.dataSources')}</h3>
+              {sources ? (
+                <table className="dashx-table dashx-ds">
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.name}>
+                        <td>
+                          <b>{r.name}</b>
+                          {r.live && <span className="dashx-pill ok">{t('dash.dsSelected')}</span>}
+                          <span className="dashx-kind">{r.kind}</span>
+                          <span className="dashx-detail">{r.detail}</span>
+                          {r.error && <span className="dashx-err">{r.error}</span>}
+                        </td>
+                        <td className="n">
+                          {clock(r.at)}
+                          <span className="dashx-next">
+                            {r.next ? t('dash.dsIn', { when: r.next }) : t('dash.dsOff')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="dashx-empty">{t('common.loading')}</div>
+              )}
+            </section>
+          </aside>
+        </div>
+
+        {inspectorCard && (
+          <CardInspectorModal
+            card={inspectorCard}
+            onClose={() => setInspectorCard(null)}
+            statsTrigger={statsTrigger}
+            onNavigate={onNavigate}
+          />
+        )}
       </div>
     );
   }
