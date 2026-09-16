@@ -172,19 +172,54 @@ function CardInspectorModal({
     const parts = val.split(' // ');
     return parts.length > 1 ? (parts[faceIndex] ?? parts[0]) : val;
   };
+  // RULES TEXT FOR THE FACE(S) ON SCREEN.
+  //
+  // normalizeCard stores multi-face text as "=== Face ===\n<text>" blocks. A
+  // card you can FLIP (transform, modal DFC) shows one block at a time, because
+  // the picture only shows one side and the text must agree with the picture.
+  //
+  // But an ADVENTURE, SPLIT, FLIP or PREPARE card is ONE piece of cardboard with
+  // both halves printed on it -- Scryfall gives it a single top-level image and
+  // no back_image_url, so faceIndex is permanently 0 and the second block was
+  // silently dropped.
+  //
+  // Zach: "now I cant see the roost seek description in the card description.
+  // That needs to be added for all cards that way." Sagu Wildling // Roost Seek
+  // is layout "adventure": you can read Roost Seek right there on the art, but
+  // the pane showed only the creature half.
+  //
+  // So: no back image means nothing to flip to, which means show EVERY face --
+  // with its header kept, since two rules blocks need labels to be readable.
   const faceRules = (() => {
     const txt = view?.oracle_text;
     if (typeof txt !== 'string') return txt;
     const blocks = txt.split(/\n\n(?==== )/);
     if (blocks.length < 2) return txt;
+    // One-piece-of-cardboard layouts: no flip, so show both halves.
+    if (!view?.back_image_url) {
+      return blocks
+        .map(b => b.replace(/^=== (.+?) ===\n/, '$1\n'))
+        .join('\n\n');
+    }
     const blk = blocks[faceIndex] ?? blocks[0];
     // The face header is redundant once only one face is shown -- the card
     // name above already says which face you are looking at.
     return blk.replace(/^=== .+? ===\n/, '');
   })();
-  const faceTypeLine = faceIndex === 1
-    ? (view?.back_type_line || facePart(view?.type_line))
-    : facePart(view?.type_line);
+  // THE TYPE LINE, matching whatever the rules text shows.
+  //
+  // A flippable card shows the face you are looking at. A one-piece card
+  // (adventure, split, flip, prepare) has no flip, so it shows BOTH halves --
+  // otherwise Sagu Wildling reads "Creature — Dragon" while the rules text
+  // underneath plainly includes a Sorcery.
+  const faceTypeLine = (() => {
+    const full = view?.type_line;
+    if (typeof full !== 'string') return full;
+    if (full.includes(' // ') && !view?.back_image_url) return full;
+    return faceIndex === 1
+      ? (view?.back_type_line || facePart(full))
+      : facePart(full);
+  })();
   // YOUR copies of THIS printing, from the server -- the one source both
   // callers share. Falls back to the caller's own numbers while the
   // request is in flight, so the rows do not flash empty.
