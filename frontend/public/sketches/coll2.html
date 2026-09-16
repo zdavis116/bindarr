@@ -58,9 +58,15 @@
   .gridwrap{display:flex;flex-direction:column;min-width:0;min-height:0}
   .gridbar{display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap}
   .grid{display:grid;gap:.55rem;overflow-y:auto;padding-right:.2rem;
-        grid-template-columns:repeat(auto-fill,minmax(112px,1fr));align-content:start}
+        grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+        /* ROWS SIZED FROM CONTENT. The tile is art (0.717 of its width) PLUS a
+           caption; with implicit rows the caption was clipped when the detail
+           pane opened and narrowed the columns. */
+        grid-auto-rows:min-content;align-content:start}
   .tile{background:var(--s2);border:1px solid var(--border);border-radius:8px;
-        overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
+        overflow:hidden;cursor:pointer;display:flex;flex-direction:column;
+        /* The tile is exactly art + caption, never stretched to a row height. */
+        align-self:start}
   .tile:hover{border-color:var(--accent)}
   .tile.on{border-color:var(--accent);box-shadow:0 0 0 2px rgba(76,154,255,.35)}
   .tile img{width:100%;display:block;aspect-ratio:.717;object-fit:cover}
@@ -105,6 +111,12 @@
   td.r{text-align:right;color:var(--t3)}
   .tag{background:var(--s3);border-radius:999px;padding:.04rem .38rem;font-size:.66rem}
   .tag.g{background:rgba(48,209,88,.16);color:var(--green)}
+  .tabs{display:flex;gap:.25rem;margin:.9rem 0 .2rem;border-bottom:1px solid var(--border)}
+  .tab{padding:.35rem .55rem;font-size:.78rem;color:var(--t3);cursor:pointer;
+       border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+  .tab.on{color:var(--t1);border-bottom-color:var(--accent)}
+  .tab .n{background:var(--s3);border-radius:999px;padding:0 .28rem;
+          font-size:.64rem;margin-left:.25rem}
   .acts{display:flex;gap:.35rem;margin-top:.9rem;flex-wrap:wrap}
   .empty{color:var(--t3);font-size:.78rem;font-style:italic}
   .hint{padding:2rem 1rem;text-align:center;color:var(--t3);font-size:.82rem}
@@ -167,8 +179,60 @@
 
 <script src="coll2-data.js"></script>
 <script>
-let sel = null;
+let sel = null, tab = 'card';
 const money = (n) => '$' + Number(n).toFixed(2);
+
+// THE TABS, same four as the card-detail mockup Zach approved.
+// Card is the default and carries rules + decks + copies, so the common case
+// needs no tab switch at all -- the tabs are for going deeper, not for hiding
+// the basics behind a click.
+function tabBody(d) {
+  if (tab === 'yours') {
+    const locs = [...new Set(d.copies.map((x) => x[2]))];
+    return `
+      <h3 class="s">Your copies</h3>
+      <table>${d.copies.map(([p, cond, loc]) =>
+        `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>
+      <h3 class="s">Where they live</h3>
+      <table>${locs.map((loc) =>
+        `<tr><td>${loc}</td><td class="r">${
+          d.copies.filter((x) => x[2] === loc).length}x</td></tr>`).join('')}</table>
+      <div class="meta" style="margin-top:.6rem">${d.copies.length} cop${
+        d.copies.length === 1 ? 'y' : 'ies'} · ${
+        money(Math.min(...Object.values(d.prices)) * d.copies.length)} at the cheapest shop</div>`;
+  }
+  if (tab === 'decks') {
+    return `
+      <h3 class="s">In your decks</h3>
+      ${d.decks.length
+        ? `<table>${d.decks.map(([dk, r]) =>
+            `<tr><td>${dk}</td><td class="r"><span class="tag ${
+              r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
+        : `<div class="empty">Not in any deck</div>`}`;
+  }
+  if (tab === 'price') {
+    // Honest about what does not exist yet rather than drawing a fake chart.
+    return `<h3 class="s">Price history</h3>
+      <div class="empty">No price history yet — snapshots start once the
+      collection is being recorded daily.</div>`;
+  }
+  // CARD: rules, then the two things you actually came to check.
+  return `
+    <p class="rules">${(d.oracle_text || '').replace(/\n/g, '\n\n')}</p>
+    ${d.power ? `<div class="meta" style="margin-top:.5rem">${d.power}/${d.toughness}${
+      d.edhrec_rank ? ` · EDHREC #${d.edhrec_rank}` : ''}</div>` : ''}
+    <h3 class="s">In your decks</h3>
+    ${d.decks.length
+      ? `<table>${d.decks.map(([dk, r]) =>
+          `<tr><td>${dk}</td><td class="r"><span class="tag ${
+            r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
+      : `<div class="empty">Not in any deck</div>`}
+    <h3 class="s">Your copies</h3>
+    <table>${d.copies.map(([p, cond, loc]) =>
+      `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>`;
+}
+
+function setTab(t) { tab = t; detail(); }
 
 function pips(cost) {
   if (!cost) return '';
@@ -238,20 +302,14 @@ function detail() {
         </div>
       </div>
 
-      <p class="rules">${(d.oracle_text || '').replace(/\n/g, '\n\n')}</p>
-      ${d.power ? `<div class="meta" style="margin-top:.5rem">${d.power}/${d.toughness}${
-        d.edhrec_rank ? ` · EDHREC #${d.edhrec_rank}` : ''}</div>` : ''}
-
-      <h3 class="s">In your decks</h3>
-      ${d.decks.length
-        ? `<table>${d.decks.map(([dk, r]) =>
-            `<tr><td>${dk}</td><td class="r"><span class="tag ${
-              r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
-        : `<div class="empty">Not in any deck</div>`}
-
-      <h3 class="s">Your copies</h3>
-      <table>${d.copies.map(([p, cond, loc]) =>
-        `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>
+      <div class="tabs">
+        ${[['card', 'Card', 0], ['yours', 'Yours', d.copies.length],
+           ['decks', 'Decks', d.decks.length], ['price', 'Price', 0]]
+          .map(([id, label, n]) => `<div class="tab ${tab === id ? 'on' : ''}"
+            onclick="setTab('${id}')">${label}${n ? `<span class="n">${n}</span>` : ''}</div>`)
+          .join('')}
+      </div>
+      ${tabBody(d)}
 
       <div class="acts">
         <button class="btn">Edit</button>
@@ -262,7 +320,7 @@ function detail() {
     </div>`;
 }
 
-function pick(i) { sel = (i === sel ? null : i); grid(); detail(); }
+function pick(i) { sel = (i === sel ? null : i); tab = 'card'; grid(); detail(); }
 grid(); detail();
 </script>
 </body></html>
