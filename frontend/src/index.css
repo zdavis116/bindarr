@@ -3199,23 +3199,35 @@ button, input, select, textarea {
   min-width: 0;
   flex: none;
 }
+/* THE BADGE SITS TOP-RIGHT OF THE CARD, over the art.
+   Zach: "I want moxfield on the right side of the card as well not
+   underneath."
+   It cannot share the name's line: the badge never shrinks, so the name loses
+   the width instead -- measured at 390px, "Izzet Spells" became "Izzet Sp…".
+   Pinning it to the card's own corner gives the name the full body width AND
+   puts the badge on the right, which stacking it below did not. */
 .deck-row-title { display: block; min-width: 0; }
-/* The badge sits UNDER the name, not beside it. Measured at 390px: side by
-   side it squeezed "Izzet Spells" to "Izzet Sp…" -- the badge never shrinks
-   (flex: 0 0 auto) so the name always loses, and the name is what you
-   identify the deck by. */
-.deck-row-title > .deck-source-badge,
-.deck-row-title > .deck-drift-badge {
-  /* display:inline-block, not inline: .deck-source-badge sets no display of
-     its own, so a block PARENT does not stop it flowing beside the name.
-     Measured: "Izzet Spells MOXFIELD" on one line truncated the name. */
-  display: inline-block;
-  margin-top: 0.12rem;
+.deck-row > .deck-source-badge,
+.deck-row > .deck-drift-badge {
+  /* DIRECT CHILDREN OF THE CARD. .deck-row-body is position:relative (it
+     anchors the ring), so a badge inside it pinned to the corner of the TEXT
+     area -- measured y=256 with the art ending at 250. DeckCard.jsx renders
+     them outside the body for exactly this reason. */
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  /* Legible over any commander art, which is what it now sits on. */
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
 }
+/* Drift stacks under the source badge when both are present. */
+/* Drift stacks under the source badge when both are present. */
+.deck-row > .deck-source-badge ~ .deck-drift-badge { top: 26px; }
 .deck-row-name {
-  /* BLOCK, so the badge lands on the next line instead of stealing width from
-     the name. A span is inline by default and the badge sets no display of its
-     own, so both sat on one line and "Izzet Spells" became "Izzet Sp…". */
+  /* BLOCK so it takes the whole line. The badge is no longer a sibling in
+     the text flow -- it is pinned to the card's top-right corner -- so the
+     name keeps the full body width. */
   display: block;
   font-weight: 600; font-size: 0.85rem; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

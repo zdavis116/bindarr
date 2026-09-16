@@ -72,6 +72,17 @@ const deckCard = read('DeckCard.jsx');
 {
   assert.ok(/deck-source-badge/.test(deckCard),
     'the card must render the Moxfield badge -- it was lost once already');
+  // Zach: "I want moxfield on the right side of the card as well not
+  // underneath." It has to be a DIRECT child of the card: .deck-row-body is
+  // position:relative (it anchors the ring), so a badge inside the body pins
+  // to the corner of the TEXT area instead of the card's.
+  {
+    const body = deckCard.slice(deckCard.indexOf('className="deck-row-body"'));
+    assert.ok(!/deck-source-badge/.test(body),
+      'the badge must NOT live inside .deck-row-body -- the body is the '
+      + 'positioned ancestor for the ring, so a badge in there lands in the '
+      + 'corner of the text area rather than the card');
+  }
   assert.ok(/deck-ring-pct/.test(deckCard),
     'the percentage must live INSIDE the ring -- Zach: "put it around the '
     + 'percentage like it was before". Two separate elements is what let the '

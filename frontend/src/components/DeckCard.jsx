@@ -82,25 +82,32 @@ export default function DeckCard({
         </span>
       ) : null}
 
+      {/* THE BADGES SIT ON THE CARD, TOP-RIGHT, over the art.
+          Zach: "I want moxfield on the right side of the card as well not
+          underneath."
+          They are rendered as direct children of the card rather than inside
+          the text body ON PURPOSE: .deck-row-body is position:relative (it
+          anchors the ring), so a badge pinned from in there lands in the
+          corner of the TEXT area, not the card's. Only Moxfield decks are
+          badged -- labelling every local deck "LOCAL" would add noise to the
+          common case to describe the exception. */}
+      {deck.moxfield_public_id ? (
+        <span className="deck-source-badge" title={t('decks.fromMoxfield')}>
+          {t('decks.moxfieldBadge')}
+        </span>
+      ) : null}
+      {/* UPSTREAM DRIFT, found by the background poll. Never applied
+          automatically -- a decklist rewriting itself overnight is the silent
+          state change Zach has ruled out. */}
+      {deck.moxfield_changed ? (
+        <span className="deck-drift-badge" title={t('decks.moxfieldChangedHint')}>
+          {t('decks.moxfieldChanged')}
+        </span>
+      ) : null}
+
       <span className="deck-row-body">
         <span className="deck-row-title">
           <span className="deck-row-name">{deck.name}</span>
-          {/* WHERE THIS DECK COMES FROM. Only Moxfield decks are badged:
-              labelling every local deck "LOCAL" would add noise to the common
-              case to describe the exception. */}
-          {deck.moxfield_public_id ? (
-            <span className="deck-source-badge" title={t('decks.fromMoxfield')}>
-              {t('decks.moxfieldBadge')}
-            </span>
-          ) : null}
-          {/* UPSTREAM DRIFT, found by the background poll. Never applied
-              automatically -- a decklist rewriting itself overnight is the
-              silent state change Zach has ruled out. */}
-          {deck.moxfield_changed ? (
-            <span className="deck-drift-badge" title={t('decks.moxfieldChangedHint')}>
-              {t('decks.moxfieldChanged')}
-            </span>
-          ) : null}
         </span>
 
         <span className="deck-row-meta">
