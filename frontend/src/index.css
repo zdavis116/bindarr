@@ -3147,7 +3147,11 @@ button, input, select, textarea {
    wrong of a card, where the art IS how you recognise the deck. */
 .deck-row-art {
   display: block;
-  height: 84px;
+  /* 64px, not 84. The art grew to make room for the badge and pushed the
+     dashboard 83px past a real phone's fold -- measured at 390x740, which is
+     844 minus the browser chrome my 844-tall harness was not simulating.
+     64px still clears the 14px badge with room to spare. */
+  height: 64px;
   background: var(--surface-2);
   overflow: hidden;
 }
@@ -3195,7 +3199,7 @@ button, input, select, textarea {
 .deck-row-body {
   display: block;
   position: relative;
-  padding: 0.45rem 3.1rem 0.5rem 0.5rem;
+  padding: 0.35rem 3.1rem 0.4rem 0.5rem;
   min-width: 0;
   flex: none;
 }
@@ -3236,7 +3240,8 @@ button, input, select, textarea {
 /* Count first, price second: "22 of 60 cards" answers "is this deck done",
    and on a narrow card only the first line survives a glance. Running them
    together on one line let the ellipsis eat the count. */
-.deck-row-meta { display: block; font-size: 0.72rem; color: var(--text-secondary); }
+.deck-row-meta { display: block; font-size: 0.7rem; line-height: 1.35;
+                 color: var(--text-secondary); }
 .deck-row-count {
   display: block; font-weight: 600; color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -4108,18 +4113,24 @@ button, input, select, textarea {
    re-flow it, so the two widths cannot drift apart. */
 .dash { display: flex; flex-direction: column; gap: 1.1rem; }
 
-.dash-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-             gap: 0.55rem; }
+/* FOUR ACROSS ON A PHONE TOO. Two columns meant two rows at 88px each = 185px
+   of a 740px screen for four numbers, and it was the top-ten strip that fell
+   off the fold as a result. */
+.dash-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+             gap: 0.4rem; }
 .dash-kpi { display: block; text-align: left; background: var(--surface-1);
             border: 1px solid var(--border-glass); border-radius: var(--radius-md);
-            padding: 0.7rem 0.8rem; font: inherit; color: var(--text-primary);
+            padding: 0.45rem 0.4rem; font: inherit; color: var(--text-primary);
             cursor: pointer; min-height: 44px; }
-.dash-kpi-lbl { display: block; font-size: 0.66rem; letter-spacing: 0.04em;
-                text-transform: uppercase; color: var(--text-muted); }
-.dash-kpi-num { display: block; font-size: 1.3rem; font-weight: 700;
-                letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.dash-kpi-lbl { display: block; font-size: 0.56rem; letter-spacing: 0.03em;
+                text-transform: uppercase; color: var(--text-muted);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-kpi-num { display: block; font-size: 1rem; font-weight: 700;
+                letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-kpi-num.warn { color: var(--warning, #ff9f0a); }
-.dash-kpi-sub { display: block; font-size: 0.7rem; color: var(--text-secondary); }
+.dash-kpi-sub { display: block; font-size: 0.6rem; color: var(--text-secondary);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .dash-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
 .dash-col { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
@@ -4136,7 +4147,7 @@ button, input, select, textarea {
    on the phone too. */
 .dash-top { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.3rem;
             scroll-snap-type: x mandatory; }
-.dash-topcard { position: relative; flex: 0 0 108px; scroll-snap-align: start;
+.dash-topcard { position: relative; flex: 0 0 84px; scroll-snap-align: start;
                 background: var(--surface-2); border: 1px solid var(--border-glass);
                 border-radius: 8px; overflow: hidden; padding: 0; cursor: pointer;
                 font: inherit; color: var(--text-primary); text-align: left; }
@@ -4146,7 +4157,7 @@ button, input, select, textarea {
 .dash-copies { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.78);
                color: #fff; font-size: 0.64rem; font-weight: 800;
                padding: 0.05rem 0.3rem; border-radius: 4px; }
-.dash-topcap { display: block; padding: 0.3rem 0.35rem; font-size: 0.7rem; }
+.dash-topcap { display: block; padding: 0.22rem 0.3rem; font-size: 0.62rem; }
 .dash-topcap b { display: block; white-space: nowrap; overflow: hidden;
                  text-overflow: ellipsis; }
 .dash-topcap span { color: var(--text-secondary); }
