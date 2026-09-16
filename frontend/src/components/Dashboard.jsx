@@ -192,28 +192,6 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
     .filter((d) => d.pct < 100)
     .sort((a, b) => a.pct - b.pct);
 
-  // EVERY deck, for the desktop table. The phone strip shows only what needs
-  // work because it has room for three cards; the table has a row each and the
-  // mockup lists all four, so "100% / 0 / $0.00" is a useful answer rather than
-  // a wasted row.
-  const allDecks = decks
-    .filter((d) => (d.target_size || 0) > 0)
-    .map((d) => {
-      const have = d.owned_cards || 0;
-      const target = d.target_size || 0;
-      return {
-        ...d,
-        have,
-        target,
-        missing: Math.max(0, target - have),
-        // missing_cost, NOT missing_value -- verified against /api/decks on
-        // dev. The wrong name would have rendered $0.00 on every row and
-        // looked like "nothing to buy" rather than a bug.
-        toFinish: d.missing_cost || 0,
-        pct: Math.min(100, Math.round((have / target) * 100)),
-      };
-    })
-    .sort((a, b) => a.pct - b.pct);
 
   if (loading) {
     return (
@@ -348,35 +326,37 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
 
         <div className="dashx-body">
           <div className="dashx-main">
-            {/* DECKS AS A TABLE, with the buying question answered per row. */}
+            {/* DECKS IN PROGRESS, AS CARDS.
+                Zach: "for the dashboard only the decks in progress should show
+                and I do like the card view we had before but it couldnt be
+                side scroll because its on desktop."
+
+                So: the same DeckCard the phone and the deck list render --
+                one component, no drift -- laid out as a GRID. A side-scroll
+                hides cards behind a gesture that costs nothing here, where
+                there is width for every card at once.
+
+                inProgress, not allDecks: three decks reading "100% / Ready to
+                play" is four rows telling him nothing needs doing, which is
+                the same complaint he made about the phone. */}
             <section className="dashx-panel">
-              <h3>{t('dash.yourDecks')}</h3>
-              <table className="dashx-table">
-                <thead>
-                  <tr>
-                    <th>{t('dash.thDeck')}</th>
-                    <th>{t('dash.thFormat')}</th>
-                    <th className="n">{t('dash.thBuilt')}</th>
-                    <th className="n">{t('dash.thMissing')}</th>
-                    <th className="n">{t('dash.thToFinish')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allDecks.map((d) => (
-                    <tr key={d.id} onClick={() => onOpenDeck && onOpenDeck(d)}>
-                      <td><b>{d.name}</b></td>
-                      <td>{d.format || '—'}</td>
-                      <td className="n">
-                        <span className={`dashx-pill${d.pct >= 100 ? ' ok' : ' warn'}`}>
-                          {d.pct}%
-                        </span>
-                      </td>
-                      <td className="n">{d.missing}</td>
-                      <td className="n">{money(d.toFinish)}</td>
-                    </tr>
+              <h3>{t('dash.decksInProgress')}</h3>
+              {inProgress.length ? (
+                <div className="dashx-decks">
+                  {inProgress.map((deck) => (
+                    <DeckCard
+                      key={deck.id}
+                      deck={deck}
+                      t={t}
+                      onOpen={(id) => (onOpenDeck
+                        ? onOpenDeck(id)
+                        : onNavigate && onNavigate('deckbuilder'))}
+                    />
                   ))}
-                </tbody>
-              </table>
+                </div>
+              ) : (
+                <div className="dashx-empty">{t('dash.kpiAllComplete')}</div>
+              )}
             </section>
 
             {/* MOST VALUABLE, beneath the decks -- same panel in the mockup. */}

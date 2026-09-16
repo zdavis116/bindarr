@@ -4437,6 +4437,20 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     letter-spacing: 0.05em; color: var(--text-muted);
   }
 
+  /* DECKS IN PROGRESS: a GRID of the shared DeckCard, not a side-scroll.
+     Zach: "I do like the card view we had before but it couldnt be side scroll
+     because its on desktop." auto-fill rather than a fixed count, so one
+     unfinished deck does not stretch to the full width and four still fit. */
+  .dashx-decks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 190px));
+    gap: 0.6rem;
+    align-items: start;
+  }
+  /* The card is exactly art + body; the grid must not stretch it to a row
+     height. Same rule the collection tiles needed. */
+  .dashx-decks > .deck-row { align-self: start; width: 100%; }
+
   .dashx-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
   .dashx-table th {
     text-align: left; font-size: 0.7rem; text-transform: uppercase;
