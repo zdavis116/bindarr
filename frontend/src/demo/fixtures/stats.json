@@ -1,14 +1,14 @@
 {
   "summary": {
-    "totalCards": 6,
-    "uniqueCards": 2,
-    "totalValue": 15.04,
-    "totalSpent": 7.64,
+    "totalCards": 60,
+    "uniqueCards": 60,
+    "totalValue": 61.2,
+    "totalSpent": 40.8,
     "roi": {
-      "abs": 7.4,
-      "pct": 96.9
+      "abs": 20.4,
+      "pct": 50
     },
-    "avgCardValue": 2.51,
+    "avgCardValue": 1.02,
     "unsortedCount": 0,
     "duplicateCopies": 4,
     "mintRate": 100,
@@ -60,16 +60,10 @@
   ],
   "sets": [
     {
-      "id": "msc",
-      "name": "Marvel Super Heroes Commander",
-      "count": 4,
-      "value": 13
-    },
-    {
-      "id": "j22",
-      "name": "Jumpstart 2022",
-      "count": 2,
-      "value": 2.04
+      "id": "blb",
+      "name": "Bloomburrow",
+      "count": 60,
+      "value": 61.2
     }
   ],
   "conditions": [
@@ -95,7 +89,7 @@
       "set_id": "j22",
       "number": "114",
       "rarity": "Rare",
-      "cmc": 3.0,
+      "cmc": 3,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 70.75,
@@ -112,7 +106,7 @@
       "set_id": "cmm",
       "number": "57",
       "rarity": "Mythic",
-      "cmc": 4.0,
+      "cmc": 4,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 58.86,
@@ -129,7 +123,7 @@
       "set_id": "cmr",
       "number": "305",
       "rarity": "Mythic",
-      "cmc": 1.0,
+      "cmc": 1,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 47.89,
@@ -146,7 +140,7 @@
       "set_id": "2xm",
       "number": "270",
       "rarity": "Mythic",
-      "cmc": 0.0,
+      "cmc": 0,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 41.72,
@@ -163,7 +157,7 @@
       "set_id": "cmm",
       "number": "396",
       "rarity": "Mythic",
-      "cmc": 0.0,
+      "cmc": 0,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 41.23,
@@ -180,7 +174,7 @@
       "set_id": "cmm",
       "number": "361",
       "rarity": "Mythic",
-      "cmc": 9.0,
+      "cmc": 9,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 40.08,
@@ -197,7 +191,7 @@
       "set_id": "rvr",
       "number": "40",
       "rarity": "Mythic",
-      "cmc": 2.0,
+      "cmc": 2,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 39.32,
@@ -214,7 +208,7 @@
       "set_id": "lci",
       "number": "92",
       "rarity": "Mythic",
-      "cmc": 4.0,
+      "cmc": 4,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 38.3,
@@ -231,7 +225,7 @@
       "set_id": "2x2",
       "number": "107",
       "rarity": "Mythic",
-      "cmc": 2.0,
+      "cmc": 2,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 10.19,
@@ -248,7 +242,7 @@
       "set_id": "clb",
       "number": "284",
       "rarity": "Rare",
-      "cmc": 6.0,
+      "cmc": 6,
       "quantity": 1,
       "condition": "Near Mint",
       "price_trend": 6.15,
@@ -260,8 +254,8 @@
   "setProgress": [],
   "valueByGame": [
     {
-      "name": "Magic: The Gathering",
-      "value": 15.04
+      "game": "mtg",
+      "value": 61.2
     }
   ]
 }

@@ -137,6 +137,41 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
   const [viewMode, setViewMode] = useState('gallery');
   const [inspectorCard, setInspectorCard] = useState(null);
 
+  // WHERE THE PANE STARTS, measured. The inline inspector sets its height from
+  // --pane-top (index.css). Without it the fallback guess leaves the body row
+  // ~23px tall and the card looks empty. Page offset, not viewport offset:
+  // getBoundingClientRect().top alone changes as you scroll, which would
+  // resize the pane while scrolling.
+  const sidePaneRef = useRef(null);
+
+  // IS THERE ROOM FOR A SECOND PANE? Measured, not assumed: the same 1024px
+  // breakpoint the rest of the desktop work uses. Below it the card opens as
+  // the modal it always has, because a 390px screen has no room to split.
+  const [isWide, setIsWide] = useState(
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e) => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    const el = sidePaneRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
+    };
+    measure();
+    // Filter chips and the select bar can appear after a fetch and move the
+    // pane down, so re-measure when the page changes size.
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    return () => ro.disconnect();
+  }, [isWide, inspectorCard]);
+
   const [searchFilter, setSearchFilter] = useState('');
   const [colorFilters, setColorFilters] = useState(() => new Set());
   const [typeFilters, setTypeFilters] = useState(() => new Set());
@@ -687,6 +722,13 @@ const cardTypesOf = (card) => {
         </div>
       )}
 
+      {/* THE SPLIT. On desktop with a card open this is grid | detail; the
+          grid REFLOWS to the narrower column rather than being covered, so
+          the collection stays visible while you read a card. With no card
+          open, or on a phone, it is a single column and nothing changes. */}
+      <div className={`coll-split${isWide && inspectorCard ? ' is-open' : ''}`}>
+      <div className="coll-main">
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-secondary)' }}>
           {t('common.loading')}
@@ -781,6 +823,32 @@ const cardTypesOf = (card) => {
           )}
         />
       )}
+
+      </div>{/* /coll-main */}
+
+      {/* THE DETAIL PANE. The SAME CardInspectorModal the phone opens, with
+          `inline` -- the prop and its .card-inspector-inline layout already
+          existed for the deck view's right-hand pane. Reusing it means the
+          two panes cannot drift, and every fix lands in both.
+
+          `key` forces a remount when the selection changes, so the inspector
+          does not keep the previous card's fetched state. */}
+      {isWide && inspectorCard && (
+        <aside className="coll-pane" ref={sidePaneRef}>
+          <CardInspectorModal
+            key={inspectorCard.entry_id || inspectorCard.id}
+            inline
+            card={inspectorCard}
+            onClose={() => setInspectorCard(null)}
+            onUpdate={() => { onUpdate && onUpdate(); }}
+            showToast={showToast}
+            setSelectedLocationId={setSelectedLocationId}
+            setFocusEntryId={setFocusEntryId}
+            onNavigate={onNavigate}
+          />
+        </aside>
+      )}
+      </div>{/* /coll-split */}
 
       {/* BOTTOM SHEET: one component serves Types, Sets and Sort so the three
           cannot drift apart. */}
@@ -914,7 +982,13 @@ const cardTypesOf = (card) => {
         />
       )}
 
-      {inspectorCard && (
+      {/* THE CARD OPENS AS A PANE ON DESKTOP, A MODAL ON A PHONE.
+          Zach approved the two-pane mockup: grid left, card right, in place.
+          `isWide` is measured from the viewport rather than guessed, and the
+          SAME component renders both ways -- see the `inline` prop in
+          CardInspectorModal. A phone has no room for a pane, so it keeps the
+          modal it has always had. */}
+      {inspectorCard && !isWide && (
         <CardInspectorModal
           card={inspectorCard}
           onClose={() => setInspectorCard(null)}

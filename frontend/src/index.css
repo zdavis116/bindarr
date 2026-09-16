@@ -4328,3 +4328,52 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .dash-topcap { padding: 0.2rem 0.3rem; font-size: 0.6rem; line-height: 1.25; }
   .dash-topcap span { display: none; }
 }
+
+/* ===== COLLECTION: GRID + CARD DETAIL, SIDE BY SIDE ======================
+   Zach approved the two-pane mockup (sketches/coll2.html): "okay this looks a
+   lot better move forward with this."
+
+   THIS REUSES WHAT ALREADY EXISTS. The deck view has had exactly this pane
+   since the desktop work started -- CardInspectorModal's `inline` prop and its
+   .card-inspector-inline layout, which already solves the hard parts: a fixed
+   pane height, only the region under the tabs scrolling, and a smaller type
+   scale so a 400px column does not feel clipped.
+
+   I started writing a second pane mode before checking. That is the deck-card
+   bug again: two implementations of one surface, the second one quietly worse.
+   The only new thing here is the grid column that holds it.
+
+   Below 1024px none of this applies: one column, and the card opens as the
+   modal it has always been. */
+.coll-split { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+
+@media (min-width: 1024px) {
+  .coll-split.is-open {
+    /* A FIXED right column, matching the deck view's 400px: card detail holds
+       a card image with a fixed aspect ratio, so letting the column scale
+       makes the art jump size on every resize. The GRID takes the slack. */
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 1.1rem;
+    align-items: start;
+  }
+
+  .coll-main { min-width: 0; }
+
+  .coll-pane {
+    position: sticky;
+    top: 1rem;
+    /* A REAL HEIGHT, from where the pane actually starts. --pane-top is
+       measured in JS (page offset, so it does not change while scrolling);
+       the fallback keeps it sane before the first measurement lands.
+       Without this the panel collapsed to its content and the body row under
+       the tabs was 23px tall -- the card looked empty. Same rule the deck
+       view uses on .deck-panes-side. */
+    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    /* This wrapper does NOT scroll -- the inspector owns the height and
+       scrolls its own body row, so art, name and tabs stay put. */
+    overflow: hidden;
+    min-width: 0;
+    display: flex;
+  }
+  .coll-pane > .card-inspector-inline { width: 100%; }
+}

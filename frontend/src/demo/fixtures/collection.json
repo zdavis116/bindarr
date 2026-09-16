@@ -21,14 +21,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "R",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "122",
     "image_url": "https://cards.scryfall.io/normal/front/7/d/7dd9946b-515e-4e0d-9da2-711e126e9fa6.jpg?1783910826",
-    "price_trend": 0.17,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -39,7 +39,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Sorcery",
-    "mp_price_cents": 17
+    "mp_price_cents": 17,
+    "oracle_text": "Choose one —\n• Agate Assault deals 4 damage to target creature. If that creature would die this turn, exile it instead.\n• Exile target artifact.",
+    "mana_cost": "{2}{R}",
+    "power": null,
+    "toughness": null,
+    "colors": "R",
+    "edhrec_rank": 9706,
+    "keywords": ""
   },
   {
     "entry_id": 7001,
@@ -63,14 +70,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "B",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "82",
     "image_url": "https://cards.scryfall.io/normal/front/3/9/39ebb84a-1c52-4b07-9bd0-b360523b3a5b.jpg?1783910839",
-    "price_trend": 0.21,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -80,8 +87,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Lizard Assassin",
-    "mp_price_cents": 21
+    "type_line": "Creature — Lizard Assassin",
+    "mp_price_cents": 21,
+    "oracle_text": "Whenever this creature attacks, defending player loses 1 life and you gain 1 life.",
+    "mana_cost": "{1}{B}",
+    "power": "1",
+    "toughness": "3",
+    "colors": "B",
+    "edhrec_rank": 9117,
+    "keywords": ""
   },
   {
     "entry_id": 7002,
@@ -105,14 +119,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 1.0,
+    "cmc": 1,
     "color_identity": "R",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "A-138",
     "image_url": "https://cards.scryfall.io/normal/front/b/2/b24c3e9c-2aff-45fd-9c87-3ebd33bbe807.jpg?1783909136",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -122,8 +136,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Mouse Soldier",
-    "mp_price_cents": 25
+    "type_line": "Creature — Mouse Soldier",
+    "mp_price_cents": 25,
+    "oracle_text": "Valiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, put a +1/+1 counter on it.\nWhen this creature dies, it deals damage equal to its power to each opponent.",
+    "mana_cost": "{R}",
+    "power": "0",
+    "toughness": "1",
+    "colors": "R",
+    "edhrec_rank": null,
+    "keywords": "Valiant"
   },
   {
     "entry_id": 7003,
@@ -147,14 +168,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 5.0,
+    "cmc": 5,
     "color_identity": "RU",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "204",
     "image_url": "https://cards.scryfall.io/normal/front/4/3/436d6a84-4cea-4ca7-94aa-9d08280652af.jpg?1783910801",
-    "price_trend": 0.28,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -164,8 +185,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Otter Wizard",
-    "mp_price_cents": 28
+    "type_line": "Legendary Creature — Otter Wizard",
+    "mp_price_cents": 28,
+    "oracle_text": "Whenever you cast a spell, if it's the first instant spell, the first sorcery spell, or the first Otter spell other than Alania you've cast this turn, you may have target opponent draw a card. If you do, copy that spell. You may choose new targets for the copy.",
+    "mana_cost": "{3}{U}{R}",
+    "power": "3",
+    "toughness": "5",
+    "colors": "RU",
+    "edhrec_rank": 4037,
+    "keywords": ""
   },
   {
     "entry_id": 7004,
@@ -189,14 +217,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 5.0,
+    "cmc": 5,
     "color_identity": "RU",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "327",
     "image_url": "https://cards.scryfall.io/normal/front/f/9/f9dc7b8e-d381-49a0-a7f8-c8cd9acadc54.jpg?1783910761",
-    "price_trend": 1.77,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -206,8 +234,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Otter Wizard",
-    "mp_price_cents": 177
+    "type_line": "Legendary Creature — Otter Wizard",
+    "mp_price_cents": 177,
+    "oracle_text": "Whenever you cast a spell, if it's the first instant spell, the first sorcery spell, or the first Otter spell other than Alania you've cast this turn, you may have target opponent draw a card. If you do, copy that spell. You may choose new targets for the copy.",
+    "mana_cost": "{3}{U}{R}",
+    "power": "3",
+    "toughness": "5",
+    "colors": "RU",
+    "edhrec_rank": 4037,
+    "keywords": ""
   },
   {
     "entry_id": 7005,
@@ -231,14 +266,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 5.0,
+    "cmc": 5,
     "color_identity": "RU",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "344",
     "image_url": "https://cards.scryfall.io/normal/front/3/4/34ace81d-823f-43d1-902e-345418cd8fd2.jpg?1783910757",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -248,8 +283,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Otter Wizard",
-    "mp_price_cents": 25
+    "type_line": "Legendary Creature — Otter Wizard",
+    "mp_price_cents": 25,
+    "oracle_text": "Whenever you cast a spell, if it's the first instant spell, the first sorcery spell, or the first Otter spell other than Alania you've cast this turn, you may have target opponent draw a card. If you do, copy that spell. You may choose new targets for the copy.",
+    "mana_cost": "{3}{U}{R}",
+    "power": "3",
+    "toughness": "5",
+    "colors": "RU",
+    "edhrec_rank": 4037,
+    "keywords": ""
   },
   {
     "entry_id": 7006,
@@ -273,14 +315,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 4.0,
+    "cmc": 4,
     "color_identity": "R",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "123",
     "image_url": "https://cards.scryfall.io/normal/front/d/3/d3871fe6-e26e-4ab4-bd81-7e3c7b8135c1.jpg?1783910825",
-    "price_trend": 0.12,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -290,8 +332,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Otter Wizard",
-    "mp_price_cents": 12
+    "type_line": "Creature — Otter Wizard",
+    "mp_price_cents": 12,
+    "oracle_text": "When this creature enters, exile the top card of your library. Until the end of your next turn, you may play that card.",
+    "mana_cost": "{3}{R}",
+    "power": "4",
+    "toughness": "2",
+    "colors": "R",
+    "edhrec_rank": 12404,
+    "keywords": ""
   },
   {
     "entry_id": 7007,
@@ -315,14 +364,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "R",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "124",
     "image_url": "https://cards.scryfall.io/normal/front/8/b/8b9e51d9-189b-4dd6-87cb-628ea6373e81.jpg?1783910825",
-    "price_trend": 6.24,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -332,8 +381,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Class",
-    "mp_price_cents": 624
+    "type_line": "Enchantment — Class",
+    "mp_price_cents": 624,
+    "oracle_text": "(Gain the next level as a sorcery to add its ability.)\nWhenever you cast a noncreature spell, you may discard a card. If you do, draw a card.\n{2}{R}: Level 2\nNoncreature spells you cast cost {1} less to cast.\n{2}{R}: Level 3\nIf a source you control would deal noncombat damage to an opponent or a permanent an opponent controls, it deals that much damage plus 2 instead.",
+    "mana_cost": "{1}{R}",
+    "power": null,
+    "toughness": null,
+    "colors": "R",
+    "edhrec_rank": 1556,
+    "keywords": ""
   },
   {
     "entry_id": 7008,
@@ -357,14 +413,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "U",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "41",
     "image_url": "https://cards.scryfall.io/normal/front/2/1/211af1bf-910b-41a5-b928-f378188d1871.jpg?1783910852",
-    "price_trend": 0.55,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -374,8 +430,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Rat Rogue",
-    "mp_price_cents": 55
+    "type_line": "Creature — Rat Rogue",
+    "mp_price_cents": 55,
+    "oracle_text": "Vigilance\nThis creature can't be blocked by creatures with power 2 or greater.\nWhenever this creature attacks, up to one target artifact, creature, or planeswalker an opponent controls loses all abilities until your next turn. If it's a creature, it also has base power and toughness 2/2 until your next turn.",
+    "mana_cost": "{1}{U}",
+    "power": "1",
+    "toughness": "3",
+    "colors": "U",
+    "edhrec_rank": 4090,
+    "keywords": "Vigilance"
   },
   {
     "entry_id": 7009,
@@ -399,14 +462,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "U",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "302",
     "image_url": "https://cards.scryfall.io/normal/front/f/4/f493ef3c-673b-4e70-b957-0ee7b6d38216.jpg?1783910770",
-    "price_trend": 1.52,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -416,8 +479,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Rat Rogue",
-    "mp_price_cents": 152
+    "type_line": "Creature — Rat Rogue",
+    "mp_price_cents": 152,
+    "oracle_text": "Vigilance\nThis creature can't be blocked by creatures with power 2 or greater.\nWhenever this creature attacks, up to one target artifact, creature, or planeswalker an opponent controls loses all abilities until your next turn. If it's a creature, it also has base power and toughness 2/2 until your next turn.",
+    "mana_cost": "{1}{U}",
+    "power": "1",
+    "toughness": "3",
+    "colors": "U",
+    "edhrec_rank": 4090,
+    "keywords": "Vigilance"
   },
   {
     "entry_id": 7010,
@@ -441,14 +511,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "G",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "163",
     "image_url": "https://cards.scryfall.io/normal/front/5/3/5309354f-1ff4-4fa9-9141-01ea2f7588ab.jpg?1783910814",
-    "price_trend": 0.22,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -458,8 +528,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Squirrel Raccoon",
-    "mp_price_cents": 22
+    "type_line": "Creature — Squirrel Raccoon",
+    "mp_price_cents": 22,
+    "oracle_text": "When this creature enters, create a Food token.\nWhenever you expend 4, this creature gets +1/+1 until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    "mana_cost": "{1}{G}",
+    "power": "2",
+    "toughness": "2",
+    "colors": "G",
+    "edhrec_rank": 9250,
+    "keywords": "Food"
   },
   {
     "entry_id": 7011,
@@ -483,14 +560,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "B",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "83",
     "image_url": "https://cards.scryfall.io/normal/front/4/8/485dc8d8-9e44-4a0f-9ff6-fa448e232290.jpg?1783910839",
-    "price_trend": 0.36,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -500,8 +577,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Class",
-    "mp_price_cents": 36
+    "type_line": "Enchantment — Class",
+    "mp_price_cents": 36,
+    "oracle_text": "(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, each opponent discards two cards unless they discard a nonland card.\n{B}: Level 2\nAt the beginning of each opponent's upkeep, if that player has one or fewer cards in hand, they lose 2 life.\n{3}{B}: Level 3\nAt the beginning of your draw step, draw an additional card for each opponent who has one or fewer cards in hand.",
+    "mana_cost": "{1}{B}",
+    "power": null,
+    "toughness": null,
+    "colors": "B",
+    "edhrec_rank": 4212,
+    "keywords": ""
   },
   {
     "entry_id": 7012,
@@ -525,14 +609,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "W",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "1",
     "image_url": "https://cards.scryfall.io/normal/front/2/5/25a06f82-ebdb-4dd6-bfe8-958018ce557c.jpg?1783910866",
-    "price_trend": 0.15,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -543,7 +627,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Enchantment",
-    "mp_price_cents": 15
+    "mp_price_cents": 15,
+    "oracle_text": "When this enchantment enters, exile target nonland permanent an opponent controls until this enchantment leaves the battlefield.",
+    "mana_cost": "{2}{W}",
+    "power": null,
+    "toughness": null,
+    "colors": "W",
+    "edhrec_rank": 2372,
+    "keywords": ""
   },
   {
     "entry_id": 7013,
@@ -567,14 +658,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "243",
     "image_url": "https://cards.scryfall.io/normal/front/f/7/f77049a6-0f22-415b-bc89-20bcb32accf6.jpg?1783910787",
-    "price_trend": 0.23,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -584,8 +675,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Artifact Creature \u2014 Shapeshifter",
-    "mp_price_cents": 23
+    "type_line": "Artifact Creature — Shapeshifter",
+    "mp_price_cents": 23,
+    "oracle_text": "Changeling (This card is every creature type.)\nReach\n{2}: Put target card from your graveyard on the bottom of your library.",
+    "mana_cost": "{3}",
+    "power": "2",
+    "toughness": "3",
+    "colors": "",
+    "edhrec_rank": 4342,
+    "keywords": "Reach,Changeling"
   },
   {
     "entry_id": 7014,
@@ -609,14 +707,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "G",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "164",
     "image_url": "https://cards.scryfall.io/normal/front/5/8/582637a9-6aa0-4824-bed7-d5fc91bda35e.jpg?1783910812",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -626,8 +724,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Raccoon Berserker",
-    "mp_price_cents": 25
+    "type_line": "Creature — Raccoon Berserker",
+    "mp_price_cents": 25,
+    "oracle_text": "Whenever you expend 4, this creature gains indestructible until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    "mana_cost": "{1}{G}",
+    "power": "3",
+    "toughness": "2",
+    "colors": "G",
+    "edhrec_rank": 13936,
+    "keywords": ""
   },
   {
     "entry_id": 7015,
@@ -651,14 +756,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "GRW",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "205",
     "image_url": "https://cards.scryfall.io/normal/front/0/0/00e93be2-e06b-4774-8ba5-ccf82a6da1d8.jpg?1783910800",
-    "price_trend": 1.08,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -668,8 +773,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Rabbit Warrior",
-    "mp_price_cents": 108
+    "type_line": "Legendary Creature — Rabbit Warrior",
+    "mp_price_cents": 108,
+    "oracle_text": "Tap two untapped tokens you control: Add one mana of any color.\nTap three untapped tokens you control: Draw a card.\nTap four untapped tokens you control: Put three +1/+1 counters on Baylen. It gains trample until end of turn.",
+    "mana_cost": "{R}{G}{W}",
+    "power": "4",
+    "toughness": "3",
+    "colors": "GRW",
+    "edhrec_rank": 2642,
+    "keywords": ""
   },
   {
     "entry_id": 7016,
@@ -693,14 +805,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "GRW",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "345",
     "image_url": "https://cards.scryfall.io/normal/front/0/b/0b511524-e628-41d4-b0dc-d98961d4e9e1.jpg?1783910758",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -710,8 +822,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Rabbit Warrior",
-    "mp_price_cents": 25
+    "type_line": "Legendary Creature — Rabbit Warrior",
+    "mp_price_cents": 25,
+    "oracle_text": "Tap two untapped tokens you control: Add one mana of any color.\nTap three untapped tokens you control: Draw a card.\nTap four untapped tokens you control: Put three +1/+1 counters on Baylen. It gains trample until end of turn.",
+    "mana_cost": "{R}{G}{W}",
+    "power": "4",
+    "toughness": "3",
+    "colors": "GRW",
+    "edhrec_rank": 2642,
+    "keywords": ""
   },
   {
     "entry_id": 7017,
@@ -735,14 +854,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "U",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "42",
     "image_url": "https://cards.scryfall.io/normal/front/c/a/ca2215dd-6300-49cf-b9b2-3a840b786c31.jpg?1783910852",
-    "price_trend": 0.19,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -752,8 +871,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Frog Advisor",
-    "mp_price_cents": 19
+    "type_line": "Creature — Frog Advisor",
+    "mp_price_cents": 19,
+    "oracle_text": "When this creature enters, draw a card, then discard a card.",
+    "mana_cost": "{1}{U}",
+    "power": "2",
+    "toughness": "1",
+    "colors": "U",
+    "edhrec_rank": 8881,
+    "keywords": ""
   },
   {
     "entry_id": 7018,
@@ -777,14 +903,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 4.0,
+    "cmc": 4,
     "color_identity": "W",
     "rarity": "Mythic",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "2",
     "image_url": "https://cards.scryfall.io/normal/front/f/c/fc310a26-b6a0-4e42-98ab-bdfd7b06cb63.jpg?1783910866",
-    "price_trend": 4.15,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -794,8 +920,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Elemental Elk",
-    "mp_price_cents": 415
+    "type_line": "Legendary Creature — Elemental Elk",
+    "mp_price_cents": 415,
+    "oracle_text": "When Beza enters, create a Treasure token if an opponent controls more lands than you. You gain 4 life if an opponent has more life than you. Create two 1/1 blue Fish creature tokens if an opponent controls more creatures than you. Draw a card if an opponent has more cards in hand than you.",
+    "mana_cost": "{2}{W}{W}",
+    "power": "4",
+    "toughness": "5",
+    "colors": "W",
+    "edhrec_rank": 4125,
+    "keywords": "Treasure"
   },
   {
     "entry_id": 7019,
@@ -819,14 +952,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 4.0,
+    "cmc": 4,
     "color_identity": "W",
     "rarity": "Mythic",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "287",
     "image_url": "https://cards.scryfall.io/normal/front/0/f/0fc98b72-d268-4ce5-93b4-57c812a24eff.jpg?1783910772",
-    "price_trend": 7.83,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -836,8 +969,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Elemental Elk",
-    "mp_price_cents": 783
+    "type_line": "Legendary Creature — Elemental Elk",
+    "mp_price_cents": 783,
+    "oracle_text": "When Beza enters, create a Treasure token if an opponent controls more lands than you. You gain 4 life if an opponent has more life than you. Create two 1/1 blue Fish creature tokens if an opponent controls more creatures than you. Draw a card if an opponent has more cards in hand than you.",
+    "mana_cost": "{2}{W}{W}",
+    "power": "4",
+    "toughness": "5",
+    "colors": "W",
+    "edhrec_rank": 4125,
+    "keywords": "Treasure"
   },
   {
     "entry_id": 7020,
@@ -861,14 +1001,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 1.0,
+    "cmc": 1,
     "color_identity": "R",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "125",
     "image_url": "https://cards.scryfall.io/normal/front/4/b/4bb318fa-481d-40a7-978e-f01b49101ae0.jpg?1783910826",
-    "price_trend": 0.33,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -878,8 +1018,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Class",
-    "mp_price_cents": 33
+    "type_line": "Enchantment — Class",
+    "mp_price_cents": 33,
+    "oracle_text": "(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, create a colorless Equipment artifact token named Sword with \"Equipped creature gets +1/+1\" and equip {2}.\n{2}{R}: Level 2\nAt the beginning of combat on your turn, attach target Equipment you control to up to one target creature you control.\n{3}{R}: Level 3\nDuring your turn, equipped creatures you control have double strike and haste.",
+    "mana_cost": "{R}",
+    "power": null,
+    "toughness": null,
+    "colors": "R",
+    "edhrec_rank": 3757,
+    "keywords": ""
   },
   {
     "entry_id": 7021,
@@ -903,14 +1050,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "R",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "126",
     "image_url": "https://cards.scryfall.io/normal/front/0/c/0cd92a83-cec3-4085-a929-3f204e3e0140.jpg?1783910825",
-    "price_trend": 0.16,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -921,7 +1068,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Instant",
-    "mp_price_cents": 16
+    "mp_price_cents": 16,
+    "oracle_text": "Gift a Treasure (You may promise an opponent a gift as you cast this spell. If you do, they create a Treasure token before its other effects. It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nBlooming Blast deals 2 damage to target creature. If the gift was promised, Blooming Blast also deals 3 damage to that creature's controller.",
+    "mana_cost": "{1}{R}",
+    "power": null,
+    "toughness": null,
+    "colors": "R",
+    "edhrec_rank": 15109,
+    "keywords": "Gift,Treasure"
   },
   {
     "entry_id": 7022,
@@ -945,14 +1099,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 0.0,
+    "cmc": 0,
     "color_identity": "GW",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "396",
     "image_url": "https://cards.scryfall.io/normal/front/e/c/ecfa2cc9-e427-4104-bad7-b0294e392b1f.jpg?1783910739",
-    "price_trend": 0.15,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -963,7 +1117,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Land",
-    "mp_price_cents": 15
+    "mp_price_cents": 15,
+    "oracle_text": "This land enters tapped.\nWhen this land enters, you gain 1 life.\n{T}: Add {G} or {W}.",
+    "mana_cost": null,
+    "power": null,
+    "toughness": null,
+    "colors": "",
+    "edhrec_rank": 1080,
+    "keywords": ""
   },
   {
     "entry_id": 7023,
@@ -987,14 +1148,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "B",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "84",
     "image_url": "https://cards.scryfall.io/normal/front/f/a/faf226fa-ca09-4468-8804-87b2a7de2c66.jpg?1783910838",
-    "price_trend": 0.16,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1004,8 +1165,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Squirrel Warlock Bard",
-    "mp_price_cents": 16
+    "type_line": "Creature — Squirrel Warlock Bard",
+    "mp_price_cents": 16,
+    "oracle_text": "{3}{B}, Exile this card from your graveyard: Return another target creature card from your graveyard to your hand.",
+    "mana_cost": "{1}{B}",
+    "power": "2",
+    "toughness": "2",
+    "colors": "B",
+    "edhrec_rank": 12283,
+    "keywords": ""
   },
   {
     "entry_id": 7024,
@@ -1029,14 +1197,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 1.0,
+    "cmc": 1,
     "color_identity": "B",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "85",
     "image_url": "https://cards.scryfall.io/normal/front/8/2/82defb87-237f-4b77-9673-5bf00607148f.jpg?1783910838",
-    "price_trend": 0.24,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1046,8 +1214,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Squirrel Warlock",
-    "mp_price_cents": 24
+    "type_line": "Creature — Squirrel Warlock",
+    "mp_price_cents": 24,
+    "oracle_text": "{T}, Pay 1 life: Draw a card. Activate only if three or more cards left your graveyard this turn or if you've sacrificed a Food this turn.",
+    "mana_cost": "{B}",
+    "power": "1",
+    "toughness": "1",
+    "colors": "B",
+    "edhrec_rank": 9103,
+    "keywords": ""
   },
   {
     "entry_id": 7025,
@@ -1071,14 +1246,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 4.0,
+    "cmc": 4,
     "color_identity": "R",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "127",
     "image_url": "https://cards.scryfall.io/normal/front/e/2/e200b8bf-f2f3-4157-8e04-02baf07a963e.jpg?1783910824",
-    "price_trend": 0.21,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1088,8 +1263,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Mouse Soldier",
-    "mp_price_cents": 21
+    "type_line": "Creature — Mouse Soldier",
+    "mp_price_cents": 21,
+    "oracle_text": "At the beginning of combat on your turn, target creature you control gets +X/+0 until end of turn, where X is this creature's power.",
+    "mana_cost": "{3}{R}",
+    "power": "2",
+    "toughness": "3",
+    "colors": "R",
+    "edhrec_rank": 11799,
+    "keywords": ""
   },
   {
     "entry_id": 7026,
@@ -1113,14 +1295,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "G",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "165",
     "image_url": "https://cards.scryfall.io/normal/front/b/a/bac9f6f8-6797-4580-9fc4-9a825872e017.jpg?1783910811",
-    "price_trend": 0.23,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1130,8 +1312,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Raccoon Warrior",
-    "mp_price_cents": 23
+    "type_line": "Creature — Raccoon Warrior",
+    "mp_price_cents": 23,
+    "oracle_text": "Whenever you expend 4, Raccoons you control get +1/+1 and gain vigilance until end of turn. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    "mana_cost": "{1}{G}{G}",
+    "power": "3",
+    "toughness": "4",
+    "colors": "G",
+    "edhrec_rank": 14187,
+    "keywords": ""
   },
   {
     "entry_id": 7027,
@@ -1155,14 +1344,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 1.0,
+    "cmc": 1,
     "color_identity": "W",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "3",
     "image_url": "https://cards.scryfall.io/normal/front/b/8/b8dd4693-424d-4d6e-86cf-24401a23d6b1.jpg?1783910865",
-    "price_trend": 0.17,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1172,8 +1361,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Rabbit Mouse",
-    "mp_price_cents": 17
+    "type_line": "Creature — Rabbit Mouse",
+    "mp_price_cents": 17,
+    "oracle_text": "{1}, {T}: Target creature gets +1/+1 until end of turn. Activate only as a sorcery.",
+    "mana_cost": "{W}",
+    "power": "1",
+    "toughness": "1",
+    "colors": "W",
+    "edhrec_rank": 11293,
+    "keywords": ""
   },
   {
     "entry_id": 7028,
@@ -1197,14 +1393,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "R",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "128",
     "image_url": "https://cards.scryfall.io/normal/front/7/8/78b55a58-c669-4dc6-aa63-5d9dff52e613.jpg?1783910824",
-    "price_trend": 0.23,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1214,8 +1410,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Raccoon Rogue",
-    "mp_price_cents": 23
+    "type_line": "Creature — Raccoon Rogue",
+    "mp_price_cents": 23,
+    "oracle_text": "First strike\nWhenever this creature attacks, add {R}. Until end of turn, you don't lose this mana as steps and phases end.",
+    "mana_cost": "{1}{R}",
+    "power": "2",
+    "toughness": "1",
+    "colors": "R",
+    "edhrec_rank": 10243,
+    "keywords": "First strike"
   },
   {
     "entry_id": 7029,
@@ -1239,14 +1442,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 4.0,
+    "cmc": 4,
     "color_identity": "RU",
     "rarity": "Mythic",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "379",
     "image_url": "https://cards.scryfall.io/normal/front/3/9/390c96b3-68da-4a42-89ab-d9ccc79ce0dd.jpg?1783910745",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1256,8 +1459,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Otter Rogue",
-    "mp_price_cents": 25
+    "type_line": "Legendary Creature — Otter Rogue",
+    "mp_price_cents": 25,
+    "oracle_text": "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nOther creatures you control have prowess. (If a creature has multiple instances of prowess, each triggers separately.)\nWhenever you cast a noncreature spell, target creature you control can't be blocked this turn.",
+    "mana_cost": "{2}{U}{R}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "RU",
+    "edhrec_rank": 3068,
+    "keywords": "Prowess"
   },
   {
     "entry_id": 7030,
@@ -1281,14 +1491,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "W",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "4",
     "image_url": "https://cards.scryfall.io/normal/front/d/f/df7fea2e-7414-4bc8-adb0-9342e174c009.jpg?1783910865",
-    "price_trend": 0.2,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1298,8 +1508,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Weasel Soldier",
-    "mp_price_cents": 20
+    "type_line": "Creature — Weasel Soldier",
+    "mp_price_cents": 20,
+    "oracle_text": "First strike, lifelink",
+    "mana_cost": "{1}{W}",
+    "power": "2",
+    "toughness": "2",
+    "colors": "W",
+    "edhrec_rank": 12853,
+    "keywords": "Lifelink,First strike"
   },
   {
     "entry_id": 7031,
@@ -1323,14 +1540,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "W",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "5",
     "image_url": "https://cards.scryfall.io/normal/front/1/5/15fa581a-724e-4196-a9a3-ff84c54bdb7d.jpg?1783910866",
-    "price_trend": 0.18,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1340,8 +1557,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Class",
-    "mp_price_cents": 18
+    "type_line": "Enchantment — Class",
+    "mp_price_cents": 18,
+    "oracle_text": "(Gain the next level as a sorcery to add its ability.)\nWhen this Class enters, create a 0/4 white Wall creature token with defender.\n{W}: Level 2\nWhenever one or more noncreature, nonland permanents you control enter, put a +1/+1 counter on target creature you control.\n{4}{W}: Level 3\nWhen this Class becomes level 3, return target noncreature, nonland permanent card from your graveyard to the battlefield.",
+    "mana_cost": "{1}{W}",
+    "power": null,
+    "toughness": null,
+    "colors": "W",
+    "edhrec_rank": 11030,
+    "keywords": ""
   },
   {
     "entry_id": 7032,
@@ -1365,14 +1589,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "244",
     "image_url": "https://cards.scryfall.io/normal/front/5/f/5f0affd5-5dcd-4dd1-a694-37a9aedf4084.jpg?1783910786",
-    "price_trend": 0.22,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1383,7 +1607,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Artifact",
-    "mp_price_cents": 22
+    "mp_price_cents": 22,
+    "oracle_text": "When this artifact enters, create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\n{5}, {T}, Sacrifice this artifact: Destroy target nonland permanent. Activate only as a sorcery.",
+    "mana_cost": "{2}",
+    "power": null,
+    "toughness": null,
+    "colors": "",
+    "edhrec_rank": 8747,
+    "keywords": "Food"
   },
   {
     "entry_id": 7033,
@@ -1407,14 +1638,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "GW",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "206",
     "image_url": "https://cards.scryfall.io/normal/front/8/7/87138ace-3594-499e-bad5-ec76148613ea.jpg?1783910800",
-    "price_trend": 0.29,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1424,8 +1655,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Rabbit Soldier",
-    "mp_price_cents": 28
+    "type_line": "Creature — Rabbit Soldier",
+    "mp_price_cents": 28,
+    "oracle_text": "Trample\nBurrowguard Mentor's power and toughness are each equal to the number of creatures you control.",
+    "mana_cost": "{G}{W}",
+    "power": "*",
+    "toughness": "*",
+    "colors": "GW",
+    "edhrec_rank": 6625,
+    "keywords": "Trample"
   },
   {
     "entry_id": 7034,
@@ -1449,14 +1687,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "G",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "166",
     "image_url": "https://cards.scryfall.io/normal/front/0/d/0de60cf7-fa82-4b6f-9f88-6590fba5c863.jpg?1783910811",
-    "price_trend": 0.31,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1466,8 +1704,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Squirrel Warrior",
-    "mp_price_cents": 31
+    "type_line": "Creature — Squirrel Warrior",
+    "mp_price_cents": 31,
+    "oracle_text": "Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhen this creature enters, you may forage. If you do, put two +1/+1 counters on it. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    "mana_cost": "{1}{G}",
+    "power": "2",
+    "toughness": "1",
+    "colors": "G",
+    "edhrec_rank": 10474,
+    "keywords": "Forage,Offspring"
   },
   {
     "entry_id": 7035,
@@ -1491,14 +1736,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 6.0,
+    "cmc": 6,
     "color_identity": "GW",
     "rarity": "Mythic",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "380",
     "image_url": "https://cards.scryfall.io/normal/front/6/4/6441abd3-320b-424a-9753-61e3581fe1a9.jpg?1783910744",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1508,8 +1753,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Rabbit Soldier",
-    "mp_price_cents": 25
+    "type_line": "Legendary Creature — Rabbit Soldier",
+    "mp_price_cents": 25,
+    "oracle_text": "Vigilance\nWhen Byrke enters, put a +1/+1 counter on each of up to two target creatures.\nWhenever a creature you control with a +1/+1 counter on it attacks, double the number of +1/+1 counters on it.",
+    "mana_cost": "{4}{G}{W}",
+    "power": "4",
+    "toughness": "4",
+    "colors": "GW",
+    "edhrec_rank": 5949,
+    "keywords": "Vigilance,Double"
   },
   {
     "entry_id": 7036,
@@ -1533,14 +1785,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "R",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "129",
     "image_url": "https://cards.scryfall.io/normal/front/f/4/f41fc718-641b-4f32-a8c1-3e5591a05bf8.jpg?1783910824",
-    "price_trend": 0.28,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1550,8 +1802,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Raccoon Rogue",
-    "mp_price_cents": 28
+    "type_line": "Creature — Raccoon Rogue",
+    "mp_price_cents": 28,
+    "oracle_text": "Menace\nWhenever you expend 4, you may discard your hand. If you do, draw two cards. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    "mana_cost": "{2}{R}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "R",
+    "edhrec_rank": 11603,
+    "keywords": "Menace"
   },
   {
     "entry_id": 7037,
@@ -1575,14 +1834,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "R",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "360",
     "image_url": "https://cards.scryfall.io/normal/front/3/a/3aebd0f9-fa08-407f-b3d3-fb4b13b1ea97.jpg?1783910751",
-    "price_trend": 0.31,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1592,8 +1851,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Raccoon Rogue",
-    "mp_price_cents": 31
+    "type_line": "Creature — Raccoon Rogue",
+    "mp_price_cents": 31,
+    "oracle_text": "Menace\nWhenever you expend 4, you may discard your hand. If you do, draw two cards. (You expend 4 as you spend your fourth total mana to cast spells during a turn.)",
+    "mana_cost": "{2}{R}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "R",
+    "edhrec_rank": 11603,
+    "keywords": "Menace"
   },
   {
     "entry_id": 7038,
@@ -1617,14 +1883,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "G",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "167",
     "image_url": "https://cards.scryfall.io/normal/front/d/f/dfd977dc-a7c3-4d0a-aca7-b25bd154e963.jpg?1783910811",
-    "price_trend": 0.27,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1635,7 +1901,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Instant",
-    "mp_price_cents": 27
+    "mp_price_cents": 27,
+    "oracle_text": "Mill four cards. You may put a permanent card from among the cards milled this way into your hand. If you control a Squirrel or returned a Squirrel card to your hand this way, create a Food token. (To mill four cards, put the top four cards of your library into your graveyard. A Food token is an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+    "mana_cost": "{1}{G}",
+    "power": null,
+    "toughness": null,
+    "colors": "G",
+    "edhrec_rank": 5040,
+    "keywords": "Food,Mill"
   },
   {
     "entry_id": 7039,
@@ -1659,14 +1932,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 6.0,
+    "cmc": 6,
     "color_identity": "U",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "43",
     "image_url": "https://cards.scryfall.io/normal/front/1/7/178bc8b2-ffa0-4549-aead-aacb3db3cf19.jpg?1783910852",
-    "price_trend": 0.13,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1677,7 +1950,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Sorcery",
-    "mp_price_cents": 13
+    "mp_price_cents": 13,
+    "oracle_text": "Return up to two target creatures to their owners' hands. Draw two cards, then discard a card.",
+    "mana_cost": "{4}{U}{U}",
+    "power": null,
+    "toughness": null,
+    "colors": "U",
+    "edhrec_rank": 15680,
+    "keywords": ""
   },
   {
     "entry_id": 7040,
@@ -1701,14 +1981,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "BG",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "207",
     "image_url": "https://cards.scryfall.io/normal/front/2/c/2c16eaec-924c-42f6-9fea-07edd7ed93b9.jpg?1783910799",
-    "price_trend": 2.46,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1718,8 +1998,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Squirrel Warlock",
-    "mp_price_cents": 246
+    "type_line": "Legendary Creature — Squirrel Warlock",
+    "mp_price_cents": 246,
+    "oracle_text": "Menace\nOther Squirrels you control have menace.\nWhenever you sacrifice one or more Foods, create a 1/1 green Squirrel creature token.\n{2}, Forage: Put a +1/+1 counter on each other Squirrel you control. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    "mana_cost": "{1}{B}{G}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "BG",
+    "edhrec_rank": 2673,
+    "keywords": "Forage,Menace"
   },
   {
     "entry_id": 7041,
@@ -1743,14 +2030,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "BG",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "328",
     "image_url": "https://cards.scryfall.io/normal/front/4/9/49ea9ca9-3dff-4d5d-92ec-3475234b4713.jpg?1783910761",
-    "price_trend": 3.88,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1760,8 +2047,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Squirrel Warlock",
-    "mp_price_cents": 388
+    "type_line": "Legendary Creature — Squirrel Warlock",
+    "mp_price_cents": 388,
+    "oracle_text": "Menace\nOther Squirrels you control have menace.\nWhenever you sacrifice one or more Foods, create a 1/1 green Squirrel creature token.\n{2}, Forage: Put a +1/+1 counter on each other Squirrel you control. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    "mana_cost": "{1}{B}{G}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "BG",
+    "edhrec_rank": 2673,
+    "keywords": "Forage,Menace"
   },
   {
     "entry_id": 7042,
@@ -1785,14 +2079,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "BG",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "346",
     "image_url": "https://cards.scryfall.io/normal/front/4/4/44f59ece-1ba5-422b-820d-e80c83f46290.jpg?1783910755",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1802,8 +2096,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Squirrel Warlock",
-    "mp_price_cents": 25
+    "type_line": "Legendary Creature — Squirrel Warlock",
+    "mp_price_cents": 25,
+    "oracle_text": "Menace\nOther Squirrels you control have menace.\nWhenever you sacrifice one or more Foods, create a 1/1 green Squirrel creature token.\n{2}, Forage: Put a +1/+1 counter on each other Squirrel you control. (To forage, exile three cards from your graveyard or sacrifice a Food.)",
+    "mana_cost": "{1}{B}{G}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "BG",
+    "edhrec_rank": 2673,
+    "keywords": "Forage,Menace"
   },
   {
     "entry_id": 7043,
@@ -1827,14 +2128,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "W",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "6",
     "image_url": "https://cards.scryfall.io/normal/front/a/d/ad5ea98a-e36e-4ab9-b4da-cc572f3777db.jpg?1783910865",
-    "price_trend": 12.97,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1844,8 +2145,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Class",
-    "mp_price_cents": 1297
+    "type_line": "Enchantment — Class",
+    "mp_price_cents": 1297,
+    "oracle_text": "(Gain the next level as a sorcery to add its ability.)\nWhenever one or more tokens you control enter, draw a card. This ability triggers only once each turn.\n{W}: Level 2\nWhen this Class becomes level 2, create a token that's a copy of target token you control.\n{3}{W}: Level 3\nCreature tokens you control get +2/+2.",
+    "mana_cost": "{2}{W}",
+    "power": null,
+    "toughness": null,
+    "colors": "W",
+    "edhrec_rank": 631,
+    "keywords": ""
   },
   {
     "entry_id": 7044,
@@ -1869,14 +2177,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "W",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "7",
     "image_url": "https://cards.scryfall.io/normal/front/e/b/eb03bb4f-8b4b-417e-bfc6-294cd2186b2e.jpg?1783910864",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1886,8 +2194,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Artifact \u2014 Food",
-    "mp_price_cents": 25
+    "type_line": "Artifact — Food",
+    "mp_price_cents": 25,
+    "oracle_text": "When this artifact enters and when you sacrifice it, create a 1/1 white Rabbit creature token and scry 1. (Look at the top card of your library. You may put that card on the bottom.)\n{2}, {T}, Sacrifice this artifact: You gain 3 life.",
+    "mana_cost": "{1}{W}",
+    "power": null,
+    "toughness": null,
+    "colors": "W",
+    "edhrec_rank": 7282,
+    "keywords": "Scry"
   },
   {
     "entry_id": 7045,
@@ -1911,14 +2226,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "U",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "388",
     "image_url": "https://cards.scryfall.io/normal/front/7/d/7d171802-2604-45a5-a0f2-ab5afa1db5d5.jpg?1783910743",
-    "price_trend": 0.07,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1928,8 +2243,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Aura",
-    "mp_price_cents": 7
+    "type_line": "Enchantment — Aura",
+    "mp_price_cents": 7,
+    "oracle_text": "Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step.",
+    "mana_cost": "{1}{U}{U}",
+    "power": null,
+    "toughness": null,
+    "colors": "U",
+    "edhrec_rank": 15643,
+    "keywords": "Enchant"
   },
   {
     "entry_id": 7046,
@@ -1953,14 +2275,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "BR",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "208",
     "image_url": "https://cards.scryfall.io/normal/front/b/2/b2ea10dd-21ea-4622-be27-79d03a802b85.jpg?1783910799",
-    "price_trend": 0.14,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -1970,8 +2292,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Lizard Assassin",
-    "mp_price_cents": 14
+    "type_line": "Creature — Lizard Assassin",
+    "mp_price_cents": 14,
+    "oracle_text": "This creature enters with a +1/+1 counter on it if an opponent lost life this turn.\n{1}{B/R}: This creature gains menace until end of turn. (It can't be blocked except by two or more creatures.)",
+    "mana_cost": "{2}{B/R}",
+    "power": "3",
+    "toughness": "2",
+    "colors": "BR",
+    "edhrec_rank": 13158,
+    "keywords": ""
   },
   {
     "entry_id": 7047,
@@ -1995,14 +2324,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "GU",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "209",
     "image_url": "https://cards.scryfall.io/normal/front/7/0/7028130c-c91d-4bf7-b0b0-450f71107d7a.jpg?1783910799",
-    "price_trend": 0.37,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2012,8 +2341,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Frog Druid",
-    "mp_price_cents": 37
+    "type_line": "Legendary Creature — Frog Druid",
+    "mp_price_cents": 37,
+    "oracle_text": "Vigilance\nWhenever Clement or another creature you control enters, return up to one target creature you control with lesser mana value to its owner's hand.\nFrogs you control have \"{T}: Add {G} or {U}. Spend this mana only to cast a creature spell.\"",
+    "mana_cost": "{1}{G}{U}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "GU",
+    "edhrec_rank": 6638,
+    "keywords": "Vigilance"
   },
   {
     "entry_id": 7048,
@@ -2037,14 +2373,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "GU",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "329",
     "image_url": "https://cards.scryfall.io/normal/front/d/1/d1a68d51-cd4e-4ee3-abc7-01435085aa26.jpg?1783910761",
-    "price_trend": 0.79,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2054,8 +2390,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Frog Druid",
-    "mp_price_cents": 79
+    "type_line": "Legendary Creature — Frog Druid",
+    "mp_price_cents": 79,
+    "oracle_text": "Vigilance\nWhenever Clement or another creature you control enters, return up to one target creature you control with lesser mana value to its owner's hand.\nFrogs you control have \"{T}: Add {G} or {U}. Spend this mana only to cast a creature spell.\"",
+    "mana_cost": "{1}{G}{U}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "GU",
+    "edhrec_rank": 6638,
+    "keywords": "Vigilance"
   },
   {
     "entry_id": 7049,
@@ -2079,14 +2422,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "GU",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "347",
     "image_url": "https://cards.scryfall.io/normal/front/1/6/16dfe689-83d4-4dcb-810c-d618a39c5ab9.jpg?1783910755",
-    "price_trend": 0.25,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2096,8 +2439,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Legendary Creature \u2014 Frog Druid",
-    "mp_price_cents": 25
+    "type_line": "Legendary Creature — Frog Druid",
+    "mp_price_cents": 25,
+    "oracle_text": "Vigilance\nWhenever Clement or another creature you control enters, return up to one target creature you control with lesser mana value to its owner's hand.\nFrogs you control have \"{T}: Add {G} or {U}. Spend this mana only to cast a creature spell.\"",
+    "mana_cost": "{1}{G}{U}",
+    "power": "3",
+    "toughness": "3",
+    "colors": "GU",
+    "edhrec_rank": 6638,
+    "keywords": "Vigilance"
   },
   {
     "entry_id": 7050,
@@ -2121,14 +2471,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "G",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "168",
     "image_url": "https://cards.scryfall.io/normal/front/6/6/662d3bcc-65f3-4c69-8ea1-446870a1193d.jpg?1783910811",
-    "price_trend": 0.35,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2138,8 +2488,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Frog Scout",
-    "mp_price_cents": 35
+    "type_line": "Creature — Frog Scout",
+    "mp_price_cents": 35,
+    "oracle_text": "Reach\nWhen this creature enters, reveal cards from the top of your library until you reveal a land card. Put that card onto the battlefield tapped and the rest on the bottom of your library in a random order.",
+    "mana_cost": "{2}{G}",
+    "power": "1",
+    "toughness": "2",
+    "colors": "G",
+    "edhrec_rank": 2731,
+    "keywords": "Reach"
   },
   {
     "entry_id": 7051,
@@ -2163,14 +2520,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 5.0,
+    "cmc": 5,
     "color_identity": "B",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "86",
     "image_url": "https://cards.scryfall.io/normal/front/9/6/96d5de3e-0440-4dd1-899c-ab40c0752343.jpg?1783910837",
-    "price_trend": 0.33,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2181,7 +2538,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Sorcery",
-    "mp_price_cents": 33
+    "mp_price_cents": 33,
+    "oracle_text": "Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nReturn target creature card from your graveyard to the battlefield. Then if the gift was promised and that creature isn't legendary, create a token that's a copy of that creature, except it's 1/1.",
+    "mana_cost": "{3}{B}{B}",
+    "power": null,
+    "toughness": null,
+    "colors": "B",
+    "edhrec_rank": 4392,
+    "keywords": "Gift"
   },
   {
     "entry_id": 7052,
@@ -2205,14 +2569,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 5.0,
+    "cmc": 5,
     "color_identity": "B",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "309",
     "image_url": "https://cards.scryfall.io/normal/front/6/4/640725a5-8251-4f7a-b1e3-481519c85b5d.jpg?1783910767",
-    "price_trend": 0.42,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2223,7 +2587,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Sorcery",
-    "mp_price_cents": 42
+    "mp_price_cents": 42,
+    "oracle_text": "Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nReturn target creature card from your graveyard to the battlefield. Then if the gift was promised and that creature isn't legendary, create a token that's a copy of that creature, except it's 1/1.",
+    "mana_cost": "{3}{B}{B}",
+    "power": null,
+    "toughness": null,
+    "colors": "B",
+    "edhrec_rank": 4392,
+    "keywords": "Gift"
   },
   {
     "entry_id": 7053,
@@ -2247,14 +2618,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 7.0,
+    "cmc": 7,
     "color_identity": "G",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "392",
     "image_url": "https://cards.scryfall.io/normal/front/c/2/c2cad902-ffd2-4bab-b114-b4b6df2ac6b3.jpg?1783910740",
-    "price_trend": 0.92,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2264,8 +2635,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Enchantment \u2014 Aura",
-    "mp_price_cents": 92
+    "type_line": "Enchantment — Aura",
+    "mp_price_cents": 92,
+    "oracle_text": "Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature gets +20/+20.",
+    "mana_cost": "{5}{G}{G}",
+    "power": null,
+    "toughness": null,
+    "colors": "G",
+    "edhrec_rank": 4025,
+    "keywords": "Enchant"
   },
   {
     "entry_id": 7054,
@@ -2289,14 +2667,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 5.0,
+    "cmc": 5,
     "color_identity": "R",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "130",
     "image_url": "https://cards.scryfall.io/normal/front/2/f/2f373dd6-2412-453c-85ba-10230dfe473a.jpg?1783910823",
-    "price_trend": 0.12,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2307,7 +2685,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Instant",
-    "mp_price_cents": 12
+    "mp_price_cents": 12,
+    "oracle_text": "Conduct Electricity deals 6 damage to target creature and 2 damage to up to one target creature token.",
+    "mana_cost": "{4}{R}",
+    "power": null,
+    "toughness": null,
+    "colors": "R",
+    "edhrec_rank": 15370,
+    "keywords": ""
   },
   {
     "entry_id": 7055,
@@ -2331,14 +2716,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "B",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "87",
     "image_url": "https://cards.scryfall.io/normal/front/e/5/e50acc41-3517-42db-b1d3-1bdfd7294d84.jpg?1783910837",
-    "price_trend": 0.28,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2349,7 +2734,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Instant",
-    "mp_price_cents": 28
+    "mp_price_cents": 28,
+    "oracle_text": "Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nTarget opponent sacrifices a creature with the greatest power among creatures they control. If the gift was promised, return target creature card from your graveyard to your hand.",
+    "mana_cost": "{1}{B}{B}",
+    "power": null,
+    "toughness": null,
+    "colors": "B",
+    "edhrec_rank": 6813,
+    "keywords": "Gift"
   },
   {
     "entry_id": 7056,
@@ -2373,14 +2765,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 3.0,
+    "cmc": 3,
     "color_identity": "BG",
     "rarity": "Common",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "210",
     "image_url": "https://cards.scryfall.io/normal/front/c/9/c911a759-ed7b-452b-88a3-663478357610.jpg?1783910798",
-    "price_trend": 0.15,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2390,8 +2782,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Squirrel Warlock",
-    "mp_price_cents": 15
+    "type_line": "Creature — Squirrel Warlock",
+    "mp_price_cents": 15,
+    "oracle_text": "At the beginning of combat on your turn, you may forage. (Exile three cards from your graveyard or sacrifice a Food.)\nWhenever you forage, put a +1/+1 counter on this creature.",
+    "mana_cost": "{1}{B/G}{B/G}",
+    "power": "2",
+    "toughness": "3",
+    "colors": "BG",
+    "edhrec_rank": 12141,
+    "keywords": "Forage"
   },
   {
     "entry_id": 7057,
@@ -2415,14 +2814,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "R",
     "rarity": "Uncommon",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "131",
     "image_url": "https://cards.scryfall.io/normal/front/d/c/dc2c1de0-6233-469a-be72-a050b97d2c8f.jpg?1783910824",
-    "price_trend": 2.36,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2432,8 +2831,15 @@
     "compartment_display_label": "Page 1",
     "checked_out_qty": 0,
     "flavor_name": null,
-    "type_line": "Creature \u2014 Otter Wizard",
-    "mp_price_cents": 236
+    "type_line": "Creature — Otter Wizard",
+    "mp_price_cents": 236,
+    "oracle_text": "Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhenever you cast a noncreature spell, this creature deals 1 damage to each opponent.",
+    "mana_cost": "{1}{R}",
+    "power": "2",
+    "toughness": "2",
+    "colors": "R",
+    "edhrec_rank": 794,
+    "keywords": "Offspring"
   },
   {
     "entry_id": 7058,
@@ -2457,14 +2863,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "B",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "88",
     "image_url": "https://cards.scryfall.io/normal/front/c/a/cab4539a-0157-4cbe-b50f-6e2575df74e9.jpg?1783910836",
-    "price_trend": 0.45,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2475,7 +2881,14 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Sorcery",
-    "mp_price_cents": 45
+    "mp_price_cents": 45,
+    "oracle_text": "Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nTarget opponent reveals their hand. You choose a nonland card from it. Exile that card. If the gift was promised, you may cast that card for as long as it remains exiled, and mana of any type can be spent to cast it.",
+    "mana_cost": "{B}{B}",
+    "power": null,
+    "toughness": null,
+    "colors": "B",
+    "edhrec_rank": 5870,
+    "keywords": "Gift"
   },
   {
     "entry_id": 7059,
@@ -2499,14 +2912,14 @@
     "types": [
       "Red"
     ],
-    "cmc": 2.0,
+    "cmc": 2,
     "color_identity": "B",
     "rarity": "Rare",
     "set_id": "blb",
     "set_name": "Bloomburrow",
     "number": "310",
     "image_url": "https://cards.scryfall.io/normal/front/f/a/fa16ec21-3eb1-4f4c-a74a-84408fd1dce6.jpg?1783910766",
-    "price_trend": 0.68,
+    "price_trend": 1.02,
     "price_normal": 1.02,
     "price_holofoil": null,
     "location_id": 43,
@@ -2517,6 +2930,13 @@
     "checked_out_qty": 0,
     "flavor_name": null,
     "type_line": "Sorcery",
-    "mp_price_cents": 68
+    "mp_price_cents": 68,
+    "oracle_text": "Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nTarget opponent reveals their hand. You choose a nonland card from it. Exile that card. If the gift was promised, you may cast that card for as long as it remains exiled, and mana of any type can be spent to cast it.",
+    "mana_cost": "{B}{B}",
+    "power": null,
+    "toughness": null,
+    "colors": "B",
+    "edhrec_rank": 5870,
+    "keywords": "Gift"
   }
 ]

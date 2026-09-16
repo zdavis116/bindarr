@@ -173,4 +173,44 @@ const deckCard = read('DeckCard.jsx');
   pass('DC-TC6', 'the most-valuable strip sizes to its cards');
 }
 
+// --- DC-TC7 ------------------------------------------------------------------
+// THE COLLECTION PANE REUSES THE CARD INSPECTOR.
+//
+// Zach approved the two-pane collection: grid left, card right. The detail is
+// the SAME CardInspectorModal the phone opens, via its existing `inline` prop
+// and .card-inspector-inline layout -- which the deck view already used.
+//
+// I began writing a SECOND pane mode (`asPane`) before checking, which is the
+// deck-card bug again: two implementations of one surface, the second quietly
+// worse. This locks the reuse.
+{
+  const coll = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'components', 'CollectionList.jsx'), 'utf8');
+
+  const collCode = coll.replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.ok(/<CardInspectorModal[\s\S]{0,400}?\n\s*inline\n/.test(collCode),
+    'the collection pane must render CardInspectorModal with `inline` -- not a '
+    + 'second card-detail component that would drift from the phone modal');
+  const inspector = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'components',
+              'CardInspectorModal.jsx'), 'utf8');
+  assert.ok(!/\basPane\s*=/.test(inspector) && !/\basPane\b(?!\w)/.test(
+    inspector.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')),
+    'there must be exactly ONE inline mode on the card inspector -- `inline` '
+    + 'already existed for the deck view; a second one drifts');
+  assert.ok(/coll-split/.test(coll) && /coll-pane/.test(coll),
+    'the split wrapper and pane must exist for the grid to reflow beside the card');
+
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'index.css'), 'utf8');
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const pane = bare.slice(bare.indexOf('.coll-pane {'));
+  assert.ok(/height:\s*calc\([^)]*--pane-top/.test(pane.slice(0, pane.indexOf('}'))),
+    'the pane height must come from the measured --pane-top; without it the '
+    + 'body row under the tabs collapses to ~23px and the card looks empty');
+
+  pass('DC-TC7', 'the collection pane reuses the card inspector');
+}
+
 console.log(`deck-card.test.js: ${passed} cases passed`);
