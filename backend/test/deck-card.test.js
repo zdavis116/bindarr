@@ -213,4 +213,35 @@ const deckCard = read('DeckCard.jsx');
   pass('DC-TC7', 'the collection pane reuses the card inspector');
 }
 
+// --- DC-TC8 ------------------------------------------------------------------
+// THE BADGES ARE NOT THE RING.
+//
+// Zach: "for those deck cards the moxfield badge and updated badge both are not
+// in the top right corner like they should be. Mobile has it right."
+//
+// The desktop deck-card rules position the progress ring with a selector that
+// says "any span that is not the art or the body" -- which is also true of the
+// source and drift badges. Its `margin: 74px 0 0 0.6rem` dragged them off the
+// card's top-right corner down onto the art at y=80. The badges carry their own
+// absolute position, so the fix is to exclude them by name.
+//
+// Guards the SELECTOR, because the symptom only shows at >=1024px with a
+// Moxfield deck on screen -- easy to reintroduce and easy to miss.
+{
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'index.css'), 'utf8');
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  const ringRule = bare.split('\n').find(
+    (l) => l.includes('.deck-row > span:not(.deck-row-art)'));
+  assert.ok(ringRule, 'the desktop ring placement rule must exist');
+  assert.ok(/:not\(\.deck-source-badge\)/.test(ringRule),
+    'the ring rule must NOT match the source badge -- its 74px top margin '
+    + "drags the badge off the card's corner onto the art");
+  assert.ok(/:not\(\.deck-drift-badge\)/.test(ringRule),
+    'the ring rule must NOT match the drift badge either');
+
+  pass('DC-TC8', 'the ring rule excludes the badges');
+}
+
 console.log(`deck-card.test.js: ${passed} cases passed`);

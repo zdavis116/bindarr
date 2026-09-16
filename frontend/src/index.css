@@ -3322,9 +3322,17 @@ button, input, select, textarea {
 
   /* The ring sits over the art's bottom-left corner instead of taking a
      column of its own -- completion is the thing being scanned for, so it
-     stays visible, but it does not push the deck name around. */
+     stays visible, but it does not push the deck name around.
+
+     EXCLUDES THE BADGES. Zach: "for those deck cards the moxfield badge and
+     updated badge both are not in the top right corner like they should be.
+     Mobile has it right."
+     This selector says "any span that is not the art or the body", which was
+     written for the ring but caught the source and drift badges too -- the
+     74px top margin dragged them from the card's corner down to y=80, on top
+     of the art. Naming them here is the fix; the ring keeps its placement. */
   .deck-row > svg:not(.deck-row-chevron),
-  .deck-row > span:not(.deck-row-art):not(.deck-row-body) {
+  .deck-row > span:not(.deck-row-art):not(.deck-row-body):not(.deck-source-badge):not(.deck-drift-badge) {
     position: absolute;
     margin: 74px 0 0 0.6rem;
     filter: drop-shadow(0 2px 6px rgba(0,0,0,.6));
