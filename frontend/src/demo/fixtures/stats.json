@@ -1,11 +1,11 @@
 {
   "summary": {
-    "totalCards": 60,
-    "uniqueCards": 60,
-    "totalValue": 61.2,
-    "totalSpent": 40.8,
+    "totalCards": 61,
+    "uniqueCards": 61,
+    "totalValue": 62.22,
+    "totalSpent": 41.48,
     "roi": {
-      "abs": 20.4,
+      "abs": 20.74,
       "pct": 50
     },
     "avgCardValue": 1.02,
@@ -64,6 +64,12 @@
       "name": "Bloomburrow",
       "count": 60,
       "value": 61.2
+    },
+    {
+      "id": "msh",
+      "name": "Marvel Super Heroes",
+      "count": 1,
+      "value": 1.02
     }
   ],
   "conditions": [
@@ -255,7 +261,7 @@
   "valueByGame": [
     {
       "game": "mtg",
-      "value": 61.2
+      "value": 62.22
     }
   ]
 }

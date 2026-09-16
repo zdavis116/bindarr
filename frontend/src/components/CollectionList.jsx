@@ -292,15 +292,32 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSele
     return () => { cancelled = true; };
   }, []);
 
-// The types on a card, from the front of its type line.
+// The types on a card, from the front of EVERY face's type line.
+//
+// Zach: "when I have artifact type selected and search invincible iron man I
+// dont find anything... But I should be able to see the artifact creature."
+//
+// A double-faced card stores both faces in one field, joined by " // ":
+//   "Legendary Creature — Human Artificer Hero // Legendary Artifact Creature — Human Hero"
+// Splitting on the em dash and taking [0] stopped at the FRONT face, so Tony
+// Stark was a Creature and never an Artifact -- even though The Invincible Iron
+// Man plainly is one. You own the card; the filter has to be able to find it by
+// what is printed on either side.
+//
+// Split on faces FIRST, then take each face's supertypes before its em dash.
 //
 // Module scope, like CARD_TYPES: it reads nothing but its argument, so a fresh
 // identity every render is noise -- and inside the component it made
 // uniqueTypes' dependency list "incomplete", where listing it would have
 // defeated the memo (new function each render = recompute each render).
 const cardTypesOf = (card) => {
-  const line = (card.type_line || '').split('—')[0];
-  return CARD_TYPES.filter(ty => line.includes(ty));
+  const faces = (card.type_line || '').split('//');
+  const found = new Set();
+  for (const face of faces) {
+    const line = face.split('—')[0];
+    for (const ty of CARD_TYPES) if (line.includes(ty)) found.add(ty);
+  }
+  return CARD_TYPES.filter(ty => found.has(ty));
 };
 
   const uniqueTypes = useMemo(() => {
@@ -329,9 +346,16 @@ const cardTypesOf = (card) => {
       // name is Bloodletter of Aclazotz -- 640 cards in his catalogue carry
       // one. Searching only `name` means the words actually printed on the
       // card he is holding find nothing.
+      // AND THE BACK FACE. Zach: "when I have artifact type selected and search
+      // invincible iron man I dont find anything... he is the flip side of
+      // Tony Stark." The card in his binder is Tony Stark // The Invincible
+      // Iron Man; `name` holds only the FRONT face, so searching the back
+      // face's name found nothing. Both sides are printed on the card he is
+      // holding, so both must be searchable.
       const matchesSearch = !q
         || item.name.toLowerCase().includes(q)
-        || (item.flavor_name || '').toLowerCase().includes(q);
+        || (item.flavor_name || '').toLowerCase().includes(q)
+        || (item.back_name || '').toLowerCase().includes(q);
 
       // ANY-OF for every multi-select. Tapping B and G shows black cards, green
       // cards AND Golgari cards -- what a player means by two taps. ALL-OF
