@@ -709,12 +709,14 @@ function CardSearch({ onAddSuccess, showToast }) {
 
       {/* Bulk add bar — sticky single row, matching the collection's bulk bar. */}
       {selectMode && (
-        <div className="glass-panel" style={{ marginBottom: '1rem', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', position: 'sticky', top: '0.5rem', zIndex: 30 }}>
+        <div className="glass-panel cs-bulkbar" style={{ marginBottom: '1rem', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', position: 'sticky', top: '0.5rem', zIndex: 30 }}>
           <span style={{ fontWeight: 800, color: 'var(--text-strong)', fontSize: '0.85rem' }}>{t('bulk.selected', { count: selectedIds.size })}</span>
           <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} onClick={() => setSelectedIds(new Set(filteredAndSortedCards.map(c => c.id)))}>{t('bulk.selectAll', { count: filteredAndSortedCards.length })}</button>
           <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }} onClick={clearSelection}>{t('bulk.clear')}</button>
           <div style={{ width: '1px', height: '22px', background: 'var(--border-glass)' }} />
-          <select className="select-control" value={condition} onChange={(e) => setCondition(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '150px', padding: '0.3rem 0.4rem' }}>
+          {/* The staging pane owns condition and the add button on desktop --
+              hidden there rather than deleted, because the phone has no pane. */}
+          <select className="select-control cs-dupe" value={condition} onChange={(e) => setCondition(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '150px', padding: '0.3rem 0.4rem' }}>
             {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <select className="select-control" value={printing} onChange={(e) => setPrinting(e.target.value)} style={{ fontSize: '0.72rem', maxWidth: '150px', padding: '0.3rem 0.4rem' }}>
@@ -730,7 +732,7 @@ function CardSearch({ onAddSuccess, showToast }) {
             style={{ fontSize: '0.72rem', width: '70px', padding: '0.3rem 0.4rem' }}
           />
           <button
-            className="btn btn-primary"
+            className="btn btn-primary cs-dupe"
             style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }}
             disabled={bulkAdding || selectedIds.size === 0}
             onClick={handleBulkAdd}

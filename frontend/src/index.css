@@ -4538,14 +4538,20 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     /* Fixed right column, like the dashboard: the staging pane is a known
        shape, the results should take the slack. */
     grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 1.1rem;
+    /* auto-rows + start, or the left column's rows stretch to match the
+       staging pane's height and open a ~90px gap under the search form --
+       measured on dev. Same stretch bug as the dashboard's card boxes. */
+    grid-auto-rows: min-content;
+    gap: 0 1.1rem;
     align-items: start;
   }
   /* Everything that is not the staging pane belongs in the left column. The
      search form, filters and results grid are separate siblings, so they are
      placed by column rather than wrapped in a new element -- less markup
      churn, and the phone tree stays identical. */
-  .cardsearch > *:not(.cardsearch-stage) { grid-column: 1; min-width: 0; }
+  .cardsearch > *:not(.cardsearch-stage) {
+    grid-column: 1; min-width: 0; margin-bottom: 0.9rem;
+  }
 
   /* THE SEARCH FORM WAS EATING THE SCREEN. Measured at 1473x736: header panel
      plus filter panel ran 400px before a single result, so results opened
@@ -4625,4 +4631,13 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     font-size: 0.95rem !important;
   }
   .cs-stage-add { width: 100%; }
+}
+
+@media (min-width: 1024px) {
+  /* ONE ANSWER PER QUESTION. The bulk bar and the staging pane both offered a
+     condition picker and an add button; the pane is the mockup's home for
+     both, so the bar keeps only what the pane does NOT have -- select all,
+     clear, printing, quantity, done. Hidden rather than deleted: the phone has
+     no staging pane and still needs the full bar. */
+  .cardsearch .cs-bulkbar .cs-dupe { display: none; }
 }
