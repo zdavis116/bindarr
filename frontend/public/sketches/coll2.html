@@ -9,7 +9,19 @@
     --border:#2b2f3a; --t1:#f2f4f8; --t2:#a8b0c0; --t3:#6f7787;
     --accent:#4c9aff; --green:#30d158; --amber:#ff9f0a;
   }
-  *{box-sizing:border-box}
+  /* SCROLLBARS, matching the app (index.css:307). Zach: "why is there this
+     ugly scroll bar I get there needs to be one but have it atleast match the
+     site." The mockup had no scrollbar rules at all, so it inherited the OS
+     default. 8px, track the page colour, thumb a shade up, inset by a 2px
+     border so it reads as a slim pill rather than a bar. */
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--s2);border-radius:6px;
+                            border:2px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--t3)}
+  ::-webkit-scrollbar-corner{background:var(--bg)}
+  /* Firefox has no ::-webkit pseudo-elements; these are the equivalent. */
+  *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--s3) var(--bg)}
   body{margin:0;background:var(--bg);color:var(--t1);height:100vh;overflow:hidden;
        font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,sans-serif}
   .app{display:grid;grid-template-columns:212px 1fr;height:100vh}
