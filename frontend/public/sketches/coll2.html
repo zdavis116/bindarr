@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Collection, two panes</title>
+<style>
+  :root{
+    --bg:#0b0b0f; --s1:#15161c; --s2:#1c1e26; --s3:#262933;
+    --border:#2b2f3a; --t1:#f2f4f8; --t2:#a8b0c0; --t3:#6f7787;
+    --accent:#4c9aff; --green:#30d158; --amber:#ff9f0a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--t1);height:100vh;overflow:hidden;
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,sans-serif}
+  .app{display:grid;grid-template-columns:212px 1fr;height:100vh}
+
+  /* NAV RAIL — four items, unchanged. */
+  .rail{background:var(--s1);border-right:1px solid var(--border);padding:1rem .7rem;
+        display:flex;flex-direction:column;gap:.15rem}
+  .brand{display:flex;align-items:center;gap:.5rem;font-weight:700;padding:.3rem .5rem 1rem}
+  .nav{display:flex;align-items:center;gap:.6rem;padding:.55rem .6rem;border-radius:8px;
+       color:var(--t2);font-size:.88rem;cursor:pointer}
+  .nav.on{background:var(--s3);color:var(--t1)}
+  .nav .n{margin-left:auto;font-size:.72rem;color:var(--t3)}
+
+  .main{display:flex;flex-direction:column;min-width:0;height:100vh}
+  .head{padding:.9rem 1.2rem .7rem;border-bottom:1px solid var(--border);
+        display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+  .head h1{margin:0;font-size:1.25rem;letter-spacing:-.02em}
+  .sub{color:var(--t3);font-size:.78rem}
+  .sp{margin-left:auto;display:flex;gap:.4rem;align-items:center}
+  .inp{background:var(--s2);border:1px solid var(--border);border-radius:7px;
+       padding:.35rem .6rem;color:var(--t1);font:inherit;font-size:.82rem;width:200px}
+  .btn{background:var(--s2);border:1px solid var(--border);color:var(--t1);
+       border-radius:7px;padding:.35rem .6rem;font:inherit;font-size:.8rem;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* THE TWO PANES. Filters + grid on the left, the selected card on the right.
+     The right pane is only present when a card is selected. */
+  .body{flex:1;min-height:0;display:grid;grid-template-columns:200px 1fr;gap:1rem;
+        padding:.9rem 1.2rem;overflow:hidden}
+  .body.open{grid-template-columns:200px 1fr 420px}
+
+  .filters{background:var(--s1);border:1px solid var(--border);border-radius:10px;
+           padding:.8rem;overflow-y:auto}
+  .filters h3{font-size:.7rem;color:var(--t3);text-transform:uppercase;
+              letter-spacing:.05em;margin:.9rem 0 .35rem}
+  .filters h3:first-child{margin-top:0}
+  .pills{display:flex;gap:.25rem;flex-wrap:wrap}
+  .pill{background:var(--s3);border:1px solid var(--border);border-radius:999px;
+        padding:.1rem .45rem;font-size:.72rem;color:var(--t2);cursor:pointer}
+  .pill.on{background:rgba(76,154,255,.18);border-color:var(--accent);color:var(--accent)}
+  .filters label{display:flex;gap:.4rem;font-size:.8rem;color:var(--t2);padding:.12rem 0;
+                 cursor:pointer}
+  .filters label .n{margin-left:auto;color:var(--t3);font-size:.74rem}
+
+  .gridwrap{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .gridbar{display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap}
+  .grid{display:grid;gap:.55rem;overflow-y:auto;padding-right:.2rem;
+        grid-template-columns:repeat(auto-fill,minmax(112px,1fr));align-content:start}
+  .tile{background:var(--s2);border:1px solid var(--border);border-radius:8px;
+        overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
+  .tile:hover{border-color:var(--accent)}
+  .tile.on{border-color:var(--accent);box-shadow:0 0 0 2px rgba(76,154,255,.35)}
+  .tile img{width:100%;display:block;aspect-ratio:.717;object-fit:cover}
+  .cap{padding:.25rem .35rem;font-size:.68rem;line-height:1.3}
+  .cap b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .cap span{color:var(--t3)}
+
+  /* RIGHT PANE: the card, in place. No modal, no navigation. */
+  .detail{background:var(--s1);border:1px solid var(--border);border-radius:10px;
+          display:flex;flex-direction:column;overflow:hidden;min-height:0}
+  .dhead{padding:.8rem .9rem;border-bottom:1px solid var(--border);display:flex;
+         align-items:flex-start;gap:.6rem}
+  .dhead h2{margin:0;font-size:1.05rem;letter-spacing:-.02em;min-width:0}
+  .dhead .x{margin-left:auto;background:none;border:0;color:var(--t3);
+            font-size:1rem;cursor:pointer;flex:0 0 auto}
+  .dbody{flex:1;min-height:0;overflow-y:auto;padding:.9rem}
+  .dart{display:flex;gap:.8rem;align-items:flex-start}
+  .dart img{width:132px;flex:0 0 132px;border-radius:8px;display:block;
+            aspect-ratio:.717;object-fit:cover}
+  .dside{flex:1;min-width:0;display:flex;flex-direction:column;gap:.45rem}
+  .cost{display:flex;gap:.12rem;flex-wrap:wrap}
+  .pip{width:16px;height:16px;border-radius:50%;background:var(--s3);
+       font-size:.6rem;font-weight:800;display:grid;place-items:center}
+  .pip.W{background:#f5f0d8;color:#2b2b2b}.pip.U{background:#5aa9e6;color:#05213a}
+  .pip.B{background:#3a3340;color:#e8e0ef}.pip.R{background:#e2635a;color:#3a0f0c}
+  .pip.G{background:#4fae6b;color:#0c2c16}
+  .type{color:var(--t2);font-size:.8rem}
+  .meta{color:var(--t3);font-size:.74rem}
+  .prices{border-top:1px solid var(--border);padding-top:.45rem;font-size:.76rem;
+          color:var(--t2);line-height:1.75}
+  .prices .row{display:flex}
+  .prices .row b{margin-left:auto;color:var(--t1);font-variant-numeric:tabular-nums}
+  .prices .row.dim{color:var(--t3)}
+  .prices .row.dim span:last-child{margin-left:auto}
+  .best{color:var(--green);font-size:.66rem;margin-left:.25rem}
+  .rules{font-size:.82rem;line-height:1.6;color:var(--t2);white-space:pre-wrap;
+         margin:.9rem 0 0}
+  h3.s{font-size:.7rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;
+       margin:1rem 0 .3rem}
+  table{width:100%;border-collapse:collapse;font-size:.77rem;color:var(--t2)}
+  td{padding:.2rem 0;border-bottom:1px solid var(--border)}
+  td.r{text-align:right;color:var(--t3)}
+  .tag{background:var(--s3);border-radius:999px;padding:.04rem .38rem;font-size:.66rem}
+  .tag.g{background:rgba(48,209,88,.16);color:var(--green)}
+  .acts{display:flex;gap:.35rem;margin-top:.9rem;flex-wrap:wrap}
+  .empty{color:var(--t3);font-size:.78rem;font-style:italic}
+  .hint{padding:2rem 1rem;text-align:center;color:var(--t3);font-size:.82rem}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="brand"><span>📕</span>Bindarr</div>
+    <div class="nav">◱ Dashboard</div>
+    <div class="nav on">▦ Collection <span class="n">2,625</span></div>
+    <div class="nav">⚔ Decks <span class="n">4</span></div>
+    <div class="nav">⚙ Settings</div>
+  </nav>
+
+  <div class="main">
+    <div class="head">
+      <h1>Collection</h1>
+      <span class="sub">2,625 cards · 1,508 unique · $1,316.27</span>
+      <div class="sp">
+        <input class="inp" placeholder="Search…">
+        <button class="btn">⛁ Storage</button>
+        <button class="btn pri">＋ Add cards</button>
+      </div>
+    </div>
+
+    <div class="body" id="body">
+      <div class="filters">
+        <h3>Colour</h3>
+        <div class="pills">
+          <span class="pill">W</span><span class="pill on">U</span><span class="pill">B</span>
+          <span class="pill on">R</span><span class="pill on">G</span><span class="pill">C</span>
+        </div>
+        <h3>Type</h3>
+        <label><input type="checkbox" checked> Creature <span class="n">612</span></label>
+        <label><input type="checkbox"> Instant <span class="n">208</span></label>
+        <label><input type="checkbox"> Sorcery <span class="n">171</span></label>
+        <label><input type="checkbox"> Artifact <span class="n">244</span></label>
+        <label><input type="checkbox"> Land <span class="n">489</span></label>
+        <h3>Storage</h3>
+        <label><input type="checkbox"> Binder 1</label>
+        <label><input type="checkbox"> Bulk box</label>
+        <label><input type="checkbox"> Deck shelf</label>
+        <button class="btn" style="width:100%;margin-top:.8rem">Clear all</button>
+      </div>
+
+      <div class="gridwrap">
+        <div class="gridbar">
+          <span class="sub" id="count"></span>
+          <span class="pill on">U + R + G</span>
+          <span class="sub" style="margin-left:auto">Sort: Value ▾</span>
+        </div>
+        <div class="grid" id="grid"></div>
+      </div>
+
+      <div class="detail" id="detail" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<script src="coll2-data.js"></script>
+<script>
+let sel = null;
+const money = (n) => '$' + Number(n).toFixed(2);
+
+function pips(cost) {
+  if (!cost) return '';
+  const syms = (cost.match(/\{([^}]+)\}/g) || []).map(s => s.slice(1, -1));
+  return `<span class="cost">` + syms.map(s =>
+    `<span class="pip ${/^[WUBRG]$/.test(s) ? s : ''}">${s}</span>`).join('') + `</span>`;
+}
+
+function grid() {
+  document.getElementById('count').textContent = `Showing ${GRID.length} of 2,625`;
+  document.getElementById('grid').innerHTML = GRID.map((c, i) => `
+    <div class="tile ${sel === i ? 'on' : ''}" onclick="pick(${i})">
+      ${c.img ? `<img src="${c.img}" alt="" loading="lazy">` : ''}
+      <span class="cap"><b>${c.flavor_name || c.name}</b><span>${money(c.price)}</span></span>
+    </div>`).join('');
+}
+
+function detail() {
+  const wrap = document.getElementById('body');
+  const el = document.getElementById('detail');
+  if (sel === null) { wrap.classList.remove('open'); el.style.display = 'none'; return; }
+
+  wrap.classList.add('open');
+  el.style.display = 'flex';
+  const g = GRID[sel], d = g.detail;
+
+  // Cards without full Scryfall detail in this prototype still open the pane --
+  // they just show what the grid knows. Better than a dead click.
+  if (!d) {
+    el.innerHTML = `
+      <div class="dhead"><h2>${g.flavor_name || g.name}</h2>
+        <button class="x" onclick="pick(null)">✕</button></div>
+      <div class="dbody">
+        <div class="dart">${g.img ? `<img src="${g.img}" alt="">` : ''}
+          <div class="dside"><div class="meta">${g.set} · #${g.number}</div>
+            <div class="prices"><div class="row"><span>Mana Pool</span>
+              <b>${money(g.price)}</b></div></div></div></div>
+        <p class="empty" style="margin-top:1rem">Full detail not loaded for this
+        card in the prototype — the eight cards from your decks have it.</p>
+      </div>`;
+    return;
+  }
+
+  const rows = Object.entries(d.prices).sort((a, b) => a[1] - b[1]);
+  el.innerHTML = `
+    <div class="dhead">
+      <h2>${d.flavor_name || d.name}</h2>
+      <button class="x" onclick="pick(null)">✕</button>
+    </div>
+    <div class="dbody">
+      <div class="dart">
+        <img src="${d.image_url}" alt="${d.name}">
+        <div class="dside">
+          ${pips(d.mana_cost)}
+          ${d.flavor_name ? `<div class="meta">${d.name}</div>` : ''}
+          <div class="type">${d.type_line}</div>
+          <div class="meta">${d.set_name} · #${d.number} · ${d.rarity}</div>
+          <div class="meta"><b style="color:var(--t2)">x${d.copies.length} owned</b></div>
+          <div class="prices">
+            ${rows.map(([shop, v], i) => `
+              <div class="row${i === rows.length - 1 ? ' dim' : ''}">
+                <span>${shop}${i === 0 ? '<span class="best">cheapest</span>' : ''}</span>
+                ${i === rows.length - 1 ? `<span>${money(v)}</span>` : `<b>${money(v)}</b>`}
+              </div>`).join('')}
+          </div>
+          ${d.back_image_url ? `<button class="btn">⇄ Flip</button>` : ''}
+        </div>
+      </div>
+
+      <p class="rules">${(d.oracle_text || '').replace(/\n/g, '\n\n')}</p>
+      ${d.power ? `<div class="meta" style="margin-top:.5rem">${d.power}/${d.toughness}${
+        d.edhrec_rank ? ` · EDHREC #${d.edhrec_rank}` : ''}</div>` : ''}
+
+      <h3 class="s">In your decks</h3>
+      ${d.decks.length
+        ? `<table>${d.decks.map(([dk, r]) =>
+            `<tr><td>${dk}</td><td class="r"><span class="tag ${
+              r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
+        : `<div class="empty">Not in any deck</div>`}
+
+      <h3 class="s">Your copies</h3>
+      <table>${d.copies.map(([p, cond, loc]) =>
+        `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>
+
+      <div class="acts">
+        <button class="btn">Edit</button>
+        <button class="btn">Add to deck</button>
+        <button class="btn">Move</button>
+        <button class="btn">⛶ Full screen</button>
+      </div>
+    </div>`;
+}
+
+function pick(i) { sel = (i === sel ? null : i); grid(); detail(); }
+grid(); detail();
+</script>
+</body></html>
