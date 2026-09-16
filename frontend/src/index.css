@@ -4570,7 +4570,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     flex-direction: column;
     gap: 0.7rem;
     grid-column: 2;
-    grid-row: 1 / -1;
+    /* NOT `grid-row: 1 / -1`. Spanning every row makes the single implicit row
+       as tall as the PANE, and the search panel -- the only in-flow left child
+       before results arrive -- stretched to match it: 293px of panel around
+       180px of form. The pane is sticky; it does not need to span anything. */
+    grid-row: 1;
+    align-self: start;
     position: sticky;
     top: 0.5rem;
     max-height: calc(100vh - var(--pane-top, 9rem));
