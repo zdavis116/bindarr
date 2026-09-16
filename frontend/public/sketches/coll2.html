@@ -31,6 +31,10 @@
   .sp{margin-left:auto;display:flex;gap:.4rem;align-items:center}
   .inp{background:var(--s2);border:1px solid var(--border);border-radius:7px;
        padding:.35rem .6rem;color:var(--t1);font:inherit;font-size:.82rem;width:200px}
+  .inp.sm{width:100%;font-size:.78rem;padding:.25rem .45rem;margin-bottom:.3rem}
+  .inp.grow{flex:1;width:auto}
+  .sel{background:var(--s2);border:1px solid var(--border);border-radius:7px;
+       padding:.35rem .5rem;color:var(--t1);font:inherit;font-size:.8rem}
   .btn{background:var(--s2);border:1px solid var(--border);color:var(--t1);
        border-radius:7px;padding:.35rem .6rem;font:inherit;font-size:.8rem;cursor:pointer}
   .btn:hover{border-color:var(--accent)}
@@ -137,7 +141,6 @@
       <h1>Collection</h1>
       <span class="sub">2,625 cards · 1,508 unique · $1,316.27</span>
       <div class="sp">
-        <input class="inp" placeholder="Search…">
         <button class="btn">⛁ Storage</button>
         <button class="btn pri">＋ Add cards</button>
       </div>
@@ -155,19 +158,40 @@
         <label><input type="checkbox"> Instant <span class="n">208</span></label>
         <label><input type="checkbox"> Sorcery <span class="n">171</span></label>
         <label><input type="checkbox"> Artifact <span class="n">244</span></label>
+        <label><input type="checkbox"> Enchantment <span class="n">132</span></label>
+        <label><input type="checkbox"> Planeswalker <span class="n">28</span></label>
         <label><input type="checkbox"> Land <span class="n">489</span></label>
-        <h3>Storage</h3>
-        <label><input type="checkbox"> Binder 1</label>
-        <label><input type="checkbox"> Bulk box</label>
-        <label><input type="checkbox"> Deck shelf</label>
-        <button class="btn" style="width:100%;margin-top:.8rem">Clear all</button>
+        <h3>Set</h3>
+        <input class="inp sm" placeholder="Find a set…">
+        <label><input type="checkbox"> Bloomburrow <span class="n">60</span></label>
+        <label><input type="checkbox"> Commander 2017 <span class="n">41</span></label>
+        <label><input type="checkbox"> Secret Lair <span class="n">22</span></label>
+        <label><input type="checkbox"> Modern Horizons 3 <span class="n">18</span></label>
+        <button class="btn" style="width:100%;margin-top:.7rem">Clear all</button>
       </div>
 
       <div class="gridwrap">
         <div class="gridbar">
+          <!-- SEARCH SITS WITH THE CARDS IT FILTERS. Zach: "the search in the
+               top right doesnt make sense should be inside the collection not
+               at the top". It is a filter, so it belongs with the other
+               filters, not beside Add cards. -->
+          <input class="inp grow" placeholder="Search your collection…">
+          <select class="sel">
+            <option>Sort: Recently added</option>
+            <option>Sort: Name A–Z</option>
+            <option>Sort: Value high–low</option>
+            <option>Sort: Mana value</option>
+          </select>
+          <select class="sel">
+            <option>Gallery</option>
+            <option>List</option>
+          </select>
+        </div>
+        <div class="gridbar">
           <span class="sub" id="count"></span>
           <span class="pill on">U + R + G</span>
-          <span class="sub" style="margin-left:auto">Sort: Value ▾</span>
+          <span class="pill on">Creature</span>
         </div>
         <div class="grid" id="grid"></div>
       </div>
@@ -199,7 +223,11 @@ function tabBody(d) {
           d.copies.filter((x) => x[2] === loc).length}x</td></tr>`).join('')}</table>
       <div class="meta" style="margin-top:.6rem">${d.copies.length} cop${
         d.copies.length === 1 ? 'y' : 'ies'} · ${
-        money(Math.min(...Object.values(d.prices)) * d.copies.length)} at the cheapest shop</div>`;
+        money(Math.min(...Object.values(d.prices)) * d.copies.length)} at the cheapest shop</div>
+      <div class="acts">
+        <button class="btn">Edit</button>
+        <button class="btn">Move</button>
+      </div>`;
   }
   if (tab === 'decks') {
     return `
@@ -208,28 +236,16 @@ function tabBody(d) {
         ? `<table>${d.decks.map(([dk, r]) =>
             `<tr><td>${dk}</td><td class="r"><span class="tag ${
               r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
-        : `<div class="empty">Not in any deck</div>`}`;
+        : `<div class="empty">Not in any deck</div>`}
+      <div class="acts"><button class="btn">Add to deck</button></div>`;
   }
-  if (tab === 'price') {
-    // Honest about what does not exist yet rather than drawing a fake chart.
-    return `<h3 class="s">Price history</h3>
-      <div class="empty">No price history yet — snapshots start once the
-      collection is being recorded daily.</div>`;
-  }
-  // CARD: rules, then the two things you actually came to check.
+  // CARD = THE CARD, and nothing else. Rules text and card facts. Decks and
+  // copies have their own tabs; repeating them here is what Zach objected to.
   return `
     <p class="rules">${(d.oracle_text || '').replace(/\n/g, '\n\n')}</p>
-    ${d.power ? `<div class="meta" style="margin-top:.5rem">${d.power}/${d.toughness}${
-      d.edhrec_rank ? ` · EDHREC #${d.edhrec_rank}` : ''}</div>` : ''}
-    <h3 class="s">In your decks</h3>
-    ${d.decks.length
-      ? `<table>${d.decks.map(([dk, r]) =>
-          `<tr><td>${dk}</td><td class="r"><span class="tag ${
-            r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
-      : `<div class="empty">Not in any deck</div>`}
-    <h3 class="s">Your copies</h3>
-    <table>${d.copies.map(([p, cond, loc]) =>
-      `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>`;
+    ${d.power ? `<div class="meta" style="margin-top:.6rem">${d.power}/${d.toughness}${
+      d.edhrec_rank ? ` · EDHREC #${d.edhrec_rank}` : ''}</div>`
+      : d.edhrec_rank ? `<div class="meta" style="margin-top:.6rem">EDHREC #${d.edhrec_rank}</div>` : ''}`;
 }
 
 function setTab(t) { tab = t; detail(); }
@@ -304,19 +320,12 @@ function detail() {
 
       <div class="tabs">
         ${[['card', 'Card', 0], ['yours', 'Yours', d.copies.length],
-           ['decks', 'Decks', d.decks.length], ['price', 'Price', 0]]
+           ['decks', 'Decks', d.decks.length]]
           .map(([id, label, n]) => `<div class="tab ${tab === id ? 'on' : ''}"
             onclick="setTab('${id}')">${label}${n ? `<span class="n">${n}</span>` : ''}</div>`)
           .join('')}
       </div>
       ${tabBody(d)}
-
-      <div class="acts">
-        <button class="btn">Edit</button>
-        <button class="btn">Add to deck</button>
-        <button class="btn">Move</button>
-        <button class="btn">⛶ Full screen</button>
-      </div>
     </div>`;
 }
 
