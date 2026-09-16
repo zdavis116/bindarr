@@ -4552,6 +4552,13 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .cardsearch > *:not(.cardsearch-stage) {
     grid-column: 1; min-width: 0; margin-bottom: 0.9rem;
   }
+  /* THE QUICK-ADD DRAWER IS AN OVERLAY, NOT A ROW. It and its backdrop are
+     position:fixed, but as grid children they still claimed a row each --
+     measured a 341px empty band between the search form and the filters with
+     the drawer CLOSED. Taking them out of the grid flow costs nothing: fixed
+     elements position against the viewport regardless. */
+  .cardsearch > .quick-add-drawer,
+  .cardsearch > .drawer-backdrop { position: fixed; margin-bottom: 0; }
 
   /* THE SEARCH FORM WAS EATING THE SCREEN. Measured at 1473x736: header panel
      plus filter panel ran 400px before a single result, so results opened
