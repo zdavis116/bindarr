@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — card detail, two panes</title>
+<style>
+  :root{
+    --bg:#0b0b0f; --s1:#15161c; --s2:#1c1e26; --s3:#262933;
+    --border:#2b2f3a; --t1:#f2f4f8; --t2:#a8b0c0; --t3:#6f7787;
+    --accent:#4c9aff; --green:#30d158; --amber:#ff9f0a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--t1);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,sans-serif}
+  .bar{padding:.8rem 1.2rem;border-bottom:1px solid var(--border);display:flex;
+       align-items:center;gap:.8rem;flex-wrap:wrap}
+  .bar b{font-size:.95rem}
+  .bar .sub{color:var(--t3);font-size:.78rem}
+  .pick{display:flex;gap:.4rem;flex-wrap:wrap;margin-left:auto}
+  .pick button{background:var(--s2);border:1px solid var(--border);color:var(--t2);
+       border-radius:6px;padding:.3rem .6rem;font:inherit;font-size:.78rem;cursor:pointer}
+  .pick button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* THE SHEET. 1000px, two panes: art + prices left, everything else right.
+     Not a full-screen takeover -- one card does not need 1855px. */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;
+         place-items:center;padding:2rem;z-index:10}
+  .sheet{width:min(1000px, 100%);max-height:calc(100vh - 4rem);
+         background:var(--s1);border:1px solid var(--border);border-radius:14px;
+         display:grid;grid-template-columns:300px 1fr;overflow:hidden}
+
+  /* LEFT: the art and what it costs. Pinned, never scrolls away. */
+  .left{padding:1.2rem;background:var(--s2);display:flex;flex-direction:column;
+        gap:.7rem;align-items:center;overflow-y:auto}
+  .left img{width:100%;border-radius:10px;display:block;aspect-ratio:.717;object-fit:cover}
+  .btn{background:var(--s3);border:1px solid var(--border);color:var(--t1);
+       border-radius:7px;padding:.4rem .6rem;font:inherit;font-size:.8rem;
+       cursor:pointer;width:100%}
+  .btn:hover{border-color:var(--accent)}
+  .prices{width:100%;border-top:1px solid var(--border);padding-top:.7rem;
+          font-size:.8rem;color:var(--t2);line-height:1.9}
+  .prices .row{display:flex}
+  .prices .row b{margin-left:auto;color:var(--t1);font-variant-numeric:tabular-nums}
+  .prices .row.dim{color:var(--t3)}
+  .prices .row.dim span:last-child{margin-left:auto;font-variant-numeric:tabular-nums}
+  .best{color:var(--green);font-size:.7rem;margin-left:.3rem}
+
+  /* RIGHT: identity, tabs, and the two info columns. */
+  .right{padding:1.2rem 1.3rem;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+  .title{display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap}
+  .title h2{margin:0;font-size:1.3rem;letter-spacing:-.02em}
+  .cost{display:flex;gap:.12rem}
+  .pip{width:17px;height:17px;border-radius:50%;background:var(--s3);color:var(--t1);
+       font-size:.62rem;font-weight:800;display:grid;place-items:center}
+  .pip.W{background:#f5f0d8;color:#2b2b2b}.pip.U{background:#5aa9e6;color:#05213a}
+  .pip.B{background:#3a3340;color:#e8e0ef}.pip.R{background:#e2635a;color:#3a0f0c}
+  .pip.G{background:#4fae6b;color:#0c2c16}
+  .x{margin-left:auto;background:none;border:0;color:var(--t3);font-size:1.1rem;cursor:pointer}
+  .type{color:var(--t2);font-size:.85rem;margin:.2rem 0 .1rem}
+  .meta{color:var(--t3);font-size:.78rem}
+  .meta b{color:var(--t2)}
+  .tabs{display:flex;gap:.3rem;margin:.9rem 0 .8rem;border-bottom:1px solid var(--border)}
+  .tab{padding:.4rem .7rem;font-size:.82rem;color:var(--t3);cursor:pointer;
+       border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--t1);border-bottom-color:var(--accent)}
+  .tab .n{background:var(--s3);border-radius:999px;padding:0 .3rem;font-size:.68rem;margin-left:.3rem}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;overflow-y:auto;flex:1;min-height:0}
+  .rules{font-size:.85rem;line-height:1.65;color:var(--t2);margin:.1rem 0;white-space:pre-wrap}
+  .pt{font-size:.8rem;color:var(--t3);margin-top:.6rem}
+  h3{font-size:.72rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;
+     margin:0 0 .35rem}
+  h3.sp{margin-top:1rem}
+  table{width:100%;border-collapse:collapse;font-size:.79rem;color:var(--t2)}
+  td{padding:.22rem 0;border-bottom:1px solid var(--border)}
+  td.r{text-align:right;color:var(--t3)}
+  .tag{background:var(--s3);border-radius:999px;padding:.05rem .4rem;font-size:.68rem}
+  .tag.g{background:rgba(48,209,88,.16);color:var(--green)}
+  .acts{display:flex;gap:.4rem;margin-top:1rem;flex-wrap:wrap}
+  .acts .btn{width:auto}
+  .empty{color:var(--t3);font-size:.79rem;font-style:italic}
+  .note{margin:1.2rem;padding:.8rem 1rem;background:#0f1520;border:1px solid var(--border);
+        border-radius:10px;color:var(--t2);font-size:.82rem;line-height:1.6;max-width:1000px}
+  .note b{color:var(--t1)}
+
+  @media(max-width:820px){
+    .scrim{padding:0}
+    .sheet{width:100%;grid-template-columns:1fr;max-height:100vh;
+           border-radius:0;height:100%;grid-template-rows:auto 1fr}
+    .left{flex-direction:row;align-items:flex-start;gap:.8rem;overflow:visible}
+    .left img{width:120px;flex:0 0 120px}
+    .left .stack{flex:1;min-width:0;display:flex;flex-direction:column;gap:.5rem}
+    .cols{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>Card detail — two panes</b>
+  <span class="sub">real cards · click one to open it</span>
+  <div class="pick" id="pick"></div>
+</div>
+
+<div class="scrim"><div class="sheet" id="sheet"></div></div>
+
+<script src="carddetail-data.js"></script>
+<script>
+let idx = 0, tab = 'card', flipped = false;
+
+const money = (n) => '$' + Number(n).toFixed(2);
+
+function pips(cost) {
+  if (!cost) return '';
+  const syms = (cost.match(/\{([^}]+)\}/g) || []).map(s => s.slice(1, -1));
+  return `<span class="cost">` + syms.map(s =>
+    `<span class="pip ${/^[WUBRG]$/.test(s) ? s : ''}">${s}</span>`).join('') + `</span>`;
+}
+
+function priceBlock(c) {
+  // CHEAPEST FIRST and labelled. Every figure names its shop: two numbers on
+  // one screen must measure the same thing.
+  const rows = Object.entries(c.prices).sort((a, b) => a[1] - b[1]);
+  return rows.map(([shop, v], i) =>
+    `<div class="row${i === rows.length - 1 ? ' dim' : ''}">
+       <span>${shop}${i === 0 ? '<span class="best">cheapest</span>' : ''}</span>
+       ${i === rows.length - 1 ? `<span>${money(v)}</span>` : `<b>${money(v)}</b>`}
+     </div>`).join('');
+}
+
+function cardTab(c) {
+  return `
+    <div>
+      <p class="rules">${(c.oracle_text || '').replace(/\n/g, '\n\n')}</p>
+      ${c.power ? `<div class="pt">${c.power}/${c.toughness}${c.edhrec_rank ? ` · EDHREC #${c.edhrec_rank}` : ''}</div>`
+                : c.edhrec_rank ? `<div class="pt">EDHREC #${c.edhrec_rank}</div>` : ''}
+    </div>
+    <div>
+      <h3>In your decks</h3>
+      ${c.decks.length ? `<table>${c.decks.map(([d, r]) =>
+        `<tr><td>${d}</td><td class="r"><span class="tag ${r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
+        : `<div class="empty">Not in any deck</div>`}
+      <h3 class="sp">Your copies</h3>
+      <table>${c.copies.map(([p, cond, loc]) =>
+        `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>
+      <div class="acts">
+        <button class="btn">Edit</button>
+        <button class="btn">Add to deck</button>
+        <button class="btn">Move</button>
+      </div>
+    </div>`;
+}
+
+function yoursTab(c) {
+  const n = c.copies.length;
+  return `
+    <div>
+      <h3>Your copies</h3>
+      <table>${c.copies.map(([p, cond, loc]) =>
+        `<tr><td>${p}</td><td>${cond}</td><td class="r">${loc}</td></tr>`).join('')}</table>
+      <div class="pt">${n} cop${n === 1 ? 'y' : 'ies'} · ${money(c.prices['Mana Pool'] * n)} at the cheapest shop</div>
+    </div>
+    <div>
+      <h3>Where they live</h3>
+      <table>${[...new Set(c.copies.map(x => x[2]))].map(loc =>
+        `<tr><td>${loc}</td><td class="r">${c.copies.filter(x => x[2] === loc).length}×</td></tr>`).join('')}</table>
+    </div>`;
+}
+
+function decksTab(c) {
+  return `
+    <div>
+      <h3>In your decks</h3>
+      ${c.decks.length ? `<table>${c.decks.map(([d, r]) =>
+        `<tr><td>${d}</td><td class="r"><span class="tag ${r === 'commander' ? 'g' : ''}">${r}</span></td></tr>`).join('')}</table>`
+        : `<div class="empty">Not in any deck</div>`}
+    </div>
+    <div>
+      <h3>Add to a deck</h3>
+      <div class="acts"><button class="btn">Choose a deck…</button></div>
+    </div>`;
+}
+
+function priceTab() {
+  // HONEST ABOUT WHAT DOES NOT EXIST YET. Zach parked price history until the
+  // desktop UI is done; a fake chart here would be inventing a measurement.
+  return `<div><h3>Price history</h3>
+          <div class="empty">No price history yet — snapshots start once
+          collection is being recorded daily.</div></div><div></div>`;
+}
+
+function render() {
+  const c = CARDS[idx];
+  const shown = flipped && c.back_image_url ? c.back_image_url : c.image_url;
+  const body = tab === 'card' ? cardTab(c)
+             : tab === 'yours' ? yoursTab(c)
+             : tab === 'decks' ? decksTab(c) : priceTab();
+
+  document.getElementById('sheet').innerHTML = `
+    <div class="left">
+      <img src="${shown}" alt="${c.name}">
+      <div class="stack">
+        <button class="btn">⛶ Full screen</button>
+        ${c.back_image_url ? `<button class="btn" onclick="flipCard()">⇄ Flip</button>` : ''}
+        <div class="prices">${priceBlock(c)}</div>
+      </div>
+    </div>
+    <div class="right">
+      <div class="title">
+        <h2>${c.flavor_name || c.name}</h2>
+        ${pips(c.mana_cost)}
+        <button class="x">✕</button>
+      </div>
+      ${c.flavor_name ? `<div class="meta">${c.name}</div>` : ''}
+      <div class="type">${c.type_line}</div>
+      <div class="meta">${c.set_name} · #${c.number} · ${c.rarity} ·
+        <b>x${c.copies.length} owned</b></div>
+      <div class="tabs">
+        ${[['card', 'Card', 0], ['yours', 'Yours', c.copies.length],
+           ['decks', 'Decks', c.decks.length], ['price', 'Price history', 0]]
+          .map(([id, label, n]) =>
+            `<div class="tab ${tab === id ? 'on' : ''}" onclick="setTab('${id}')">${label}${
+              n ? `<span class="n">${n}</span>` : ''}</div>`).join('')}
+      </div>
+      <div class="cols">${body}</div>
+    </div>`;
+
+  document.getElementById('pick').innerHTML = CARDS.map((x, i) =>
+    `<button class="${i === idx ? 'on' : ''}" onclick="pickCard(${i})">${
+      (x.flavor_name || x.name).split(',')[0]}</button>`).join('');
+}
+
+function pickCard(i) { idx = i; tab = 'card'; flipped = false; render(); }
+function setTab(t) { tab = t; render(); }
+function flipCard() { flipped = !flipped; render(); }
+render();
+</script>
+</body></html>
