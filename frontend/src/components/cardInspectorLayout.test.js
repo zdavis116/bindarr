@@ -354,7 +354,7 @@ test('CIL-TC15: the pips wrapper only renders when it has pips', () => {
   // The row now also carries the mana cost, so it renders for colours OR a
   // cost -- but still never for neither, which is the empty-element bug.
   assert.match(src,
-    /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| facePart\(view\.mana_cost\)\) && \(/,
+    /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| faceManaCost\) && \(/,
     'the wrapper must require actual content, not just a Magic card');
   assert.match(src, /view\.supertype === 'MTG' && cardColors\.length === 0 && \(/,
     'a genuinely colourless card still says so -- but from the PARSED value, '

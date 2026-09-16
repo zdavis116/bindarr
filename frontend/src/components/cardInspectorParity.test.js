@@ -298,8 +298,15 @@ test('CIP-TC15: rules text, type line and mana cost follow the shown face', () =
     'the type line must still render, and follow the shown face');
   assert.doesNotMatch(cardTab, /\{faceTypeLine\}/,
     'it belongs under the name now, not at the top of the Card tab');
-  assert.match(cardTab, /facePart\(view\.mana_cost\)/,
+  assert.match(cardTab, /faceManaCost/,
     'the mana cost must be the shown face');
+  // ONE-PIECE CARDS SHOW BOTH COSTS. Zach: "you are missing mana cost for the
+  // sorcey/instant." An adventure/split/prepare card is one piece of cardboard
+  // with two halves at DIFFERENT costs -- Sagu Wildling {4}{G}, Roost Seek
+  // {G} -- and there is no flip, so a single badge could only ever be wrong
+  // for one of them.
+  assert.match(impl, /const faceManaCost[\s\S]{0,400}back_image_url/,
+    'the mana cost must show both halves when there is no face to flip to');
 });
 
 test('CIP-TC16: a single-faced card is unaffected by the face split', () => {
@@ -358,12 +365,12 @@ test('CIP-TC18: colour identity appears once, as the pips', () => {
 test('CIP-TC19: mana cost survived the grid removal', () => {
   // The one fact in that grid that was NOT shown anywhere else. Deleting a
   // block of duplicates is only safe if you check every row first.
-  assert.match(impl, /\{facePart\(view\.mana_cost\) && \(/,
+  assert.match(impl, /\{faceManaCost && \(/,
     'mana cost must render somewhere');
 
   // Beside the pips, in the same row -- same kind of fact.
   const pips = impl.indexOf('cardColors.map');
-  const cost = impl.indexOf('facePart(view.mana_cost) && (');
+  const cost = impl.indexOf('faceManaCost && (');
   assert.ok(cost > pips && cost - pips < 1400,
     'mana cost belongs next to the colour pips, per Zach');
 });
@@ -372,7 +379,7 @@ test('CIP-TC20: the pip row renders when there is anything to show', () => {
   // A colourless card with a mana cost must still get the row, or the cost
   // silently vanishes -- the wrapper-guard-too-tight mistake in reverse.
   assert.match(impl,
-    /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| facePart\(view\.mana_cost\)\) && \(/,
+    /view\.supertype === 'MTG' && \(cardColors\.length > 0 \|\| faceManaCost\) && \(/,
     'the row must render for colours OR a mana cost, not colours alone');
 });
 

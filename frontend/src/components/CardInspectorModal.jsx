@@ -220,6 +220,24 @@ function CardInspectorModal({
       ? (view?.back_type_line || facePart(full))
       : facePart(full);
   })();
+  // THE MANA COST BADGE beside the colour pips.
+  //
+  // For a one-piece card the two halves have DIFFERENT costs -- Sagu Wildling
+  // is {4}{G}, Roost Seek is {G} -- and a single badge can only be one of them.
+  // Showing both, joined, matches the type line right above it, which already
+  // reads "Creature — Dragon // Sorcery — Omen".
+  const faceManaCost = (() => {
+    const full = view?.mana_cost;
+    if (typeof full !== 'string') return full;
+    if (full.includes(' // ') && !view?.back_image_url) {
+      // Drop empty halves: a transform card's back has no cost of its own, and
+      // "{4}{G} // " would render a trailing separator for nothing.
+      const parts = full.split(' // ').map(s => s.trim()).filter(Boolean);
+      return parts.join(' // ');
+    }
+    return facePart(full);
+  })();
+
   // YOUR copies of THIS printing, from the server -- the one source both
   // callers share. Falls back to the caller's own numbers while the
   // request is in flight, so the rows do not flash empty.
@@ -932,7 +950,7 @@ function CardInspectorModal({
                     Zach circled that gap twice.
                     Parsed here, and the wrapper only renders when it has
                     something to show. */}
-                {view.supertype === 'MTG' && (cardColors.length > 0 || facePart(view.mana_cost)) && (
+                {view.supertype === 'MTG' && (cardColors.length > 0 || faceManaCost) && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                     {cardColors.map(color => (
                       <span key={color} className={`mtg-color-pip mtg-color-${color.toLowerCase()}`} style={{
@@ -947,7 +965,7 @@ function CardInspectorModal({
                         next to the red blue chips in that margin". It was the
                         only row in that grid not already on screen -- rarity
                         is in the header and colour identity IS these pips. */}
-                    {facePart(view.mana_cost) && (
+                    {faceManaCost && (
                       <span style={{
                         fontSize: '0.72rem', fontWeight: 700,
                         padding: '0.15rem 0.5rem', borderRadius: '999px',
@@ -956,7 +974,7 @@ function CardInspectorModal({
                         color: 'var(--text-primary)',
                         marginLeft: cardColors.length ? '0.15rem' : 0,
                       }}>
-                        {facePart(view.mana_cost)}
+                        {faceManaCost}
                       </span>
                     )}
                   </div>
