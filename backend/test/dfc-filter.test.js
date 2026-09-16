@@ -119,4 +119,41 @@ const cardTypesOf = (() => {
   pass('DFC-TC4', 'faces are split before types');
 }
 
+// --- DFC-TC5 -----------------------------------------------------------------
+// A CARD WHOSE FACES ARE DIFFERENT TYPES MATCHES BOTH.
+//
+// Zach: "sagu wildling is a creature and sorcery. and if each side is a
+// different type we should be able to filter on both types."
+//
+// Tony Stark only proved the ARTIFACT case, where both faces are also
+// creatures. The Omen dragons are the sharper test: front is a Creature, back
+// is a Sorcery, and the card must appear under either filter -- it is one
+// physical card that can be played as either.
+//
+// Verified on Scryfall: "Creature — Dragon // Sorcery — Omen". Eight of these
+// sit in his Ur-Dragon deck.
+{
+  const omen = { type_line: 'Creature — Dragon // Sorcery — Omen' };
+  const types = cardTypesOf(omen);
+  assert.ok(types.includes('Creature'),
+    `an Omen dragon must match Creature -- got [${types.join(', ')}]`);
+  assert.ok(types.includes('Sorcery'),
+    `an Omen dragon must ALSO match Sorcery -- its back face is a Sorcery, and `
+    + `filtering to Sorcery must find it -- got [${types.join(', ')}]`);
+
+  // A land on the back, which is how most Commander MDFCs are shaped.
+  const mdfcLand = cardTypesOf({ type_line: 'Sorcery — Arcane // Land' });
+  assert.ok(mdfcLand.includes('Land') && mdfcLand.includes('Sorcery'),
+    `an MDFC with a land back must match BOTH Land and Sorcery -- got `
+    + `[${mdfcLand.join(', ')}]`);
+
+  // Battle // Enchantment, from his AI Doom deck.
+  const battle = cardTypesOf({ type_line: 'Battle — Siege // Enchantment' });
+  assert.ok(battle.includes('Battle') && battle.includes('Enchantment'),
+    `Invasion of Kaldheim must match both Battle and Enchantment -- got `
+    + `[${battle.join(', ')}]`);
+
+  pass('DFC-TC5', 'faces with different types match both filters');
+}
+
 console.log(`dfc-filter.test.js: ${passed} cases passed`);

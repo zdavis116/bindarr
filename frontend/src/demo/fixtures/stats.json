@@ -1,11 +1,11 @@
 {
   "summary": {
-    "totalCards": 61,
-    "uniqueCards": 61,
-    "totalValue": 62.22,
-    "totalSpent": 41.48,
+    "totalCards": 62,
+    "uniqueCards": 62,
+    "totalValue": 63.24,
+    "totalSpent": 42.16,
     "roi": {
-      "abs": 20.74,
+      "abs": 21.08,
       "pct": 50
     },
     "avgCardValue": 1.02,
@@ -68,6 +68,12 @@
     {
       "id": "msh",
       "name": "Marvel Super Heroes",
+      "count": 1,
+      "value": 1.02
+    },
+    {
+      "id": "tdm",
+      "name": "Tarkir: Dragonstorm",
       "count": 1,
       "value": 1.02
     }
@@ -261,7 +267,7 @@
   "valueByGame": [
     {
       "game": "mtg",
-      "value": 62.22
+      "value": 63.24
     }
   ]
 }
