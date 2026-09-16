@@ -4558,7 +4558,15 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      the drawer CLOSED. Taking them out of the grid flow costs nothing: fixed
      elements position against the viewport regardless. */
   .cardsearch > .quick-add-drawer,
-  .cardsearch > .drawer-backdrop { position: fixed; margin-bottom: 0; }
+  .cardsearch > .drawer-backdrop {
+    position: fixed;
+    margin-bottom: 0;
+    /* Pin them to row 1 as well. position:fixed takes an element out of FLOW
+       but it is still a grid ITEM, and auto-placement was giving each its own
+       implicit row -- 290px of empty band between the search form and the
+       filters, with the drawer closed. Sharing row 1 creates no new track. */
+    grid-row: 1;
+  }
 
   /* THE SEARCH FORM WAS EATING THE SCREEN. Measured at 1473x736: header panel
      plus filter panel ran 400px before a single result, so results opened
