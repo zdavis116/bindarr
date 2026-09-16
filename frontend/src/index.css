@@ -3110,47 +3110,17 @@ button, input, select, textarea {
    branch in JS disagrees with the CSS breakpoint. This is one element that
    reads its own layout from the viewport, which is what the breakpoint is for.
 */
-.deck-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-
-.deck-row {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  padding: 0.85rem 0.9rem;
-  min-height: 68px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-glass);
-  background: var(--surface-1);
-  color: var(--text-primary);
-  transition: var(--transition-smooth);
-}
-
-.deck-row.is-selected {
-  border: 2px solid var(--accent-blue);
-  background: var(--surface-2);
-}
-
-.deck-row-body { flex: 1; min-width: 0; }
-
-/* THE PHONE DECK LIST IS CARDS TOO.
-   Zach: "I like that card view for decks be in the actual deck list I like
-   that view it's cleaner and I think if 3 can fit with that size card then
-   I'm fine with that."
-   Desktop has had this shape since the rail landed; the phone was still tall
-   rows with the art suppressed. Three across, same 114px card the dashboard
-   strip uses, so the two screens read identically. */
+/* THE DECK CARD. One definition, rendered by DeckCard.jsx on BOTH the deck
+   list and the dashboard.
+   Zach: "the cards should be two to a row for the deck list and two per scroll
+   for the dashboard they do need to be a little bigger also the percent should
+   be in the bottom right of the card in the gray area so its readable."
+   Two across at 390px gives a 181px card instead of 117 -- room for the full
+   deck name, the badge and a readable percentage. */
 .deck-rows {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
 }
 
 .deck-row {
@@ -3161,14 +3131,23 @@ button, input, select, textarea {
   min-height: 0;
   overflow: hidden;
   position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-glass);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-smooth);
 }
+.deck-row.is-selected { border: 2px solid var(--accent-blue); background: var(--surface-2); }
 
-/* Commander art, cropped to the face. The old comment here said a thumbnail
-   costs width the deck name needs -- true of a ROW, wrong of a card, where
-   the art IS how you recognise the deck. */
+/* Commander art, cropped to the face. The old rule hid this on the phone
+   because "a thumbnail costs width the deck name needs" -- true of a ROW,
+   wrong of a card, where the art IS how you recognise the deck. */
 .deck-row-art {
   display: block;
-  height: 54px;
+  height: 84px;
   background: var(--surface-2);
   overflow: hidden;
 }
@@ -3180,33 +3159,95 @@ button, input, select, textarea {
   display: block;
 }
 
-.deck-row-body { padding: 0.4rem 0.45rem 0.45rem; flex: none; min-width: 0; }
-/* The body's inner lines must be allowed to truncate. Without min-width:0 the
-   subtitle "price unknown · 22 of 60 cards" wrapped to two lines and made the
-   card 172px tall -- taller than the row it replaced. */
-.deck-row-body > span { min-width: 0; }
-.deck-row-body span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 /* The ring sits ON the art. It carries .deck-ring precisely so this rule can
-   reach it: it previously had an inline `position: relative`, which beats any
-   stylesheet -- the selector matched and the ring stayed on the deck name. */
+   reach it: with only an inline `position: relative` the stylesheet lost --
+   measured, the selector matched and the ring stayed on the deck name. */
 .deck-ring { position: relative; }
-.deck-rows > .deck-row > .deck-ring {
+.deck-rows .deck-row > .deck-ring,
+.dash-decks .deck-row > .deck-ring {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  transform: scale(0.66);
+  top: 4px;
+  left: 4px;
+  transform: scale(0.62);
   transform-origin: top left;
   z-index: 1;
 }
+/* Select mode replaces the ring, in the same spot. */
+.deck-check {
+  position: absolute; top: 6px; left: 6px; z-index: 1;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; color: #fff;
+  background: transparent; border: 2px solid var(--surface-3);
+}
+.deck-check[data-on="1"] { background: var(--accent-blue); border: 0; }
 
-/* Count first, price second: "22 of 60 cards" is the answer to "is this deck
-   done", and on a 117px card only the first line survives a glance. */
-.deck-row-meta { display: block; font-size: 0.7rem; color: var(--text-secondary); }
-.deck-row-count { display: block; font-weight: 600; color: var(--text-primary); }
-.deck-row-price { display: block; }
+/* THE TEXT AREA. `position: relative` so the percentage can sit in its
+   bottom-right corner, and padding-right to keep the name clear of it. */
+.deck-row-body {
+  display: block;
+  position: relative;
+  padding: 0.45rem 2.6rem 0.5rem 0.5rem;
+  min-width: 0;
+  flex: none;
+}
+.deck-row-title { display: block; min-width: 0; }
+/* The badge sits UNDER the name, not beside it. Measured at 390px: side by
+   side it squeezed "Izzet Spells" to "Izzet Sp…" -- the badge never shrinks
+   (flex: 0 0 auto) so the name always loses, and the name is what you
+   identify the deck by. */
+.deck-row-title > .deck-source-badge,
+.deck-row-title > .deck-drift-badge {
+  /* display:inline-block, not inline: .deck-source-badge sets no display of
+     its own, so a block PARENT does not stop it flowing beside the name.
+     Measured: "Izzet Spells MOXFIELD" on one line truncated the name. */
+  display: inline-block;
+  margin-top: 0.12rem;
+}
+.deck-row-name {
+  /* BLOCK, so the badge lands on the next line instead of stealing width from
+     the name. A span is inline by default and the badge sets no display of its
+     own, so both sat on one line and "Izzet Spells" became "Izzet Sp…". */
+  display: block;
+  font-weight: 600; font-size: 0.85rem; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Count first, price second: "22 of 60 cards" answers "is this deck done",
+   and on a narrow card only the first line survives a glance. Running them
+   together on one line let the ellipsis eat the count. */
+.deck-row-meta { display: block; font-size: 0.72rem; color: var(--text-secondary); }
+.deck-row-count {
+  display: block; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.deck-row-price, .deck-row-cost {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.deck-row-cost { color: var(--warning, #ff9f0a); font-weight: 700; }
+
+/* THE PERCENTAGE, bottom-right of the grey area. Zach: "the percent should be
+   in the bottom right of the card in the gray area so its readable" -- over
+   full-art you register the ring's SHAPE, not the digits. */
+.deck-row-pct {
+  position: absolute; right: 0.5rem; bottom: 0.5rem;
+  font-size: 0.92rem; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--text-primary); font-variant-numeric: tabular-nums;
+}
+
 /* A chevron is a row affordance; a card is obviously tappable. */
 .deck-row-chevron { display: none; }
+
+/* SMALLER BADGE. Zach: "maybe the moxfield badge should be shrunk a little
+   because it doesn't need to be as big and may fit better." */
+.deck-rows .deck-source-badge,
+.dash-decks .deck-source-badge,
+.deck-rows .deck-drift-badge,
+.dash-decks .deck-drift-badge {
+  font-size: 0.55rem;
+  padding: 0.02rem 0.26rem;
+  line-height: 1.5;
+  flex: 0 0 auto;
+}
 
 @media (min-width: 1024px) {
   .deck-rows {
@@ -4111,40 +4152,30 @@ button, input, select, textarea {
   .dash-topcard { flex: none; }
 }
 
-/* DECKS IN PROGRESS as a sideways strip.
-   Zach: "it should only show 3 at a time and be a scroll... maybe they should
-   be like cards." Four tall rows were eating the phone's entire fold and
-   pushing the top ten off-screen; three cards cost ONE row of height.
-   3 at a time on a phone: (100% - 2 gaps) / 3. */
-.dash-decks { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.3rem;
-              scroll-snap-type: x mandatory; }
-.dash-deck { position: relative; flex: 0 0 calc((100% - 1rem) / 3);
-             scroll-snap-align: start; background: var(--surface-1);
-             border: 1px solid var(--border-glass); border-radius: var(--radius-md);
-             overflow: hidden; padding: 0; cursor: pointer; font: inherit;
-             color: var(--text-primary); text-align: left; }
-.dash-deck:hover { border-color: var(--accent-blue); }
-/* Commander art, cropped to the face. A full card image would make these tall
-   again, which is the thing being fixed. */
-.dash-deck img, .dash-deck-noart { display: block; width: 100%; height: 54px;
-                                   object-fit: cover; object-position: 50% 18%;
-                                   background: var(--surface-3); }
-.dash-deck-body { display: block; padding: 0.4rem 0.45rem 0.45rem; }
-.dash-deck-name { display: block; font-size: 0.78rem; font-weight: 600;
-                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dash-deck-sub { display: block; font-size: 0.66rem; color: var(--text-secondary);
-                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dash-deck-cost { display: block; font-size: 0.7rem; font-weight: 700;
-                  color: var(--warning, #ff9f0a); font-variant-numeric: tabular-nums; }
-/* The ring sits ON the art: it is a glance, not a column of its own. */
-.dash-deck-ring { position: absolute; top: 4px; right: 4px; transform: scale(0.72);
-                  transform-origin: top right; }
+/* DECKS IN PROGRESS uses THE SAME CARD as the deck list.
+   Zach: "the cards should be setup identical on the dashboard and card list.
+   Right now don't look exactly the same."
+   They did not look the same because they were two parallel rule sets that
+   drifted -- the same class of bug as cmc-vs-mv and the row-vs-tooltip odds.
+   Dashboard.jsx now renders .deck-row inside .deck-rows, so there is ONE
+   definition; this block only makes the dashboard copy a sideways STRIP. */
+.dash-decks {
+  display: flex;
+  gap: 0.6rem;
+  overflow-x: auto;
+  padding-bottom: 0.3rem;
+  scroll-snap-type: x mandatory;
+}
+/* TWO per scroll, matching the deck list's two per row. */
+.dash-decks > .deck-row {
+  flex: 0 0 calc((100% - 0.6rem) / 2);
+  scroll-snap-align: start;
+}
 
 @media (min-width: 1024px) {
-  /* Desktop has the width for all of them side by side, no scrolling. */
-  .dash-decks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-                overflow: visible; }
-  .dash-deck { flex: none; }
-  .dash-deck img, .dash-deck-noart { height: 76px; }
-  .dash-deck-name { font-size: 0.85rem; }
+  /* Desktop: THREE per scroll. Two halves of a 940px column is a 458px deck
+     card -- measured, and nearly twice the deck list's own 251px tile. The
+     card should read the same size on both screens; only how many fit
+     changes. */
+  .dash-decks > .deck-row { flex: 0 0 calc((100% - 1.2rem) / 3); }
 }

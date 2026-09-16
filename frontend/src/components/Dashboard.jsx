@@ -23,6 +23,8 @@ import { useState, useEffect } from 'react';
 // was new and simply never asked it.
 import { displayName, secondaryName } from '../utils/cardName';
 import CardInspectorModal from './CardInspectorModal';
+// ONE deck card, shared with the deck list. See DeckCard.jsx.
+import DeckCard from './DeckCard';
 import { Camera, ChevronRight } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
@@ -121,13 +123,23 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
   // most likely to act on.
   const inProgress = decks
     .filter((d) => (d.target_size || 0) > 0)
-    .map((d) => ({
-      ...d,
-      // OWNED, not listed. total_cards counts what the list says; a freshly
-      // imported deck is fully listed and entirely unowned, and this read 97%
-      // for a deck holding three of its ninety-seven cards.
-      pct: Math.min(100, Math.round(((d.owned_cards || 0) / d.target_size) * 100)),
-    }))
+    .map((d) => {
+      // THE SAME FIELD NAMES THE DECK LIST USES, because both screens now
+      // render the same DeckCard. Mapping them differently here is how the
+      // two views drifted apart in the first place.
+      const have = d.owned_cards || 0;
+      const target = d.target_size || 0;
+      return {
+        ...d,
+        have,
+        target,
+        deckValue: d.deck_value || 0,
+        // OWNED, not listed. total_cards counts what the list says; a freshly
+        // imported deck is fully listed and entirely unowned, and this read
+        // 97% for a deck holding three of its ninety-seven cards.
+        pct: Math.min(100, Math.round((have / target) * 100)),
+      };
+    })
     .filter((d) => d.pct < 100)
     .sort((a, b) => a.pct - b.pct);
 
@@ -267,39 +279,23 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
           </div>
           <div className="dash-decks">
             {inProgress.map((deck) => (
-              <button
+              <DeckCard
                 key={deck.id}
-                className="dash-deck"
-                // Open THIS deck, not the deck list. Zach: "when you click
-                // on the deck in the deck in progress it should take you
-                // into that deck." Falls back to the list if the handler is
+                deck={deck}
+                t={t}
+                // Open THIS deck, not the deck list. Zach: "when you click on
+                // the deck in the deck in progress it should take you into
+                // that deck." Falls back to the list if the handler is
                 // missing, so the card is never a dead tap.
-                onClick={() => (onOpenDeck ? onOpenDeck(deck.id) : onNavigate && onNavigate('deckbuilder'))}
-              >
-                {deck.commander_image_url
-                  ? <img src={deck.commander_image_url} alt="" loading="lazy" />
-                  : <span className="dash-deck-noart" />}
-                <span className="dash-deck-body">
-                  <span className="dash-deck-name">{deck.name}</span>
-                  {/* WHICH DECKS MIRROR MOXFIELD. Lost when these rows became
-                      cards -- Zach: "The card for decks in progress lost the
-                      moxfield bubble can that be added." Same class as the
-                      deck list so the two screens cannot drift. */}
-                  {deck.moxfield_public_id ? (
-                    <span className="deck-source-badge">{t('decks.moxfieldBadge')}</span>
-                  ) : null}
-                  <span className="dash-deck-sub">
-                    {t('dash.deckCards', { have: deck.owned_cards || 0, want: deck.target_size })}
+                onOpen={(id) => (onOpenDeck ? onOpenDeck(id) : onNavigate && onNavigate('deckbuilder'))}
+                // The buying question, which is why this card is on the
+                // dashboard rather than only in the deck list.
+                extra={Number(deck.missing_cost) > 0 ? (
+                  <span className="deck-row-cost">
+                    ${Number(deck.missing_cost).toFixed(2)} {t('dash.toFinishShort')}
                   </span>
-                  {/* The buying question, which is why this card is here. */}
-                  {Number(deck.missing_cost) > 0 ? (
-                    <span className="dash-deck-cost">
-                      ${Number(deck.missing_cost).toFixed(2)}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="dash-deck-ring"><ProgressRing pct={deck.pct} /></span>
-              </button>
+                ) : null}
+              />
             ))}
           </div>
         </div>

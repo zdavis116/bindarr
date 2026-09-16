@@ -18,7 +18,9 @@
 // out.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Trash2, Search, X, Plus, Check, ChevronRight, Download } from 'lucide-react';
+// ONE deck card, shared with the dashboard. See DeckCard.jsx.
+import DeckCard from './DeckCard';
+import { Trash2, Search, X, Plus, Download } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useIsDesktop } from '../utils/breakpoints';
 import { Z_BOTTOM_BAR, NAV_BAR_CLEARANCE } from '../utils/zLayers';
@@ -27,33 +29,6 @@ import ExportModal from './ExportModal';
 
 // A deck's completion ring. Reads at arm's length, which a percentage in text
 // does not -- this list is scanned while holding cards.
-function Ring({ pct, size = 42 }) {
-  const r = (size - 8) / 2;
-  const c = 2 * Math.PI * r;
-  const off = c - (c * Math.min(100, Math.max(0, pct))) / 100;
-  return (
-    // A CLASS, not only inline styles. The card layout needs to pin this over
-    // the commander art, and an inline `position: relative` beats any
-    // stylesheet rule -- measured: the selector matched, computed position
-    // stayed relative, and the ring sat on the deck name.
-    <div className="deck-ring" style={{ width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--surface-3)" strokeWidth="4" fill="none" />
-        <circle
-          cx={size / 2} cy={size / 2} r={r} stroke="var(--accent-green)" strokeWidth="4" fill="none"
-          strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset .45s cubic-bezier(.2,.8,.3,1)' }}
-        />
-      </svg>
-      <div style={{
-        position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
-        fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-primary)',
-      }}>
-        {Math.round(pct)}%
-      </div>
-    </div>
-  );
-}
 
 
 // Both timestamp shapes appear in this column: Moxfield's ISO string on decks
@@ -270,121 +245,14 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
           {shown.map(deck => {
             const sel = selected.has(deck.id);
             return (
-              <button
+              <DeckCard
                 key={deck.id}
-                className={`deck-row${sel ? ' is-selected' : ''}`}
-                onClick={() => (selecting ? toggle(deck.id) : onOpenDeck(deck.id))}
-                onContextMenu={(e) => {
-                  // Long-press on a phone arrives as a context menu. Selection
-                  // mode is excluded: a destructive action must not share a
-                  // gesture with a bulk-selection flow.
-                  if (selecting || !onDeleteDeck) return;
-                  e.preventDefault();
-                  onDeleteDeck(deck.id, deck.name);
-                }}
-                aria-pressed={selecting ? sel : undefined}
-              >
-                {/* COMMANDER ART -- desktop only, hidden by CSS on the phone.
-                    It is in the markup unconditionally rather than behind an
-                    isDesktop check because a JS width branch and a CSS media
-                    query are two rules that can disagree; the media query is
-                    the one the layout already obeys.
-
-                    A deck with no commander (60-card, or not yet chosen) gets
-                    the empty placeholder, never a broken image. */}
-                <span className="deck-row-art" aria-hidden="true">
-                  {deck.commander_image_url
-                    ? <img src={deck.commander_image_url} alt="" loading="lazy" />
-                    : null}
-                </span>
-
-                {/* In select mode the ring is REPLACED by the checkbox rather
-                    than joined by it -- two indicators in one row is how a
-                    glance becomes a decision. */}
-                {selecting ? (
-                  <span style={{
-                    width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-                    display: 'grid', placeItems: 'center',
-                    background: sel ? 'var(--accent-blue)' : 'transparent',
-                    border: sel ? 0 : '2px solid var(--surface-3)',
-                    color: '#fff',
-                  }}>
-                    {sel && <Check size={14} strokeWidth={3.5} />}
-                  </span>
-                ) : (
-                  <Ring pct={deck.pct} />
-                )}
-
-                <span className="deck-row-body">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.98rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {deck.name}
-                    </span>
-                    {/* WHERE THIS DECK COMES FROM.
-                        Only Moxfield decks are badged: labelling every local
-                        deck "LOCAL" would add noise to the common case to
-                        describe the exception. The dot carries sync state so
-                        the row answers "has Moxfield changed?" at a glance. */}
-                    {deck.moxfield_public_id ? (
-                      <span className="deck-source-badge" title={t('decks.fromMoxfield')}>
-                        {t('decks.moxfieldBadge')}
-                      </span>
-                    ) : null}
-                    {/* UPSTREAM DRIFT, found by the background poll.
-                        Never applied automatically -- a decklist rewriting
-                        itself overnight is the silent state change Zach has
-                        ruled out. The row says so; he chooses when to sync. */}
-                    {deck.moxfield_changed ? (
-                      <span className="deck-drift-badge" title={t('decks.moxfieldChangedHint')}>
-                        {t('decks.moxfieldChanged')}
-                      </span>
-                    ) : null}
-                  </span>
-                  {/* LAST SYNC, on Moxfield decks only.
-                      Zach: "each deck from moxfield should display its last
-                      sync time". It also makes the background poll visible --
-                      the drift badge only appears when something changed, so
-                      without this the feature looks like it is not running. */}
-                  {deck.moxfield_public_id ? (
-                    <span style={{ display: 'block', fontSize: '0.72rem',
-                                   color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                      {deck.moxfield_synced_at
-                        ? t('decks.lastSynced', { when: relativeTime(deck.moxfield_synced_at, t) })
-                        : t('decks.neverSynced')}
-                    </span>
-                  ) : null}
-                  <span className="deck-row-meta">
-                    {/* ONE dollar figure: what the deck is worth. Zach: "I
-                        didn't want 2 dollar amounts just the total cost".
-
-                        TWO LINES, NOT ONE. On a 117px card these ran together
-                        as "price unknown · 22 of 60 cards" and the ellipsis
-                        ate the card count -- the half that actually answers
-                        "is this deck done". They are separate spans now, so
-                        each truncates on its own.
-
-                        READY TO PLAY MEANS FINISHED, not "nothing missing from
-                        a one-card list". Avatar Aang holds a single owned card
-                        and reported Ready to play, because missing was
-                        listed - owned = 0. A deck is ready when the cards it
-                        owns reach its target size, and not before. */}
-                    <span className="deck-row-count">
-                      {deck.have >= deck.target
-                        ? t('deck.readyToPlay')
-                        : t('deck.deckProgress', { have: deck.have, want: deck.target })}
-                    </span>
-                    <span className="deck-row-price">
-                      {deck.deckValue > 0
-                        ? `$${deck.deckValue.toFixed(2)}`
-                        : t('deck.priceUnknown')}
-                    </span>
-                  </span>
-                </span>
-
-                {!selecting && (
-                  <ChevronRight className="deck-row-chevron" size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                )}
-              </button>
+                deck={deck}
+                t={t}
+                onOpen={(id) => (selecting ? toggle(id) : onOpen(id))}
+                selecting={selecting}
+                selected={sel}
+              />
             );
           })}
         </div>
