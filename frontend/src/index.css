@@ -4418,7 +4418,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   /* 1.4fr / 1fr, from the mockup: the decks table needs the width, the
      sources panel is a fixed list of four rows. */
   .dashx-body {
-    display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.1rem;
+    /* A FIXED right column, not a fraction. Data sources is four rows of known
+       width; the decks table and the card art should take the slack. At 1.4fr/
+       1fr the cards rendered 60px wide and two-fifths of the screen sat empty
+       below the sources panel -- measured at 1473x736. */
+    display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.1rem;
     align-items: start; min-height: 0;
   }
   .dashx-main, .dashx-side { min-width: 0; display: flex;
@@ -4457,7 +4461,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
   /* MOST VALUABLE: seven across, as drawn. The art keeps its 0.717 ratio --
      a stretched card is the bug this dashboard already shipped once. */
-  .dashx-tops { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; }
+  /* TEN across, one row. The mockup drew seven, but Zach asked for the top
+     TEN ("Maybe it should be the current top 10 cards") and seven-across wrapped
+     the last three onto a second row that pushed the page 64px past the fold.
+     One row of ten fits the same width and keeps the screen a glance. */
+  .dashx-tops { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr));
+                gap: 0.4rem; }
   .dashx-top {
     position: relative; display: flex; flex-direction: column; padding: 0;
     background: var(--surface-2); border: 1px solid var(--border-glass);
