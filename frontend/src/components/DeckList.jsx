@@ -249,7 +249,12 @@ function DeckList({ decks, loading, onOpenDeck, onNewDeck, onDeleteDeck, showToa
                 key={deck.id}
                 deck={deck}
                 t={t}
-                onOpen={(id) => (selecting ? toggle(id) : onOpen(id))}
+                // onOpenDeck is this component's PROP NAME. `onOpen` is what
+                // DeckCard calls its callback, and I wrote the inner name here
+                // when the card was extracted -- so clicking any deck threw
+                // "onOpen is not defined" and did nothing. Zach: "in deck list
+                // when I click on a deck nothing happens."
+                onOpen={(id) => (selecting ? toggle(id) : onOpenDeck(id))}
                 selecting={selecting}
                 selected={sel}
               />

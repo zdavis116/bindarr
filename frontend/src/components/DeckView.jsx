@@ -447,7 +447,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       onChanged && onChanged();
       return true;
     } catch (err) {
-      setError(err.message);
+      // showToast, like every other handler in this file. This said
+      // setError(...), which does not exist here -- so the one path that was
+      // supposed to REPORT a failed role save threw its own ReferenceError
+      // instead, and the user saw nothing at all. Found by eslint no-undef
+      // while chasing the deck-list click bug.
+      showToast(err.message || t('deck.saveFailed'), 'error');
       return false;
     } finally {
       setBusy(false);
