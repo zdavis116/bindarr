@@ -4161,17 +4161,17 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
              gap: 0.45rem; }
 .dash-kpi { display: block; text-align: left; background: var(--surface-1);
             border: 1px solid var(--border-glass); border-radius: var(--radius-md);
-            padding: 0.55rem 0.5rem; font: inherit; color: var(--text-primary);
+            padding: 0.8rem 0.6rem; font: inherit; color: var(--text-primary);
             cursor: pointer; min-height: 44px; }
-.dash-kpi-lbl { display: block; font-size: 0.6rem; letter-spacing: 0.03em;
+.dash-kpi-lbl { display: block; font-size: 0.62rem; letter-spacing: 0.03em;
                 text-transform: uppercase; color: var(--text-muted);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.dash-kpi-num { display: block; font-size: 1.28rem; font-weight: 700;
+.dash-kpi-num { display: block; font-size: 1.5rem; font-weight: 700;
                 letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-kpi-num.warn { color: var(--warning, #ff9f0a); }
-.dash-kpi-sub { display: block; font-size: 0.66rem; color: var(--text-secondary);
+.dash-kpi-sub { display: block; font-size: 0.68rem; color: var(--text-secondary);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .dash-cols {
@@ -4210,7 +4210,7 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
                    from the 0.717 aspect ratio, so they are never stretched.
                    clamp keeps ~3 visible on a phone and stops them ballooning
                    on a desktop. */
-                flex: 0 0 clamp(106px, 30%, 150px); scroll-snap-align: start;
+                flex: 0 0 clamp(108px, 30%, 168px); scroll-snap-align: start;
                 background: var(--surface-2); border: 1px solid var(--border-glass);
                 border-radius: 8px; overflow: hidden; padding: 0; cursor: pointer;
                 font: inherit; color: var(--text-primary); text-align: left; }
