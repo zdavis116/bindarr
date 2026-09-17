@@ -4908,7 +4908,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     row-gap: 0.7rem;
     width: min(1000px, 92vw);
     max-width: none;
-    height: min(760px, 88vh);
+    /* CONTENT HEIGHT, capped -- not a fixed 760px. Cast-Off Consort has four
+       lines of rules and rendered a 390px empty panel beneath them. A long
+       card still scrolls inside because .ci-scroll keeps min-height:0. */
+    height: auto;
+    max-height: 88vh;
     padding: 1.1rem;
   }
   /* Art column: fixed width, top-left. */
@@ -4935,5 +4939,9 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   }
   .modal-overlay > .card-inspector:not(.card-inspector-inline) > .ci-info-col > .ci-scroll {
     grid-column: 1 / -1; grid-row: 3; min-height: 0; overflow-y: auto;
+  }
+  /* The art row must not stretch to the panel either. */
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) {
+    grid-template-rows: auto auto auto;
   }
 }
