@@ -1629,5 +1629,8 @@
   "search.thPrice": "Price",
   "search.thOwn": "Own",
   "search.staged": "Staged",
-  "search.add": "Add"
+  "search.add": "Add",
+  "addCards.title": "Add cards",
+  "addCards.importCsv": "Import CSV",
+  "addCards.pasteList": "Paste list"
 }

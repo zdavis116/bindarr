@@ -11,7 +11,7 @@ import { CONDITIONS, PRINTINGS } from '../utils/cardOptions';
 
 import { useT } from '../utils/i18n';
 
-function CardSearch({ onAddSuccess, showToast }) {
+function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
   const { t } = useT();
   const [query, setQuery] = useState('');
   const [numberQuery, setNumberQuery] = useState('');
@@ -485,7 +485,7 @@ function CardSearch({ onAddSuccess, showToast }) {
           height. A wrapper lets each column size to its own content. */}
       <div className="cs-main">
       {/* Search Header Panel */}
-      <div className="glass-panel" style={{ marginBottom: '2rem' }}>
+      <div className="glass-panel cs-searchpanel" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-strong)' }}>{t('search.title', { game: 'Magic: The Gathering' })}</h2>
         </div>
@@ -650,8 +650,11 @@ function CardSearch({ onAddSuccess, showToast }) {
       {loading && <div className="spinner"></div>}
 
       {/* Filters and Sorting Panel */}
+      {/* cs-filterpanel: hidden on desktop. The mockup has no filters -- the
+          question there is "which printing", answered by the Set/Price/Own
+          columns, not by narrowing 60 results to 40. */}
       {!loading && cards.length > 0 && (
-        <div className="glass-panel" style={{ marginBottom: '1.5rem', padding: '1rem' }}>
+        <div className="glass-panel cs-filterpanel" style={{ marginBottom: '1.5rem', padding: '1rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('search.filterType')}</label>
@@ -748,6 +751,27 @@ function CardSearch({ onAddSuccess, showToast }) {
         </div>
       )}
 
+      {/* DESKTOP HEADER -- sketches/desktop.html section 7: a title, then Scan /
+          Import CSV / Paste list top-right. CSS-hidden below 1024px, where the
+          phone's own Scan/Search tabs already do this job. */}
+      <div className="cs-head">
+        <h1>{t('addCards.title')}</h1>
+        <div className="cs-head-actions">
+          <button type="button" className="btn btn-secondary"
+                  onClick={() => onOpenScan && onOpenScan()}>
+            {t('addCards.scan')}
+          </button>
+          <button type="button" className="btn btn-secondary"
+                  onClick={() => onOpenImport && onOpenImport('csv')}>
+            {t('addCards.importCsv')}
+          </button>
+          <button type="button" className="btn btn-secondary"
+                  onClick={() => onOpenImport && onOpenImport('paste')}>
+            {t('addCards.pasteList')}
+          </button>
+        </div>
+      </div>
+
       {/* RESULTS AS A TABLE ON DESKTOP -- sketches/desktop.html section 7:
           Card / Set / Cond / Price / Own / Add, one row per printing.
           Zach: "why dont you follow the mockup that I liked whats the point of
@@ -761,7 +785,20 @@ function CardSearch({ onAddSuccess, showToast }) {
 
           The grid below still renders on the phone, where art IS the fastest
           way to tell cards apart on a narrow screen. */}
+      {/* THE SEARCH INPUT LIVES IN THE RESULTS PANEL, as drawn -- one field
+          above the rows, not a 290px panel of its own above everything. The
+          full form is still rendered for the phone and CSS-hidden here, so no
+          capability is lost: set code, card number and rapid add all still
+          work, they are just not the first thing on a desktop screen. */}
       {!loading && cards.length > 0 && filteredAndSortedCards.length > 0 && (
+        <div className="cs-results">
+        <input
+          className="input-control cs-quicksearch"
+          placeholder={t('search.cardName')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
+        />
         <table className="cs-table">
           <thead>
             <tr>
@@ -790,9 +827,17 @@ function CardSearch({ onAddSuccess, showToast }) {
                       payload. My first guess (set_code/set) rendered an orphan
                       "· #CLB-187" with the set missing entirely -- the same
                       class of mistake as missing_cost on the dashboard. */}
+                  {/* set_id can be EMPTY (some The List printings), which
+                      rendered a bare "· #USG-174" with no set at all. Fall
+                      back to the set name, then to just the number -- never a
+                      dangling separator. */}
                   <td title={card.set_name || ''}>
-                    {(card.set_id || '').toUpperCase()}
-                    {card.number ? ` · #${card.number}` : ''}
+                    {(() => {
+                      const code = (card.set_id || '').toUpperCase()
+                        || card.set_name || '';
+                      const num = card.number ? `#${card.number}` : '';
+                      return [code, num].filter(Boolean).join(' · ') || '—';
+                    })()}
                   </td>
                   {/* The condition the staging pane will actually apply, not a
                       per-row value -- one add sets one condition. */}
@@ -827,6 +872,7 @@ function CardSearch({ onAddSuccess, showToast }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
 
       {/* Search Results Grid */}
@@ -994,34 +1040,34 @@ function CardSearch({ onAddSuccess, showToast }) {
           <p className="cs-stage-empty">{t('search.stagingEmpty')}</p>
         ) : (
           <>
-            <div className="cs-stage-list">
-              {filteredAndSortedCards
-                .filter((c) => selectedIds.has(c.id))
-                .map((c) => (
-                  <div key={c.id} className="cs-stage-row">
-                    {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
-                    <span className="cs-stage-name">
-                      <b>{c.name}</b>
-                      <span>{(c.set_code || c.set || '').toUpperCase()}</span>
-                    </span>
-                    <span className="cs-stage-qty">
-                      ×{parseInt(quantity, 10) || 1}
-                    </span>
-                    <button
-                      type="button"
-                      className="cs-stage-drop"
-                      aria-label={t('search.unstage')}
-                      onClick={() => setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(c.id);
-                        return next;
-                      })}
-                    >
-                      ×
-                    </button>
-                  </div>
+            {/* NAME / SET / xQTY, as the mockup draws it -- no thumbnail.
+                The art is in the results table beside it; repeating it here
+                costs the width the deck name needs. */}
+            <table className="cs-stage-table">
+              <tbody>
+                {stagedCards.map((c) => (
+                  <tr key={c.id}>
+                    <td className="cs-stage-name">{c.name}</td>
+                    <td className="n">{(c.set_id || '').toUpperCase()}</td>
+                    <td className="n">×{stageQty}</td>
+                    <td className="n">
+                      <button
+                        type="button"
+                        className="cs-stage-drop"
+                        aria-label={t('search.unstage')}
+                        onClick={() => setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          next.delete(c.id);
+                          return next;
+                        })}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
                 ))}
-            </div>
+              </tbody>
+            </table>
 
             <dl className="cs-stage-facts">
               <dt>{t('search.goingTo')}</dt>

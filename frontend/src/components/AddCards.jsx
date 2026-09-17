@@ -70,7 +70,18 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
         {mode === 'scan' ? (
           <CameraScanner onAddSuccess={onAddSuccess} showToast={showToast} setActiveTab={setActiveTab} />
         ) : (
-          <CardSearch onAddSuccess={onAddSuccess} showToast={showToast} setActiveTab={setActiveTab} />
+          <CardSearch
+            onAddSuccess={onAddSuccess}
+            showToast={showToast}
+            setActiveTab={setActiveTab}
+            /* The mockup's header buttons. Scan switches to the pane that
+               already exists. Import goes to Collection, which owns the CSV /
+               paste dialog -- setActiveTab is App's goTab and takes a tab name
+               only, so it cannot carry which kind; checked rather than assumed,
+               after shipping a dead onOpen call last week. */
+            onOpenScan={() => setMode('scan')}
+            onOpenImport={() => setActiveTab && setActiveTab('collection')}
+          />
         )}
       </div>
     </div>

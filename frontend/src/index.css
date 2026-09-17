@@ -4732,3 +4732,56 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
   .cs-row-add { font-size: 0.72rem; padding: 0.2rem 0.7rem; }
 }
+
+/* The desktop header is desktop-only; the phone keeps its Scan/Search tabs. */
+.cs-head { display: none; }
+
+@media (min-width: 1024px) {
+  /* ===== ADD CARDS, MATCHING sketches/desktop.html SECTION 7 EXACTLY =====
+     Zach: "I want you to match the mockup exactly."
+
+     The mockup is: a title with Scan / Import CSV / Paste list top-right, then
+     ONE search input inside the results panel, then the table. What shipped
+     before had the phone's whole search apparatus (3 fields, rapid add) plus a
+     filter panel stacked above the table -- 338px of chrome before the first
+     result, where the mockup has 0. */
+
+  .cs-head {
+    display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.9rem;
+    grid-column: 1 / -1;
+  }
+  .cs-head h1 { margin: 0; font-size: 1.35rem; letter-spacing: -0.02em; }
+  .cs-head-actions { margin-left: auto; display: flex; gap: 0.4rem; }
+  .cs-head-actions .btn { font-size: 0.78rem; padding: 0.3rem 0.7rem; }
+
+  /* HIDDEN, NOT DELETED. The phone needs every one of these: set code, card
+     number, rapid add, and the filters. On desktop the mockup answers "which
+     printing" with the Set / Price / Own columns instead. */
+  .cs-main > .cs-searchpanel,
+  .cs-main > .cs-filterpanel { display: none; }
+
+  /* The results PANEL: input, then rows -- the mockup's left pane. */
+  .cs-results {
+    background: var(--surface-1); border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md); padding: 0.9rem 1rem;
+  }
+  .cs-quicksearch { width: 100%; margin-bottom: 0.8rem; }
+}
+
+@media (min-width: 1024px) {
+  /* STAGING ROWS: name / set / xqty, as drawn. No thumbnail -- the art is in
+     the results table two inches to the left. */
+  .cs-stage-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .cs-stage-table td { padding: 0.18rem 0; color: var(--text-secondary); }
+  .cs-stage-table .n { text-align: right; font-variant-numeric: tabular-nums;
+                       padding-left: 0.4rem; }
+  .cs-stage-table .cs-stage-name {
+    color: var(--text-primary); max-width: 150px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The facts block sits under a rule, as in the mockup. */
+  .cs-stage-facts {
+    border-top: 1px solid var(--border-glass);
+    margin-top: 0.7rem !important; padding-top: 0.7rem;
+  }
+}
