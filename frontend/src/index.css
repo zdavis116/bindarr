@@ -4899,6 +4899,7 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      display:contents promotes the info column's children into this grid so the
      tabs and body span the full width, exactly as the pane does. */
   .modal-overlay > .card-inspector:not(.card-inspector-inline) {
+    position: relative;
     display: grid;
     grid-template-columns: 200px minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr);
@@ -4910,20 +4911,29 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     height: min(760px, 88vh);
     padding: 1.1rem;
   }
-  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-image-col {
-    grid-column: 1; grid-row: 1;
+  /* Art column: fixed width, top-left. */
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) > .ci-image-col {
+    grid-column: 1; grid-row: 1; width: 200px;
   }
-  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-info-col {
+  /* The close button's wrapper is an UNCLASSED DIV and the first direct
+     child, so it auto-placed into cell 1/1 and displaced the art -- which is
+     why everything stacked into one 200px column. Read off the live DOM;
+     I had assumed it was a <button>. */
+  .modal-overlay > .card-inspector:not(.card-inspector-inline)
+    > div:not([class]) {
+    position: absolute; top: 12px; right: 12px; z-index: 5;
+  }
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) > .ci-info-col {
     display: contents;
   }
   /* The identity sits beside the art; tabs and body span both columns. */
-  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-head {
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) > .ci-info-col > .ci-head {
     grid-column: 2; grid-row: 1; min-width: 0;
   }
-  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-tabs {
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) > .ci-info-col > .ci-tabs {
     grid-column: 1 / -1; grid-row: 2;
   }
-  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-scroll {
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) > .ci-info-col > .ci-scroll {
     grid-column: 1 / -1; grid-row: 3; min-height: 0; overflow-y: auto;
   }
 }
