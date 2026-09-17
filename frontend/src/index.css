@@ -4878,3 +4878,52 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .cs-quickset { flex: 0 0 120px; }
   .cs-quicknum { flex: 0 0 100px; }
 }
+
+
+@media (min-width: 1024px) {
+  /* THE MODAL GETS THE SAME LAYOUT AS THE INLINE PANE.
+     Zach: "when I click on a card in the top ten the card detail doesnt load
+     like it should."
+
+     It rendered as an empty grey box. The content WAS in the DOM -- the name,
+     tabs and rules all read back -- but .ci-info-col measured 121px wide, so
+     every line wrapped to one word inside an invisible sliver. That is the
+     exact bug sketches/desktop.html section 4 documented: "the info column
+     declares flex: 1 1 320px and renders at 121px".
+
+     The fix existed already, scoped to .card-inspector-inline (the collection
+     pane). The MODAL never got it -- it had a max-width:768px rule for the
+     phone and nothing for a desktop dialog, so it fell through to the mobile
+     flex layout at 1500px. One question, two places, again.
+
+     display:contents promotes the info column's children into this grid so the
+     tabs and body span the full width, exactly as the pane does. */
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    align-items: start;
+    column-gap: 1rem;
+    row-gap: 0.7rem;
+    width: min(1000px, 92vw);
+    max-width: none;
+    height: min(760px, 88vh);
+    padding: 1.1rem;
+  }
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-image-col {
+    grid-column: 1; grid-row: 1;
+  }
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-info-col {
+    display: contents;
+  }
+  /* The identity sits beside the art; tabs and body span both columns. */
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-head {
+    grid-column: 2; grid-row: 1; min-width: 0;
+  }
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-tabs {
+    grid-column: 1 / -1; grid-row: 2;
+  }
+  .modal-overlay > .card-inspector:not(.card-inspector-inline) .ci-scroll {
+    grid-column: 1 / -1; grid-row: 3; min-height: 0; overflow-y: auto;
+  }
+}
