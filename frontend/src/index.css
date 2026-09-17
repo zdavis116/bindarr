@@ -4451,7 +4451,26 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     align-items: start; min-height: 0;
   }
   .dashx-main, .dashx-side { min-width: 0; display: flex;
-                             flex-direction: column; gap: 1rem; }
+                             flex-direction: column; gap: 1rem; min-height: 0; }
+  /* THE PAGE MUST NOT SCROLL; the strip may. Zach asked for both "filled but
+     not scrollable" and readable art, and ten 127px cards in two rows need
+     426px the 736px viewport does not have after the KPIs and decks. Capping
+     the strip keeps the page still and every card legible -- the first six
+     show without any gesture. */
+  /* .dashx is bounded by the viewport; the most-valuable panel is the only
+     child allowed to give, and its grid scrolls inside it. */
+  .dashx { height: calc(100dvh - var(--pane-top, 7.5rem)); }
+  .dashx-body { min-height: 0; overflow: hidden; }
+  .dashx-main > .dashx-panel:last-child {
+    display: flex; flex-direction: column; min-height: 0; flex: 1;
+  }
+  .dashx-main > .dashx-panel:last-child .dashx-tops {
+    overflow-y: auto; min-height: 0; align-content: start;
+    /* Snap so a scroll lands on a whole row -- a row sliced through the middle
+       of the art reads as broken, not as "there is more below". */
+    scroll-snap-type: y proximity;
+  }
+  .dashx-top { scroll-snap-align: start; }
 
   .dashx-panel {
     background: var(--surface-1); border: 1px solid var(--border-glass);
@@ -4506,11 +4525,14 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      Ten in one row gave each card 72px: the art was a thumbnail and every name
      ellipsed. Five across doubles that to ~165px, and the second row costs
      height the dashboard has -- it was ending at 621 of 736. */
+  /* SIX ACROSS: ~127px each, 1.8x the unreadable 72px of ten-across, and the
+     ten cards land as 6 + 4. */
   .dashx-tops { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
                 gap: 0.45rem; }
-  /* The caption is fixed height; only the art may shrink, and it must keep the
-     0.717 Magic ratio -- stretching it is a bug Zach has rejected twice. */
-  .dashx-top img { max-height: 150px; }
+  /* NO max-height HERE. It fights aspect-ratio and wins, squashing the art to
+     0.834 -- stretched card art, which Zach has now rejected three times. A
+     ratio-locked box is sized by WIDTH alone; the column count is the only
+     dial. */
   .dashx-top {
     position: relative; display: flex; flex-direction: column; padding: 0;
     background: var(--surface-2); border: 1px solid var(--border-glass);
