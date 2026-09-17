@@ -3211,7 +3211,11 @@ button, input, select, textarea {
   margin-top: 0.4rem; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis;
 }
-.deck-row-cost { color: #fbbf24; font-weight: 700; }
+.deck-row-cost { color: #fbbf24; font-weight: 700; display: inline; }
+/* The first card wrapped "48 missing · $175.73" and stranded the separator on
+   its own line; every other card fit because "Complete" is one word. The foot
+   is one line, ellipsed if it must be -- never broken mid-sentence. */
+.deck-row-foot { display: block; }
 
 /* Select mode replaces the ring, in the same spot. */
 .deck-check {
@@ -4498,6 +4502,10 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   /* The card is exactly art + body; the grid must not stretch it to a row
      height. Same rule the collection tiles needed. */
   .dashx-decks > .deck-row { align-self: start; width: 100%; }
+  /* NO align-self: stretch here. It grows the card BOX while the art keeps
+     its ratio -- the dead-grey-panel bug Zach rejected twice on the dashboard.
+     The height difference came from the footer wrapping to two lines, which is
+     fixed above; the grid row then sizes them equally on its own. */
 
   .dashx-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
   .dashx-table th {
