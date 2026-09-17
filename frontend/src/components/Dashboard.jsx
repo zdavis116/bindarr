@@ -58,7 +58,14 @@ function ProgressRing({ pct, size = 42 }) {
   );
 }
 
-function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
+function Dashboard({
+  statsTrigger, onNavigate, onOpenDeck,
+  // App.jsx:237 has always passed these; the desktop inspector needs them and
+  // this signature simply never took them. Opening a top-ten card rendered an
+  // empty grey box with a close button -- Zach: "when I click on a card in the
+  // top ten the card detail doesnt load like it should".
+  onUpdate, showToast, setSelectedLocationId, setFocusEntryId,
+}) {
   const { t } = useT();
   const [stats, setStats] = useState(null);
   const [decks, setDecks] = useState([]);
@@ -426,9 +433,16 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
 
         {inspectorCard && (
           <CardInspectorModal
+            /* The SAME props the collection passes. statsTrigger is not one of
+               them -- CardInspectorModal has no such prop, and passing it
+               while omitting showToast is why this rendered empty. */
+            key={inspectorCard.entry_id || inspectorCard.card_id}
             card={inspectorCard}
             onClose={() => setInspectorCard(null)}
-            statsTrigger={statsTrigger}
+            onUpdate={() => onUpdate && onUpdate()}
+            showToast={showToast}
+            setSelectedLocationId={setSelectedLocationId}
+            setFocusEntryId={setFocusEntryId}
             onNavigate={onNavigate}
           />
         )}

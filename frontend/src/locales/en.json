@@ -1631,10 +1631,9 @@
   "search.staged": "Staged",
   "search.add": "Add",
   "addCards.title": "Add cards",
-  "addCards.importCsv": "Import CSV",
-  "addCards.pasteList": "Paste list",
   "search.emptyPrompt": "Type a card name and press Enter.",
   "deck.complete": "Complete",
   "deck.nMissing": "{n} missing",
-  "search.setCode": "Set code"
+  "search.setCode": "Set code",
+  "addCards.import": "Import"
 }

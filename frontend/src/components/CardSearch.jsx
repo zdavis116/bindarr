@@ -63,6 +63,20 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
   // Fetched on mount, then thrown away -- `const [, setLocations]`. The
   // staging pane needs the actual list to offer a destination.
   const [locations, setLocations] = useState([]);
+
+  // Is the desktop layout active? The quick row IS the search there, so it
+  // types-to-search; the phone keeps its explicit Search button, where a
+  // request per keystroke costs mobile data.
+  const [isWide, setIsWide] = useState(
+    typeof window !== 'undefined'
+    && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e) => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
   
   // Form states
   const [quantity, setQuantity] = useState(1);
@@ -272,6 +286,35 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
   const stageValue = `$${stagedCards
     .reduce((sum, c) => sum + (c.price_trend || 0) * stageQty, 0)
     .toFixed(2)}`;
+
+  // SEARCH AS YOU TYPE -- desktop only, where the quick row is the search.
+  //
+  // Zach: "when I search I shouldnt have to hit enter it should automatically
+  // search and when I clear the search the card list should go empty."
+  //
+  // Debounced at 350ms so typing "lightning" is ONE request, not nine. An
+  // empty box clears the results rather than leaving the last search on
+  // screen, which otherwise reads as "these are your matches for nothing".
+  useEffect(() => {
+    if (!isWide) return undefined;
+    const term = query.trim();
+    const set = setCodeQuery.trim();
+    const num = numberQuery.trim();
+    if (!term && !set && !num) {
+      setCards([]);
+      setTotal(null);
+      setHasMore(false);
+      return undefined;
+    }
+    // Two characters is the floor: a single letter matches most of the
+    // catalogue and costs a full round trip to say so.
+    if (term && term.length < 2 && !num) return undefined;
+    const id = setTimeout(() => { setPage(1); runSearch(1); }, 350);
+    return () => clearTimeout(id);
+    // runSearch reads the query state directly; listing it would re-fire the
+    // effect on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, setCodeQuery, numberQuery, isWide]);
 
   const handleBulkAdd = async () => {
     const ids = filteredAndSortedCards.filter(c => selectedIds.has(c.id)).map(c => c.id);
@@ -761,13 +804,13 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
                   onClick={() => onOpenScan && onOpenScan()}>
             {t('addCards.scan')}
           </button>
+          {/* ONE import button. The mockup drew two, but they open the same
+              ImportModal -- it takes a file or a pasted list in one dialog.
+              Zach: "it looks like Paste List and import csv do the same thing.
+              It think we should just have an import button." */}
           <button type="button" className="btn btn-secondary"
-                  onClick={() => onOpenImport && onOpenImport('csv')}>
-            {t('addCards.importCsv')}
-          </button>
-          <button type="button" className="btn btn-secondary"
-                  onClick={() => onOpenImport && onOpenImport('paste')}>
-            {t('addCards.pasteList')}
+                  onClick={() => onOpenImport && onOpenImport()}>
+            {t('addCards.import')}
           </button>
         </div>
       </div>
