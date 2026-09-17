@@ -47,7 +47,10 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '1rem', position: 'relative' }}>
+      {/* The phone's mode switch. On desktop the header's Scan button does
+          this job, and two sets of Scan controls on one screen is the
+          duplication Zach keeps catching. */}
+      <div className={`ac-modes${mode === 'search' ? ' ac-modes-hide' : ''}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '1rem', position: 'relative' }}>
         <div className="sub-nav-tabs" style={{ width: '100%', maxWidth: '400px', margin: 0 }}>
           <button 
             className={`sub-nav-tab ${mode === 'scan' ? 'active' : ''}`}

@@ -4797,3 +4797,22 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .cs-results-note { display: block; color: var(--text-muted);
                      font-size: 0.82rem; margin: 0; }
 }
+
+@media (min-width: 1024px) {
+  /* THREE THINGS VISIBLE ONLY BY LOOKING AT THE DEPLOYED PAGE:
+
+     1. The phone's Scan|Search pill still floated above the desktop header --
+        two sets of Scan buttons on one screen. The header owns Scan here.
+     2. The staging pane sat level with the title while the results panel
+        started below it; the mockup aligns their tops.
+     3. Row height ran ~58px because the thumbnail is 34px inside 0.3rem
+        padding; the mockup's rows are compact enough to compare a dozen
+        printings without scrolling. */
+  /* Hidden only in SEARCH mode, where the header's Scan button is on screen.
+     In scan mode this pill is the ONLY way back to search, and CardSearch's
+     header is not rendered -- hiding it there would strand the user. */
+  .ac-modes-hide { display: none !important; }
+
+  .cs-table td { padding: 0.18rem 0.5rem; }
+  .cs-td-card img { width: 26px; }
+}
