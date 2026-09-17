@@ -786,8 +786,12 @@ function CardSearch({ onAddSuccess, showToast }) {
                     <img src={card.image_url} alt="" loading="lazy" />
                     <b>{card.name}</b>
                   </td>
-                  <td>
-                    {(card.set_code || card.set || '').toUpperCase()}
+                  {/* set_id + set_name, verified against the live search
+                      payload. My first guess (set_code/set) rendered an orphan
+                      "· #CLB-187" with the set missing entirely -- the same
+                      class of mistake as missing_cost on the dashboard. */}
+                  <td title={card.set_name || ''}>
+                    {(card.set_id || '').toUpperCase()}
                     {card.number ? ` · #${card.number}` : ''}
                   </td>
                   {/* The condition the staging pane will actually apply, not a
