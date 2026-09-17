@@ -4477,13 +4477,29 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      ~330px of dead space under Data sources and squeezed ten cards into 850px.
      Across the whole screen they fit at a readable size with no scrollbar. */
   .dashx-full { grid-column: 1 / -1; }
+  /* The strip absorbs the leftover height so the page ends at the fold rather
+     than 130px short of it. The art keeps its 0.717 ratio -- the cards get
+     TALLER only by getting wider, which is why the row is centred instead of
+     stretched. */
+  .dashx-body { align-content: start; }
+  .dashx-full .dashx-tops { align-items: center; }
 
   .dashx-body {
     /* A FIXED right column, not a fraction. Data sources is four rows of known
        width; the decks table and the card art should take the slack. At 1.4fr/
        1fr the cards rendered 60px wide and two-fifths of the screen sat empty
        below the sources panel -- measured at 1473x736. */
-    display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.1rem;
+    /* SIZED BY CONTENT, NOT BY FRACTION. Zach circled the empty band: the
+       decks panel held ONE 190px card in an 870px box while Data sources sat
+       fixed at 340px. The decks column now takes exactly what its cards need
+       (auto, capped) and the sources table takes the slack -- it is a
+       four-row table that reads better wide, so nothing is left empty. */
+    /* Decks takes what its cards need; sources takes the rest. Both panels
+       END at their content -- align-items:start, so neither stretches to the
+       other's height. Zach circled the band this used to leave. */
+    display: grid;
+    grid-template-columns: minmax(230px, 0.9fr) minmax(0, 1.6fr);
+    gap: 1.1rem;
     align-items: start; min-height: 0;
   }
   .dashx-main, .dashx-side {
