@@ -748,6 +748,83 @@ function CardSearch({ onAddSuccess, showToast }) {
         </div>
       )}
 
+      {/* RESULTS AS A TABLE ON DESKTOP -- sketches/desktop.html section 7:
+          Card / Set / Cond / Price / Own / Add, one row per printing.
+          Zach: "why dont you follow the mockup that I liked whats the point of
+          the mockup?" Fair. I shipped the phone's card grid on desktop because
+          it already existed, which is not a reason.
+
+          A table is the right shape for the question this screen answers: four
+          printings of Lightning Bolt differ by SET, PRICE and how many you
+          already OWN, and a grid of near-identical art makes you read ten
+          images to compare three numbers.
+
+          The grid below still renders on the phone, where art IS the fastest
+          way to tell cards apart on a narrow screen. */}
+      {!loading && cards.length > 0 && filteredAndSortedCards.length > 0 && (
+        <table className="cs-table">
+          <thead>
+            <tr>
+              <th>{t('search.thCard')}</th>
+              <th>{t('search.thSet')}</th>
+              <th>{t('search.thCond')}</th>
+              <th className="n">{t('search.thPrice')}</th>
+              <th className="n">{t('search.thOwn')}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAndSortedCards.map((card) => {
+              const isSelected = selectedIds.has(card.id);
+              return (
+                <tr
+                  key={card.id}
+                  className={isSelected ? 'is-staged' : undefined}
+                  onClick={(e) => handleCardClick(card, e)}
+                >
+                  <td className="cs-td-card">
+                    <img src={card.image_url} alt="" loading="lazy" />
+                    <b>{card.name}</b>
+                  </td>
+                  <td>
+                    {(card.set_code || card.set || '').toUpperCase()}
+                    {card.number ? ` · #${card.number}` : ''}
+                  </td>
+                  {/* The condition the staging pane will actually apply, not a
+                      per-row value -- one add sets one condition. */}
+                  <td>{condition}</td>
+                  <td className="n">
+                    {card.price_trend ? `$${Number(card.price_trend).toFixed(2)}` : '—'}
+                  </td>
+                  <td className="n">{card.owned_qty || 0}</td>
+                  <td className="n">
+                    <button
+                      type="button"
+                      className={`btn ${isSelected ? 'btn-secondary' : 'btn-primary'} cs-row-add`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Staging, not an immediate write: the pane is where
+                        // the add happens, so one click cannot bypass the
+                        // destination and condition the user set there.
+                        if (!selectMode) setSelectMode(true);
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(card.id)) next.delete(card.id);
+                          else next.add(card.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      {isSelected ? t('search.staged') : t('search.add')}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
       {/* Search Results Grid */}
       {!loading && cards.length > 0 && filteredAndSortedCards.length > 0 && (
         <div className="card-grid">

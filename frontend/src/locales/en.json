@@ -1622,5 +1622,12 @@
   "search.goingTo": "Going to",
   "search.unassigned": "Unassigned",
   "search.value": "Value",
-  "search.unstage": "Remove from staging"
+  "search.unstage": "Remove from staging",
+  "search.thCard": "Card",
+  "search.thSet": "Set",
+  "search.thCond": "Cond",
+  "search.thPrice": "Price",
+  "search.thOwn": "Own",
+  "search.staged": "Staged",
+  "search.add": "Add"
 }
