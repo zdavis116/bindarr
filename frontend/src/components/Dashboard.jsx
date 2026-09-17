@@ -363,29 +363,6 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
               )}
             </section>
 
-            {/* MOST VALUABLE, beneath the decks -- same panel in the mockup. */}
-            {!!topValuable.length && (
-              <section className="dashx-panel">
-                <h3>{t('dash.topValuable')}</h3>
-                <div className="dashx-tops">
-                  {topValuable.map((c) => (
-                    <button
-                      key={c.card_id || c.entry_id}
-                      type="button"
-                      className="dashx-top"
-                      onClick={() => setInspectorCard(c)}
-                    >
-                      {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
-                      <span className="cap">
-                        <b>{displayName(c)}</b>
-                        <span>{money(c.price_trend)}</span>
-                      </span>
-                      {c.copies > 1 && <span className="dashx-copies">x{c.copies}</span>}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
           </div>
 
           {/* DATA SOURCES: what is fresh, and when it next runs. */}
@@ -419,6 +396,32 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
               )}
             </section>
           </aside>
+
+          {/* MOST VALUABLE, FULL WIDTH. Ten cards at a readable size need more
+              than the left column, and confining them there left the space
+              under Data sources empty. */}
+          {!!topValuable.length && (
+            <section className="dashx-panel dashx-full">
+              <h3>{t('dash.topValuable')}</h3>
+              <div className="dashx-tops">
+                {topValuable.map((c) => (
+                  <button
+                    key={c.card_id || c.entry_id}
+                    type="button"
+                    className="dashx-top"
+                    onClick={() => setInspectorCard(c)}
+                  >
+                    {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
+                    <span className="cap">
+                    <b>{displayName(c)}</b>
+                    <span>{money(c.price_trend)}</span>
+                    </span>
+                    {c.copies > 1 && <span className="dashx-copies">x{c.copies}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
 
         {inspectorCard && (

@@ -3208,8 +3208,25 @@ button, input, select, textarea {
 }
 .deck-row-foot {
   display: block; font-size: 0.76rem; color: var(--text-secondary);
-  margin-top: 0.4rem; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis;
+  margin-top: 0.4rem; overflow: hidden; text-overflow: ellipsis;
+  /* nowrap on the CHILDREN too -- the cost is a <b>, and a nowrap parent does
+     not stop an inline child wrapping at the space before it. Measured: the
+     dashboard card still broke "48 missing · $133.21" across two lines. */
+  white-space: nowrap;
+}
+.deck-row-foot > * { white-space: nowrap; }
+/* THE COST MUST BE INLINE. It computed display:block -- a block child starts a
+   new line no matter what white-space says, which is why three nowrap attempts
+   all measured the footer at 36px. Asked the browser for the computed value
+   instead of re-reading my own rule; that named it in one query. */
+.deck-row-foot .deck-row-cost,
+.deck-row-foot-run .deck-row-cost { display: inline !important; }
+.deck-row-foot-run { display: block; }
+/* The run is one line; if the card is too narrow the ELLIPSIS eats the end,
+   which is readable. A wrap is not. */
+.deck-row-foot-run {
+  display: block; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
 }
 .deck-row-cost { color: #fbbf24; font-weight: 700; display: inline; }
 /* The first card wrapped "48 missing · $175.73" and stranded the separator on
@@ -4456,6 +4473,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
   /* 1.4fr / 1fr, from the mockup: the decks table needs the width, the
      sources panel is a fixed list of four rows. */
+  /* THE STRIP SPANS THE FULL WIDTH. Confining it to the left column left
+     ~330px of dead space under Data sources and squeezed ten cards into 850px.
+     Across the whole screen they fit at a readable size with no scrollbar. */
+  .dashx-full { grid-column: 1 / -1; }
+
   .dashx-body {
     /* A FIXED right column, not a fraction. Data sources is four rows of known
        width; the decks table and the card art should take the slack. At 1.4fr/
@@ -4549,7 +4571,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     scroll-snap-type: x proximity;
     padding-bottom: 0.3rem;
   }
-  .dashx-tops > .dashx-top { flex: 0 0 120px; scroll-snap-align: start; }
+  /* 1fr each, not a fixed 120px basis: at 1226px wide ten 120px cards plus
+     nine gaps overflow by ~20px and produce a scrollbar under a row that
+     otherwise fits exactly. */
+  .dashx-tops > .dashx-top { flex: 1 1 0; min-width: 0;
+                             scroll-snap-align: start; }
   /* NO max-height HERE. It fights aspect-ratio and wins, squashing the art to
      0.834 -- stretched card art, which Zach has now rejected three times. A
      ratio-locked box is sized by WIDTH alone; the column count is the only

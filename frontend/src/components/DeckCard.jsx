@@ -120,18 +120,22 @@ export default function DeckCard({
         {/* WHAT IS LEFT TO DO, and what it costs -- the mockup's
             "49 missing · $140.35", or "Complete" when there is nothing. */}
         <span className="deck-row-foot">
+          {/* ONE inline run, not text + <b> siblings. Three CSS attempts at
+              nowrap failed because the whitespace text node between them is a
+              legal break point regardless -- measured the footer at 36px (two
+              lines) each time. A single <b> wrapping only the money keeps the
+              colour without introducing a second inline box before it. */}
           {deck.have >= deck.target
             ? t('deck.complete')
             : (
-              <>
-                {t('deck.nMissing', { n: deck.target - deck.have })}
-                {' · '}
+              <span className="deck-row-foot-run">
+                {`${t('deck.nMissing', { n: deck.target - deck.have })} · `}
                 <b className="deck-row-cost">
                   {deck.toFinish > 0
                     ? `$${deck.toFinish.toFixed(2)}`
                     : (deck.deckValue > 0 ? `$${deck.deckValue.toFixed(2)}` : '')}
                 </b>
-              </>
+              </span>
             )}
           {extra}
         </span>
