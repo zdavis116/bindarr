@@ -4502,10 +4502,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
        END at their content -- align-items:start, so neither stretches to the
        other's height. Zach circled the band this used to leave. */
     display: grid;
-    /* The decks panel is exactly as wide as its cards need: two 190px cards
-       plus the gap, no more. One deck therefore does not leave 230px of empty
-       panel beside it, and a second deck still fits before wrapping. */
-    grid-template-columns: fit-content(420px) minmax(0, 1fr);
+    /* Decks keeps the width it had; Data sources keeps its 340px. Zach asked
+       about the empty BAND between this row and the top-ten panel, not about
+       the deck card -- and shrinking the card was me answering a question he
+       did not ask. The band is fixed by align-items:start below, which stops
+       each panel stretching to the other's height. */
+    grid-template-columns: minmax(0, 1fr) 340px;
     gap: 1.1rem;
     align-items: start; min-height: 0;
   }
