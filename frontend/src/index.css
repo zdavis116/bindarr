@@ -3190,8 +3190,15 @@ button, input, select, textarea {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
+/* BOTTOM-RIGHT OF THE GREY BODY. Listed per container because the ring is
+   position:relative by default (it anchors its own percentage).
+   .dashx-decks is the desktop dashboard: leaving it off this list is why the
+   ring sat bottom-LEFT there while the deck list had it bottom-right -- one
+   component rendering two different cards, which Zach spotted from a
+   screenshot. Any NEW container showing a DeckCard must be added here. */
 .deck-rows .deck-row-body > .deck-ring,
-.dash-decks .deck-row-body > .deck-ring {
+.dash-decks .deck-row-body > .deck-ring,
+.dashx-decks .deck-row-body > .deck-ring {
   position: absolute;
   right: 0.45rem;
   bottom: 0.45rem;
@@ -3266,11 +3273,15 @@ button, input, select, textarea {
 .deck-row-chevron { display: none; }
 
 /* SMALLER BADGE. Zach: "maybe the moxfield badge should be shrunk a little
-   because it doesn't need to be as big and may fit better." */
+   because it doesn't need to be as big and may fit better."
+   .dashx-decks listed too -- same omission as the ring: without it the
+   dashboard card wore full-size badges while the deck list wore small ones. */
 .deck-rows .deck-source-badge,
 .dash-decks .deck-source-badge,
+.dashx-decks .deck-source-badge,
 .deck-rows .deck-drift-badge,
-.dash-decks .deck-drift-badge {
+.dash-decks .deck-drift-badge,
+.dashx-decks .deck-drift-badge {
   font-size: 0.55rem;
   padding: 0.02rem 0.26rem;
   line-height: 1.5;
@@ -4495,8 +4506,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      Ten in one row gave each card 72px: the art was a thumbnail and every name
      ellipsed. Five across doubles that to ~165px, and the second row costs
      height the dashboard has -- it was ending at 621 of 736. */
-  .dashx-tops { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
-                gap: 0.5rem; }
+  .dashx-tops { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+                gap: 0.45rem; }
+  /* The caption is fixed height; only the art may shrink, and it must keep the
+     0.717 Magic ratio -- stretching it is a bug Zach has rejected twice. */
+  .dashx-top img { max-height: 150px; }
   .dashx-top {
     position: relative; display: flex; flex-direction: column; padding: 0;
     background: var(--surface-2); border: 1px solid var(--border-glass);
