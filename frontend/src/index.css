@@ -4481,8 +4481,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      than 130px short of it. The art keeps its 0.717 ratio -- the cards get
      TALLER only by getting wider, which is why the row is centred instead of
      stretched. */
-  .dashx-body { align-content: start; }
-  .dashx-full .dashx-tops { align-items: center; }
+  /* The strip takes the leftover height so the page ends at the fold, not
+     154px short. The cards keep ratio 0.717 -- they grow by growing WIDER,
+     so the row is centred in whatever height it gets. */
+  .dashx-body { grid-template-rows: auto minmax(0, 1fr); }
+  .dashx-full { display: flex; flex-direction: column; min-height: 0; }
+  .dashx-full .dashx-tops { flex: 1; align-items: center; }
 
   .dashx-body {
     /* A FIXED right column, not a fraction. Data sources is four rows of known
@@ -4498,7 +4502,10 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
        END at their content -- align-items:start, so neither stretches to the
        other's height. Zach circled the band this used to leave. */
     display: grid;
-    grid-template-columns: minmax(230px, 0.9fr) minmax(0, 1.6fr);
+    /* The decks panel is exactly as wide as its cards need: two 190px cards
+       plus the gap, no more. One deck therefore does not leave 230px of empty
+       panel beside it, and a second deck still fits before wrapping. */
+    grid-template-columns: fit-content(420px) minmax(0, 1fr);
     gap: 1.1rem;
     align-items: start; min-height: 0;
   }
