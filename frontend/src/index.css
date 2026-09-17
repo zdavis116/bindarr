@@ -1897,6 +1897,28 @@ button, input, select, textarea {
   overflow-x: hidden;
 }
 
+@media (min-width: 1025px) {
+  /* THE PAGE MEASURED 191,676px.
+     .location-unsorted-col has inline `overflow-y: auto`, but overflow only
+     scrolls inside a BOUNDED box. As a grid item with no height it sized to
+     its content -- every unsorted card -- and grew the row, and the page, to
+     190,000+ pixels.
+     The rule that bounds it was scoped `max-width: 1024px`, so desktop fell
+     through to no bound at all. Same shape as the card-detail modal bug.
+     Bounding the GRID bounds both columns; min-height:0 is load-bearing --
+     without it a grid item refuses to shrink below its content and the
+     overflow pushes the row taller instead of scrolling. */
+  .storage-workspace-grid {
+    height: calc(100dvh - 9rem);
+    min-height: 0;
+    align-items: stretch;
+  }
+  .storage-workspace-grid > .glass-panel {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 @media (max-width: 1024px) {
   .storage-workspace-grid {
     grid-template-columns: 1fr !important;
