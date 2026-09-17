@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import { Camera, Search } from 'lucide-react';
 import CameraScanner from './CameraScanner';
 import CardSearch from './CardSearch';
+import ImportModal from './ImportModal';
 import { useT } from '../utils/i18n';
 
 function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' }) {
   const { t } = useT();
   const [mode, setMode] = useState(initialMode);
+  const [importOpen, setImportOpen] = useState(false);
 
   // DESKTOP OPENS ON SEARCH, THE PHONE OPENS ON SCAN.
   //
@@ -78,15 +80,24 @@ function AddCards({ onAddSuccess, showToast, setActiveTab, initialMode = 'scan' 
             showToast={showToast}
             setActiveTab={setActiveTab}
             /* The mockup's header buttons. Scan switches to the pane that
-               already exists. Import goes to Collection, which owns the CSV /
-               paste dialog -- setActiveTab is App's goTab and takes a tab name
-               only, so it cannot carry which kind; checked rather than assumed,
-               after shipping a dead onOpen call last week. */
+               already exists; Import CSV and Paste list open ImportModal HERE.
+               They previously navigated to Collection, which did nothing
+               visible -- Zach: "the paste list and import csv buttons dont
+               work." ImportModal already handles both a file and a pasted
+               list, so it is the same dialog either way. */
             onOpenScan={() => setMode('scan')}
-            onOpenImport={() => setActiveTab && setActiveTab('collection')}
+            onOpenImport={() => setImportOpen(true)}
           />
         )}
       </div>
+
+      {importOpen && (
+        <ImportModal
+          onClose={() => setImportOpen(false)}
+          onImported={() => { setImportOpen(false); onAddSuccess && onAddSuccess(); }}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }

@@ -52,48 +52,60 @@ const deckCard = read('DeckCard.jsx');
   assert.ok(!/className="dash-deck-/.test(dashboard),
     'Dashboard.jsx must not keep its own .dash-deck-* internals');
 
-  // The ring lives in DeckCard. Two definitions means two behaviours.
-  const ringDefs = [dashboard, deckList].filter((s) => /function Ring\(/.test(s)).length;
-  assert.strictEqual(ringDefs, 0,
-    'the progress ring belongs to DeckCard -- neither screen may redefine it');
-  assert.ok(/function Ring\(/.test(deckCard),
+  // Progress lives in DeckCard. Two definitions means two behaviours.
+  const progDefs = [dashboard, deckList]
+    .filter((s) => /function (Ring|Progress)\(/.test(s)).length;
+  assert.strictEqual(progDefs, 0,
+    'the progress indicator belongs to DeckCard -- neither screen may '
+    + 'redefine it');
+  assert.ok(/function Progress\(/.test(deckCard),
     'and DeckCard must actually define it');
 
   pass('DC-TC2', 'no private copies of the card internals survive');
 }
 
 // --- DC-TC3 ------------------------------------------------------------------
-// THE CARD CARRIES THE PARTS ZACH ASKED FOR.
+// THE CARD MATCHES THE MOCKUP, AND KEEPS THE BADGES.
 //
-// The badge was lost entirely when the dashboard rows became cards ("The card
-// for decks in progress lost the moxfield bubble"), and the percentage had to
-// move off the art ("the percent should be in the bottom right of the card in
-// the gray area so its readable").
+// Zach: "look at the 2 deck card images the mock up is the 2nd image and the
+// 3rd image is what currently exists... it should look like the mockup but keep
+// the moxfield and updated badges."
+//
+// sketches/desktop.html section 1: commander art, name, "Commander · 100
+// cards", a progress BAR with a percent pill beside it, then "49 missing ·
+// $140.35". It was a ring with the number inside -- a different thing, which
+// also needed a position rule per container and silently disagreed between the
+// deck list and the dashboard.
 {
   assert.ok(/deck-source-badge/.test(deckCard),
-    'the card must render the Moxfield badge -- it was lost once already');
-  // Zach: "I want moxfield on the right side of the card as well not
-  // underneath." It has to be a DIRECT child of the card: .deck-row-body is
-  // position:relative (it anchors the ring), so a badge inside the body pins
-  // to the corner of the TEXT area instead of the card's.
+    'the card must render the Moxfield badge -- Zach asked to KEEP it');
+  assert.ok(/deck-drift-badge/.test(deckCard),
+    'and the updated badge');
+  // Still a direct child of the card, not of the body: the body is the
+  // positioned ancestor, so a badge inside it pins to the text area's corner.
   {
     const body = deckCard.slice(deckCard.indexOf('className="deck-row-body"'));
     assert.ok(!/deck-source-badge/.test(body),
-      'the badge must NOT live inside .deck-row-body -- the body is the '
-      + 'positioned ancestor for the ring, so a badge in there lands in the '
-      + 'corner of the text area rather than the card');
+      'the badge must NOT live inside .deck-row-body');
   }
-  assert.ok(/deck-ring-pct/.test(deckCard),
-    'the percentage must live INSIDE the ring -- Zach: "put it around the '
-    + 'percentage like it was before". Two separate elements is what let the '
-    + 'ring and the number drift onto opposite corners of the card');
-  assert.ok(/<Ring\b/.test(deckCard),
-    'and the card must render the ring itself');
+  assert.ok(/<Progress\b/.test(deckCard),
+    'progress must be the mockup BAR, not a ring');
+  assert.ok(/deck-bar-fill/.test(deckCard) && /deck-pct/.test(deckCard),
+    'the bar needs a fill and a percent pill beside it');
+  assert.ok(!/deck-ring/.test(deckCard),
+    'the ring is gone -- it needed a position rule per container '
+    + '(.deck-rows / .dash-decks / .dashx-decks) and a missing entry is '
+    + 'exactly how the dashboard ended up with it bottom-LEFT');
+  assert.ok(/deck-row-sub/.test(deckCard),
+    'the card must show format and size -- "Commander · 100 cards"');
+  assert.ok(/deck-row-foot/.test(deckCard),
+    'and what is left to do -- "49 missing · $140.35"');
   assert.ok(/deck-row-art/.test(deckCard) && /deck-row-body/.test(deckCard),
     'the card must render commander art and a text body');
 
-  pass('DC-TC3', 'the card has art, badge, body and percentage');
+  pass('DC-TC3', 'the card matches the mockup and keeps the badges');
 }
+
 
 // --- DC-TC4 ------------------------------------------------------------------
 // EVERY CLASS THE CARD USES HAS A CSS RULE.
@@ -214,34 +226,42 @@ const deckCard = read('DeckCard.jsx');
 }
 
 // --- DC-TC8 ------------------------------------------------------------------
-// THE BADGES ARE NOT THE RING.
+// THE BADGES PIN TO THE CARD'S OWN TOP-RIGHT CORNER, IN EVERY CONTAINER.
 //
-// Zach: "for those deck cards the moxfield badge and updated badge both are not
-// in the top right corner like they should be. Mobile has it right."
+// Zach: "the moxfield badge and updated badge both are not in the top right
+// corner like they should be. Mobile has it right."
 //
-// The desktop deck-card rules position the progress ring with a selector that
-// says "any span that is not the art or the body" -- which is also true of the
-// source and drift badges. Its `margin: 74px 0 0 0.6rem` dragged them off the
-// card's top-right corner down onto the art at y=80. The badges carry their own
-// absolute position, so the fix is to exclude them by name.
-//
-// Guards the SELECTOR, because the symptom only shows at >=1024px with a
-// Moxfield deck on screen -- easy to reintroduce and easy to miss.
+// The badges carry position:absolute / top / right, but the SIZING rule is
+// scoped per container -- .deck-rows, .dash-decks, .dashx-decks. A container
+// missing from that list gets full-size badges on an otherwise identical card,
+// which is how the desktop dashboard drifted. Every container that renders a
+// DeckCard must appear.
 {
   const css = fs.readFileSync(
     path.join(__dirname, '..', '..', 'frontend', 'src', 'index.css'), 'utf8');
   const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  const ringRule = bare.split('\n').find(
-    (l) => l.includes('.deck-row > span:not(.deck-row-art)'));
-  assert.ok(ringRule, 'the desktop ring placement rule must exist');
-  assert.ok(/:not\(\.deck-source-badge\)/.test(ringRule),
-    'the ring rule must NOT match the source badge -- its 74px top margin '
-    + "drags the badge off the card's corner onto the art");
-  assert.ok(/:not\(\.deck-drift-badge\)/.test(ringRule),
-    'the ring rule must NOT match the drift badge either');
+  // Which containers actually render a DeckCard?
+  const containers = ['deck-rows', 'dash-decks', 'dashx-decks'];
+  // The CONTAINER-scoped rule, not the base `.deck-source-badge {}` -- the
+  // base one has font-size too, and matching it made this assertion pass
+  // regardless of which containers were listed.
+  const sizingRule = bare.split('}').find(
+    (block) => /\.\w[\w-]*\s+\.deck-source-badge/.test(block)
+      && /font-size/.test(block));
+  assert.ok(sizingRule, 'the badge sizing rule must exist');
+  for (const c of containers) {
+    assert.ok(new RegExp(`\\.${c}\\s+\\.deck-source-badge`).test(sizingRule),
+      `.${c} is missing from the badge sizing rule, so its cards wear `
+      + 'full-size badges while every other screen wears small ones');
+  }
 
-  pass('DC-TC8', 'the ring rule excludes the badges');
+  // And the badges must still be pinned to the card, not the text body.
+  assert.ok(/\.deck-row\s*>\s*\.deck-source-badge/.test(bare),
+    'the badge must pin to .deck-row itself -- pinned from inside '
+    + '.deck-row-body it lands in the corner of the TEXT area');
+
+  pass('DC-TC8', 'badges pin to the card in every container');
 }
 
 console.log(`deck-card.test.js: ${passed} cases passed`);

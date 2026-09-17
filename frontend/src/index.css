@@ -3174,35 +3174,45 @@ button, input, select, textarea {
   display: block;
 }
 
-/* THE RING LIVES IN THE GREY TEXT AREA, WITH THE PERCENTAGE INSIDE IT.
-   Zach: "Why is the green circle not around the percentage please put it
-   around the percentage like it was before and get it out of the commander
-   image because it's hard to read."
-   Over full-art the digits sat on whatever colour the commander happened to
-   be; here the background is fixed, so the number is always legible. */
-.deck-ring { position: relative; display: grid; place-items: center; }
-.deck-ring svg { position: absolute; inset: 0; }
-.deck-ring-pct {
-  position: relative;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
+/* PROGRESS AS A BAR, per sketches/desktop.html section 1: a 5px track with a
+   percent pill on its right. This replaced a ring-with-number-inside, which
+   needed a position rule per container (.deck-rows / .dash-decks / .dashx-decks)
+   and silently disagreed whenever a new container was added -- exactly how the
+   dashboard ended up with the ring bottom-LEFT. A bar has no corner to sit in,
+   so there is nothing left to get wrong. */
+.deck-bar-row {
+  display: flex; align-items: center; gap: 0.4rem; margin-top: 0.5rem;
+}
+.deck-bar {
+  flex: 1; height: 5px; border-radius: 3px; background: var(--surface-3);
+  overflow: hidden; min-width: 0;
+}
+.deck-bar-fill {
+  display: block; height: 100%; background: var(--amber, #fbbf24);
+  border-radius: 3px;
+  transition: width .45s cubic-bezier(.2,.8,.3,1);
+}
+.deck-bar-fill.is-done { background: var(--accent-green, #4ade80); }
+.deck-pct {
+  flex: 0 0 auto; font-size: 0.72rem; font-weight: 700;
+  padding: 0.05rem 0.4rem; border-radius: 999px;
+  background: rgba(251,191,36,0.16); color: #fbbf24;
   font-variant-numeric: tabular-nums;
 }
-/* BOTTOM-RIGHT OF THE GREY BODY. Listed per container because the ring is
-   position:relative by default (it anchors its own percentage).
-   .dashx-decks is the desktop dashboard: leaving it off this list is why the
-   ring sat bottom-LEFT there while the deck list had it bottom-right -- one
-   component rendering two different cards, which Zach spotted from a
-   screenshot. Any NEW container showing a DeckCard must be added here. */
-.deck-rows .deck-row-body > .deck-ring,
-.dash-decks .deck-row-body > .deck-ring,
-.dashx-decks .deck-row-body > .deck-ring {
-  position: absolute;
-  right: 0.45rem;
-  bottom: 0.45rem;
+.deck-pct.is-done { background: rgba(74,222,128,0.16); color: #4ade80; }
+
+/* "Commander · 100 cards" and "49 missing · $140.35". */
+.deck-row-sub {
+  display: block; font-size: 0.76rem; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.deck-row-foot {
+  display: block; font-size: 0.76rem; color: var(--text-secondary);
+  margin-top: 0.4rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-row-cost { color: #fbbf24; font-weight: 700; }
+
 /* Select mode replaces the ring, in the same spot. */
 .deck-check {
   position: absolute; top: 6px; left: 6px; z-index: 1;
@@ -4464,13 +4474,7 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .dashx-main > .dashx-panel:last-child {
     display: flex; flex-direction: column; min-height: 0; flex: 1;
   }
-  .dashx-main > .dashx-panel:last-child .dashx-tops {
-    overflow-y: auto; min-height: 0; align-content: start;
-    /* Snap so a scroll lands on a whole row -- a row sliced through the middle
-       of the art reads as broken, not as "there is more below". */
-    scroll-snap-type: y proximity;
-  }
-  .dashx-top { scroll-snap-align: start; }
+  .dashx-main > .dashx-panel:last-child .dashx-tops { min-height: 0; }
 
   .dashx-panel {
     background: var(--surface-1); border: 1px solid var(--border-glass);
@@ -4525,10 +4529,19 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      Ten in one row gave each card 72px: the art was a thumbnail and every name
      ellipsed. Five across doubles that to ~165px, and the second row costs
      height the dashboard has -- it was ending at 621 of 736. */
-  /* SIX ACROSS: ~127px each, 1.8x the unreadable 72px of ten-across, and the
-     ten cards land as 6 + 4. */
-  .dashx-tops { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
-                gap: 0.45rem; }
+  /* ALL TEN, ONE ROW. Zach: "you think this looks good... and there should be
+     10 cards in this list?" Six-across showed six and clipped the second row
+     through the middle of the art, which reads as broken.
+     The panel is ~880px wide, so ten at 1fr is ~82px -- too small. Instead the
+     strip scrolls HORIZONTALLY like the phone's: every card stays readable at
+     120px, the row is never cut, and the count is honest. */
+  .dashx-tops {
+    display: flex; gap: 0.5rem;
+    overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    padding-bottom: 0.3rem;
+  }
+  .dashx-tops > .dashx-top { flex: 0 0 120px; scroll-snap-align: start; }
   /* NO max-height HERE. It fights aspect-ratio and wins, squashing the art to
      0.834 -- stretched card art, which Zach has now rejected three times. A
      ratio-locked box is sized by WIDTH alone; the column count is the only
@@ -4740,7 +4753,7 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
    rendered -- the phone has its own search form and two inputs for one job is
    the duplication bug this project keeps hitting. */
 .cs-results { display: contents; }
-.cs-quicksearch, .cs-results-note { display: none; }
+.cs-quicksearch, .cs-results-note, .cs-quickrow { display: none; }
 
 @media (min-width: 1024px) {
   /* ===== ADD CARDS, MATCHING sketches/desktop.html SECTION 7 EXACTLY =====
@@ -4815,4 +4828,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
   .cs-table td { padding: 0.18rem 0.5rem; }
   .cs-td-card img { width: 26px; }
+}
+
+@media (min-width: 1024px) {
+  /* Name takes the space; set code and number are short and fixed. */
+  .cs-quickrow { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; }
+  .cs-quickrow .cs-quicksearch { flex: 1; margin-bottom: 0; }
+  .cs-quickset { flex: 0 0 120px; }
+  .cs-quicknum { flex: 0 0 100px; }
 }

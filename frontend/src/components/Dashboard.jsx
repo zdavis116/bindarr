@@ -183,6 +183,10 @@ function Dashboard({ statsTrigger, onNavigate, onOpenDeck }) {
         have,
         target,
         deckValue: d.deck_value || 0,
+        // COST TO FINISH, for the card's "49 missing · $140.35" line. The
+        // field is missing_cost -- verified against /api/decks; missing_value
+        // does not exist and would have rendered a blank.
+        toFinish: d.missing_cost || 0,
         // OWNED, not listed. total_cards counts what the list says; a freshly
         // imported deck is fully listed and entirely unowned, and this read
         // 97% for a deck holding three of its ninety-seven cards.

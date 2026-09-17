@@ -795,13 +795,35 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
           shipped a screen with nowhere to type -- caught by screenshotting the
           deployed page, which is the step I had been skipping. */}
       <div className="cs-results">
-        <input
-          className="input-control cs-quicksearch"
-          placeholder={t('search.cardName')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
-        />
+        {/* NAME, SET AND CARD NUMBER. Zach: "can you add the set and card
+            number to the filter?" The mockup draws one box, but the set code
+            and collector number are how you land on a SPECIFIC printing --
+            typing "lightning bolt" returns 60 rows, "2xm" + "129" returns one.
+            The phone's form has had these; desktop was missing them. */}
+        <div className="cs-quickrow">
+          <input
+            className="input-control cs-quicksearch"
+            placeholder={t('search.cardName')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
+          />
+          <input
+            className="input-control cs-quickset"
+            placeholder={t('search.setCode')}
+            list="known-set-codes"
+            value={setCodeQuery}
+            onChange={(e) => setSetCodeQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
+          />
+          <input
+            className="input-control cs-quicknum"
+            placeholder={t('search.cardNumber')}
+            value={numberQuery}
+            onChange={(e) => setNumberQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
+          />
+        </div>
         {loading && <p className="cs-results-note">{t('common.loading')}</p>}
         {!loading && !cards.length && (
           <p className="cs-results-note">{t('search.emptyPrompt')}</p>

@@ -16,30 +16,28 @@
 
 import { Check } from 'lucide-react';
 
-// Progress ring with the percentage INSIDE it. Zach: "put it around the
-// percentage like it was before." The number is part of the ring, not a
-// separate label -- keeping them as two elements is what let them drift onto
-// opposite corners of the card.
-function Ring({ pct, size = 42 }) {
-  const r = (size - 8) / 2;
-  const c = 2 * Math.PI * r;
-  const off = c - (c * Math.min(100, Math.max(0, pct))) / 100;
+// PROGRESS AS A BAR WITH A PERCENT PILL BESIDE IT.
+//
+// Zach: "look at the 2 deck card images... it should look like the mockup but
+// keep the moxfield and updated badges."
+//
+// sketches/desktop.html section 1 draws a 5px full-width track with an amber
+// (or green at 100%) fill and a small pill on its right. I had shipped a ring
+// with the number inside, which is a different thing entirely -- and the ring
+// then needed per-container positioning rules that silently disagreed between
+// the deck list and the dashboard. A bar has no corner to sit in.
+function Progress({ pct }) {
+  const done = pct >= 100;
   return (
-    // A CLASS, not only inline styles. The card pins this into the corner of
-    // the text area, and an inline `position: relative` beats any stylesheet
-    // rule -- measured once: the selector matched, computed position stayed
-    // relative, and the ring sat in the wrong place.
-    <div className="deck-ring" style={{ width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--surface-3)" strokeWidth="4" fill="none" />
-        <circle
-          cx={size / 2} cy={size / 2} r={r} stroke="var(--accent-green)" strokeWidth="4" fill="none"
-          strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset .45s cubic-bezier(.2,.8,.3,1)' }}
+    <span className="deck-bar-row">
+      <span className="deck-bar">
+        <span
+          className={`deck-bar-fill${done ? ' is-done' : ''}`}
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
         />
-      </svg>
-      <span className="deck-ring-pct">{pct}%</span>
-    </div>
+      </span>
+      <span className={`deck-pct${done ? ' is-done' : ''}`}>{pct}%</span>
+    </span>
   );
 }
 
@@ -110,35 +108,33 @@ export default function DeckCard({
           <span className="deck-row-name">{deck.name}</span>
         </span>
 
-        <span className="deck-row-meta">
-          {/* Count first: "22 of 60 cards" answers "is this deck done", and on
-              a narrow card only the first line survives a glance.
-
-              READY TO PLAY MEANS FINISHED, not "nothing missing from a
-              one-card list". A deck is ready when the cards it owns reach its
-              target size, and not before. */}
-          <span className="deck-row-count">
-            {deck.have >= deck.target
-              ? t('deck.readyToPlay')
-              : t('deck.deckProgress', { have: deck.have, want: deck.target })}
-          </span>
-          <span className="deck-row-price">
-            {deck.deckValue > 0
-              ? `$${deck.deckValue.toFixed(2)}`
-              : t('deck.priceUnknown')}
-          </span>
-          {extra}
+        {/* FORMAT AND TARGET SIZE -- "Commander · 100 cards" in the mockup.
+            This line says what the deck IS; progress is the bar below it. */}
+        <span className="deck-row-sub">
+          {[deck.format, t('deck.cardCount', { count: deck.target })]
+            .filter(Boolean).join(' · ')}
         </span>
 
-        {/* THE RING AND THE NUMBER ARE ONE THING.
-            Zach: "Why is the green circle not around the percentage please put
-            it around the percentage like it was before and get it out of the
-            commander image because it's hard to read."
-            I moved the number into the grey area and left the ring on the art
-            -- so the card showed the same fact twice, once unreadable. The
-            ring now draws around the percentage, in the bottom-right of the
-            text area where the contrast is fixed. */}
-        {!selecting ? <Ring pct={pct} /> : null}
+        {!selecting ? <Progress pct={pct} /> : null}
+
+        {/* WHAT IS LEFT TO DO, and what it costs -- the mockup's
+            "49 missing · $140.35", or "Complete" when there is nothing. */}
+        <span className="deck-row-foot">
+          {deck.have >= deck.target
+            ? t('deck.complete')
+            : (
+              <>
+                {t('deck.nMissing', { n: deck.target - deck.have })}
+                {' · '}
+                <b className="deck-row-cost">
+                  {deck.toFinish > 0
+                    ? `$${deck.toFinish.toFixed(2)}`
+                    : (deck.deckValue > 0 ? `$${deck.deckValue.toFixed(2)}` : '')}
+                </b>
+              </>
+            )}
+          {extra}
+        </span>
       </span>
     </button>
   );
