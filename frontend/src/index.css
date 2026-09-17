@@ -4733,8 +4733,14 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .cs-row-add { font-size: 0.72rem; padding: 0.2rem 0.7rem; }
 }
 
-/* The desktop header is desktop-only; the phone keeps its Scan/Search tabs. */
+/* The desktop header and results panel are desktop-only; the phone keeps its
+   Scan/Search tabs and its own search form. */
 .cs-head { display: none; }
+/* On the phone the wrapper is transparent but its desktop-only input is NOT
+   rendered -- the phone has its own search form and two inputs for one job is
+   the duplication bug this project keeps hitting. */
+.cs-results { display: contents; }
+.cs-quicksearch, .cs-results-note { display: none; }
 
 @media (min-width: 1024px) {
   /* ===== ADD CARDS, MATCHING sketches/desktop.html SECTION 7 EXACTLY =====
@@ -4762,10 +4768,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
   /* The results PANEL: input, then rows -- the mockup's left pane. */
   .cs-results {
+    display: block;
     background: var(--surface-1); border: 1px solid var(--border-glass);
     border-radius: var(--radius-md); padding: 0.9rem 1rem;
   }
-  .cs-quicksearch { width: 100%; margin-bottom: 0.8rem; }
+  .cs-quicksearch { display: block; width: 100%; margin-bottom: 0.8rem; }
 }
 
 @media (min-width: 1024px) {
@@ -4784,4 +4791,9 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     border-top: 1px solid var(--border-glass);
     margin-top: 0.7rem !important; padding-top: 0.7rem;
   }
+}
+
+@media (min-width: 1024px) {
+  .cs-results-note { display: block; color: var(--text-muted);
+                     font-size: 0.82rem; margin: 0; }
 }

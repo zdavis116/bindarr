@@ -790,8 +790,11 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
           full form is still rendered for the phone and CSS-hidden here, so no
           capability is lost: set code, card number and rapid add all still
           work, they are just not the first thing on a desktop screen. */}
-      {!loading && cards.length > 0 && filteredAndSortedCards.length > 0 && (
-        <div className="cs-results">
+      {/* THE RESULTS PANEL ALWAYS RENDERS on desktop, because it holds the
+          only search input. Putting the input inside the has-results branch
+          shipped a screen with nowhere to type -- caught by screenshotting the
+          deployed page, which is the step I had been skipping. */}
+      <div className="cs-results">
         <input
           className="input-control cs-quicksearch"
           placeholder={t('search.cardName')}
@@ -799,6 +802,11 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
         />
+        {loading && <p className="cs-results-note">{t('common.loading')}</p>}
+        {!loading && !cards.length && (
+          <p className="cs-results-note">{t('search.emptyPrompt')}</p>
+        )}
+        {!loading && cards.length > 0 && filteredAndSortedCards.length > 0 && (
         <table className="cs-table">
           <thead>
             <tr>
@@ -872,8 +880,8 @@ function CardSearch({ onAddSuccess, showToast, onOpenScan, onOpenImport }) {
             })}
           </tbody>
         </table>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Search Results Grid */}
       {!loading && cards.length > 0 && filteredAndSortedCards.length > 0 && (
