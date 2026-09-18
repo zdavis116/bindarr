@@ -5425,3 +5425,34 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   }
   .sortstack-level { flex-wrap: wrap; }
 }
+
+/* MOBILE STORAGE, SECOND PASS -- the first one did not work.
+   ONE CARD filled the whole 390px screen. The desktop rule
+   `.loc-flat-grid { grid-template-columns: ... !important }` is written inside
+   a min-width:1025px block, but the PHONE tree has its own .loc-flat-grid rule
+   with no columns at all, so the tiles fell back to auto and stretched.
+   Also: the header wrapped "Sorted by Set -> Color" onto four lines, and the
+   sort panel is open by default on a screen with no room for it. */
+@media (max-width: 1024px) {
+  .loc-flat-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.4rem !important;
+  }
+  .loc-flat-card { width: 100% !important; max-width: none !important; }
+  .loc-flat-card img { width: 100% !important; height: auto !important; }
+
+  /* The contents header is a row that WRAPS, not four stacked words. */
+  .loc-title { flex-wrap: wrap; gap: 0.4rem; }
+  .loc-sortbtn {
+    white-space: nowrap; font-size: 0.72rem !important;
+    padding: 0.3rem 0.55rem !important;
+  }
+  /* The location <select> and Select button belong to the phone's own flow;
+     keep them, but stop the row from becoming taller than the cards. */
+  .loc-title > * { flex: 0 1 auto; }
+
+  /* Unsorted rows: the thumb at 44px is right on a phone too, but the row
+     must not grow past the text. */
+  .uns-row { min-height: 48px; }
+}
