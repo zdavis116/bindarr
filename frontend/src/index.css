@@ -5279,9 +5279,26 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     display: flex !important; flex-direction: column;
     gap: 0.3rem !important;
   }
-  /* The row is thumb | name | price. The set name is a second line in the
-     shipped card and is not on the drawing's row. */
-  .uns-row > div:last-child > *:not(:first-child):not(:last-child) {
+  /* THE ROW'S REAL STRUCTURE, read off the page rather than assumed:
+       .uns-row > [rarity badge] > [text block]
+       text block > [name] + [sub-div: set name + price]
+     My earlier :not(:first-child):not(:last-child) matched NOTHING because
+     the text block has exactly two children. */
+  .uns-row > div:last-child {
+    flex-direction: row !important; align-items: center; gap: 0.5rem;
+  }
+  /* The name takes the space and reads from the left. */
+  .uns-row > div:last-child > div:first-child {
+    flex: 1 1 auto; min-width: 0; text-align: left !important;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The set+price block goes to the right, and the SET NAME inside it is not
+     on the drawing's row -- thumb, name, price. */
+  .uns-row > div:last-child > div:last-child {
+    flex: 0 0 auto; margin-left: auto;
+    display: flex !important; align-items: center; gap: 0.35rem;
+  }
+  .uns-row > div:last-child > div:last-child > span:first-child {
     display: none;
   }
   /* The [+] and the kebab menu are not in the drawing's contents header. */
@@ -5296,12 +5313,6 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   /* The row's name was CENTRED with the price stuck to the set name. The
      drawing reads left to right: thumb, name, then the price at the far
      right. */
-  .uns-row > div:last-child { justify-content: flex-start !important; }
-  .uns-row > div:last-child > *:first-child {
-    flex: 1 1 auto; min-width: 0; text-align: left !important;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .uns-row > div:last-child > *:last-child { margin-left: auto; }
 
   /* GROUP HEADING: "Blue  3" with a hairline to the right, as drawn -- it was
      a solid full-width bar that read as a filled row. */
