@@ -81,9 +81,16 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   // OPEN BY DEFAULT on desktop -- the mockup draws the sort panel visible
   // (display:block) with the button toggling it. The phone starts closed
   // because the panel would push the cards off a 740px screen.
-  const [stackOpen, setStackOpen] = useState(
-    typeof window !== 'undefined'
-    && window.matchMedia('(min-width: 1025px)').matches);
+  //
+  // null means "not decided yet": a useState initializer runs once at mount,
+  // and reading matchMedia there gave the wrong answer on the route where
+  // Storage mounts behind the collection. The effect below settles it once the
+  // width is actually known.
+  const [stackOpen, setStackOpen] = useState(null);
+  useEffect(() => {
+    if (stackOpen !== null) return;
+    setStackOpen(window.matchMedia('(min-width: 1025px)').matches);
+  }, [stackOpen]);
   const [stackSaving, setStackSaving] = useState(false);
 
   const [unsortedSearch, setUnsortedSearch] = useState('');
@@ -911,7 +918,13 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   // Switching containers must drop the draft, or an unsaved stack would follow
   // you into the next container and look like its own.
-  useEffect(() => { setStackDraft(null); setStackOpen(false); }, [activeLocationId]);
+  //
+  // It drops the DRAFT only. Closing the panel here also ran on MOUNT, which
+  // undid the desktop default-open a tick after the settle effect opened it --
+  // so the panel was permanently closed and the screen did not match the
+  // drawing. Whether the panel is open is a property of the SCREEN, not of
+  // which container you picked.
+  useEffect(() => { setStackDraft(null); }, [activeLocationId]);
 
   const saveStack = async () => {
     if (!selectedLoc) return;
@@ -1230,7 +1243,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             {!filingMode && !moveMode && (selectedLoc.total_cards || 0) > 0 && (
               <button
                 type="button"
-                className={`btn ${storage.selectMode ? 'btn-primary' : 'btn-secondary'}`}
+                className={`btn loc-selectbtn ${storage.selectMode ? 'btn-primary' : 'btn-secondary'}`}
                 disabled={!!selectedLoc.locked}
                 onClick={() => (storage.selectMode ? storage.exitSelectMode() : storage.setSelectMode(true))}
                 style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}
@@ -1822,7 +1835,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <button
                   type="button"
-                  className={`btn ${unsortedSelectMode ? 'btn-primary' : 'btn-secondary'}`}
+                  className={`btn uns-selectbtn ${unsortedSelectMode ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => (unsortedSelectMode ? exitUnsortedSelectMode() : setUnsortedSelectMode(true))}
                   style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', height: '24px' }}
                   title={t('loc.toggleMultiSelect')}

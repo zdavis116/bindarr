@@ -5220,8 +5220,8 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   /* Unsorted rows in the drawing are thumb | name | price -- one line each.
      The shipped rows carried rarity, set, price and a quantity control, which
      is a different component at three times the height. */
-  .storage-workspace-grid .location-unsorted-col .btn-secondary[title],
-  .storage-workspace-grid .location-unsorted-col select.select-control {
-    display: none;
-  }
+  /* Select mode and the unsorted sort dropdown are not in the drawing. Hidden
+     by CLASS, not by an attribute guess -- the [title] selector I tried first
+     matched nothing useful and left both buttons on screen. */
+  .loc-selectbtn, .uns-selectbtn, .uns-sortrow { display: none !important; }
 }
