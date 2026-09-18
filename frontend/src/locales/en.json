@@ -1635,5 +1635,6 @@
   "deck.complete": "Complete",
   "deck.nMissing": "{n} missing",
   "search.setCode": "Set code",
-  "addCards.import": "Import"
+  "addCards.import": "Import",
+  "loc.railCards": "{n} cards"
 }

@@ -997,6 +997,52 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         </div>
       )}
 
+      {/* THE LOCATIONS RAIL -- sketches/desktop.html section 6.
+          "Picking a location no longer replaces the screen -- locations on the
+          left, contents on the right, so moving cards between two places is one
+          view rather than a round trip."
+
+          Desktop only: the phone keeps the <select> in the contents header,
+          where 250px of permanent rail would cost a third of the screen. Both
+          write the same activeLocationId, so they cannot disagree. */}
+      <nav className="storage-rail" aria-label={t('nav.storage')}>
+        {locations.map((loc) => (
+          <button
+            key={loc.id}
+            type="button"
+            className={`storage-rail-item${loc.id === activeLocationId ? ' is-on' : ''}`}
+            onClick={() => setActiveLocationId(loc.id)}
+          >
+            <span className="storage-rail-name">
+              {loc.locked ? '\u{1F512} ' : ''}{loc.name}
+            </span>
+            <span className="storage-rail-count">
+              {(loc.total_cards || 0).toLocaleString()}
+            </span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className="storage-rail-new"
+          onClick={() => setShowCreate(true)}
+        >
+          <Plus size={13} /> {t('loc.createContainer')}
+        </button>
+
+        {/* The mockup's summary line for the OPEN location, so the rail answers
+            "what is in here and what is it worth" without a click. */}
+        {selectedLoc && (
+          <div className="storage-rail-foot">
+            <b>{selectedLoc.name}</b>
+            <span>
+              {t('loc.railCards', {
+                n: (selectedLoc.total_cards || 0).toLocaleString(),
+              })}
+            </span>
+          </div>
+        )}
+      </nav>
+
       {/* Selected location detail. During mobile filing the binder stays visible
           (the recommended slot blinks in it); the compact filing bar is pinned
           at the bottom of the screen. */}
@@ -1004,7 +1050,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <select
-              className="select-control"
+              className="select-control storage-picker-select"
               value={activeLocationId || ''}
               onChange={(e) => setActiveLocationId(parseInt(e.target.value, 10))}
               style={{ fontSize: '1rem', fontWeight: 'bold', padding: '0.3rem', width: 'auto', minWidth: '150px' }}
