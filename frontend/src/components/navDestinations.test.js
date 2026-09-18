@@ -81,27 +81,26 @@ test('NAV-TC3: admin is not a tab, but is still routed', () => {
     'the admin route must still exist -- Settings links to it');
 });
 
-test('NAV-TC4: STORAGE IS STILL REACHABLE', () => {
-  // The load-bearing case. Storage lost its tab; if this fails, 15
-  // compartments of real data have no route from a cold start.
-  assert.ok(app.includes("case 'storage':"),
-    'the storage route must still exist');
-
-  // A general entry point, not only the per-card "where is this?" jump. That
-  // one requires having already picked a card, so it cannot be the only way in.
-  // Anchored to the BUTTON, not to a comment. The previous version keyed off a
-  // "{/* View Toggle */}" marker, so rewording a comment failed the test while
-  // Storage was perfectly reachable -- a test that cries wolf gets ignored,
-  // which is worse than no test.
-  assert.ok(collection.includes("onNavigate('storage')"),
-    'Collection must offer a general way into Storage. Without it the only '
-    + 'route is a single card\'s "where is this?" action, which a user browsing '
-    + 'the collection may never trigger.');
-
-  // ...and it must be a real control the user can press, not a handler defined
-  // and never rendered.
-  assert.match(collection, /onClick=\{openStorage\}|onClick=\{\(\) => onNavigate\('storage'\)/,
-    'the storage entry point must be wired to a button');
+test('NAV-TC4: storage is gone completely, not just hidden', () => {
+  // Zach: "get rid of storage from everywhere... Everything should go all
+  // references."
+  //
+  // This test used to assert the OPPOSITE -- that storage must stay reachable
+  // -- because losing its route would have stranded real data. The feature is
+  // now removed by decision, so the guard is INVERTED rather than deleted: it
+  // still protects against a half-removal, which is the dangerous state. A
+  // route with no entry point, or an entry point with no route, is worse than
+  // either having it or not.
+  assert.ok(!navDestinations().includes('storage'),
+    'storage must not be a tab');
+  assert.ok(!app.includes("case 'storage':"),
+    'the storage route must be gone, not merely unlinked');
+  assert.ok(!app.includes('LocationManager'),
+    'App must not import LocationManager');
+  assert.ok(!collection.includes("onNavigate('storage')"),
+    'Collection must not offer a way into a screen that no longer exists');
+  assert.ok(!collection.includes('openStorage'),
+    'the storage entry point handler must be gone too');
 });
 
 test('NAV-TC5: notes is gone completely, not just hidden', () => {

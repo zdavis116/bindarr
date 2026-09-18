@@ -23,7 +23,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Search, X, LayoutGrid, List, MapPin, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown,
+  Search, X, LayoutGrid, List, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown,
 } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
@@ -129,7 +129,7 @@ const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
 // make one button a different height from its neighbours.
 const BULK_BTN = { fontSize: '0.72rem', padding: '0.3rem 0.6rem' };
 
-function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate, setSelectedLocationId, setFocusEntryId }) {
+function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
   const { t } = useT();
 
   const [collection, setCollection] = useState([]);
@@ -447,7 +447,6 @@ const cardTypesOf = (card) => {
 
   const activeFilters = colorFilters.size + typeFilters.size + setFilters.size;
 
-  const openStorage = () => onNavigate && onNavigate('storage');
 
   const sheetTitle = sheet === 'type' ? t('collection.types')
     : sheet === 'set' ? t('collection.sets')
@@ -636,10 +635,6 @@ const cardTypesOf = (card) => {
           {/* STORAGE. It lost its nav tab when the bar went to four
               destinations; this is its only general entry point, so removing it
               makes 15 compartments of real data unreachable. */}
-          <button onClick={openStorage} title={t('nav.storage')} aria-label={t('nav.storage')}
-                  style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)', border: 0, cursor: 'pointer', display: 'grid', placeItems: 'center', background: 'transparent', color: 'var(--text-muted)' }}>
-            <MapPin size={15} />
-          </button>
         </div>
       </div>
 
@@ -866,8 +861,6 @@ const cardTypesOf = (card) => {
             onClose={() => setInspectorCard(null)}
             onUpdate={() => { onUpdate && onUpdate(); }}
             showToast={showToast}
-            setSelectedLocationId={setSelectedLocationId}
-            setFocusEntryId={setFocusEntryId}
             onNavigate={onNavigate}
           />
         </aside>
@@ -1018,8 +1011,6 @@ const cardTypesOf = (card) => {
           onClose={() => setInspectorCard(null)}
           onUpdate={() => { onUpdate && onUpdate(); }}
           showToast={showToast}
-          setSelectedLocationId={setSelectedLocationId}
-          setFocusEntryId={setFocusEntryId}
           onNavigate={onNavigate}
         />
       )}

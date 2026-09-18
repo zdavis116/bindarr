@@ -64,7 +64,7 @@ function Dashboard({
   // this signature simply never took them. Opening a top-ten card rendered an
   // empty grey box with a close button -- Zach: "when I click on a card in the
   // top ten the card detail doesnt load like it should".
-  onUpdate, showToast, setSelectedLocationId, setFocusEntryId,
+  onUpdate, showToast,
 }) {
   const { t } = useT();
   const [stats, setStats] = useState(null);
@@ -441,8 +441,6 @@ function Dashboard({
             onClose={() => setInspectorCard(null)}
             onUpdate={() => onUpdate && onUpdate()}
             showToast={showToast}
-            setSelectedLocationId={setSelectedLocationId}
-            setFocusEntryId={setFocusEntryId}
             onNavigate={onNavigate}
           />
         )}

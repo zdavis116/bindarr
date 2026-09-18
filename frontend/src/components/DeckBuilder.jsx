@@ -3,7 +3,6 @@ import { Z_MODAL } from '../utils/zLayers';
 import { X, AlertTriangle, ChevronDown } from 'lucide-react';
 import { shuffleArray } from '../utils/shuffle';
 
-import CheckoutWizardModal from './CheckoutWizardModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { buildDeckExport, parseDeckLine, BRACKET_STYLES, DEFAULT_BRACKET_STYLE } from '../utils/deckText';
 import { useT } from '../utils/i18n';
@@ -182,10 +181,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
   const [comparingImport, setComparingImport] = useState(false);
 
   // Checkout States
-  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
-  const checkoutLocations = [];
-  const checkoutMode = 'checkout'; // 'checkout' | 'checkin'
-  const checkoutDeckId = null; // deck the open modal acts on
 
   // True while an add/qty write is in flight. Blocks overlapping clicks that
   // would otherwise each compute a new quantity from the same stale render and
@@ -582,25 +577,7 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
 
   // Closing the guide via X / back = cancel: revert the toggle we just committed
   // by calling the opposite endpoint. (Done button keeps the status.)
-  const handleCheckoutCancel = async () => {
-    const id = checkoutDeckId;
-    setShowCheckoutModal(false);
-    if (!id) return;
-    const undo = checkoutMode === 'checkout' ? 'return' : 'checkout';
-    try {
-      const res = await fetch(`/api/decks/${id}/${undo}`, { method: 'PUT' });
-      if (!res.ok) { showToast(t('deck.errUndo')); return; }
-      if (activeDeck && activeDeck.id === id) {
-        const back = checkoutMode === 'checkout';
-        setActiveDeck(prev => ({ ...prev, checked_out: back ? 0 : 1, checked_out_at: back ? null : new Date().toISOString() }));
-      }
-      fetchDecks();
-      showToast(t(checkoutMode === 'checkout' ? 'deck.checkoutCanceled' : 'deck.returnCanceled'));
-    } catch (err) {
-      console.error(err);
-      showToast(t('deck.errUndo'));
-    }
-  };
+
 
   // --- DRAW SIMULATOR LOGIC ---
   const startSimulator = () => {
@@ -1494,14 +1471,6 @@ function DeckBuilder({ showToast, focusDeckId, onFocusDeckHandled }) {
       )}
 
       {/* Checkout Locator Modal */}
-      {showCheckoutModal && (
-        <CheckoutWizardModal
-          locationsData={checkoutLocations}
-          mode={checkoutMode}
-          onCancel={handleCheckoutCancel}
-          onClose={() => setShowCheckoutModal(false)}
-        />
-      )}
 
     </div>
   );

@@ -17,7 +17,7 @@ const MTG_COLOR_FG = {
 };
 
 
-// Shared card detail popup used by Dashboard, CollectionList and LocationManager.
+// Shared card detail popup used by Dashboard and CollectionList.
 // Self-contained: owns its edit form (PUT) and delete (DELETE) so every screen
 // gets the same rich view + edit without duplicating the form. onUpdate() lets
 // the parent refetch after a change. onViewStorage is optional (hidden if absent).
@@ -66,12 +66,10 @@ function CardInspectorModal({
   // pooled count states something false.
   const isBasicLand = String(card?.type_line || '').startsWith('Basic Land');
   const [mode, setMode] = useState('view');
-  const [locations, setLocations] = useState([]);
   const [q, setQ] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
   const [printing, setPrinting] = useState('nonfoil');
   const [purchasePrice, setPurchasePrice] = useState(0);
-  const [locationId, setLocationId] = useState('');
   const [isTrade, setIsTrade] = useState(0);
   const [favorite, setFavorite] = useState(0);
   const [listType, setListType] = useState('collection');
@@ -259,10 +257,6 @@ function CardInspectorModal({
     ?? Math.max(0, ownedCopies - thisPrintingCommitted);
 
   useEffect(() => {
-    fetch('/api/locations')
-      .then(r => r.ok ? r.json() : [])
-      .then(setLocations)
-      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -280,7 +274,6 @@ function CardInspectorModal({
     setCondition(card.condition || 'Near Mint');
     setPrinting(card.finish || 'nonfoil');
     setPurchasePrice(card.purchase_price || 0);
-    setLocationId(card.location_id || '');
     setIsTrade(card.is_trade ? 1 : 0);
     setFavorite(card.favorite ? 1 : 0);
     setListType(card.list_type || 'collection');
@@ -531,7 +524,6 @@ function CardInspectorModal({
           ...(editCardId && editCardId !== (ownedEntry?.card_id || catalogueId)
               ? { card_id: editCardId } : {}),
           purchase_price: parseFloat(purchasePrice) || 0,
-          location_id: locationId ? parseInt(locationId, 10) : null,
           list_type: listType,
           is_trade: isTrade ? 1 : 0,
           favorite: favorite ? 1 : 0,
@@ -543,7 +535,6 @@ function CardInspectorModal({
         card.condition = condition;
         card.printing = printing;
         card.purchase_price = parseFloat(purchasePrice) || 0;
-        card.location_id = locationId ? parseInt(locationId, 10) : null;
         card.list_type = listType;
         card.is_trade = isTrade ? 1 : 0;
         card.favorite = favorite ? 1 : 0;
@@ -576,7 +567,6 @@ function CardInspectorModal({
       condition,
       printing,
       purchase_price: parseFloat(purchasePrice) || 0,
-      location_id: locationId ? parseInt(locationId, 10) : null,
       list_type: nextListType,
       is_trade: nextIsTrade,
       favorite: nextFavorite
@@ -1077,16 +1067,6 @@ function CardInspectorModal({
               />
 
               <div className="form-group">
-                <label>{t('inspector.storageContainer')}</label>
-                <select className="select-control" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                  <option value="">{t('bulk.unassignedPile')}</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
                 <label>{t('nav.notes')}</label>
                 <textarea
                   className="input-control"
@@ -1131,12 +1111,6 @@ function CardInspectorModal({
                     [t('inspector.finish'), ownedEntry?.finish
                       || card.finish || card.desired_finish || 'nonfoil'],
                     [t('inspector.condition'), ownedEntry?.condition || null],
-                    // "Not filed yet" only when a copy EXISTS to be filed. For
-                    // a card you do not own, a location row would describe a
-                    // shelf that holds nothing.
-                    [t('inspector.location'), ownedEntry
-                      ? (ownedEntry.location_name || t('inspector.notFiled'))
-                      : null],
                     // THE PRICE MUST COME FROM THE CHAIN, NOT THE RAW CATALOGUE.
                     //
                     // Zach: "when I click on it 1 the card doesn't update right
