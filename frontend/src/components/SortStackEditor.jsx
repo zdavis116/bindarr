@@ -48,8 +48,10 @@ export default function SortStackEditor({ stack, onChange, onApply, saving }) {
   return (
     <div className="sortstack">
       <div className="sortstack-head">
-        <b>{t('sort.title')}</b>
-        <span className="sortstack-hint">{t('sort.hint')}</span>
+        {/* The mockup's exact words. The generic sort.title/sort.hint keys belong
+            to an older sort UI and say something different. */}
+        <b>{t('sort.stackTitle')}</b>
+        <span className="sortstack-hint">{t('sort.stackHint')}</span>
         <button
           type="button"
           className="btn btn-primary sortstack-apply"
@@ -105,14 +107,11 @@ export default function SortStackEditor({ stack, onChange, onApply, saving }) {
               ))}
             </select>
 
-            <select
-              className="select-control sortstack-dir"
-              value={level.dir || 'asc'}
-              onChange={(e) => setLevel(i, { dir: e.target.value })}
-            >
-              <option value="asc">{t('sort.asc')}</option>
-              <option value="desc">{t('sort.desc')}</option>
-            </select>
+            {/* NO direction dropdown. The mockup's level is
+                grip | number | field | option | remove -- five things. A
+                direction control is a sixth that the drawing does not have,
+                and every field already has the order a player expects
+                (WUBRG, shelf order, newest sets first). */}
 
             {opt && (
               <label className="sortstack-opt">

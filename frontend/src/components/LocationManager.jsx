@@ -1199,7 +1199,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               <option value="" disabled>{t('loc.selectContainer')}</option>
               {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.locked ? '🔒 ' : ''}{loc.name} ({loc.type})</option>)}
             </select>
-            <button type="button" className="btn btn-secondary btn-icon-only" onClick={() => setShowCreate(s => !s)} style={{ width: '28px', height: '28px', padding: 0 }} title={t('loc.createContainer')}>
+            <button type="button" className="btn btn-secondary btn-icon-only loc-addbtn" onClick={() => setShowCreate(s => !s)} style={{ width: '28px', height: '28px', padding: 0 }} title={t('loc.createContainer')}>
               <Plus size={14} />
             </button>
             {selectedLoc && !!selectedLoc.locked && (
@@ -1230,7 +1230,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             >
               {'\u21c5 '}
               {activeStack.length
-                ? activeStack.map(l => t(`sort.field.${l.by}`)).join(' \u2192 ')
+                ? t('sort.sortedBy', {
+                  fields: activeStack.map(l => t(`sort.field.${l.by}`))
+                    .join(' \u2192 '),
+                })
                 : t('sort.unsorted')}
             </button>
             <button
@@ -1832,7 +1835,16 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                   and ONE action, exactly as the mockup draws it. */}
               <strong style={{ fontSize: '0.85rem' }}>{t('loc.unsorted')}</strong>
               <span className="uns-count">{unsortedCards.length.toLocaleString()}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginLeft: 'auto' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary uns-fileall"
+                  onClick={handleApplyAll}
+                  disabled={!activeLocationId}
+                  title={t(activeLocationId ? 'loc.autoFileHint' : 'loc.selectContainerFirst')}
+                >
+                  {t('loc.fileAll')}
+                </button>
                 <button
                   type="button"
                   className={`btn uns-selectbtn ${unsortedSelectMode ? 'btn-primary' : 'btn-secondary'}`}
@@ -1962,7 +1974,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             )}
 
             {unsortedViewMode === 'grid' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.6rem', marginTop: '0.25rem' }}>
+              <div className="uns-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.6rem', marginTop: '0.25rem' }}>
                 {unsortedCards.map(card => {
                   const picked = moveMode && pickedEntryId === card.entry_id;
                   const isSelected = unsortedSelectMode && unsortedSelectedIds.has(card.entry_id);

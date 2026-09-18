@@ -1670,5 +1670,8 @@
   "loc.unsortedHint": "Drag onto a group, or use File all to let the sort stack place every card.",
   "loc.fileAll": "File all →",
   "loc.searchUnsorted": "Search unsorted…",
-  "loc.unsorted": "Unsorted"
+  "loc.unsorted": "Unsorted",
+  "sort.stackTitle": "Sort stack",
+  "sort.stackHint": "drag to reorder — the order IS the shelf order",
+  "sort.sortedBy": "Sorted by {fields}"
 }

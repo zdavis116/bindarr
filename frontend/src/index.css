@@ -5273,5 +5273,21 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     display: flex !important; align-items: center; gap: 0.4rem;
     padding: 0 !important; font-size: 0.76rem;
   }
+  /* ONE COLUMN. The drawing lists unsorted cards down a single column; the
+     grid put two per row, halving the name width so every title truncated. */
+  .uns-list {
+    display: flex !important; flex-direction: column;
+    gap: 0.3rem !important;
+  }
+  /* The row is thumb | name | price. The set name is a second line in the
+     shipped card and is not on the drawing's row. */
+  .uns-row > div:last-child > *:not(:first-child):not(:last-child) {
+    display: none;
+  }
+  /* The [+] and the kebab menu are not in the drawing's contents header. */
+  .loc-addbtn, .kebab-menu-button { display: none !important; }
+  /* File all sits in the header beside the count, as drawn. */
+  .uns-fileall { font-size: 0.72rem; padding: 0.2rem 0.55rem; }
+
 
 }
