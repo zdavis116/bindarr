@@ -1643,5 +1643,6 @@
   "loc.findInLocation": "Find in this location…",
   "loc.pageView": "Page view",
   "loc.noMatches": "No cards match that search.",
-  "loc.emptyContainer": "Nothing filed here yet."
+  "loc.emptyContainer": "Nothing filed here yet.",
+  "loc.railCapacity": "{pages} pages · {free} free slots"
 }

@@ -11,6 +11,7 @@ import { SortBuilder, FilterBuilder } from './SortFilterBuilder';
 import CreateContainerModal from './CreateContainerModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
+import { resolveCardPrice } from '../utils/resolveCardPrice';
 
 function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId, setSelectedLocationId, focusEntryId }) {
   const { t } = useT();
@@ -878,6 +879,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   const totalFiled = locations.reduce((n, l) => n + (l.total_cards || 0), 0);
 
+  // What the open container is worth. resolveCardPrice is the app's single
+  // price answer -- the dashboard, collection and decks all use it, so this
+  // cannot disagree with them.
+  const locValue = cardsInActiveLocation.reduce(
+    (sum, c) => sum + (resolveCardPrice(c) || 0) * (c.quantity || 1), 0);
+
   return (
     <>
       {/* PAGE HEADER -- sketches/desktop.html section 6. Desktop only; the
@@ -1065,10 +1072,15 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             "what is in here and what is it worth" without a click. */}
         {selectedLoc && (
           <div className="storage-rail-foot">
-            <b>{selectedLoc.name}</b>
+            {/* VALUE and CAPACITY -- the mockup's "Binder 1 · $612.40 /
+                9 pages · 4 free slots". Repeating the card count here would
+                say the same thing as the row above it. */}
+            <b>{selectedLoc.name}{locValue > 0 ? ` \u00b7 $${locValue.toFixed(2)}` : ''}</b>
             <span>
-              {t('loc.railCards', {
-                n: (selectedLoc.total_cards || 0).toLocaleString(),
+              {t('loc.railCapacity', {
+                pages: compartments.length,
+                free: Math.max(0, (selectedLoc.total_capacity || 0)
+                  - (selectedLoc.total_cards || 0)),
               })}
             </span>
           </div>
@@ -1264,7 +1276,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
 
-            {isBinderType && !isCustom && !binderTipDismissed && (
+            {/* Page view only: this warns about POCKET POSITIONS, which exist
+                only in the spread. In the flat grid it was 86px of warning
+                about something not on screen -- and the mockup's contents
+                panel is a header row and cards, nothing else. */}
+            {isBinderType && !isCustom && !binderTipDismissed
+              && (locPageView || isStacked) && (
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', background: 'rgba(255, 170, 0, 0.1)', border: '1px solid #d97706', padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.72rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
                 <span style={{ flex: 1 }}>
                   {t('loc.binderTip')}
@@ -1283,7 +1300,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
 
-            {isBinderType && compartments.length > 0 && (
+            {/* Page view only. In the flat grid this row steps through pages
+                that are not on screen -- a control for a view you are not
+                looking at. The mockup's contents panel has no pager. */}
+            {isBinderType && compartments.length > 0 && (locPageView || isStacked) && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', margin: '0.2rem 0', background: 'rgba(0,0,0,0.1)', padding: '0.4rem', borderRadius: 'var(--radius-sm)' }}>
                 <button
                   type="button"
