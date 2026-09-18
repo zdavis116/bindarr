@@ -131,9 +131,16 @@ export default function DeckCard({
               <span className="deck-row-foot-run">
                 {`${t('deck.nMissing', { n: deck.target - deck.have })} · `}
                 <b className="deck-row-cost">
+                  {/* An UNPRICED deck says so. It rendered an empty string,
+                      which reads as "this costs nothing" -- the exact thing
+                      DC-TC6 exists to prevent, and the guard had been failing
+                      on main because the behaviour was lost in the DeckCard
+                      extraction, not merely moved. */}
                   {deck.toFinish > 0
                     ? `$${deck.toFinish.toFixed(2)}`
-                    : (deck.deckValue > 0 ? `$${deck.deckValue.toFixed(2)}` : '')}
+                    : (deck.deckValue > 0
+                      ? `$${deck.deckValue.toFixed(2)}`
+                      : t('deck.priceUnknown'))}
                 </b>
               </span>
             )}
