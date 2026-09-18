@@ -1487,7 +1487,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               return null;
             })()}
 
-            {(locPageView || filingMode) && isBinderType ? (() => {
+            {/* THE PHYSICAL VIEWS -- binder spread or row carousel -- render
+                ONLY in Page view or while filing. This ternary's ELSE branch
+                is the row carousel, so a Box fell into it unconditionally and
+                drew the old view beneath the grouped one: two arrangements of
+                the same cards on one screen. */}
+            {(locPageView || filingMode) && (isBinderType ? (() => {
                 if (compartments.length === 0) return null;
                 const pageProps = (c, i) => ({
                   compartment: c,
@@ -1702,7 +1707,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                     />
                   </div>
                 );
-              })()}
+              })())}
             </div>
           </>
         )}
