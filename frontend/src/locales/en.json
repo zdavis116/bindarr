@@ -1673,5 +1673,9 @@
   "loc.unsorted": "Unsorted",
   "sort.stackTitle": "Sort stack",
   "sort.stackHint": "drag to reorder — the order IS the shelf order",
-  "sort.sortedBy": "Sorted by {fields}"
+  "sort.sortedBy": "Sorted by {fields}",
+  "loc.removeFromContainer": "Remove from this container (back to Unsorted)",
+  "loc.removedToUnsorted": "Card moved back to Unsorted.",
+  "loc.errRemove": "Could not remove that card.",
+  "loc.fileOne": "File into {name}"
 }

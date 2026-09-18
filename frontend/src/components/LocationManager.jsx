@@ -926,6 +926,51 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   // which container you picked.
   useEffect(() => { setStackDraft(null); }, [activeLocationId]);
 
+  // Zach: "I cant remove cards from a box... there should just be a way to
+  // 'Delete' a card from the box so it goes back to unsorted."
+  //
+  // It does NOT delete the card -- the row keeps its quantity, condition and
+  // printing and returns to Unsorted. Deleting from the collection is a
+  // different, destructive action and must not share a button with this one.
+  const unfileCard = async (entryId) => {
+    try {
+      const res = await fetch(`/api/collection/${entryId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ location_id: null, compartment_id: null }),
+      });
+      if (!res.ok) throw new Error(`unfile failed: ${res.status}`);
+      showToast(t('loc.removedToUnsorted'));
+      refreshAll();
+      onUpdate();
+    } catch (err) {
+      console.error(err);
+      showToast(t('loc.errRemove'));
+    }
+  };
+
+  // One-click file from the unsorted list into the OPEN container. The stack
+  // decides where it lands, so this needs no slot picker.
+  const fileOneCard = async (entryId) => {
+    if (!activeLocationId) { showToast(t('loc.selectContainerFirst')); return; }
+    try {
+      const res = await fetch(`/api/collection/${entryId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ location_id: activeLocationId }),
+      });
+      if (!res.ok) throw new Error(`file failed: ${res.status}`);
+      showToast(t('loc.fileOne', { name: selectedLoc?.name || '' }));
+      refreshAll();
+      onUpdate();
+    } catch (err) {
+      console.error(err);
+      showToast(t('loc.errRemove'));
+    }
+  };
+
   const saveStack = async () => {
     if (!selectedLoc) return;
     setStackSaving(true);
@@ -976,16 +1021,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             cards: (totalFiled + unsortedCards.length).toLocaleString(),
           })}
         </span>
-        <div className="storage-head-actions">
-          <button type="button" className="btn btn-secondary"
-                  onClick={() => setShowCreate(true)}>
-            {t('loc.newLocation')}
-          </button>
-          <button type="button" className="btn btn-primary"
-                  onClick={() => setMoveMode(m => !m)}>
-            {t('loc.moveCards')}
-          </button>
-        </div>
+        {/* "New location" duplicated the rail's "+ New container" -- same
+            handler, same modal. "Move cards" toggled moveMode, which only does
+            anything inside the binder SLOT view; that view now sits behind
+            Page view, so the button did nothing at all. Both removed. */}
       </div>
 
     <div className="storage-workspace-grid">
@@ -1503,6 +1542,20 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                                   ? <img src={c.image_url} alt="" loading="lazy" />
                                   : <span className="loc-flat-noart">{c.name}</span>}
                                 <span className="loc-flat-name">{c.name}</span>
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  className="loc-flat-remove"
+                                  title={t('loc.removeFromContainer')}
+                                  onClick={(e) => { e.stopPropagation(); unfileCard(c.entry_id); }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.stopPropagation(); unfileCard(c.entry_id);
+                                    }
+                                  }}
+                                >
+                                  <X size={11} />
+                                </span>
                               </button>
                             ))}
                           </div>
@@ -2080,6 +2133,26 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                           {card.price_trend > 0 && <span style={{ color: 'var(--accent-yellow)', fontWeight: 600, flexShrink: 0 }}>${card.price_trend.toFixed(2)}</span>}
                         </div>
                       </div>
+                      {/* ONE-CLICK FILE. Zach: "there needs to be a way to add
+                          a single card from the search. Having to search the
+                          exact card and then file card is way too tedious."
+                          The sort stack decides where it lands, so no slot
+                          picker is needed. stopPropagation so it does not also
+                          open the inspector. */}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="uns-fileone"
+                        title={t('loc.fileOne', { name: selectedLoc?.name || '' })}
+                        onClick={(e) => { e.stopPropagation(); fileOneCard(card.entry_id); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation(); fileOneCard(card.entry_id);
+                          }
+                        }}
+                      >
+                        <Plus size={13} />
+                      </span>
                     </div>
                   );
                 })}

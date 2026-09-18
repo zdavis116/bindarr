@@ -5347,3 +5347,81 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .loc-flat-card img, .loc-flat-noart { border-radius: 4px; }
   .loc-flat-name { font-size: 0.64rem; }
 }
+
+/* ===== ZACH'S SEVEN ======================================================= */
+
+/* 1. "I cant even see the card art" -- the thumb was 22x31. A Magic card at
+      22px wide is a coloured smudge. 44px is legible and still lets ~14 rows
+      sit above the fold. */
+.uns-row > div:first-child {
+  flex: 0 0 44px !important; width: 44px !important; max-height: 62px !important;
+}
+.uns-row > div:first-child * { max-height: 62px !important; }
+.uns-row { min-height: 54px; }
+
+/* One-click file, revealed on the row. Always visible on touch, where there
+   is no hover. */
+.uns-fileone {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+  background: var(--surface-3, #262933); color: var(--text-secondary);
+  opacity: 0; transition: opacity 0.12s;
+}
+.uns-row:hover .uns-fileone, .uns-fileone:focus-visible { opacity: 1; }
+.uns-fileone:hover { background: var(--accent-blue); color: #06101f; }
+@media (hover: none) { .uns-fileone { opacity: 1; } }
+
+/* Remove a filed card, top-right of its tile. */
+.loc-flat-card { position: relative; }
+.loc-flat-remove {
+  position: absolute; top: 3px; right: 3px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s;
+}
+.loc-flat-card:hover .loc-flat-remove,
+.loc-flat-remove:focus-visible { opacity: 1; }
+.loc-flat-remove:hover { background: var(--accent-red, #e5484d); }
+@media (hover: none) { .loc-flat-remove { opacity: 1; } }
+
+@media (min-width: 1025px) {
+  /* 2. "a lot of empty margin at the bottom so the screen can be stretched to
+        the bottom" -- the grid ended at 770 of 900. Fill the viewport and let
+        each column scroll inside itself. */
+  .storage-workspace-grid {
+    height: calc(100vh - 150px) !important;
+    min-height: 0 !important; align-items: stretch !important;
+  }
+  .storage-workspace-grid > .glass-panel {
+    min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .loc-flat { overflow-y: auto; min-height: 0; flex: 1; }
+}
+
+/* 7. "the mobile view is completely unusuable."
+      The three-column grid was forcing a 250px rail, a contents pane and a
+      300px unsorted column into 390px of screen -- roughly 940px of content in
+      390px, so everything was crushed. On a phone these are three SCREENS. */
+@media (max-width: 1024px) {
+  .storage-workspace-grid {
+    display: flex !important; flex-direction: column !important;
+    height: auto !important; gap: 0.75rem;
+  }
+  /* The rail becomes a horizontal strip of containers at the top. */
+  .storage-rail {
+    flex-direction: row !important; overflow-x: auto; gap: 0.4rem;
+    padding-bottom: 0.25rem;
+  }
+  .storage-rail-title, .storage-rail-foot { display: none; }
+  .storage-rail-item { flex: 0 0 auto; white-space: nowrap; }
+  .storage-rail-new { flex: 0 0 auto; }
+  /* Contents and Unsorted stack, each with its own height rather than one
+     endless page. */
+  .storage-workspace-grid > .glass-panel { width: 100% !important; }
+  .location-unsorted-col { max-height: 60vh; }
+  .loc-flat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)) !important;
+  }
+  .sortstack-level { flex-wrap: wrap; }
+}

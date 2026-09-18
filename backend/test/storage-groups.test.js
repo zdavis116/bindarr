@@ -223,4 +223,53 @@ const pass = (id, what) => { passed += 1; console.log(`PASS: ${id} ${what}`); };
   pass('SG-TC6', 'no hooks below a conditional return');
 }
 
+
+// --- SG-TC7 -----------------------------------------------------------------
+// ZACH'S STATED COLOUR ORDER: W-U-B-R-G, then COLORLESS, then MULTICOLOUR.
+//
+// "usually my cards are grouped by set and then color in w-u-b-r-g then
+// colorless and then multicolor order."
+//
+// I shipped Multicolour before Colorless, which is the reverse. This is how he
+// physically sorts, so a regression here means the app disagrees with his
+// actual boxes -- invisible in any test that only checks WUBRG.
+{
+  const cards = [
+    { name: 'Multi', type_line: 'Creature', color_identity: ['Black', 'White'] },
+    { name: 'Rock', type_line: 'Artifact', color_identity: [] },
+    { name: 'Bear', type_line: 'Creature', color_identity: ['Green'] },
+    { name: 'Angel', type_line: 'Creature', color_identity: ['White'] },
+    { name: 'Bolt', type_line: 'Instant', color_identity: ['Red'] },
+    { name: 'Merfolk', type_line: 'Creature', color_identity: ['Blue'] },
+    { name: 'Zombie', type_line: 'Creature', color_identity: ['Black'] },
+  ];
+
+  const byColor = groupCards(cards, [{ by: 'color', dir: 'asc', opts: {} }]);
+  assert.deepStrictEqual(byColor.map((g) => g.label), [
+    'White', 'Blue', 'Black', 'Red', 'Green', 'Colorless', 'Multicolour',
+  ], 'WUBRG, then Colorless, then Multicolour -- his words exactly');
+
+  // SET then COLOUR -- the arrangement he named. Set order comes from the
+  // release list, so the same set keeps its cards together and colours run
+  // WUBRG inside it.
+  // /api/sets is in RELEASE order: index 0 is the oldest.
+  const sets = [{ name: 'Older Set' }, { name: 'Newer Set' }];
+  const mixed = [
+    { name: 'B', type_line: 'Creature', color_identity: ['Blue'], set_name: 'Older Set' },
+    { name: 'A', type_line: 'Creature', color_identity: ['White'], set_name: 'Newer Set' },
+    { name: 'C', type_line: 'Creature', color_identity: ['White'], set_name: 'Older Set' },
+  ];
+  const stacked = groupCards(mixed, [
+    { by: 'set', dir: 'asc', opts: {} },
+    { by: 'color', dir: 'asc', opts: {} },
+  ], sets);
+  assert.deepStrictEqual(stacked.map((g) => g.label), [
+    'Older Set \u00b7 White',
+    'Older Set \u00b7 Blue',
+    'Newer Set \u00b7 White',
+  ], 'sets stay together in release order, colours run WUBRG inside each');
+
+  pass('SG-TC7', "set then colour, WUBRG then colorless then multicolour");
+}
+
 console.log(`storage-groups.test.js: ${passed} cases passed`);

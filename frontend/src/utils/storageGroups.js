@@ -26,7 +26,10 @@
 // corrected once because the display order disagreed with the filed order.
 const COLOR_RANK = {
   White: 1, Blue: 2, Black: 3, Red: 4, Green: 5,
-  Multicolour: 6, Colorless: 7,
+  // Zach: "color in w-u-b-r-g then colorless and then multicolor order."
+  // I had shipped Multicolour 6 / Colorless 7, which is the reverse of what he
+  // sorts by physically.
+  Colorless: 6, Multicolour: 7,
 };
 
 // The card types Zach sorts by, in the order a collection is usually laid out:
@@ -112,7 +115,20 @@ export function levelKey(card, level, setsList = []) {
       const k = card?.set_name || card?.set_id || 'Unknown set';
       // Release order, not alphabetical: a collection reads chronologically,
       // and this is the same list the backend files by.
-      const idx = setsList.findIndex((s) => s.name === k || s.code === card?.set_id);
+      // REAL BUG, caught by SG-TC7: the `|| s.code === card?.set_id` arm
+      // matched the FIRST set in the list whenever card.set_id was undefined
+      // (undefined === undefined is false, but s.code is also undefined on
+      // rows without a code, so `undefined === undefined` was TRUE and every
+      // card ranked 0). Every set then tied at rank 0 and fell through to the
+      // alphabetical tiebreak -- so "grouped by set" silently became
+      // "grouped alphabetically", which is not how a collection reads.
+      //
+      // Match on name, then on code only when the card actually has one.
+      let idx = setsList.findIndex((s) => s.name === k);
+      if (idx < 0 && card?.set_id) {
+        idx = setsList.findIndex((s) => s.code
+          && s.code.toLowerCase() === String(card.set_id).toLowerCase());
+      }
       return { key: k, rank: idx >= 0 ? idx : 999999 };
     }
     case 'rarity': {
@@ -184,6 +200,12 @@ export const SORT_FIELDS = [
   { by: 'rarity', label: 'Rarity' },
   { by: 'name', label: 'Name' },
   { by: 'price', label: 'Price' },
+];
+
+// Zach's physical order: set first, then colour in WUBRG.
+export const SET_THEN_COLOR_STACK = [
+  { by: 'set', dir: 'asc', opts: {} },
+  { by: 'color', dir: 'asc', opts: { multiAsOne: true } },
 ];
 
 export const DEFAULT_STACK = [
