@@ -5328,3 +5328,22 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
 
 }
+
+@media (min-width: 1025px) {
+  /* TWO THINGS STILL VISIBLE against the drawing.
+
+     1. The sort button is a large pill reading "Sorted by Color" at the same
+        weight as the container name. The drawing's is a small secondary
+        button, the same size as the search box beside it. */
+  .loc-sortbtn {
+    font-size: 0.78rem !important; font-weight: 400 !important;
+    padding: 0.35rem 0.7rem !important;
+  }
+
+  /* 2. Group cards are 90px art with the name BELOW in its own row; the
+        drawing's tiles are small, ~78px, with the name inside the tile. This
+        matters at 412 cards -- at 90px plus a caption, one group fills the
+        screen. */
+  .loc-flat-card img, .loc-flat-noart { border-radius: 4px; }
+  .loc-flat-name { font-size: 0.64rem; }
+}
