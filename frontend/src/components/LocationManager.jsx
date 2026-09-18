@@ -1249,7 +1249,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           </div>
           
           {selectedLoc && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <div className="loc-headactions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             {/* FIND IN THIS LOCATION + PAGE VIEW -- the mockup's two controls.
                 Desktop only; the phone's contents header has no room and it
                 already scrolls one page at a time. */}

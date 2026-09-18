@@ -5510,3 +5510,14 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
    grid/list toggle are not in the drawing on either screen. */
 .uns-sortrow, .uns-bigactions, .uns-viewtoggle { display: none !important; }
 .uns-fileall { font-size: 0.72rem; padding: 0.2rem 0.55rem; }
+
+@media (max-width: 1024px) {
+  /* The INNER actions wrapper (search, sort button, Select) is its own nowrap
+     flex row -- measured right=452 on a 390px screen. Classing the outer row
+     was not enough; this is the one that actually overflowed. */
+  .loc-headactions {
+    flex-wrap: wrap !important; width: 100%; min-width: 0;
+  }
+  .loc-headactions > * { max-width: 100%; min-width: 0; }
+  .loc-headactions .loc-sortbtn { flex: 1 1 auto; }
+}
