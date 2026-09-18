@@ -5255,11 +5255,17 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
     flex-direction: row !important; align-items: center; gap: 0.5rem;
     padding: 0.25rem 0.35rem !important; min-height: 0 !important;
   }
-  .uns-row > * { flex: 0 0 auto; }
-  /* The art: a thumbnail, keeping the Magic ratio. */
-  .uns-row img {
-    width: 22px !important; height: auto !important;
-    aspect-ratio: 0.717; object-fit: cover; border-radius: 3px;
+  /* The art wrapper is a nested DIV with its own inline height -- measured
+     155x216 inside a row I had told to be small. Constrain the WRAPPER; the
+     <img> is not a direct child, which is why `.uns-row img` alone did
+     nothing. */
+  .uns-row > div:first-child {
+    flex: 0 0 24px !important; width: 24px !important;
+    height: auto !important; max-height: 34px;
+  }
+  .uns-row > div:first-child * {
+    width: 100% !important; height: auto !important;
+    max-height: 34px; aspect-ratio: 0.717; object-fit: cover;
   }
   /* The name takes the space; everything else is a chip at the end. */
   .uns-row > div:last-child {
