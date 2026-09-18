@@ -66,26 +66,14 @@ async function runTests() {
     // to keep an unrelated test green would be exactly backwards.
     await db.run(`INSERT INTO card_cache (id, oracle_id, name, supertype, subtypes, types, rarity, set_id, set_name, number, image_url, price_trend, type_line)
       VALUES ('mtg-route-cmdr', 'oracle-route-cmdr', 'Alpha General', 'Creature', '["Legendary","Creature"]', '["Creature"]', 'Rare', 'lea', 'Alpha', '2', '', 12, 'Legendary Creature — Human')`);
-    const openLocation = await db.run(`INSERT INTO locations (name, type, rule_type, user_id) VALUES ('Open', 'Box', 'any', ?)`, [adminId]);
-    await db.run(`INSERT INTO compartments (location_id, idx, capacity) VALUES (?, 1, 20)`, [openLocation.lastID]);
-
-    await check(1, async () => {
-      const response = await request(`/api/locations/${openLocation.lastID}/recommend`, {
-        method: 'POST', body: JSON.stringify({ card_id: 'mtg-route-card' })
-      });
-      assert.strictEqual(response.status, 200, `fresh-schema recommendation returned ${response.status}`);
-      assert.ok((await response.json()).compartment_id, 'single-card recommendation must return a compartment');
-    });
 
     await check(2, async () => {
       const response = await request('/api/collection', {
-        method: 'POST', body: JSON.stringify({ card_id: 'mtg-route-card', location_id: openLocation.lastID })
+        method: 'POST', body: JSON.stringify({ card_id: 'mtg-route-card' })
       });
       assert.strictEqual(response.status, 200, await response.text());
       const row = await db.get(`SELECT * FROM collection WHERE card_id = 'mtg-route-card' ORDER BY id DESC LIMIT 1`);
       assertNoCompatibilityFields(row, 'stored collection row');
-      assert.strictEqual(row.location_id, openLocation.lastID);
-      assert.ok(row.compartment_id, 'add must retain MTG location placement');
     });
 
     await check(3, async () => {
@@ -94,15 +82,6 @@ async function runTests() {
       const body = await response.json();
       assert.ok(body.length > 0);
       body.forEach(card => assertNoCompatibilityFields(card, 'collection response'));
-    });
-
-    await check(4, async () => {
-      const response = await request('/api/locations', {
-        method: 'POST', body: JSON.stringify({ name: 'Second Box', type: 'Box' })
-      });
-      assert.strictEqual(response.status, 200, await response.text());
-      const locations = await (await request('/api/locations')).json();
-      locations.forEach(location => assertNoCompatibilityFields(location, 'location response'));
     });
 
     await check(5, async () => {

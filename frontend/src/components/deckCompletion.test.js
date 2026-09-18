@@ -20,7 +20,14 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const list = readFileSync(join(here, 'DeckList.jsx'), 'utf8');
+// DeckList.jsx AND the shared DeckCard.jsx it renders. The deck card markup
+// was extracted into DeckCard so the dashboard and the deck list could not
+// drift apart -- these guards kept reading only DeckList and failed on main
+// for three cases whose behaviour had simply MOVED, not been lost.
+// A guard that reads one file cannot follow a component extraction; read the
+// pair as one surface.
+const list = readFileSync(join(here, 'DeckList.jsx'), 'utf8')
+  + readFileSync(join(here, 'DeckCard.jsx'), 'utf8');
 const route = readFileSync(join(here, '../../../backend/src/routes/decks.js'), 'utf8');
 
 test('DC-TC1: the ring reads owned_cards, never total_cards', () => {
@@ -165,8 +172,13 @@ test('DC-TC8: the deck list states what the whole deck is worth', () => {
 // claims. Only the second one is Ready to play.
 
 test('DC-TC9: ready-to-play is judged against the target, not the shortfall', () => {
-  assert.match(list, /deck\.have >= deck\.target[\s\S]{0,120}readyToPlay/,
-    'a deck is ready when its owned cards reach the target size');
+  // The RULE is what matters, not the wording. The deck card now labels this
+  // state 'deck.complete' rather than 'deck.readyToPlay'; both are the same
+  // claim -- the deck is finished -- and the guard exists to stop the app
+  // judging it by the SHORTFALL instead of the target, which is what let a
+  // one-card deck call itself playable.
+  assert.match(list, /deck\.have >= deck\.target[\s\S]{0,120}(readyToPlay|deck\.complete)/,
+    'a deck is finished when its owned cards reach the target size');
   // The old test: missing === 0, which a one-card deck satisfies.
   assert.doesNotMatch(list, /\{missing\s*\?[\s\S]{0,200}readyToPlay/,
     'a deck with nothing missing from a one-card list is not ready to play');

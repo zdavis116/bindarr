@@ -11,7 +11,6 @@ const scryfallApi = require('./scryfallApi');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const collectionRoutes = require('./routes/collection');
-const storageRoutes = require('./routes/storage');
 const statsRoutes = require('./routes/stats');
 const importExportRoutes = require('./routes/importExport');
 const setsRoutes = require('./routes/sets');
@@ -588,7 +587,6 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', collectionRoutes);
-app.use('/api', storageRoutes);
 app.use('/api', statsRoutes);
 app.use('/api', importExportRoutes);
 app.use('/api', tagsRoutes);

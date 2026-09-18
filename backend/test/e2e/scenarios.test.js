@@ -167,7 +167,8 @@ async function runTests() {
       throw err;
     }
 
-    // F6-TC5: Complete user session flow: register -> login -> create binder -> scan multiple -> add -> verify stats
+    // F6-TC5: Complete user session flow: register -> login -> scan multiple ->
+    // add -> verify stats. The "create binder" step went with Storage.
     try {
       const uniqueUsername = `tester_${Date.now()}`;
       // 1. Register User
@@ -193,16 +194,6 @@ async function runTests() {
         'Authorization': `Bearer ${userToken}`
       };
 
-      // 3. Create location
-      const locRes = await fetch(`http://localhost:${port}/api/locations`, {
-        method: 'POST',
-        headers: userHeaders,
-        body: JSON.stringify({ name: 'E2E User Binder', type: 'Binder' })
-      });
-      assert.strictEqual(locRes.status, 200);
-      const loc = await locRes.json();
-      const locId = loc.id;
-
       // 4. Add cards to binder
       const addRes1 = await fetch(`http://localhost:${port}/api/collection`, {
         method: 'POST',
@@ -213,8 +204,7 @@ async function runTests() {
           quantity: 1,
           condition: 'Near Mint',
           printing: 'Normal',
-          purchase_price: 10.0,
-          location_id: locId
+          purchase_price: 10.0
         })
       });
       assert.strictEqual(addRes1.status, 200);

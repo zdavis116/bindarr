@@ -11,7 +11,6 @@ import { NAV_ITEMS } from './navItems.js';
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const AddCards = lazy(() => import('./components/AddCards'));
 const CollectionList = lazy(() => import('./components/CollectionList'));
-const LocationManager = lazy(() => import('./components/LocationManager'));
 const Settings = lazy(() => import('./components/SettingsScreen'));
 const AdminPanel = lazy(() => import('./components/AdminScreen'));
 const DeckBuilder = lazy(() => import('./components/DeckBuilder'));
@@ -95,8 +94,6 @@ function App() {
   });
 
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedLocationId, setSelectedLocationId] = useState(null);
-  const [focusEntryId, setFocusEntryId] = useState(null);
   const [selectedCardFilter, setSelectedCardFilter] = useState('');
   const [toast, setToast] = useState(null);
   // Set by the service worker when a newer build has finished downloading.
@@ -234,7 +231,7 @@ function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard statsTrigger={statsTrigger} onNavigate={goTab} onOpenDeck={(id) => { setFocusDeckId(id); goTab('deckbuilder'); }} setSelectedLocationId={setSelectedLocationId} setFocusEntryId={setFocusEntryId} onUpdate={triggerRefresh} showToast={showToast} />;
+        return <Dashboard statsTrigger={statsTrigger} onNavigate={goTab} onOpenDeck={(id) => { setFocusDeckId(id); goTab('deckbuilder'); }} onUpdate={triggerRefresh} showToast={showToast} />;
       case 'add-cards':
         return <AddCards onAddSuccess={triggerRefresh} showToast={showToast} setActiveTab={goTab} />;
       case 'collection':
@@ -247,20 +244,8 @@ function App() {
             selectedCardFilter={selectedCardFilter}
             setSelectedCardFilter={setSelectedCardFilter}
             onNavigate={goTab}
-            setSelectedLocationId={setSelectedLocationId}
-            setFocusEntryId={setFocusEntryId}
-          />
-        );
-      case 'storage':
-        return (
-          <LocationManager
-            statsTrigger={statsTrigger}
-            onUpdate={triggerRefresh}
-            showToast={showToast}
-            selectedLocationId={selectedLocationId}
-            setSelectedLocationId={setSelectedLocationId}
-            focusEntryId={focusEntryId}
-            setFocusEntryId={setFocusEntryId}
+           
+           
           />
         );
       case 'deckbuilder':
@@ -277,7 +262,7 @@ function App() {
       case 'admin':
         return <AdminPanel showToast={showToast} />;
       default:
-        return <Dashboard statsTrigger={statsTrigger} onNavigate={goTab} setSelectedLocationId={setSelectedLocationId} setFocusEntryId={setFocusEntryId} onUpdate={triggerRefresh} showToast={showToast} />;
+        return <Dashboard statsTrigger={statsTrigger} onNavigate={goTab} onUpdate={triggerRefresh} showToast={showToast} />;
     }
   };
 

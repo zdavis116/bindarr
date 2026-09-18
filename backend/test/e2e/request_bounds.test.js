@@ -9,7 +9,6 @@ process.env.DB_PATH = dbPath;
 process.env.DEFAULT_ADMIN_PASSWORD = 'test-only-password';
 const db = require('../../src/db');
 const collectionRoutes = require('../../src/routes/collection');
-const storageRoutes = require('../../src/routes/storage');
 
 async function request(base, token, route, body, method = 'POST') {
   return fetch(`${base}${route}`, {
@@ -51,7 +50,6 @@ async function main() {
   // the bulk bound rose to 20,000 ids (a 106KB body).
   app.use(express.json({ limit: '15mb' }));
   app.use('/api', collectionRoutes);
-  app.use('/api', storageRoutes);
   const server = await new Promise(resolve => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
   });
@@ -79,16 +77,6 @@ async function main() {
     assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM collection')).count, initialCollection);
     console.log('PASS: F10-TC2');
 
-    // F10-TC3: custom compartment plans accept only numeric integers in range,
-    // before creating either the location or any compartments.
-    const initialLocations = (await db.get('SELECT COUNT(*) AS count FROM locations')).count;
-    await expectStatus(base, token, '/api/locations', { name: 'Bad count type', type: 'Box', compartmentPlan: { count: '2', capacity: 10 } }, 400);
-    await expectStatus(base, token, '/api/locations', { name: 'Bad capacity fraction', type: 'Box', compartmentPlan: { count: 2, capacity: 1.5 } }, 400);
-    await expectStatus(base, token, '/api/locations', { name: 'Too many rows', type: 'Box', compartmentPlan: { count: 1001, capacity: 10 } }, 413);
-    await expectStatus(base, token, '/api/locations', { name: 'Too much capacity', type: 'Box', compartmentPlan: { count: 2, capacity: 1001 } }, 413);
-    assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM locations')).count, initialLocations);
-    console.log('PASS: F10-TC3');
-
     // F10-TC4: editing quantity validates the exact numeric integer before the
     // lookup/update/auto-split path can amplify it into collection writes.
     const entry = await db.run(
@@ -104,10 +92,8 @@ async function main() {
     // F10-TC5: every entry-id batch endpoint accepts only unique positive
     // integer IDs and rejects before location/collection reads.
     //
-    // THREE DIFFERENT RULES, deliberately, because the routes are not alike:
-    //   storage routes      keep a 1,000 bound -- they place cards into
-    //                       compartments, where a batch that size is a
-    //                       different proposition
+    // TWO DIFFERENT RULES, deliberately, because the routes are not alike:
+    // (a third covered the storage routes, removed with the feature)
     //   bulk, non-delete    bounded near SQLite's measured 32,766 parameter
     //                       ceiling: each builds one `IN (?, ?, ...)`
     //   bulk delete         UNCAPPED. Zach: "There should be no cap on delete."
@@ -118,13 +104,9 @@ async function main() {
     const malformedLists = ['1', ['1'], [1.5], [1, 1]];
     for (const entry_ids of malformedLists) {
       await expectStatus(base, token, '/api/collection/bulk', { entry_ids, action: 'delete' }, 400);
-      await expectStatus(base, token, '/api/locations/999999/recommend-batch', { entry_ids }, 400);
-      await expectStatus(base, token, '/api/locations/999999/apply-all', { entry_ids }, 400);
     }
     await expectStatus(base, token, '/api/collection/bulk',
       { entry_ids: bulkOversized, action: 'condition', value: 'Near Mint' }, 413);
-    await expectStatus(base, token, '/api/locations/999999/recommend-batch', { entry_ids: oversizedIds }, 413);
-    await expectStatus(base, token, '/api/locations/999999/apply-all', { entry_ids: oversizedIds }, 413);
     assert.strictEqual((await db.get('SELECT COUNT(*) AS count FROM collection')).count, initialCollection + 1);
     console.log('PASS: F10-TC5');
 

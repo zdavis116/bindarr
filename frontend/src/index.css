@@ -5118,3 +5118,406 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   }
   .loc-flat-empty { color: var(--text-muted); font-size: 0.85rem; margin: 0; }
 }
+
+/* ===== THE SORT STACK =====================================================
+   Zach: "I still want it per container because that is how I physically have
+   it." One control, both screens -- the layout differs, the behaviour does not,
+   because a stack that works differently on phone and desktop is two models. */
+.sortstack {
+  background: var(--surface-1); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md); padding: 0.75rem;
+  display: flex; flex-direction: column; gap: 0.4rem;
+}
+.sortstack-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.sortstack-head b { font-size: 0.8rem; }
+.sortstack-hint { font-size: 0.73rem; color: var(--text-muted); }
+.sortstack-apply { margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.7rem; }
+
+.sortstack-level {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); padding: 0.4rem 0.55rem;
+}
+/* Up/down BUTTONS, not drag. Dragging fights the scroll gesture on a phone,
+   and a mouse-only control is not the same control on both screens. */
+.sortstack-move { display: flex; gap: 0.1rem; }
+.sortstack-move button {
+  background: transparent; border: 0; color: var(--text-muted);
+  cursor: pointer; padding: 0.1rem 0.2rem; font-size: 0.8rem; line-height: 1;
+  display: inline-flex; align-items: center;
+}
+.sortstack-move button:disabled { opacity: 0.3; cursor: default; }
+.sortstack-move button:not(:disabled):hover { color: var(--text-primary); }
+
+.sortstack-n {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  background: var(--accent-soft, rgba(76,154,255,0.14)); color: var(--accent-blue);
+  font-size: 0.66rem; font-weight: 800; display: grid; place-items: center;
+}
+.sortstack-field { min-width: 96px; font-size: 0.78rem; padding: 0.2rem 0.4rem; }
+.sortstack-dir { min-width: 74px; font-size: 0.78rem; padding: 0.2rem 0.4rem; }
+.sortstack-opt {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.74rem; color: var(--text-secondary); cursor: pointer;
+}
+.sortstack-remove {
+  margin-left: auto; background: transparent; border: 0;
+  color: var(--text-muted); cursor: pointer; display: inline-flex; padding: 0.1rem;
+}
+.sortstack-remove:hover { color: var(--text-primary); }
+.sortstack-add {
+  display: inline-flex; align-items: center; gap: 0.3rem; align-self: flex-start;
+  border: 1px dashed var(--border-glass); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted);
+  padding: 0.35rem 0.6rem; font-size: 0.76rem; cursor: pointer;
+}
+.sortstack-add:hover { color: var(--text-primary); }
+.sortstack-empty { font-size: 0.76rem; color: var(--text-muted); margin: 0; }
+
+/* Groups: a sticky label, then the cards under it. */
+.loc-group { display: block; margin-bottom: 1rem; }
+.loc-group-head {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;
+  position: sticky; top: 0; z-index: 2; padding: 0.25rem 0;
+  background: var(--bg-primary);
+}
+.loc-group-head b { font-size: 0.83rem; }
+.loc-group-n {
+  font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.loc-group-bar { flex: 1; height: 1px; background: var(--border-glass); }
+
+/* THE GROUPED VIEW IS NOT DESKTOP-ONLY. The grouping is the model, so the phone
+   gets it too -- four across instead of nine. */
+.loc-flat { display: block; }
+.loc-flat-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 0.4rem;
+}
+
+/* ===== STORAGE: MATCH sketches/storage2.html EXACTLY ======================
+   Zach: "Make the storage look exactly the same as the mockup. EXACTLY."
+   Dumped both DOMs side by side and fixed each difference rather than
+   eyeballing it -- that is what kept producing "close enough". */
+.storage-rail-title {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.4rem;
+}
+.uns-count {
+  background: var(--surface-3, #262933); color: var(--text-secondary);
+  border-radius: 4px; padding: 0.05rem 0.35rem; font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.uns-search { width: 100%; font-size: 0.8rem; }
+.uns-hint { font-size: 0.73rem; color: var(--text-muted); margin: 0; line-height: 1.4; }
+
+@media (min-width: 1025px) {
+  /* The mockup's mid-header holds FOUR things: name, "N cards · $value",
+     the search box, and the sort button. Page view and Select are not in the
+     drawing, so they do not belong on this screen at this width. */
+  .loc-deskhide { display: none !important; }
+
+  /* Unsorted rows in the drawing are thumb | name | price -- one line each.
+     The shipped rows carried rarity, set, price and a quantity control, which
+     is a different component at three times the height. */
+  /* Select mode and the unsorted sort dropdown are not in the drawing. Hidden
+     by CLASS, not by an attribute guess -- the [title] selector I tried first
+     matched nothing useful and left both buttons on screen. */
+  .loc-selectbtn, .uns-selectbtn, .uns-sortrow { display: none !important; }
+}
+
+@media (min-width: 1025px) {
+  /* FOUR DIFFERENCES STILL VISIBLE IN THE SCREENSHOT.
+     Zach: "EXACTLY." */
+
+  /* 1. "1st Box" wrapped onto two lines and "3 cards · $0.63" onto two more --
+        the header is ONE line in the drawing. */
+  .loc-title { flex-wrap: nowrap; }
+  .loc-title b { white-space: nowrap; }
+  .loc-title-sub { white-space: nowrap; }
+
+  /* 2. The sort button showed "⇅" above "Color" stacked. One line. */
+  .loc-sortbtn { white-space: nowrap; }
+
+  /* 3. UNSORTED: the drawing has search, hint, then ROWS. A second search box,
+        a sort dropdown, two big action buttons and a grid/list toggle are not
+        in it. File all is the one action. */
+  .uns-sortrow, .uns-viewtoggle { display: none !important; }
+
+  /* 4. THE DRAWING'S ROW: thumb | name | price, one line, ~30px.
+        The shipped card is a flex COLUMN with full art, a rarity pill and a
+        set line at ~270px, so four filled the column and you could not see
+        what was waiting to be filed.
+        Restyled, not hidden -- hiding would empty the column, which is the bug
+        I shipped on Add cards. !important because every one of these values is
+        an inline style on the element. */
+  .uns-row {
+    flex-direction: row !important; align-items: center; gap: 0.5rem;
+    padding: 0.25rem 0.35rem !important; min-height: 0 !important;
+  }
+  /* The art wrapper is a nested DIV with its own inline height -- measured
+     155x216 inside a row I had told to be small. Constrain the WRAPPER; the
+     <img> is not a direct child, which is why `.uns-row img` alone did
+     nothing. */
+  .uns-row > div:first-child {
+    flex: 0 0 24px !important; width: 24px !important;
+    height: auto !important; max-height: 34px;
+  }
+  .uns-row > div:first-child * {
+    width: 100% !important; height: auto !important;
+    max-height: 34px; aspect-ratio: 0.717; object-fit: cover;
+  }
+  /* The name takes the space; everything else is a chip at the end. */
+  .uns-row > div:last-child {
+    flex: 1 1 auto !important; min-width: 0;
+    display: flex !important; align-items: center; gap: 0.4rem;
+    padding: 0 !important; font-size: 0.76rem;
+  }
+  /* ONE COLUMN. The drawing lists unsorted cards down a single column; the
+     grid put two per row, halving the name width so every title truncated. */
+  .uns-list {
+    display: flex !important; flex-direction: column;
+    gap: 0.3rem !important;
+  }
+  /* THE ROW'S REAL STRUCTURE, read off the page rather than assumed:
+       .uns-row > [rarity badge] > [text block]
+       text block > [name] + [sub-div: set name + price]
+     My earlier :not(:first-child):not(:last-child) matched NOTHING because
+     the text block has exactly two children. */
+  .uns-row > div:last-child {
+    flex-direction: row !important; align-items: center; gap: 0.5rem;
+  }
+  /* The name takes the space and reads from the left. */
+  .uns-row > div:last-child > div:first-child {
+    flex: 1 1 auto; min-width: 0; text-align: left !important;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The set+price block goes to the right, and the SET NAME inside it is not
+     on the drawing's row -- thumb, name, price. */
+  .uns-row > div:last-child > div:last-child {
+    flex: 0 0 auto; margin-left: auto;
+    display: flex !important; align-items: center; gap: 0.35rem;
+  }
+  .uns-row > div:last-child > div:last-child > span:first-child {
+    display: none;
+  }
+  /* The [+] and the kebab menu are not in the drawing's contents header. */
+  .loc-addbtn, .kebab-menu-button { display: none !important; }
+  /* File all sits in the header beside the count, as drawn. */
+  .uns-fileall { font-size: 0.72rem; padding: 0.2rem 0.55rem; }
+
+  /* The two full-width action buttons are not in the drawing -- File all in
+     the header is the one action, and it calls the same handler. */
+  .uns-bigactions { display: none !important; }
+
+  /* The row's name was CENTRED with the price stuck to the set name. The
+     drawing reads left to right: thumb, name, then the price at the far
+     right. */
+
+  /* GROUP HEADING: "Blue  3" with a hairline to the right, as drawn -- it was
+     a solid full-width bar that read as a filled row. */
+  .loc-group-head { background: transparent; }
+  .loc-group-bar { opacity: 0.35; }
+
+  /* The cards in a group are the drawing's small tiles, not 90px art with a
+     caption below. */
+  .loc-flat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)) !important;
+  }
+
+
+
+}
+
+@media (min-width: 1025px) {
+  /* TWO THINGS STILL VISIBLE against the drawing.
+
+     1. The sort button is a large pill reading "Sorted by Color" at the same
+        weight as the container name. The drawing's is a small secondary
+        button, the same size as the search box beside it. */
+  .loc-sortbtn {
+    font-size: 0.78rem !important; font-weight: 400 !important;
+    padding: 0.35rem 0.7rem !important;
+  }
+
+  /* 2. Group cards are 90px art with the name BELOW in its own row; the
+        drawing's tiles are small, ~78px, with the name inside the tile. This
+        matters at 412 cards -- at 90px plus a caption, one group fills the
+        screen. */
+  .loc-flat-card img, .loc-flat-noart { border-radius: 4px; }
+  .loc-flat-name { font-size: 0.64rem; }
+}
+
+/* ===== ZACH'S SEVEN ======================================================= */
+
+/* 1. "I cant even see the card art" -- the thumb was 22x31. A Magic card at
+      22px wide is a coloured smudge. 44px is legible and still lets ~14 rows
+      sit above the fold. */
+.uns-row > div:first-child {
+  flex: 0 0 44px !important; width: 44px !important; max-height: 62px !important;
+}
+.uns-row > div:first-child * { max-height: 62px !important; }
+.uns-row { min-height: 54px; }
+
+/* One-click file, revealed on the row. Always visible on touch, where there
+   is no hover. */
+.uns-fileone {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+  background: var(--surface-3, #262933); color: var(--text-secondary);
+  opacity: 0; transition: opacity 0.12s;
+}
+.uns-row:hover .uns-fileone, .uns-fileone:focus-visible { opacity: 1; }
+.uns-fileone:hover { background: var(--accent-blue); color: #06101f; }
+@media (hover: none) { .uns-fileone { opacity: 1; } }
+
+/* Remove a filed card, top-right of its tile. */
+.loc-flat-card { position: relative; }
+.loc-flat-remove {
+  position: absolute; top: 3px; right: 3px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s;
+}
+.loc-flat-card:hover .loc-flat-remove,
+.loc-flat-remove:focus-visible { opacity: 1; }
+.loc-flat-remove:hover { background: var(--accent-red, #e5484d); }
+@media (hover: none) { .loc-flat-remove { opacity: 1; } }
+
+@media (min-width: 1025px) {
+  /* 2. "a lot of empty margin at the bottom so the screen can be stretched to
+        the bottom" -- the grid ended at 770 of 900. Fill the viewport and let
+        each column scroll inside itself. */
+  .storage-workspace-grid {
+    height: calc(100vh - 150px) !important;
+    min-height: 0 !important; align-items: stretch !important;
+  }
+  .storage-workspace-grid > .glass-panel {
+    min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .loc-flat { overflow-y: auto; min-height: 0; flex: 1; }
+}
+
+/* 7. "the mobile view is completely unusuable."
+      The three-column grid was forcing a 250px rail, a contents pane and a
+      300px unsorted column into 390px of screen -- roughly 940px of content in
+      390px, so everything was crushed. On a phone these are three SCREENS. */
+@media (max-width: 1024px) {
+  .storage-workspace-grid {
+    display: flex !important; flex-direction: column !important;
+    height: auto !important; gap: 0.75rem;
+  }
+  /* The rail becomes a horizontal strip of containers at the top. */
+  .storage-rail {
+    flex-direction: row !important; overflow-x: auto; gap: 0.4rem;
+    padding-bottom: 0.25rem;
+  }
+  .storage-rail-title, .storage-rail-foot { display: none; }
+  .storage-rail-item { flex: 0 0 auto; white-space: nowrap; }
+  .storage-rail-new { flex: 0 0 auto; }
+  /* Contents and Unsorted stack, each with its own height rather than one
+     endless page. */
+  .storage-workspace-grid > .glass-panel { width: 100% !important; }
+  .location-unsorted-col { max-height: 60vh; }
+  .loc-flat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)) !important;
+  }
+  .sortstack-level { flex-wrap: wrap; }
+}
+
+/* MOBILE STORAGE, SECOND PASS -- the first one did not work.
+   ONE CARD filled the whole 390px screen. The desktop rule
+   `.loc-flat-grid { grid-template-columns: ... !important }` is written inside
+   a min-width:1025px block, but the PHONE tree has its own .loc-flat-grid rule
+   with no columns at all, so the tiles fell back to auto and stretched.
+   Also: the header wrapped "Sorted by Set -> Color" onto four lines, and the
+   sort panel is open by default on a screen with no room for it. */
+@media (max-width: 1024px) {
+  .loc-flat-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.4rem !important;
+  }
+  .loc-flat-card { width: 100% !important; max-width: none !important; }
+  .loc-flat-card img { width: 100% !important; height: auto !important; }
+
+  /* The contents header is a row that WRAPS, not four stacked words. */
+  .loc-title { flex-wrap: wrap; gap: 0.4rem; }
+  .loc-sortbtn {
+    white-space: nowrap; font-size: 0.72rem !important;
+    padding: 0.3rem 0.55rem !important;
+  }
+  /* The location <select> and Select button belong to the phone's own flow;
+     keep them, but stop the row from becoming taller than the cards. */
+  .loc-title > * { flex: 0 1 auto; }
+
+  /* Unsorted rows: the thumb at 44px is right on a phone too, but the row
+     must not grow past the text. */
+  .uns-row { min-height: 48px; }
+}
+
+/* ===== MOBILE: TWO REAL BUGS FROM ZACH'S PHONE SCREENSHOT ================= */
+
+/* 1. "I have to scroll to the right to see the more."
+      The contents header is one non-wrapping flex row: location select, [+],
+      the sort button, and Select. Measured 254px of it hanging off a 390px
+      screen. Let it wrap. */
+@media (max-width: 1024px) {
+  .loc-headrow { flex-wrap: wrap !important; }
+  .loc-headrow > * { max-width: 100%; }
+  .loc-headrow select { flex: 1 1 100%; min-width: 0; }
+}
+
+/* 2. "the unsorted tab should look like it does on desktop."
+      Every .uns-row rule I wrote lived inside @media (min-width: 1025px), so a
+      phone fell through to the raw full-art cards. This is the SAME class of
+      bug as the mobile-only rules that left desktop with no layout -- a
+      width-scoped rule with nothing on the other side -- just pointing the
+      other way.
+      These are now unscoped: one row design, both screens. */
+.uns-list {
+  display: flex !important; flex-direction: column; gap: 0.3rem !important;
+}
+.uns-row {
+  flex-direction: row !important; align-items: center; gap: 0.5rem;
+  padding: 0.25rem 0.35rem !important; min-height: 54px;
+}
+.uns-row > div:first-child {
+  flex: 0 0 44px !important; width: 44px !important;
+  height: auto !important; max-height: 62px !important;
+}
+.uns-row > div:first-child * {
+  width: 100% !important; height: auto !important;
+  max-height: 62px !important; aspect-ratio: 0.717; object-fit: cover;
+}
+.uns-row > div:last-child {
+  flex: 1 1 auto !important; min-width: 0;
+  flex-direction: row !important; align-items: center; gap: 0.5rem;
+  display: flex !important; padding: 0 !important; font-size: 0.76rem;
+}
+.uns-row > div:last-child > div:first-child {
+  flex: 1 1 auto; min-width: 0; text-align: left !important;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.uns-row > div:last-child > div:last-child {
+  flex: 0 0 auto; margin-left: auto;
+  display: flex !important; align-items: center; gap: 0.35rem;
+}
+/* The set name is not on the drawing's row -- thumb, name, price. */
+.uns-row > div:last-child > div:last-child > span:first-child { display: none; }
+/* The duplicate search + sort dropdown, the two big action buttons and the
+   grid/list toggle are not in the drawing on either screen. */
+.uns-sortrow, .uns-bigactions, .uns-viewtoggle { display: none !important; }
+.uns-fileall { font-size: 0.72rem; padding: 0.2rem 0.55rem; }
+
+@media (max-width: 1024px) {
+  /* The INNER actions wrapper (search, sort button, Select) is its own nowrap
+     flex row -- measured right=452 on a 390px screen. Classing the outer row
+     was not enough; this is the one that actually overflowed. */
+  .loc-headactions {
+    flex-wrap: wrap !important; width: 100%; min-width: 0;
+  }
+  .loc-headactions > * { max-width: 100%; min-width: 0; }
+  .loc-headactions .loc-sortbtn { flex: 1 1 auto; }
+}
