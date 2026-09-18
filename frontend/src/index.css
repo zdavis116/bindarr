@@ -5244,32 +5244,27 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
         in it. File all is the one action. */
   .uns-sortrow, .uns-viewtoggle { display: none !important; }
 
-  /* 4. Unsorted rows are thumb | name | price on ONE line. The shipped cards
-        are full art with rarity pills at ~240px each, so four fill the column
-        and you cannot see what is waiting to be filed.
-        RESTYLED, not hidden -- hiding them would empty the column, which is
-        the exact bug I shipped on Add cards last week. */
-  .location-unsorted-col .tcg-card {
-    display: flex !important; align-items: center; gap: 0.5rem;
-    aspect-ratio: auto !important; height: auto !important;
-    padding: 0.25rem 0.35rem; border-radius: 6px;
-    background: var(--bg-secondary); border: 0;
+  /* 4. THE DRAWING'S ROW: thumb | name | price, one line, ~30px.
+        The shipped card is a flex COLUMN with full art, a rarity pill and a
+        set line at ~270px, so four filled the column and you could not see
+        what was waiting to be filed.
+        Restyled, not hidden -- hiding would empty the column, which is the bug
+        I shipped on Add cards. !important because every one of these values is
+        an inline style on the element. */
+  .uns-row {
+    flex-direction: row !important; align-items: center; gap: 0.5rem;
+    padding: 0.25rem 0.35rem !important; min-height: 0 !important;
   }
-  .location-unsorted-col .tcg-card-inner {
-    width: 22px !important; flex: 0 0 22px; aspect-ratio: 0.717;
+  .uns-row > * { flex: 0 0 auto; }
+  /* The art: a thumbnail, keeping the Magic ratio. */
+  .uns-row img {
+    width: 22px !important; height: auto !important;
+    aspect-ratio: 0.717; object-fit: cover; border-radius: 3px;
   }
-  .location-unsorted-col .tcg-card-info {
+  /* The name takes the space; everything else is a chip at the end. */
+  .uns-row > div:last-child {
+    flex: 1 1 auto !important; min-width: 0;
     display: flex !important; align-items: center; gap: 0.4rem;
-    flex: 1; min-width: 0; padding: 0 !important;
+    padding: 0 !important; font-size: 0.76rem;
   }
-  .location-unsorted-col .tcg-card-name {
-    flex: 1; min-width: 0; font-size: 0.76rem;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  /* Set name and rarity pill are not on the drawing's rows. */
-  .location-unsorted-col .tcg-card-meta,
-  .location-unsorted-col .tcg-card-quantity-tag { display: none; }
-  .location-unsorted-col .tcg-card-price {
-    flex: 0 0 auto; font-size: 0.72rem; font-variant-numeric: tabular-nums;
-  }
-}
+

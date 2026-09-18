@@ -1975,7 +1975,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                     <div
                       key={card.entry_id}
                       id={`card-${card.entry_id}`}
-                      className={card.entry_id === focusEntryId ? 'focus-flash' : ''}
+                      className={`uns-row${card.entry_id === focusEntryId ? ' focus-flash' : ''}`}
                       {...unsortedPressHandlers(card.entry_id)}
                       onClick={() => activateUnsortedCard(card)}
                       style={{
