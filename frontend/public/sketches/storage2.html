@@ -1,0 +1,340 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bindarr — Storage, redesigned</title>
+<style>
+:root{
+  --bg:#0b0b0f; --s1:#15161c; --s2:#1c1e26; --s3:#262933;
+  --br:#2a2d38; --t1:#e8eaf0; --t2:#9aa0b0; --t3:#6b7280;
+  --acc:#4c9aff; --acc-soft:rgba(76,154,255,.14);
+  --amber:#fbbf24; --green:#4ade80; --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--t1);
+  font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
+*{scrollbar-width:thin;scrollbar-color:var(--s3) var(--bg)}
+
+.wrap{max-width:1500px;margin:0 auto;padding:1.5rem}
+.note{background:var(--s1);border:1px solid var(--br);border-radius:var(--r);
+  padding:.9rem 1.1rem;margin-bottom:1.4rem;font-size:.86rem;color:var(--t2)}
+.note b{color:var(--t1)}
+h1{font-size:1.5rem;letter-spacing:-.02em}
+h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);
+  margin:2.2rem 0 .7rem;font-weight:700}
+.panel{background:var(--s1);border:1px solid var(--br);border-radius:var(--r);padding:1rem}
+.sub{color:var(--t2);font-size:.84rem}
+.btn{background:var(--s2);border:1px solid var(--br);color:var(--t1);
+  padding:.35rem .8rem;border-radius:8px;font-size:.8rem;cursor:pointer;font-family:inherit}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#06101f;font-weight:600}
+.btn.sm{padding:.22rem .55rem;font-size:.72rem}
+
+/* ---------- the shared thing: a SORT STACK ---------- */
+.stack{display:flex;flex-direction:column;gap:.4rem}
+.lvl{display:flex;align-items:center;gap:.55rem;background:var(--s2);
+  border:1px solid var(--br);border-radius:8px;padding:.45rem .6rem}
+.lvl .grip{color:var(--t3);cursor:grab;font-size:.95rem;line-height:1}
+.lvl .n{width:18px;height:18px;border-radius:50%;background:var(--acc-soft);
+  color:var(--acc);font-size:.66rem;font-weight:800;display:grid;place-items:center;flex:none}
+.lvl select{background:var(--s3);border:1px solid var(--br);color:var(--t1);
+  border-radius:6px;padding:.25rem .45rem;font-size:.78rem;font-family:inherit}
+.lvl .x{margin-left:auto;background:none;border:0;color:var(--t3);cursor:pointer;font-size:1rem}
+.lvl .x:hover{color:var(--t1)}
+.addlvl{border:1px dashed var(--br);background:none;color:var(--t2);
+  border-radius:8px;padding:.4rem;font-size:.78rem;cursor:pointer;font-family:inherit}
+
+/* ---------- desktop ---------- */
+.desk{display:grid;grid-template-columns:230px minmax(0,1fr) 300px;gap:1rem;
+  height:620px;align-items:stretch}
+.rail{display:flex;flex-direction:column;gap:.15rem;overflow-y:auto}
+.rail-item{display:flex;align-items:center;gap:.5rem;padding:.45rem .55rem;
+  border:0;border-radius:8px;background:none;color:var(--t2);font-size:.84rem;
+  cursor:pointer;width:100%;text-align:left;font-family:inherit}
+.rail-item:hover{background:var(--s2)}
+.rail-item.on{background:var(--acc-soft);color:var(--t1);font-weight:600}
+.rail-item .c{margin-left:auto;font-size:.72rem;color:var(--t3);font-variant-numeric:tabular-nums}
+
+.mid{display:flex;flex-direction:column;gap:.7rem;min-height:0}
+.midhead{display:flex;align-items:center;gap:.6rem}
+.inp{background:var(--s2);border:1px solid var(--br);color:var(--t1);
+  border-radius:8px;padding:.35rem .6rem;font-size:.8rem;font-family:inherit}
+.groups{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:1rem;
+  padding-right:.2rem}
+.grp-h{display:flex;align-items:center;gap:.5rem;position:sticky;top:0;
+  background:var(--s1);padding:.3rem 0;z-index:2}
+.grp-h b{font-size:.85rem}
+.grp-h .n{font-size:.72rem;color:var(--t3)}
+.grp-h .bar{flex:1;height:1px;background:var(--br)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:.45rem}
+.card{aspect-ratio:.717;border-radius:5px;background:linear-gradient(145deg,#2a2f3e,#191c26);
+  border:1px solid #333845;font-size:.58rem;color:var(--t3);padding:.25rem;
+  overflow:hidden;cursor:pointer}
+.card:hover{border-color:var(--acc)}
+.card.w{background:linear-gradient(145deg,#4a4535,#2a2820)}
+.card.u{background:linear-gradient(145deg,#25405e,#16222f)}
+.card.b{background:linear-gradient(145deg,#2e2a33,#1a181e)}
+.card.r{background:linear-gradient(145deg,#5a2b28,#2e1716)}
+.card.g{background:linear-gradient(145deg,#2a4a32,#16261b)}
+.card.m{background:linear-gradient(145deg,#4a3f22,#2a2415)}
+
+.unsorted{display:flex;flex-direction:column;gap:.6rem;min-height:0}
+.ulist{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:.3rem}
+.urow{display:flex;align-items:center;gap:.5rem;padding:.3rem .4rem;border-radius:6px;
+  background:var(--s2);font-size:.76rem;cursor:grab}
+.urow:hover{background:var(--s3)}
+.uthumb{width:22px;aspect-ratio:.717;border-radius:3px;background:#2a2f3e;flex:none}
+.urow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- phone ---------- */
+.phones{display:flex;gap:1.5rem;flex-wrap:wrap}
+.phone{width:390px;height:740px;background:var(--bg);border:1px solid var(--br);
+  border-radius:20px;overflow:hidden;display:flex;flex-direction:column;flex:none}
+.ph-head{padding:.8rem 1rem .5rem;border-bottom:1px solid var(--br)}
+.ph-body{flex:1;overflow-y:auto;padding:.8rem 1rem;display:flex;
+  flex-direction:column;gap:.8rem}
+.ph-tabs{display:flex;border-top:1px solid var(--br);background:var(--s1)}
+.ph-tab{flex:1;padding:.6rem;text-align:center;font-size:.64rem;color:var(--t3)}
+.ph-tab.on{color:var(--acc)}
+.seg{display:flex;background:var(--s2);border-radius:8px;padding:2px}
+.seg button{flex:1;background:none;border:0;color:var(--t2);padding:.35rem;
+  font-size:.75rem;border-radius:6px;cursor:pointer;font-family:inherit}
+.seg button.on{background:var(--s3);color:var(--t1);font-weight:600}
+.ph-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:.35rem}
+.why{font-size:.82rem;color:var(--t2);margin-top:.8rem;line-height:1.6}
+.why b{color:var(--t1)}
+.tag{display:inline-block;background:var(--s3);color:var(--t2);border-radius:4px;
+  padding:.05rem .35rem;font-size:.7rem;font-variant-numeric:tabular-nums}
+</style></head><body><div class="wrap">
+
+<h1>Storage, redesigned</h1>
+<div class="note" style="margin-top:.8rem">
+  <b>One idea:</b> a container is a <b>bucket with a sort stack</b>. You pick the
+  levels — Type, then Color, then Set — and Bindarr groups the cards that way.
+  Same model on phone and desktop; only the layout changes.
+  <br><br>
+  Every number below is <b>your real collection</b>: 2,626 cards, 73 sets,
+  1,153 creatures, 264 basic lands. Colour groups are 5 mono + Colorless +
+  Multicolour, as you chose.
+</div>
+
+<h2>Desktop — 1500 × 900</h2>
+<div class="desk">
+  <div class="panel rail">
+    <div style="font-size:.7rem;color:var(--t3);font-weight:700;letter-spacing:.05em;
+                text-transform:uppercase;margin-bottom:.4rem">Containers</div>
+    <button class="rail-item on"><span>Main Binder</span><span class="c">412</span></button>
+    <button class="rail-item"><span>Bulk Box 1</span><span class="c">1,890</span></button>
+    <button class="rail-item"><span>Big Butty</span><span class="c">324</span></button>
+    <button class="addlvl" style="margin-top:.4rem">+ New container</button>
+    <div style="margin-top:auto;padding-top:.7rem;border-top:1px solid var(--br);
+                font-size:.76rem;color:var(--t3)">
+      <b style="color:var(--t2)">Main Binder · $612.40</b><br>412 of 720 slots
+    </div>
+  </div>
+
+  <div class="mid">
+    <div class="midhead">
+      <b style="font-size:1.05rem">Main Binder</b>
+      <span class="sub">412 cards · $612.40</span>
+      <div style="margin-left:auto;display:flex;gap:.4rem">
+        <input class="inp" placeholder="Find in this container…" style="width:180px">
+        <button class="btn sm" onclick="document.getElementById('sortpop').style.display=
+          document.getElementById('sortpop').style.display==='block'?'none':'block'">
+          ⇅ Sorted by Type → Color → Set</button>
+      </div>
+    </div>
+
+    <div class="panel" id="sortpop" style="display:block;padding:.75rem">
+      <div style="display:flex;align-items:center;margin-bottom:.5rem">
+        <b style="font-size:.78rem">Sort stack</b>
+        <span class="sub" style="margin-left:.5rem;font-size:.74rem">
+          drag to reorder — the order IS the shelf order</span>
+        <button class="btn sm" style="margin-left:auto">Apply to container</button>
+      </div>
+      <div class="stack">
+        <div class="lvl"><span class="grip">⠿</span><span class="n">1</span>
+          <select><option selected>Type</option><option>Color</option>
+            <option>Set</option><option>Rarity</option><option>Name</option>
+            <option>Price</option></select>
+          <label class="sub" style="font-size:.74rem">
+            <input type="checkbox" checked> split lands into Basic / Nonbasic</label>
+          <button class="x">×</button></div>
+        <div class="lvl"><span class="grip">⠿</span><span class="n">2</span>
+          <select><option>Type</option><option selected>Color</option>
+            <option>Set</option><option>Rarity</option><option>Name</option></select>
+          <label class="sub" style="font-size:.74rem">
+            <input type="checkbox" checked> multicolour in one pile</label>
+          <button class="x">×</button></div>
+        <div class="lvl"><span class="grip">⠿</span><span class="n">3</span>
+          <select><option>Type</option><option>Color</option>
+            <option selected>Set</option><option>Rarity</option><option>Name</option></select>
+          <span class="sub" style="font-size:.74rem">newest first</span>
+          <button class="x">×</button></div>
+        <button class="addlvl">+ Add level</button>
+      </div>
+    </div>
+
+    <div class="groups">
+      <div>
+        <div class="grp-h"><b>Creature</b><span class="n">1,153</span><span class="bar"></span></div>
+        <div style="margin:.3rem 0 .5rem .6rem">
+          <div class="grp-h" style="top:26px"><span class="tag">White</span>
+            <span class="n">168</span><span class="bar"></span></div>
+          <div class="cards" style="margin-top:.35rem">
+            <div class="card w">Elite Vanguard · MSH</div><div class="card w">Ajani's Pridemate · MSH</div>
+            <div class="card w">Serra Angel · TLA</div><div class="card w">Wall of Omens · TLA</div>
+            <div class="card w">Thraben Inspector · TMT</div><div class="card w">Loyal Warhound · TMT</div>
+            <div class="card w">Giant Growth · TDM</div><div class="card w">Angel of Destiny · TDM</div>
+          </div>
+          <div class="grp-h" style="top:26px;margin-top:.7rem"><span class="tag">Blue</span>
+            <span class="n">181</span><span class="bar"></span></div>
+          <div class="cards" style="margin-top:.35rem">
+            <div class="card u">Thopter Fabricator · DFT</div><div class="card u">Man-o'-War · MSH</div>
+            <div class="card u">Snapcaster · MSH</div><div class="card u">Murktide · TLA</div>
+            <div class="card u">Brazen Borrower · TMT</div><div class="card u">Sea Gate · TDM</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="grp-h"><b>Basic Land</b><span class="n">264</span><span class="bar"></span></div>
+        <div class="cards" style="margin-top:.35rem">
+          <div class="card w">Plains ×62</div><div class="card u">Island ×48</div>
+          <div class="card b">Swamp ×51</div><div class="card r">Mountain ×54</div>
+          <div class="card g">Forest ×49</div>
+        </div>
+      </div>
+      <div>
+        <div class="grp-h"><b>Nonbasic Land</b><span class="n">231</span><span class="bar"></span></div>
+        <div class="cards" style="margin-top:.35rem">
+          <div class="card m">Command Tower · MSC</div><div class="card m">Exotic Orchard · TDC</div>
+          <div class="card">Ancient Tomb · MSH</div><div class="card m">Blood Crypt · TLA</div>
+          <div class="card m">Breeding Pool · TLA</div><div class="card">Wastes · TMT</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel unsorted">
+    <div style="display:flex;align-items:center;gap:.4rem">
+      <b style="font-size:.85rem">Unsorted</b><span class="tag">2,626</span>
+      <button class="btn sm" style="margin-left:auto">File all →</button>
+    </div>
+    <input class="inp" placeholder="Search unsorted…">
+    <div class="sub" style="font-size:.73rem">Drag onto a group, or use File all to
+      let the sort stack place every card.</div>
+    <div class="ulist">
+      <div class="urow"><span class="uthumb"></span><span class="nm">Cast-Off Consort</span><span class="tag">$42</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">The Ur-Dragon</span><span class="tag">$33</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Commander's Plate</span><span class="tag">$31</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Miirym, Sentinel Wyrm</span><span class="tag">$29</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">The Walls of Ba Sing Se</span><span class="tag">$26</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Jennifer Walters</span><span class="tag">$24</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Last March of the Ents</span><span class="tag">$22</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Krang, Utrom Warlord</span><span class="tag">$20</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Klauth, Unrivaled Ancient</span><span class="tag">$18</span></div>
+      <div class="urow"><span class="uthumb"></span><span class="nm">Ancient Bronze Dragon</span><span class="tag">$18</span></div>
+    </div>
+  </div>
+</div>
+
+<p class="why"><b>Why this shape.</b> The old screen modelled <i>physical pockets</i> —
+page 3, slot 7 — which is why it needed renumber warnings, capacity maths and a page
+navigator. You said a container is a bucket you find things in by their order, so the
+sort stack IS the whole model: no pockets, nothing to renumber.
+<b>One control, three screens</b> — the same stack drives the desktop groups, the phone
+list, and the File-all action.</p>
+
+<h2>Phone — 390 × 740</h2>
+<div class="phones">
+
+  <div class="phone">
+    <div class="ph-head">
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <b>Main Binder</b><span class="tag">412</span>
+        <button class="btn sm" style="margin-left:auto">Containers ▾</button>
+      </div>
+      <div class="sub" style="font-size:.76rem;margin-top:.2rem">412 cards · $612.40</div>
+    </div>
+    <div class="ph-body">
+      <button class="btn" style="text-align:left">⇅ Type → Color → Set</button>
+      <input class="inp" placeholder="Find in this container…">
+      <div>
+        <div class="grp-h"><b style="font-size:.8rem">Creature · White</b>
+          <span class="n">168</span><span class="bar"></span></div>
+        <div class="ph-cards" style="margin-top:.4rem">
+          <div class="card w">Elite Vanguard</div><div class="card w">Pridemate</div>
+          <div class="card w">Serra Angel</div><div class="card w">Wall of Omens</div>
+        </div>
+      </div>
+      <div>
+        <div class="grp-h"><b style="font-size:.8rem">Creature · Blue</b>
+          <span class="n">181</span><span class="bar"></span></div>
+        <div class="ph-cards" style="margin-top:.4rem">
+          <div class="card u">Thopter Fab.</div><div class="card u">Man-o'-War</div>
+          <div class="card u">Snapcaster</div><div class="card u">Murktide</div>
+        </div>
+      </div>
+      <div>
+        <div class="grp-h"><b style="font-size:.8rem">Basic Land</b>
+          <span class="n">264</span><span class="bar"></span></div>
+        <div class="ph-cards" style="margin-top:.4rem">
+          <div class="card w">Plains ×62</div><div class="card u">Island ×48</div>
+          <div class="card b">Swamp ×51</div><div class="card r">Mountain ×54</div>
+        </div>
+      </div>
+    </div>
+    <div class="ph-tabs"><div class="ph-tab">Dashboard</div><div class="ph-tab on">Collection</div>
+      <div class="ph-tab">Decks</div><div class="ph-tab">Settings</div></div>
+  </div>
+
+  <div class="phone">
+    <div class="ph-head"><b>Sort stack</b>
+      <div class="sub" style="font-size:.76rem">Main Binder · drag to reorder</div></div>
+    <div class="ph-body">
+      <div class="stack">
+        <div class="lvl"><span class="grip">⠿</span><span class="n">1</span>
+          <select style="flex:1"><option selected>Type</option><option>Color</option>
+            <option>Set</option></select><button class="x">×</button></div>
+        <label class="sub" style="font-size:.75rem;margin:-.2rem 0 .3rem 2.1rem">
+          <input type="checkbox" checked> split Basic / Nonbasic lands</label>
+        <div class="lvl"><span class="grip">⠿</span><span class="n">2</span>
+          <select style="flex:1"><option>Type</option><option selected>Color</option>
+            <option>Set</option></select><button class="x">×</button></div>
+        <label class="sub" style="font-size:.75rem;margin:-.2rem 0 .3rem 2.1rem">
+          <input type="checkbox" checked> multicolour in one pile</label>
+        <div class="lvl"><span class="grip">⠿</span><span class="n">3</span>
+          <select style="flex:1"><option>Type</option><option>Color</option>
+            <option selected>Set</option></select><button class="x">×</button></div>
+        <button class="addlvl">+ Add level</button>
+      </div>
+      <div class="panel" style="padding:.7rem">
+        <div class="sub" style="font-size:.75rem;margin-bottom:.4rem">Preview — first groups</div>
+        <div style="font-size:.78rem;line-height:1.9">
+          <div>Creature · White · MSH <span class="tag">41</span></div>
+          <div>Creature · White · TLA <span class="tag">38</span></div>
+          <div>Creature · Blue · MSH <span class="tag">44</span></div>
+          <div class="sub">…then Black, Red, Green, Multicolour, Colorless</div>
+          <div style="margin-top:.4rem">Basic Land <span class="tag">264</span></div>
+          <div>Nonbasic Land <span class="tag">231</span></div>
+        </div>
+      </div>
+      <button class="btn pri" style="width:100%">Apply &amp; file 2,626 cards</button>
+    </div>
+    <div class="ph-tabs"><div class="ph-tab">Dashboard</div><div class="ph-tab on">Collection</div>
+      <div class="ph-tab">Decks</div><div class="ph-tab">Settings</div></div>
+  </div>
+</div>
+
+<p class="why"><b>What this drops on purpose.</b> Pocket positions, page spreads, capacity
+warnings, renumbering, and per-compartment filing rules — all of it existed to model a
+binder as physical geometry. <b>What it keeps:</b> containers, a card's location, unsorted,
+and bulk filing.</p>
+
+<p class="why"><b>Open question I could not answer for you.</b> Whether the stack is
+<i>per container</i> (Binder sorts by Type, Bulk Box by Set) or one global preference. The
+mockup shows per-container with an "Apply to container" button, because you already keep a
+binder and a bulk box for different reasons.</p>
+
+</div></body></html>
