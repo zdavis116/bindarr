@@ -888,10 +888,6 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
     }
   };
 
-  if (loading) return <div className="spinner" />;
-
-  const totalFiled = locations.reduce((n, l) => n + (l.total_cards || 0), 0);
-
   // The open container's stack, parsed from whatever sort_order holds. It can
   // be a JSON array (the new shape), a named scheme string (the old one), or
   // null -- all three exist in the database right now, so all three are read.
@@ -939,6 +935,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       setStackSaving(false);
     }
   };
+
+  if (loading) return <div className="spinner" />;
+
+  const totalFiled = locations.reduce((n, l) => n + (l.total_cards || 0), 0);
 
   // What the open container is worth. resolveCardPrice is the app's single
   // price answer -- the dashboard, collection and decks all use it, so this

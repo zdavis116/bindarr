@@ -188,4 +188,39 @@ const pass = (id, what) => { passed += 1; console.log(`PASS: ${id} ${what}`); };
   pass('SG-TC5', 'empty and malformed stacks degrade safely');
 }
 
+
+// --- SG-TC6 -----------------------------------------------------------------
+// NO HOOK MAY SIT BELOW A CONDITIONAL RETURN.
+//
+// I shipped exactly this and the Storage screen rendered "Something went wrong"
+// -- React error #310. I added a useMemo and a useEffect AFTER
+// `if (loading) return <spinner/>`, so on the loading pass they never ran and
+// React saw a different number of hooks between renders.
+//
+// The build was clean and every unit test passed; only loading the page showed
+// it. This guard is the cheap version of loading the page.
+{
+  const files = [
+    'LocationManager.jsx', 'SortStackEditor.jsx', 'Dashboard.jsx',
+    'CollectionList.jsx', 'CardSearch.jsx',
+  ];
+  for (const f of files) {
+    const p = path.join(__dirname, '..', '..', 'frontend', 'src', 'components', f);
+    if (!fs.existsSync(p)) continue;
+    const code = fs.readFileSync(p, 'utf8');
+    // The first conditional return that ends the render early.
+    const m = code.match(/\n\s{2}if \([^)]*\) return [^;]*;/);
+    if (!m) continue;
+    const cut = m.index + m[0].length;
+    const after = code.slice(cut);
+    const stray = [...after.matchAll(/\buse(State|Effect|Memo|Callback|Ref)\s*\(/g)];
+    assert.strictEqual(stray.length, 0,
+      `${f}: ${stray.length} hook call(s) below an early return. React counts `
+      + 'hooks per render; one that is skipped on the loading pass changes the '
+      + 'order and throws #310, which renders as a blank error screen.');
+  }
+
+  pass('SG-TC6', 'no hooks below a conditional return');
+}
+
 console.log(`storage-groups.test.js: ${passed} cases passed`);
