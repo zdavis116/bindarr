@@ -1432,54 +1432,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: isBinderType ? '1rem' : '0.6rem' }}>
-              {isBinderType ? (() => {
-                if (compartments.length === 0) return null;
-                const pageProps = (c, i) => ({
-                  compartment: c,
-                  cards: cardsByCompartment.get(c.id) || [],
-                  sortOrder: selectedLoc.sort_order,
-                  setsList,
-                  canRemove: i === compartments.length - 1 && compartments.length > 1 && (cardsByCompartment.get(c.id) || []).length === 0,
-                  moveTargets: compartments,
-                  onRename: (label) => handleRenameCompartment(c.id, label),
-                  onSetCapacity: (cap) => handleSetCapacity(c.id, cap),
-                  onRemove: () => handleRemoveCompartment(c.id),
-                  onToggleLock: () => handleToggleCompartmentLock(c.id, !c.locked),
-                  containerLocked: !!selectedLoc.locked,
-                  onCardClick: setInspectorCard,
-                  onDeleteCard: handleDeleteCard,
-                  onMoveCard: handleMoveCard,
-                  recommendedSpot: currentRecSpot && currentRecSpot.compartment_id === c.id ? {
-                    index: Math.floor(currentRecSpot.position / 1000) - 1,
-                    image_url: recCard?.image_url,
-                    name: recCard?.name,
-                    set_name: recCard?.set_name,
-                    card: recCard
-                  } : null,
-                  focusEntryId,
-                  selectMode: storage.selectMode,
-                  selectedIds: storage.selectedIds,
-                  onCardLongPress: storage.arm,
-                  onCardToggle: storage.toggleSelect,
-                  onEditRules: openCompartmentRules,
-                  placementMode: moveMode,
-                  pickedEntryId,
-                  onPickCard: handlePickCard,
-                  onPlaceSlot: handlePlaceSlot,
-                  activeEntryId: binderActiveEntryId,
-                  onActiveEntryIdChange: setBinderActiveEntryId,
-                  hideFocusedCardInfo: true
-                });
-
-                // THE MOCKUP'S FLAT GRID, and the default on desktop.
-                //
-                // Zach: "please adjust to match the mockup". Section 6 draws
-                // one 9-across grid of the cards in the open location with a
-                // "Page view" button beside the search -- not a binder spread.
-                //
-                // The spread is not deleted: it answers "which physical page
-                // is this on", which is the question while filing. It is now
-                // behind that button, which is what the drawing shows.
+              {/* THE STACK DRIVES THE SCREEN, for EVERY container type.
+                This lived inside the isBinderType ternary, so a Box never
+                reached it and kept rendering the old page carousel -- the
+                grouping is the model now, and a Box is grouped exactly like a
+                binder. */}
+            {(() => {
                 // THE STACK DRIVES THE SCREEN. Groups in shelf order, each
                 // labelled, cards inside. Same on phone and desktop -- only
                 // the column count differs, because the grouping IS the model
@@ -1526,6 +1484,47 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                     </div>
                   );
                 }
+              return null;
+            })()}
+
+            {(locPageView || filingMode) && isBinderType ? (() => {
+                if (compartments.length === 0) return null;
+                const pageProps = (c, i) => ({
+                  compartment: c,
+                  cards: cardsByCompartment.get(c.id) || [],
+                  sortOrder: selectedLoc.sort_order,
+                  setsList,
+                  canRemove: i === compartments.length - 1 && compartments.length > 1 && (cardsByCompartment.get(c.id) || []).length === 0,
+                  moveTargets: compartments,
+                  onRename: (label) => handleRenameCompartment(c.id, label),
+                  onSetCapacity: (cap) => handleSetCapacity(c.id, cap),
+                  onRemove: () => handleRemoveCompartment(c.id),
+                  onToggleLock: () => handleToggleCompartmentLock(c.id, !c.locked),
+                  containerLocked: !!selectedLoc.locked,
+                  onCardClick: setInspectorCard,
+                  onDeleteCard: handleDeleteCard,
+                  onMoveCard: handleMoveCard,
+                  recommendedSpot: currentRecSpot && currentRecSpot.compartment_id === c.id ? {
+                    index: Math.floor(currentRecSpot.position / 1000) - 1,
+                    image_url: recCard?.image_url,
+                    name: recCard?.name,
+                    set_name: recCard?.set_name,
+                    card: recCard
+                  } : null,
+                  focusEntryId,
+                  selectMode: storage.selectMode,
+                  selectedIds: storage.selectedIds,
+                  onCardLongPress: storage.arm,
+                  onCardToggle: storage.toggleSelect,
+                  onEditRules: openCompartmentRules,
+                  placementMode: moveMode,
+                  pickedEntryId,
+                  onPickCard: handlePickCard,
+                  onPlaceSlot: handlePlaceSlot,
+                  activeEntryId: binderActiveEntryId,
+                  onActiveEntryIdChange: setBinderActiveEntryId,
+                  hideFocusedCardInfo: true
+                });
 
                 let binderPages = null;
                 if (isMobile) {
