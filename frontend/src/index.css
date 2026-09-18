@@ -5194,3 +5194,34 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   gap: 0.4rem;
 }
+
+/* ===== STORAGE: MATCH sketches/storage2.html EXACTLY ======================
+   Zach: "Make the storage look exactly the same as the mockup. EXACTLY."
+   Dumped both DOMs side by side and fixed each difference rather than
+   eyeballing it -- that is what kept producing "close enough". */
+.storage-rail-title {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.4rem;
+}
+.uns-count {
+  background: var(--surface-3, #262933); color: var(--text-secondary);
+  border-radius: 4px; padding: 0.05rem 0.35rem; font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.uns-search { width: 100%; font-size: 0.8rem; }
+.uns-hint { font-size: 0.73rem; color: var(--text-muted); margin: 0; line-height: 1.4; }
+
+@media (min-width: 1025px) {
+  /* The mockup's mid-header holds FOUR things: name, "N cards · $value",
+     the search box, and the sort button. Page view and Select are not in the
+     drawing, so they do not belong on this screen at this width. */
+  .loc-deskhide { display: none !important; }
+
+  /* Unsorted rows in the drawing are thumb | name | price -- one line each.
+     The shipped rows carried rarity, set, price and a quantity control, which
+     is a different component at three times the height. */
+  .storage-workspace-grid .location-unsorted-col .btn-secondary[title],
+  .storage-workspace-grid .location-unsorted-col select.select-control {
+    display: none;
+  }
+}

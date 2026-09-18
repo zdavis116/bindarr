@@ -78,7 +78,12 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   // holds [{"by":"color","dir":"asc"}] today) and PUT /locations/:id already
   // persists it. No schema change, no migration.
   const [stackDraft, setStackDraft] = useState(null);
-  const [stackOpen, setStackOpen] = useState(false);
+  // OPEN BY DEFAULT on desktop -- the mockup draws the sort panel visible
+  // (display:block) with the button toggling it. The phone starts closed
+  // because the panel would push the cards off a 740px screen.
+  const [stackOpen, setStackOpen] = useState(
+    typeof window !== 'undefined'
+    && window.matchMedia('(min-width: 1025px)').matches);
   const [stackSaving, setStackSaving] = useState(false);
 
   const [unsortedSearch, setUnsortedSearch] = useState('');
@@ -1106,6 +1111,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           where 250px of permanent rail would cost a third of the screen. Both
           write the same activeLocationId, so they cannot disagree. */}
       <nav className="storage-rail" aria-label={t('nav.storage')}>
+        <div className="storage-rail-title">{t('loc.containers')}</div>
         {locations.map((loc) => (
           <button
             key={loc.id}
@@ -1126,7 +1132,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           className="storage-rail-new"
           onClick={() => setShowCreate(true)}
         >
-          <Plus size={13} /> {t('loc.createContainer')}
+          <Plus size={13} /> {t('loc.newContainer')}
         </button>
 
         {/* The mockup's summary line for the OPEN location, so the rail answers
@@ -1137,11 +1143,13 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                 9 pages · 4 free slots". Repeating the card count here would
                 say the same thing as the row above it. */}
             <b>{selectedLoc.name}{locValue > 0 ? ` \u00b7 $${locValue.toFixed(2)}` : ''}</b>
+            {/* "412 of 720 slots" -- filled of total, as drawn. It read
+                "5 pages · 2,997 free slots", which answers a different
+                question and buries how full the container is. */}
             <span>
-              {t('loc.railCapacity', {
-                pages: compartments.length,
-                free: Math.max(0, (selectedLoc.total_capacity || 0)
-                  - (selectedLoc.total_cards || 0)),
+              {t('loc.railSlots', {
+                used: (selectedLoc.total_cards || 0).toLocaleString(),
+                total: (selectedLoc.total_capacity || 0).toLocaleString(),
               })}
             </span>
           </div>
@@ -1159,10 +1167,13 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             {selectedLoc && (
               <span className="loc-title">
                 <b>{selectedLoc.name}</b>
+                {/* "412 cards · $612.40" -- ONE line, count and value, as
+                    drawn. It read "3 cards" with no value. */}
                 <span className="loc-title-sub">
                   {t('loc.railCards', {
                     n: (selectedLoc.total_cards || 0).toLocaleString(),
                   })}
+                  {locValue > 0 ? ` \u00b7 $${locValue.toFixed(2)}` : ''}
                 </span>
               </span>
             )}
@@ -1211,7 +1222,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             </button>
             <button
               type="button"
-              className={`btn btn-secondary loc-pageview${locPageView ? ' is-on' : ''}`}
+              className={`btn btn-secondary loc-pageview loc-deskhide${locPageView ? ' is-on' : ''}`}
               onClick={() => setLocPageView(v => !v)}
             >
               {t('loc.pageView')}
@@ -1804,7 +1815,10 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         ) : (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong style={{ fontSize: '0.85rem' }}>Unsorted ({unsortedCards.length})</strong>
+              {/* "Unsorted [2,626]  ... [File all →]" -- name, a count chip,
+                  and ONE action, exactly as the mockup draws it. */}
+              <strong style={{ fontSize: '0.85rem' }}>{t('loc.unsorted')}</strong>
+              <span className="uns-count">{unsortedCards.length.toLocaleString()}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <button
                   type="button"
@@ -1838,6 +1852,15 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                 </div>
               </div>
             </div>
+
+            {/* SEARCH + HINT -- both in the drawing, neither on screen. */}
+            <input
+              className="input-control uns-search"
+              placeholder={t('loc.searchUnsorted')}
+              value={unsortedSearch}
+              onChange={(e) => setUnsortedSearch(e.target.value)}
+            />
+            <p className="uns-hint">{t('loc.unsortedHint')}</p>
 
             {unsortedSelectMode && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', background: 'rgba(0,0,0,0.25)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)', marginTop: '0.25rem' }}>
