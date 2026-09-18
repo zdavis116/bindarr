@@ -1949,7 +1949,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
             </div>
 
             {unsortedCards.length > 0 && !unsortedSelectMode && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <div className="uns-bigactions" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                 <button
                   type="button"
                   className="btn btn-primary"

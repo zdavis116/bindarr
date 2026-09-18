@@ -5289,5 +5289,31 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   /* File all sits in the header beside the count, as drawn. */
   .uns-fileall { font-size: 0.72rem; padding: 0.2rem 0.55rem; }
 
+  /* The two full-width action buttons are not in the drawing -- File all in
+     the header is the one action, and it calls the same handler. */
+  .uns-bigactions { display: none !important; }
+
+  /* The row's name was CENTRED with the price stuck to the set name. The
+     drawing reads left to right: thumb, name, then the price at the far
+     right. */
+  .uns-row > div:last-child { justify-content: flex-start !important; }
+  .uns-row > div:last-child > *:first-child {
+    flex: 1 1 auto; min-width: 0; text-align: left !important;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .uns-row > div:last-child > *:last-child { margin-left: auto; }
+
+  /* GROUP HEADING: "Blue  3" with a hairline to the right, as drawn -- it was
+     a solid full-width bar that read as a filled row. */
+  .loc-group-head { background: transparent; }
+  .loc-group-bar { opacity: 0.35; }
+
+  /* The cards in a group are the drawing's small tiles, not 90px art with a
+     caption below. */
+  .loc-flat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)) !important;
+  }
+
+
 
 }
