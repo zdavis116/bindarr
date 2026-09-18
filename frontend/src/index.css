@@ -5225,3 +5225,51 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      matched nothing useful and left both buttons on screen. */
   .loc-selectbtn, .uns-selectbtn, .uns-sortrow { display: none !important; }
 }
+
+@media (min-width: 1025px) {
+  /* FOUR DIFFERENCES STILL VISIBLE IN THE SCREENSHOT.
+     Zach: "EXACTLY." */
+
+  /* 1. "1st Box" wrapped onto two lines and "3 cards · $0.63" onto two more --
+        the header is ONE line in the drawing. */
+  .loc-title { flex-wrap: nowrap; }
+  .loc-title b { white-space: nowrap; }
+  .loc-title-sub { white-space: nowrap; }
+
+  /* 2. The sort button showed "⇅" above "Color" stacked. One line. */
+  .loc-sortbtn { white-space: nowrap; }
+
+  /* 3. UNSORTED: the drawing has search, hint, then ROWS. A second search box,
+        a sort dropdown, two big action buttons and a grid/list toggle are not
+        in it. File all is the one action. */
+  .uns-sortrow, .uns-viewtoggle { display: none !important; }
+
+  /* 4. Unsorted rows are thumb | name | price on ONE line. The shipped cards
+        are full art with rarity pills at ~240px each, so four fill the column
+        and you cannot see what is waiting to be filed.
+        RESTYLED, not hidden -- hiding them would empty the column, which is
+        the exact bug I shipped on Add cards last week. */
+  .location-unsorted-col .tcg-card {
+    display: flex !important; align-items: center; gap: 0.5rem;
+    aspect-ratio: auto !important; height: auto !important;
+    padding: 0.25rem 0.35rem; border-radius: 6px;
+    background: var(--bg-secondary); border: 0;
+  }
+  .location-unsorted-col .tcg-card-inner {
+    width: 22px !important; flex: 0 0 22px; aspect-ratio: 0.717;
+  }
+  .location-unsorted-col .tcg-card-info {
+    display: flex !important; align-items: center; gap: 0.4rem;
+    flex: 1; min-width: 0; padding: 0 !important;
+  }
+  .location-unsorted-col .tcg-card-name {
+    flex: 1; min-width: 0; font-size: 0.76rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Set name and rarity pill are not on the drawing's rows. */
+  .location-unsorted-col .tcg-card-meta,
+  .location-unsorted-col .tcg-card-quantity-tag { display: none; }
+  .location-unsorted-col .tcg-card-price {
+    flex: 0 0 auto; font-size: 0.72rem; font-variant-numeric: tabular-nums;
+  }
+}

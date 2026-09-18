@@ -1843,7 +1843,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                   <MousePointerClick size={12} />
                   {t(unsortedSelectMode ? 'bulk.done' : 'collection.select')}
                 </button>
-                <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
+                <div className="uns-viewtoggle" style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
                   <button
                     type="button"
                     className={`btn btn-icon-only ${unsortedViewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`}
@@ -1922,7 +1922,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+            <div className="uns-sortrow" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
               <input
                 className="input-control" placeholder={t('loc.searchPlaceholder')} value={unsortedSearch}
                 onChange={(e) => setUnsortedSearch(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}
