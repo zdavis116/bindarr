@@ -5456,3 +5456,57 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
      must not grow past the text. */
   .uns-row { min-height: 48px; }
 }
+
+/* ===== MOBILE: TWO REAL BUGS FROM ZACH'S PHONE SCREENSHOT ================= */
+
+/* 1. "I have to scroll to the right to see the more."
+      The contents header is one non-wrapping flex row: location select, [+],
+      the sort button, and Select. Measured 254px of it hanging off a 390px
+      screen. Let it wrap. */
+@media (max-width: 1024px) {
+  .loc-headrow { flex-wrap: wrap !important; }
+  .loc-headrow > * { max-width: 100%; }
+  .loc-headrow select { flex: 1 1 100%; min-width: 0; }
+}
+
+/* 2. "the unsorted tab should look like it does on desktop."
+      Every .uns-row rule I wrote lived inside @media (min-width: 1025px), so a
+      phone fell through to the raw full-art cards. This is the SAME class of
+      bug as the mobile-only rules that left desktop with no layout -- a
+      width-scoped rule with nothing on the other side -- just pointing the
+      other way.
+      These are now unscoped: one row design, both screens. */
+.uns-list {
+  display: flex !important; flex-direction: column; gap: 0.3rem !important;
+}
+.uns-row {
+  flex-direction: row !important; align-items: center; gap: 0.5rem;
+  padding: 0.25rem 0.35rem !important; min-height: 54px;
+}
+.uns-row > div:first-child {
+  flex: 0 0 44px !important; width: 44px !important;
+  height: auto !important; max-height: 62px !important;
+}
+.uns-row > div:first-child * {
+  width: 100% !important; height: auto !important;
+  max-height: 62px !important; aspect-ratio: 0.717; object-fit: cover;
+}
+.uns-row > div:last-child {
+  flex: 1 1 auto !important; min-width: 0;
+  flex-direction: row !important; align-items: center; gap: 0.5rem;
+  display: flex !important; padding: 0 !important; font-size: 0.76rem;
+}
+.uns-row > div:last-child > div:first-child {
+  flex: 1 1 auto; min-width: 0; text-align: left !important;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.uns-row > div:last-child > div:last-child {
+  flex: 0 0 auto; margin-left: auto;
+  display: flex !important; align-items: center; gap: 0.35rem;
+}
+/* The set name is not on the drawing's row -- thumb, name, price. */
+.uns-row > div:last-child > div:last-child > span:first-child { display: none; }
+/* The duplicate search + sort dropdown, the two big action buttons and the
+   grid/list toggle are not in the drawing on either screen. */
+.uns-sortrow, .uns-bigactions, .uns-viewtoggle { display: none !important; }
+.uns-fileall { font-size: 0.72rem; padding: 0.2rem 0.55rem; }

@@ -1213,7 +1213,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           at the bottom of the screen. */}
       <div className="glass-panel" style={{ padding: '0.9rem', display: (isStacked && !filingMode && mobilePane !== 'container') ? 'none' : 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="loc-headrow" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {/* The mockup's contents title: "Binder 1  412 cards · $612.40".
                 Desktop only -- the phone reads the name off the select. */}
             {selectedLoc && (
