@@ -12,6 +12,8 @@ import CreateContainerModal from './CreateContainerModal';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
+import SortStackEditor from './SortStackEditor';
+import { groupCards, DEFAULT_STACK } from '../utils/storageGroups';
 
 function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId, setSelectedLocationId, focusEntryId }) {
   const { t } = useT();
@@ -67,6 +69,17 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   // question you ask while filing. Default flat, per the drawing.
   const [locSearch, setLocSearch] = useState('');
   const [locPageView, setLocPageView] = useState(false);
+
+  // THE CONTAINER'S SORT STACK. Zach: "I still want it per container because
+  // that is how I physically have it" -- so this is a draft of the OPEN
+  // location's stack, saved to that location and to no other.
+  //
+  // locations.sort_order already stores exactly this shape as JSON (his 1st Box
+  // holds [{"by":"color","dir":"asc"}] today) and PUT /locations/:id already
+  // persists it. No schema change, no migration.
+  const [stackDraft, setStackDraft] = useState(null);
+  const [stackOpen, setStackOpen] = useState(false);
+  const [stackSaving, setStackSaving] = useState(false);
 
   const [unsortedSearch, setUnsortedSearch] = useState('');
   const [unsortedSort, setUnsortedSort] = useState('scanned-desc');
@@ -879,6 +892,54 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   const totalFiled = locations.reduce((n, l) => n + (l.total_cards || 0), 0);
 
+  // The open container's stack, parsed from whatever sort_order holds. It can
+  // be a JSON array (the new shape), a named scheme string (the old one), or
+  // null -- all three exist in the database right now, so all three are read.
+  const activeStack = useMemo(() => {
+    if (stackDraft) return stackDraft;
+    const raw = selectedLoc?.sort_order;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string' && raw.trim().startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      } catch { /* a malformed stack falls through to the default */ }
+    }
+    return DEFAULT_STACK;
+  }, [stackDraft, selectedLoc]);
+
+  // Switching containers must drop the draft, or an unsaved stack would follow
+  // you into the next container and look like its own.
+  useEffect(() => { setStackDraft(null); setStackOpen(false); }, [activeLocationId]);
+
+  const saveStack = async () => {
+    if (!selectedLoc) return;
+    setStackSaving(true);
+    try {
+      const res = await fetch(`/api/locations/${selectedLoc.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sort_order: JSON.stringify(activeStack) }),
+      });
+      if (!res.ok) throw new Error(`save failed: ${res.status}`);
+      // Reflect it locally rather than refetching the whole screen: the row we
+      // just wrote is the row we already hold.
+      setLocations((prev) => prev.map((l) => (
+        l.id === selectedLoc.id
+          ? { ...l, sort_order: JSON.stringify(activeStack) }
+          : l)));
+      setStackDraft(null);
+      setStackOpen(false);
+      showToast(t('sort.saved'));
+    } catch (err) {
+      console.error(err);
+      showToast(t('sort.errSave'));
+    } finally {
+      setStackSaving(false);
+    }
+  };
+
   // What the open container is worth. resolveCardPrice is the app's single
   // price answer -- the dashboard, collection and decks all use it, so this
   // cannot disagree with them.
@@ -1135,6 +1196,19 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               value={locSearch}
               onChange={(e) => setLocSearch(e.target.value)}
             />
+            {/* THE SORT BUTTON IS THE PRIMARY CONTROL -- it names the current
+                order, so the header answers "how is this container arranged"
+                without opening anything. */}
+            <button
+              type="button"
+              className={`btn btn-secondary loc-sortbtn${stackOpen ? ' is-on' : ''}`}
+              onClick={() => setStackOpen(o => !o)}
+            >
+              {'\u21c5 '}
+              {activeStack.length
+                ? activeStack.map(l => t(`sort.field.${l.by}`)).join(' \u2192 ')
+                : t('sort.unsorted')}
+            </button>
             <button
               type="button"
               className={`btn btn-secondary loc-pageview${locPageView ? ' is-on' : ''}`}
@@ -1276,6 +1350,15 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
               </div>
             )}
 
+            {stackOpen && (
+              <SortStackEditor
+                stack={activeStack}
+                onChange={setStackDraft}
+                onApply={saveStack}
+                saving={stackSaving}
+              />
+            )}
+
             {/* Page view only: this warns about POCKET POSITIONS, which exist
                 only in the spread. In the flat grid it was 86px of warning
                 about something not on screen -- and the mockup's contents
@@ -1397,37 +1480,49 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                 // The spread is not deleted: it answers "which physical page
                 // is this on", which is the question while filing. It is now
                 // behind that button, which is what the drawing shows.
-                if (!isMobile && !locPageView && !filingMode) {
-                  const shown = cardsInActiveLocation.filter((c) => {
-                    const q = locSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    return (c.name || '').toLowerCase().includes(q)
-                      || (c.set_name || '').toLowerCase().includes(q);
-                  });
+                // THE STACK DRIVES THE SCREEN. Groups in shelf order, each
+                // labelled, cards inside. Same on phone and desktop -- only
+                // the column count differs, because the grouping IS the model
+                // and a second arrangement would be a second model.
+                if (!locPageView && !filingMode) {
+                  const q = locSearch.trim().toLowerCase();
+                  const shown = cardsInActiveLocation.filter((c) => (!q
+                    || (c.name || '').toLowerCase().includes(q)
+                    || (c.set_name || '').toLowerCase().includes(q)));
+                  const groups = groupCards(shown, activeStack, setsList);
                   return (
                     <div className="loc-flat">
                       {shown.length === 0 ? (
                         <p className="loc-flat-empty">
                           {locSearch ? t('loc.noMatches') : t('loc.emptyContainer')}
                         </p>
-                      ) : (
-                        <div className="loc-flat-grid">
-                          {shown.map((c) => (
-                            <button
-                              key={c.entry_id}
-                              type="button"
-                              className="loc-flat-card"
-                              onClick={() => setInspectorCard(c)}
-                              title={c.name}
-                            >
-                              {c.image_url
-                                ? <img src={c.image_url} alt="" loading="lazy" />
-                                : <span className="loc-flat-noart">{c.name}</span>}
-                              <span className="loc-flat-name">{c.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      ) : groups.map((g) => (
+                        <section className="loc-group" key={g.path.join('\u0000') || 'all'}>
+                          {g.label && (
+                            <header className="loc-group-head">
+                              <b>{g.label}</b>
+                              <span className="loc-group-n">{g.cards.length}</span>
+                              <span className="loc-group-bar" />
+                            </header>
+                          )}
+                          <div className="loc-flat-grid">
+                            {g.cards.map((c) => (
+                              <button
+                                key={c.entry_id}
+                                type="button"
+                                className="loc-flat-card"
+                                onClick={() => setInspectorCard(c)}
+                                title={c.name}
+                              >
+                                {c.image_url
+                                  ? <img src={c.image_url} alt="" loading="lazy" />
+                                  : <span className="loc-flat-noart">{c.name}</span>}
+                                <span className="loc-flat-name">{c.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
                     </div>
                   );
                 }

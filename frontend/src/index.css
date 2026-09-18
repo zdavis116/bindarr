@@ -5118,3 +5118,79 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   }
   .loc-flat-empty { color: var(--text-muted); font-size: 0.85rem; margin: 0; }
 }
+
+/* ===== THE SORT STACK =====================================================
+   Zach: "I still want it per container because that is how I physically have
+   it." One control, both screens -- the layout differs, the behaviour does not,
+   because a stack that works differently on phone and desktop is two models. */
+.sortstack {
+  background: var(--surface-1); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md); padding: 0.75rem;
+  display: flex; flex-direction: column; gap: 0.4rem;
+}
+.sortstack-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.sortstack-head b { font-size: 0.8rem; }
+.sortstack-hint { font-size: 0.73rem; color: var(--text-muted); }
+.sortstack-apply { margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.7rem; }
+
+.sortstack-level {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); padding: 0.4rem 0.55rem;
+}
+/* Up/down BUTTONS, not drag. Dragging fights the scroll gesture on a phone,
+   and a mouse-only control is not the same control on both screens. */
+.sortstack-move { display: flex; gap: 0.1rem; }
+.sortstack-move button {
+  background: transparent; border: 0; color: var(--text-muted);
+  cursor: pointer; padding: 0.1rem 0.2rem; font-size: 0.8rem; line-height: 1;
+  display: inline-flex; align-items: center;
+}
+.sortstack-move button:disabled { opacity: 0.3; cursor: default; }
+.sortstack-move button:not(:disabled):hover { color: var(--text-primary); }
+
+.sortstack-n {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  background: var(--accent-soft, rgba(76,154,255,0.14)); color: var(--accent-blue);
+  font-size: 0.66rem; font-weight: 800; display: grid; place-items: center;
+}
+.sortstack-field { min-width: 96px; font-size: 0.78rem; padding: 0.2rem 0.4rem; }
+.sortstack-dir { min-width: 74px; font-size: 0.78rem; padding: 0.2rem 0.4rem; }
+.sortstack-opt {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.74rem; color: var(--text-secondary); cursor: pointer;
+}
+.sortstack-remove {
+  margin-left: auto; background: transparent; border: 0;
+  color: var(--text-muted); cursor: pointer; display: inline-flex; padding: 0.1rem;
+}
+.sortstack-remove:hover { color: var(--text-primary); }
+.sortstack-add {
+  display: inline-flex; align-items: center; gap: 0.3rem; align-self: flex-start;
+  border: 1px dashed var(--border-glass); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted);
+  padding: 0.35rem 0.6rem; font-size: 0.76rem; cursor: pointer;
+}
+.sortstack-add:hover { color: var(--text-primary); }
+.sortstack-empty { font-size: 0.76rem; color: var(--text-muted); margin: 0; }
+
+/* Groups: a sticky label, then the cards under it. */
+.loc-group { display: block; margin-bottom: 1rem; }
+.loc-group-head {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;
+  position: sticky; top: 0; z-index: 2; padding: 0.25rem 0;
+  background: var(--bg-primary);
+}
+.loc-group-head b { font-size: 0.83rem; }
+.loc-group-n {
+  font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.loc-group-bar { flex: 1; height: 1px; background: var(--border-glass); }
+
+/* THE GROUPED VIEW IS NOT DESKTOP-ONLY. The grouping is the model, so the phone
+   gets it too -- four across instead of nine. */
+.loc-flat { display: block; }
+.loc-flat-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 0.4rem;
+}
