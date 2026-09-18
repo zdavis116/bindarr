@@ -5057,3 +5057,64 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .storage-workspace-grid > .glass-panel select.select-control[style*="minWidth"],
   .storage-picker-select { display: none; }
 }
+
+/* Storage page header and contents controls: desktop only. The phone has no
+   room for a title row above a three-pane workspace. */
+.storage-head, .loc-title, .loc-find, .loc-pageview, .loc-flat { display: none; }
+
+@media (min-width: 1025px) {
+  /* ===== sketches/desktop.html SECTION 6, as drawn ===== */
+  .storage-head {
+    display: flex; align-items: baseline; gap: 0.7rem; margin-bottom: 0.9rem;
+  }
+  .storage-head h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
+  .storage-head-sub { font-size: 0.85rem; color: var(--text-muted); }
+  .storage-head-actions { margin-left: auto; display: flex; gap: 0.45rem; }
+  .storage-head-actions .btn { font-size: 0.8rem; padding: 0.35rem 0.8rem; }
+
+  /* The workspace sits under the header, so it can no longer take the whole
+     viewport height. */
+  .storage-workspace-grid { height: calc(100dvh - 12.5rem); }
+
+  .loc-title { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+  .loc-title b { font-size: 1.05rem; color: var(--text-primary); }
+  .loc-title-sub { font-size: 0.8rem; color: var(--text-muted); }
+
+  .loc-find { display: block; width: 200px; font-size: 0.8rem; }
+  .loc-pageview { display: inline-flex; font-size: 0.75rem; padding: 0.3rem 0.7rem; }
+  /* The toggle must show which view is ON -- a button that looks identical in
+     both states is a coin flip. */
+  .loc-pageview.is-on {
+    background: var(--accent-soft, rgba(76,154,255,0.16));
+    color: var(--text-primary);
+  }
+
+  /* THE FLAT GRID: nine across, exactly as the mockup draws. */
+  .loc-flat { display: block; min-height: 0; }
+  .loc-flat-grid {
+    display: grid; grid-template-columns: repeat(9, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+  .loc-flat-card {
+    display: flex; flex-direction: column; gap: 0.25rem;
+    padding: 0; border: 0; background: transparent; cursor: pointer;
+    min-width: 0; text-align: left;
+  }
+  /* Ratio-locked, sized by WIDTH only -- capping the height squashes the art,
+     which has been rejected three times on other screens. */
+  .loc-flat-card img {
+    width: 100%; aspect-ratio: 0.717; object-fit: cover;
+    border-radius: 4px; display: block;
+  }
+  .loc-flat-noart {
+    width: 100%; aspect-ratio: 0.717; border-radius: 4px;
+    background: var(--bg-secondary); display: grid; place-items: center;
+    font-size: 0.6rem; color: var(--text-muted); padding: 0.2rem;
+    text-align: center; overflow: hidden;
+  }
+  .loc-flat-name {
+    font-size: 0.68rem; color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .loc-flat-empty { color: var(--text-muted); font-size: 0.85rem; margin: 0; }
+}

@@ -60,6 +60,13 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
   useBackGuard(!!selectedLocationId, () => setSelectedLocationId && setSelectedLocationId(null));
   const [compRuleDraft, setCompRuleDraft] = useState([]);
 
+  // Contents pane: find-in-location, and flat grid vs the binder page spread.
+  // The mockup's default is the flat grid -- it answers "what is in here" in
+  // one screen; the page spread answers "where is it physically", which is the
+  // question you ask while filing. Default flat, per the drawing.
+  const [locSearch, setLocSearch] = useState('');
+  const [locPageView, setLocPageView] = useState(false);
+
   const [unsortedSearch, setUnsortedSearch] = useState('');
   const [unsortedSort, setUnsortedSort] = useState('scanned-desc');
   const [unsortedViewMode, setUnsortedViewMode] = useState('grid'); // 'grid' | 'detail'
@@ -869,7 +876,32 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
 
   if (loading) return <div className="spinner" />;
 
+  const totalFiled = locations.reduce((n, l) => n + (l.total_cards || 0), 0);
+
   return (
+    <>
+      {/* PAGE HEADER -- sketches/desktop.html section 6. Desktop only; the
+          phone has no room for a title row above a three-pane workspace. */}
+      <div className="storage-head">
+        <h1>{t('nav.storage')}</h1>
+        <span className="storage-head-sub">
+          {t('loc.headSummary', {
+            locations: locations.length,
+            cards: (totalFiled + unsortedCards.length).toLocaleString(),
+          })}
+        </span>
+        <div className="storage-head-actions">
+          <button type="button" className="btn btn-secondary"
+                  onClick={() => setShowCreate(true)}>
+            {t('loc.newLocation')}
+          </button>
+          <button type="button" className="btn btn-primary"
+                  onClick={() => setMoveMode(m => !m)}>
+            {t('loc.moveCards')}
+          </button>
+        </div>
+      </div>
+
     <div className="storage-workspace-grid">
       {showCreate && (
         <CreateContainerModal
@@ -1049,6 +1081,18 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
       <div className="glass-panel" style={{ padding: '0.9rem', display: (isStacked && !filingMode && mobilePane !== 'container') ? 'none' : 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* The mockup's contents title: "Binder 1  412 cards · $612.40".
+                Desktop only -- the phone reads the name off the select. */}
+            {selectedLoc && (
+              <span className="loc-title">
+                <b>{selectedLoc.name}</b>
+                <span className="loc-title-sub">
+                  {t('loc.railCards', {
+                    n: (selectedLoc.total_cards || 0).toLocaleString(),
+                  })}
+                </span>
+              </span>
+            )}
             <select
               className="select-control storage-picker-select"
               value={activeLocationId || ''}
@@ -1070,6 +1114,22 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
           
           {selectedLoc && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            {/* FIND IN THIS LOCATION + PAGE VIEW -- the mockup's two controls.
+                Desktop only; the phone's contents header has no room and it
+                already scrolls one page at a time. */}
+            <input
+              className="input-control loc-find"
+              placeholder={t('loc.findInLocation')}
+              value={locSearch}
+              onChange={(e) => setLocSearch(e.target.value)}
+            />
+            <button
+              type="button"
+              className={`btn btn-secondary loc-pageview${locPageView ? ' is-on' : ''}`}
+              onClick={() => setLocPageView(v => !v)}
+            >
+              {t('loc.pageView')}
+            </button>
             {!filingMode && !moveMode && (selectedLoc.total_cards || 0) > 0 && (
               <button
                 type="button"
@@ -1307,6 +1367,50 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
                   onActiveEntryIdChange: setBinderActiveEntryId,
                   hideFocusedCardInfo: true
                 });
+
+                // THE MOCKUP'S FLAT GRID, and the default on desktop.
+                //
+                // Zach: "please adjust to match the mockup". Section 6 draws
+                // one 9-across grid of the cards in the open location with a
+                // "Page view" button beside the search -- not a binder spread.
+                //
+                // The spread is not deleted: it answers "which physical page
+                // is this on", which is the question while filing. It is now
+                // behind that button, which is what the drawing shows.
+                if (!isMobile && !locPageView && !filingMode) {
+                  const shown = cardsInActiveLocation.filter((c) => {
+                    const q = locSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return (c.name || '').toLowerCase().includes(q)
+                      || (c.set_name || '').toLowerCase().includes(q);
+                  });
+                  return (
+                    <div className="loc-flat">
+                      {shown.length === 0 ? (
+                        <p className="loc-flat-empty">
+                          {locSearch ? t('loc.noMatches') : t('loc.emptyContainer')}
+                        </p>
+                      ) : (
+                        <div className="loc-flat-grid">
+                          {shown.map((c) => (
+                            <button
+                              key={c.entry_id}
+                              type="button"
+                              className="loc-flat-card"
+                              onClick={() => setInspectorCard(c)}
+                              title={c.name}
+                            >
+                              {c.image_url
+                                ? <img src={c.image_url} alt="" loading="lazy" />
+                                : <span className="loc-flat-noart">{c.name}</span>}
+                              <span className="loc-flat-name">{c.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
 
                 let binderPages = null;
                 if (isMobile) {
@@ -1990,6 +2094,7 @@ function LocationManager({ statsTrigger, onUpdate, showToast, selectedLocationId
         showToast={showToast}
       />
     </div>
+    </>
   );
 }
 
