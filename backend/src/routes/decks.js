@@ -4,6 +4,7 @@ const { alternativesForRequirement, repointRequirement } = require('../utils/dec
 const scryfallApi = require('../scryfallApi');
 const { recordPrice , selectedShop } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
+const manapoolDecks = require('../services/manapoolDecks');
 const { buildDeckWarnings } = require('../utils/deckRules');
 const commanderRules = require('../utils/commanderRules');
 const deckIdentity = require('../utils/deckIdentity');
@@ -583,6 +584,118 @@ router.post('/', async (req, res) => {
 // oracle_id is the grouping key rather than the name, because that is what
 // actually means "the same card": it is stable across renames and it will not
 // collide two genuinely different cards that share a name.
+// COMPARE ONE OF ZACH'S DECKS AGAINST A PRE-BUILT ONE FOR SALE.
+//
+// Zach: "I am just looking to compare with decks I have already built to see if
+// it makes sense to maybe use some of those cards in my deck."
+//
+// Two routes: find candidate decks for a commander, then diff one against a
+// deck he owns. The diff is computed HERE, not in the browser, because
+// ownership is a server fact -- deckIdentity.availabilityForDeck is the single
+// place that knows what is owned, allocated elsewhere, or reserved, and a
+// second implementation in the UI would drift from it.
+//
+// Registered ABOVE '/:id' on purpose: Express matches in order, so
+// '/manapool/search' would otherwise be read as a deck whose id is "manapool".
+router.get('/manapool/search', async (req, res) => {
+  try {
+    const { q, bracket } = req.query;
+    const result = await manapoolDecks.searchDecks(q, { bracket });
+    res.json(result);
+  } catch (error) {
+    // A Mana Pool outage is not a Bindarr bug and must not read like one. The
+    // service throws with status 502 and a message worth showing.
+    if (error.name === 'ManaPoolError') {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    sendError(res, error, 'Failed to search Mana Pool decks');
+  }
+});
+
+router.get('/:id/compare/:publicId', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const [{ entries }, premade] = await Promise.all([
+      deckIdentity.availabilityForDeck(db, deck.id, req.user.id),
+      manapoolDecks.fetchDeckCards(req.params.publicId),
+    ]);
+
+    // MATCH ON ORACLE ID, NOT NAME.
+    //
+    // The oracle id identifies the CARD; a printing id identifies one edition.
+    // Comparing by name breaks on split and adventure cards (whose names join
+    // two halves) and on the flavour-name reprints this app already had to fix
+    // once -- "Pick Your Poison" and "Fblthp, Lost on the Range" are the same
+    // card under two names.
+    const mine = new Map();
+    for (const e of entries) {
+      if (!e.oracle_id) continue;
+      const prev = mine.get(e.oracle_id);
+      // A deck can list the same card in two rows (different desired printings).
+      if (prev) { prev.quantity += (e.quantity_required || e.quantity || 0); continue; }
+      mine.set(e.oracle_id, {
+        oracleId: e.oracle_id,
+        name: e.display_name || e.name,
+        quantity: e.quantity_required || e.quantity || 0,
+        owned: e.quantity_owned || 0,
+        priceCents: Number.isFinite(e.price_trend)
+          ? Math.round(e.price_trend * 100) : null,
+      });
+    }
+
+    const theirs = new Map();
+    for (const c of premade.cards) {
+      if (!c.oracleId) continue;
+      const prev = theirs.get(c.oracleId);
+      if (prev) { prev.quantity += c.quantity; continue; }
+      theirs.set(c.oracleId, c);
+    }
+
+    const both = [];
+    const onlyTheirs = [];
+    const onlyMine = [];
+
+    for (const [oracleId, card] of theirs) {
+      const match = mine.get(oracleId);
+      if (match) {
+        both.push({ ...card, myQuantity: match.quantity, owned: match.owned });
+      } else {
+        // THE ACTIONABLE COLUMN. For a card he does not run, "do I already own
+        // it?" decides whether stealing the idea costs anything.
+        const ownedRow = await db.get(
+          `SELECT COALESCE(SUM(c.quantity), 0) AS n
+             FROM collection c
+             JOIN card_cache cc ON cc.id = c.card_id
+            WHERE cc.oracle_id = ? AND c.user_id = ? AND c.list_type = 'collection'`,
+          [oracleId, req.user.id]
+        );
+        onlyTheirs.push({ ...card, ownedInCollection: ownedRow?.n || 0 });
+      }
+    }
+
+    for (const [oracleId, card] of mine) {
+      if (!theirs.has(oracleId)) onlyMine.push(card);
+    }
+
+    const byName = (a, b) => (a.name || '').localeCompare(b.name || '');
+    res.json({
+      deck: { id: deck.id, name: deck.name },
+      premade: {
+        id: premade.id, url: premade.url,
+        name: premade.name, totalCards: premade.totalCards,
+      },
+      both: both.sort(byName),
+      onlyTheirs: onlyTheirs.sort(byName),
+      onlyMine: onlyMine.sort(byName),
+    });
+  } catch (error) {
+    if (error.name === 'ManaPoolError') {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    sendError(res, error, 'Failed to compare decks');
+  }
+});
+
 router.get('/printings/:oracle_id', async (req, res) => {
   try {
     const rows = await deckIdentity.ownedVariantsForOracle(db, req.user.id, req.params.oracle_id);
