@@ -1695,5 +1695,6 @@
   "mpc.viewOnMp": "View on Mana Pool",
   "mpc.stealable": "You already own {n} of their {of} cards",
   "mpc.errSearch": "Could not reach Mana Pool.",
-  "mpc.errCompare": "Could not compare those decks."
+  "mpc.errCompare": "Could not compare those decks.",
+  "deck.comparePremade": "Compare pre-built"
 }

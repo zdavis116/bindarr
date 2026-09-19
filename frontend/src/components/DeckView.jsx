@@ -1000,7 +1000,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           className="deck-analyse-btn"
           onClick={() => setCompareOpen(true)}
         >
-          {t('deck.compare')}
+          {t('deck.comparePremade')}
         </button>
       </div>
 
