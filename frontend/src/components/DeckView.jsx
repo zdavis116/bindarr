@@ -989,6 +989,19 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           <BarChart3 size={15} />
           {t('deck.tabCurve')}
         </button>
+        {/* COMPARE IS A DECK-LEVEL ACTION, not a Missing-tab one.
+            I first put it beside Export, which lives inside
+            `tab === 'need' && missingCards.length > 0` -- so it rendered on no
+            other tab and I reported it shipped without looking. It belongs in
+            this row, which already holds the control that changes what the
+            screen is ABOUT rather than which cards are filtered. */}
+        <button
+          type="button"
+          className="deck-analyse-btn"
+          onClick={() => setCompareOpen(true)}
+        >
+          {t('deck.compare')}
+        </button>
       </div>
 
       {/* TABS */}
@@ -1106,13 +1119,6 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               </div>
             )}
           </div>
-          <button onClick={() => setCompareOpen(true)}
-            style={{ flexShrink: 0, background: 'transparent', color: 'var(--text-secondary)',
-                     border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)',
-                     padding: '0.55rem 0.8rem', font: 'inherit', fontSize: '0.78rem',
-                     fontWeight: 600, cursor: 'pointer', minHeight: 38 }}>
-            {t('deck.compare')}
-          </button>
           <button onClick={() => setExportOpen(true)}
             style={{ flexShrink: 0, background: 'var(--accent-yellow)', color: '#1a1a1a', border: 0,
                      borderRadius: 'var(--radius-sm)', padding: '0.55rem 0.8rem', font: 'inherit',
