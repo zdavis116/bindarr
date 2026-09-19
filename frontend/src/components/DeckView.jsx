@@ -14,6 +14,7 @@ import CardSearchResult from './CardSearchResult.jsx';
 import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
          Trash2, Lightbulb, ArrowDownToLine, ChevronDown, BarChart3 } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import DeckCompareModal from './DeckCompareModal';
 import { useIsDesktop } from '../utils/breakpoints';
 import CurveTab from './CurveTab';
 import { formatPrice } from '../utils/formatPrice';
@@ -599,6 +600,11 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     }
   };
 
+  // Compare against a pre-built deck for sale. Zach: "compare with decks I
+  // have already built to see if it makes sense to maybe use some of those
+  // cards in my deck."
+  const [compareOpen, setCompareOpen] = useState(false);
+
   const missingCards = deckCards.filter(c => (c.quantity_missing || 0) > 0);
 
 
@@ -1100,6 +1106,13 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               </div>
             )}
           </div>
+          <button onClick={() => setCompareOpen(true)}
+            style={{ flexShrink: 0, background: 'transparent', color: 'var(--text-secondary)',
+                     border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)',
+                     padding: '0.55rem 0.8rem', font: 'inherit', fontSize: '0.78rem',
+                     fontWeight: 600, cursor: 'pointer', minHeight: 38 }}>
+            {t('deck.compare')}
+          </button>
           <button onClick={() => setExportOpen(true)}
             style={{ flexShrink: 0, background: 'var(--accent-yellow)', color: '#1a1a1a', border: 0,
                      borderRadius: 'var(--radius-sm)', padding: '0.55rem 0.8rem', font: 'inherit',
@@ -1433,6 +1446,14 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         showToast={showToast}
         deckId={deck?.id || null}
       />
+
+      {compareOpen && (
+        <DeckCompareModal
+          deck={deck}
+          onClose={() => setCompareOpen(false)}
+          showToast={showToast}
+        />
+      )}
 
     </div>
   );

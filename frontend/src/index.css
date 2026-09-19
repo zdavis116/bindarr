@@ -5521,3 +5521,82 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .loc-headactions > * { max-width: 100%; min-width: 0; }
   .loc-headactions .loc-sortbtn { flex: 1 1 auto; }
 }
+
+/* ===== COMPARE WITH A PRE-BUILT DECK ======================================
+   Zach: "compare with decks I have already built to see if it makes sense to
+   maybe use some of those cards in my deck." Three columns: in both, only
+   theirs, only mine. */
+.mpc-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(5px); display: flex; align-items: center;
+  justify-content: center; z-index: 1200; padding: 1rem;
+}
+.mpc-panel {
+  width: 100%; max-width: 1100px; max-height: 88vh;
+  display: flex; flex-direction: column; gap: 0.75rem;
+  padding: 1.5rem; position: relative; overflow: hidden;
+}
+.mpc-close { position: absolute; top: 1rem; right: 1rem; border-radius: 50%; }
+.mpc-title { font-size: 1.1rem; color: var(--text-strong); padding-right: 2.5rem; }
+
+.mpc-search { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.mpc-search .input-control { flex: 1 1 220px; min-width: 0; }
+.mpc-search .select-control { flex: 0 0 auto; }
+.mpc-search .btn { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+.mpc-results { overflow-y: auto; min-height: 0; display: flex;
+  flex-direction: column; gap: 0.3rem; }
+.mpc-count, .mpc-empty { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+.mpc-row {
+  display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); padding: 0.5rem 0.7rem;
+  cursor: pointer; font: inherit; color: inherit; text-align: left;
+}
+.mpc-row:hover { border-color: var(--accent-blue); }
+.mpc-row-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.mpc-row-main b { font-size: 0.85rem; }
+.mpc-row-sub { font-size: 0.73rem; color: var(--text-muted); }
+.mpc-row-price { font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+
+.mpc-diff { display: flex; flex-direction: column; gap: 0.6rem;
+  min-height: 0; flex: 1; }
+.mpc-diff-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.mpc-diff-head .btn { display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.76rem; padding: 0.3rem 0.6rem; text-decoration: none; }
+/* THE HEADLINE IS THE ANSWER: how many of their ideas are already free. */
+.mpc-headline { flex: 1; font-size: 0.9rem; font-weight: 700;
+  color: var(--accent-green, #4ade80); }
+
+.mpc-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem; min-height: 0; flex: 1; }
+.mpc-col { display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); overflow: hidden; }
+.mpc-col > header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.45rem 0.6rem; font-size: 0.75rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted); border-bottom: 1px solid var(--border-glass);
+}
+.mpc-col > header span { font-variant-numeric: tabular-nums; }
+.mpc-col-theirs { border-color: var(--accent-blue); }
+.mpc-col ul { list-style: none; margin: 0; padding: 0.25rem;
+  overflow-y: auto; min-height: 0; flex: 1; }
+.mpc-col li { display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.22rem 0.35rem; font-size: 0.78rem; border-radius: 4px; }
+.mpc-col li:nth-child(odd) { background: rgba(255,255,255,0.02); }
+.mpc-name { flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.mpc-owned { flex: 0 0 auto; font-size: 0.7rem; font-weight: 700;
+  color: var(--accent-green, #4ade80); }
+.mpc-price { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-muted);
+  font-variant-numeric: tabular-nums; }
+
+/* On a phone three columns of card names are unreadable, so they stack and
+   each list scrolls on its own. */
+@media (max-width: 860px) {
+  .mpc-cols { grid-template-columns: 1fr; }
+  .mpc-col ul { max-height: 34vh; }
+  .mpc-panel { max-height: 94vh; padding: 1rem; }
+}
