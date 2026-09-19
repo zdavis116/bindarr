@@ -29,7 +29,16 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
   const { t } = useT();
   // Seeded with the deck's commander: the comparison he wants is almost always
   // against the same commander, so typing it again is a step for nothing.
-  const [query, setQuery] = useState(deck?.commander_name || deck?.name || '');
+  // SEED WITH THE COMMANDER, NOT THE DECK NAME.
+  //
+  // It seeded "AI Doom" -- Zach's name for his deck -- and Mana Pool indexes by
+  // commander, so the very first search was guaranteed to return nothing.
+  // The commander is the card flagged is_commander in the deck's own rows;
+  // `commander_name` was a field I assumed and does not exist.
+  const commander = (deck?.cards || []).find((c) => c.board === 'commander'
+    || c.is_commander)?.name
+    || deck?.commander_name || '';
+  const [query, setQuery] = useState(commander || deck?.name || '');
   const [bracket, setBracket] = useState('');
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
