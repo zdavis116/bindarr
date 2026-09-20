@@ -1,106 +1,119 @@
 #!/usr/bin/env bash
-# Mutation-test the compare sectioning guards. Break each rule, confirm the
-# intended test fails, restore from a /tmp copy (never git checkout -- that
-# would wipe uncommitted work).
-cd /home/hermes/repos/bindarr/frontend || exit 1
+# Mutation-test the compare sectioning guards: break each rule, confirm the
+# intended test fails, restore, move on.
+#
+# RESTORE COMES FROM GIT, NOT /tmp.
+#
+# The first version copied the sources to /tmp and restored from there. When one
+# mutation's anchor went stale, the python edit failed, the test ran against an
+# UNMUTATED file, reported "STILL PASSED - test is vacuous", and then copied
+# that file over the backup -- so every later mutation was measured against a
+# corrupted baseline, and a real fix of mine got silently reverted. Restoring
+# from the index cannot drift, and `git diff --quiet` at the end proves it.
+#
+# PRECONDITION: a clean working tree for the files under test. The script
+# refuses to run otherwise, because it cannot tell your edits from its own.
+set -uo pipefail
+cd /home/hermes/repos/bindarr || exit 1
 export PATH="$HOME/.cache/hermes-node20/node-v20.20.2-linux-x64/bin:$PATH"
 
-CS=src/components/compareSections.js
-DLS=src/components/deckListSections.js
-DCM=src/components/DeckCompareModal.jsx
-EN=src/locales/en.json
-cp $CS /tmp/cs.bak; cp $DLS /tmp/dls.bak; cp $DCM /tmp/dcm.bak; cp $EN /tmp/en.bak
+CS=frontend/src/components/compareSections.js
+DLS=frontend/src/components/deckListSections.js
+DCM=frontend/src/components/DeckCompareModal.jsx
+EN=frontend/src/locales/en.json
+TEST=frontend/src/components/compareSections.test.js
+FILES="$CS $DLS $DCM $EN"
 
-# A mutation whose anchor no longer matches must ABORT the run. The first
-# version of this script let a failed python edit fall through to `run`, which
-# reported "STILL PASSED - test is vacuous" against an UNMUTATED file and then
-# copied that file over the backup. Every later mutation was then measured
-# against a corrupted baseline. A broken harness that reports confidently is
-# worse than no harness.
-set -e
-trap 'echo "ABORT: a mutation failed to apply - anchors are stale, restoring"; \
-      cp /tmp/cs.bak $CS; cp /tmp/dls.bak $DLS; cp /tmp/dcm.bak $DCM; \
-      cp /tmp/en.bak $EN' ERR
+if ! git diff --quiet -- $FILES; then
+  echo "REFUSING TO RUN: uncommitted changes in the files under test."
+  echo "Commit or stash them first -- this script restores with git checkout"
+  echo "and would destroy your work."
+  git diff --stat -- $FILES
+  exit 1
+fi
 
-run() {
-  if node src/components/compareSections.test.js >/tmp/o 2>&1; then
-    echo "  !!! STILL PASSED - test is vacuous"
-  else
-    echo "  failed as intended: $(grep -o 'CS-TC[0-9]' /tmp/o | head -1)"
-  fi
+restore() { git checkout -- $FILES; }
+
+# Apply a python replacement, ABORTING if the anchor is stale. A mutation that
+# does not apply must never be measured: it looks like a passing test.
+mutate() {
+  local file="$1" old="$2" new="$3"
+  python3 - "$file" "$old" "$new" <<'PY' || return 1
+import sys
+path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(path).read()
+if old not in s:
+    sys.stderr.write('STALE ANCHOR: %r not found in %s\n' % (old[:60], path))
+    sys.exit(1)
+open(path, 'w').write(s.replace(old, new))
+PY
 }
 
+expect() {
+  local want="$1"
+  if node $TEST >/tmp/mut-out 2>&1; then
+    echo "  !!! STILL PASSED - $want does not actually guard this"
+    FAILURES=$((FAILURES + 1))
+  else
+    local got
+    got=$(grep -o 'CS-TC[0-9]*' /tmp/mut-out | head -1)
+    if [ "$got" = "$want" ]; then
+      echo "  failed as intended: $got"
+    else
+      echo "  !!! WRONG TEST FAILED: expected $want, got '${got:-<crash>}'"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+  restore
+}
+
+FAILURES=0
+
 echo "M1: drop the alphabetical sort (expect CS-TC2)"
-python3 -c "
-p='$CS';s=open(p).read()
-old='groupIntoSections(cards, { sort: byName })'
-assert old in s
-open(p,'w').write(s.replace(old,'groupIntoSections(cards)'))"
-run; cp /tmp/cs.bak $CS
+mutate $CS 'groupIntoSections(cards, { sort: byName })' 'groupIntoSections(cards)' \
+  && expect CS-TC2 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M2: sort sections alphabetically instead of Moxfield order (expect CS-TC1)"
-python3 -c "
-p='$DLS';s=open(p).read()
-old=\"const ordered = [...TYPE_ORDER, 'Other'].filter((name) => by.has(name));\"
-new=\"const ordered = [...TYPE_ORDER, 'Other'].slice().sort().filter((name) => by.has(name));\"
-assert old in s
-open(p,'w').write(s.replace(old,new))"
-run; cp /tmp/dls.bak $DLS
+mutate $DLS "[...TYPE_ORDER, 'Other'].filter" "[...TYPE_ORDER, 'Other'].slice().sort().filter" \
+  && expect CS-TC1 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M3: drop unknown types instead of filing them in Other (expect CS-TC4)"
-python3 -c "
-p='$DLS';s=open(p).read()
-old=\"    if (!by.has(key)) by.set(key, []);\"
-new=\"    if (key === 'Other') continue;\"+chr(10)+old
-assert old in s
-open(p,'w').write(s.replace(old,new,1))"
-run; cp /tmp/dls.bak $DLS
+mutate $DLS '    if (!by.has(key)) by.set(key, []);' \
+  "    if (key === 'Other') continue;
+    if (!by.has(key)) by.set(key, []);" \
+  && expect CS-TC4 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M4: count rows instead of physical cards (expect CS-TC6)"
-python3 -c "
-p='$DLS';s=open(p).read()
-old='n + (c.quantity ?? 1)'
-assert old in s
-open(p,'w').write(s.replace(old,'n + 1'))"
-run; cp /tmp/dls.bak $DLS
+mutate $DLS 'n + (c.quantity ?? 1)' 'n + 1' \
+  && expect CS-TC6 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M5: recompute shared in the UI instead of reading the server flag (expect CS-TC7)"
-python3 -c "
-p='$DCM';s=open(p).read()
-q=chr(39)
-old='className={c.shared ? '+q+q+' : '+q+'mpc-differs'+q+'}'
-new='className={diff.mine.some((m) => m.oracleId === c.oracleId) ? '+q+q+' : '+q+'mpc-differs'+q+'}'
-assert old in s, 'anchor missing'
-open(p,'w').write(s.replace(old,new))"
-run; cp /tmp/dcm.bak $DCM
+mutate $DCM "className={c.shared ? '' : 'mpc-differs'}" \
+  "className={diff.mine.some((m) => m.oracleId === c.oracleId) ? '' : 'mpc-differs'}" \
+  && expect CS-TC7 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M6: THE REAL BUG - lose the Battle section, as the shipped version did (expect CS-TC8)"
-python3 -c "
-p='$DLS';s=open(p).read()
-old=\"'Planeswalker', 'Battle', 'Land'\"
-assert old in s
-open(p,'w').write(s.replace(old,\"'Planeswalker', 'Land'\"))"
-run; cp /tmp/dls.bak $DLS
+echo "M6: lose the Battle section, as the shipped version did (expect CS-TC8)"
+mutate $DLS "'Planeswalker', 'Battle', 'Land'" "'Planeswalker', 'Land'" \
+  && expect CS-TC8 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M6b: filter sections strictly by TYPE_ORDER, deleting unlisted cards (expect CS-TC10)"
-python3 -c "
-p='$DLS';s=open(p).read()
-old='[...ordered, ...unlisted]'
-assert old in s
-open(p,'w').write(s.replace(old,'ordered'))"
-run; cp /tmp/dls.bak \$DLS
+echo "M6b: filter strictly by TYPE_ORDER, deleting unlisted cards (expect CS-TC10)"
+mutate $DLS '[...ordered, ...unlisted]' 'ordered' \
+  && expect CS-TC10 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M7: revert a section label to the plural form (expect CS-TC9)"
-python3 -c "
-import json
-p='$EN';s=open(p).read()
-old='\"mpc.sectionCreature\": \"Creature\"'
-assert old in s
-open(p,'w').write(s.replace(old,'\"mpc.sectionCreature\": \"Creatures\"'))"
-run; cp /tmp/en.bak $EN
+mutate $EN '"mpc.sectionCreature": "Creature"' '"mpc.sectionCreature": "Creatures"' \
+  && expect CS-TC9 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "--- restored, baseline should be all PASS:"
-node src/components/compareSections.test.js
-echo "--- files match originals:"
-diff -q /tmp/cs.bak $CS && diff -q /tmp/dls.bak $DLS && diff -q /tmp/dcm.bak $DCM \
-  && diff -q /tmp/en.bak $EN && echo "restore clean"
+echo "--- baseline (must be all PASS):"
+node $TEST || FAILURES=$((FAILURES + 1))
+
+echo "--- working tree must be clean again:"
+if git diff --quiet -- $FILES; then
+  echo "restore clean"
+else
+  echo "!!! FILES LEFT MUTATED:"; git diff --stat -- $FILES; FAILURES=$((FAILURES + 1))
+fi
+
+echo
+[ "$FAILURES" -eq 0 ] && echo "ALL MUTATIONS CAUGHT" || echo "PROBLEMS: $FAILURES"
+exit $FAILURES
