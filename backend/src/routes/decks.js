@@ -630,12 +630,28 @@ router.get('/:id/compare/:publicId', async (req, res) => {
     const mine = new Map();
     for (const e of entries) {
       if (!e.oracle_id) continue;
+      // CONSIDERING IS NOT IN THE DECK. Those are cards he is thinking about,
+      // and the deck view renders them in their own section below the list. If
+      // they were folded in here, every maybeboard card would read as "the
+      // pre-built deck is missing this" -- a difference that does not exist.
+      if (e.board !== 'commander' && e.board !== 'mainboard'
+        && e.board !== 'sideboard') continue;
       const prev = mine.get(e.oracle_id);
       // A deck can list the same card in two rows (different desired printings).
       if (prev) { prev.quantity += (e.quantity_required || e.quantity || 0); continue; }
       mine.set(e.oracle_id, {
         oracleId: e.oracle_id,
         name: e.display_name || e.name,
+        // SECTIONING INPUT. The frontend owns the type_line -> section rule
+        // (deckSections.sectionForTypeLine) and both sides of this comparison
+        // must go through that same function, or the two columns would sort
+        // Artifact Creatures into different rows and read as a difference that
+        // is not one.
+        typeLine: e.type_line || '',
+        // Commander is its own section in the deck view, above every card
+        // type, because it defines the deck. Their side carries isCommander
+        // from Mana Pool; ours is the 'commander' board.
+        isCommander: e.board === 'commander',
         quantity: e.quantity_required || e.quantity || 0,
         owned: e.quantity_owned || 0,
         priceCents: Number.isFinite(e.price_trend)
@@ -648,20 +664,38 @@ router.get('/:id/compare/:publicId', async (req, res) => {
       if (!c.oracleId) continue;
       const prev = theirs.get(c.oracleId);
       if (prev) { prev.quantity += c.quantity; continue; }
-      theirs.set(c.oracleId, c);
+      // Mana Pool sends card types as an ARRAY (["Artifact","Creature"]),
+      // Bindarr stores a Scryfall type_line string. Joining the array yields a
+      // string the SAME sectioning function can read, so one rule sections both
+      // decks. Verified against a live deck: every card carries a non-empty
+      // types array drawn from the seven real card types.
+      theirs.set(c.oracleId, { ...c, typeLine: (c.types || []).join(' ') });
     }
 
-    const both = [];
-    const onlyTheirs = [];
-    const onlyMine = [];
+    // TWO DECKS, NOT THREE BUCKETS.
+    //
+    // Zach (2026-09-20): "change the views to my deck and the compared deck and
+    // highlight the differences in red with both decks". So the shape is the
+    // shape of a DECK LIST -- the same one the deck view renders -- and the
+    // comparison is an annotation ON each card, not a separate grouping. That
+    // makes the two sides line up section by section, which is what makes the
+    // differences readable at a glance.
+    //
+    // `shared` is computed HERE and only here. The previous Curve bugs all came
+    // from two surfaces computing the same fact; the frontend reads this flag
+    // and never re-derives membership.
+    const mineCards = [];
+    const theirCards = [];
 
     for (const [oracleId, card] of theirs) {
       const match = mine.get(oracleId);
       if (match) {
-        both.push({ ...card, myQuantity: match.quantity, owned: match.owned });
+        theirCards.push({
+          ...card, shared: true, myQuantity: match.quantity, owned: match.owned,
+        });
       } else {
-        // THE ACTIONABLE COLUMN. For a card he does not run, "do I already own
-        // it?" decides whether stealing the idea costs anything.
+        // For a card he does not run, "do I already own it?" decides whether
+        // stealing the idea costs anything.
         const ownedRow = await db.get(
           `SELECT COALESCE(SUM(c.quantity), 0) AS n
              FROM collection c
@@ -669,13 +703,18 @@ router.get('/:id/compare/:publicId', async (req, res) => {
             WHERE cc.oracle_id = ? AND c.user_id = ? AND c.list_type = 'collection'`,
           [oracleId, req.user.id]
         );
-        onlyTheirs.push({ ...card, ownedInCollection: ownedRow?.n || 0 });
+        theirCards.push({ ...card, shared: false, ownedInCollection: ownedRow?.n || 0 });
       }
     }
 
     for (const [oracleId, card] of mine) {
-      if (!theirs.has(oracleId)) onlyMine.push(card);
+      mineCards.push({ ...card, shared: theirs.has(oracleId) });
     }
+
+    // The number that decides whether a deck is worth reading at all: of the
+    // cards it runs that mine does not, how many are already in my collection?
+    const differing = theirCards.filter((c) => !c.shared);
+    const stealable = differing.filter((c) => c.ownedInCollection > 0).length;
 
     const byName = (a, b) => (a.name || '').localeCompare(b.name || '');
     res.json({
@@ -684,9 +723,13 @@ router.get('/:id/compare/:publicId', async (req, res) => {
         id: premade.id, url: premade.url,
         name: premade.name, totalCards: premade.totalCards,
       },
-      both: both.sort(byName),
-      onlyTheirs: onlyTheirs.sort(byName),
-      onlyMine: onlyMine.sort(byName),
+      mine: mineCards.sort(byName),
+      theirs: theirCards.sort(byName),
+      // Counts, so the header never disagrees with the lists below it.
+      sharedCount: theirCards.length - differing.length,
+      onlyTheirsCount: differing.length,
+      onlyMineCount: mineCards.filter((c) => !c.shared).length,
+      stealableCount: stealable,
     });
   } catch (error) {
     if (error.name === 'ManaPoolError') {

@@ -8,11 +8,36 @@
 // it?" That is why the only-theirs column leads with ownership rather than
 // price, and why there is no Buy button.
 //
-// Three columns, as he asked: in both, only theirs, only mine.
+// Two deck lists side by side, as he asked (2026-09-20): "change the views to
+// my deck and the compared deck and highlight the differences in red with both
+// decks", each "organize[d] ... just like the deck view like by card type and
+// do each section in alphabetical order."
+//
+// So this is deliberately NOT a diff view any more. It is two DECK LISTS in the
+// shape he already reads, with the comparison as an annotation on each card.
+// Sections line up down the page, so "they run four more creatures than I do"
+// is visible without counting anything.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, ExternalLink, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import { sectionCompareCards, compareSectionCount } from './compareSections';
+
+// Section titles come out of the shared deck-view sectioning rule as plain
+// English keys; this maps them onto the translation table. Keeping the map here
+// rather than translating inside compareSections keeps that module pure and
+// testable without an i18n context.
+const SECTION_KEYS = {
+  Commander: 'mpc.sectionCommander',
+  Creatures: 'mpc.sectionCreatures',
+  Sorcery: 'mpc.sectionSorcery',
+  Instant: 'mpc.sectionInstant',
+  Enchantment: 'mpc.sectionEnchantment',
+  Artifact: 'mpc.sectionArtifact',
+  Planeswalker: 'mpc.sectionPlaneswalker',
+  Lands: 'mpc.sectionLands',
+  Other: 'mpc.sectionOther',
+};
 
 // Bracket is the one filter he asked for -- he plays Bracket 3.
 const BRACKETS = [
@@ -82,10 +107,13 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
     }
   };
 
-  // The number that decides whether a deck is worth reading: of the cards it
-  // runs that mine does not, how many are already in my collection?
-  const stealable = diff
-    ? diff.onlyTheirs.filter((c) => c.ownedInCollection > 0).length : 0;
+  // Sectioning is pure work over a list that only changes when a new
+  // comparison loads, so it is memoised rather than recomputed on every
+  // keystroke in the search box above it.
+  const mineSections = useMemo(
+    () => (diff ? sectionCompareCards(diff.mine) : []), [diff]);
+  const theirSections = useMemo(
+    () => (diff ? sectionCompareCards(diff.theirs) : []), [diff]);
 
   return (
     <div className="modal-overlay mpc-overlay" onClick={onClose}>
@@ -149,7 +177,9 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
               <button type="button" className="btn btn-secondary"
                 onClick={() => setDiff(null)}>{t('mpc.back')}</button>
               <span className="mpc-headline">
-                {t('mpc.stealable', { n: stealable, of: diff.onlyTheirs.length })}
+                {t('mpc.stealable', {
+                  n: diff.stealableCount, of: diff.onlyTheirsCount,
+                })}
               </span>
               <a className="btn btn-secondary" href={diff.premade.url}
                 target="_blank" rel="noopener noreferrer">
@@ -157,45 +187,75 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
               </a>
             </div>
 
-            <div className="mpc-cols">
-              <section className="mpc-col">
-                <header>{t('mpc.both')} <span>{diff.both.length}</span></header>
-                <ul>
-                  {diff.both.map((c) => (
-                    <li key={c.oracleId}><span className="mpc-name">{c.name}</span></li>
-                  ))}
-                </ul>
-              </section>
+            {/* WHAT RED MEANS, SAID ONCE. Red on a card is this app's colour
+                for "you cannot have this as things stand" elsewhere; here it
+                means "not in the other deck". Without the key, a column of red
+                reads as an error rather than as the answer. */}
+            <p className="mpc-legend">
+              <span className="mpc-legend-swatch" aria-hidden="true" />
+              {t('mpc.legend')}
+            </p>
 
-              {/* THE COLUMN THAT MATTERS. Cards he does not run -- with whether
-                  they are already sitting in his collection, which is what
-                  decides if the idea is free. */}
-              <section className="mpc-col mpc-col-theirs">
-                <header>{t('mpc.onlyTheirs')} <span>{diff.onlyTheirs.length}</span></header>
-                <ul>
-                  {diff.onlyTheirs.map((c) => (
-                    <li key={c.oracleId}>
-                      <span className="mpc-name">{c.name}</span>
-                      {c.ownedInCollection > 0
-                        ? <span className="mpc-owned">{t('mpc.ownN', { n: c.ownedInCollection })}</span>
-                        : <span className="mpc-price">{money(c.marketPriceCents)}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section className="mpc-col">
-                <header>{t('mpc.onlyMine')} <span>{diff.onlyMine.length}</span></header>
-                <ul>
-                  {diff.onlyMine.map((c) => (
-                    <li key={c.oracleId}><span className="mpc-name">{c.name}</span></li>
-                  ))}
-                </ul>
-              </section>
+            <div className="mpc-decks">
+              <DeckColumn
+                title={diff.deck.name}
+                subtitle={t('mpc.nDiffer', { n: diff.onlyMineCount })}
+                sections={mineSections}
+                t={t}
+              />
+              <DeckColumn
+                title={diff.premade.name || t('mpc.theirDeck')}
+                subtitle={t('mpc.nDiffer', { n: diff.onlyTheirsCount })}
+                sections={theirSections}
+                theirs
+                t={t}
+              />
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// One deck, sectioned by card type, alphabetical within a section -- the same
+// shape as the deck view, so a player reads it the way they already read their
+// own list.
+//
+// The ONLY difference between the two sides is what a differing card shows
+// beside its name: on their side, whether it is already in the collection and
+// what it would cost if not. That is the question this screen exists to answer,
+// and it has no counterpart on his side.
+function DeckColumn({ title, subtitle, sections, theirs, t }) {
+  return (
+    <section className={`mpc-deck${theirs ? ' mpc-deck-theirs' : ''}`}>
+      <header className="mpc-deck-head">
+        <b title={title}>{title}</b>
+        <span>{subtitle}</span>
+      </header>
+      <div className="mpc-deck-body">
+        {sections.map((s) => (
+          <div key={s.key} className="mpc-section">
+            <h4 className="mpc-section-head">
+              {t(SECTION_KEYS[s.title] || 'mpc.sectionOther')}
+              <span>{compareSectionCount(s.cards)}</span>
+            </h4>
+            <ul>
+              {s.cards.map((c) => (
+                // `shared` is the SERVER's answer. Recomputing membership here
+                // is how the Curve tab ended up with a row and its tooltip
+                // disagreeing.
+                <li key={c.oracleId} className={c.shared ? '' : 'mpc-differs'}>
+                  <span className="mpc-name">{c.name}</span>
+                  {!c.shared && theirs && (c.ownedInCollection > 0
+                    ? <span className="mpc-owned">{t('mpc.ownN', { n: c.ownedInCollection })}</span>
+                    : <span className="mpc-price">{money(c.marketPriceCents)}</span>)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -5524,8 +5524,8 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
 /* ===== COMPARE WITH A PRE-BUILT DECK ======================================
    Zach: "compare with decks I have already built to see if it makes sense to
-   maybe use some of those cards in my deck." Three columns: in both, only
-   theirs, only mine. */
+   maybe use some of those cards in my deck." Two deck lists side by side, each
+   sectioned by card type like the deck view, differences in red. */
 .mpc-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.7);
   backdrop-filter: blur(5px); display: flex; align-items: center;
@@ -5568,24 +5568,59 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .mpc-headline { flex: 1; font-size: 0.9rem; font-weight: 700;
   color: var(--accent-green, #4ade80); }
 
-.mpc-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+/* WHAT RED MEANS HERE. Not an error and not "destructive" -- on this screen
+   red marks a card the OTHER deck does not run. That is the entire question
+   the screen answers, so it gets the strongest colour, with a legend above so
+   the meaning is stated rather than inferred. */
+.mpc-legend { margin: 0; font-size: 0.73rem; color: var(--text-muted);
+  display: flex; align-items: center; gap: 0.35rem; }
+.mpc-legend-swatch { width: 0.6rem; height: 0.6rem; border-radius: 2px;
+  background: var(--accent-danger); flex: 0 0 auto; }
+
+/* TWO DECKS, side by side, each scrolling on its own so a long list on one
+   side cannot push the other off the screen. */
+.mpc-decks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem; min-height: 0; flex: 1; }
-.mpc-col { display: flex; flex-direction: column; min-height: 0;
+.mpc-deck { display: flex; flex-direction: column; min-height: 0;
   background: var(--bg-secondary); border: 1px solid var(--border-glass);
   border-radius: var(--radius-sm); overflow: hidden; }
-.mpc-col > header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0.45rem 0.6rem; font-size: 0.75rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--text-muted); border-bottom: 1px solid var(--border-glass);
+.mpc-deck-theirs { border-color: var(--accent-blue); }
+.mpc-deck-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 0.5rem; padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-glass);
 }
-.mpc-col > header span { font-variant-numeric: tabular-nums; }
-.mpc-col-theirs { border-color: var(--accent-blue); }
-.mpc-col ul { list-style: none; margin: 0; padding: 0.25rem;
-  overflow-y: auto; min-height: 0; flex: 1; }
-.mpc-col li { display: flex; align-items: center; gap: 0.4rem;
+/* A deck name is user text and can be long; it must not push the count off
+   the row or wrap the header to two lines. */
+.mpc-deck-head b { font-size: 0.82rem; color: var(--text-strong);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpc-deck-head span { flex: 0 0 auto; font-size: 0.7rem;
+  color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mpc-deck-body { overflow-y: auto; min-height: 0; flex: 1; padding: 0.25rem; }
+
+/* Section headers stick so the card type stays readable while scrolling a
+   long creature list -- the same affordance the deck view gives. */
+.mpc-section-head {
+  position: sticky; top: 0; z-index: 1; margin: 0.4rem 0 0.15rem;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.2rem 0.35rem; font-size: 0.68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted); background: var(--bg-secondary);
+}
+.mpc-section:first-child .mpc-section-head { margin-top: 0; }
+.mpc-section-head span { font-variant-numeric: tabular-nums; }
+.mpc-section ul { list-style: none; margin: 0; padding: 0; }
+.mpc-section li { display: flex; align-items: center; gap: 0.4rem;
   padding: 0.22rem 0.35rem; font-size: 0.78rem; border-radius: 4px; }
-.mpc-col li:nth-child(odd) { background: rgba(255,255,255,0.02); }
+/* Zebra striping is per-section so it restarts under each header rather than
+   depending on how many cards happened to precede it. */
+.mpc-section li:nth-child(odd) { background: rgba(255,255,255,0.02); }
+/* THE HIGHLIGHT. Colour alone is not a signal for a colour-blind reader, so
+   the left bar carries the same information as the text colour. */
+.mpc-section li.mpc-differs {
+  color: var(--accent-danger);
+  box-shadow: inset 2px 0 0 var(--accent-danger);
+}
 .mpc-name { flex: 1; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .mpc-owned { flex: 0 0 auto; font-size: 0.7rem; font-weight: 700;
@@ -5593,10 +5628,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .mpc-price { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-muted);
   font-variant-numeric: tabular-nums; }
 
-/* On a phone three columns of card names are unreadable, so they stack and
-   each list scrolls on its own. */
+/* On a phone two columns of card names are unreadable, so the decks stack and
+   each list scrolls on its own. Zach reviews on a phone, so this is the case
+   that gets checked first. */
 @media (max-width: 860px) {
-  .mpc-cols { grid-template-columns: 1fr; }
-  .mpc-col ul { max-height: 34vh; }
+  .mpc-decks { grid-template-columns: 1fr; }
+  .mpc-deck-body { max-height: 38vh; }
   .mpc-panel { max-height: 94vh; padding: 1rem; }
 }
