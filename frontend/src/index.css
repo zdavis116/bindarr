@@ -5623,6 +5623,37 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 }
 .mpc-name { flex: 1; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+/* The name is a BUTTON so the preview is reachable by tap and keyboard, but it
+   must still read as a list of card names -- not a column of controls. This
+   strips the button chrome and inherits the row's colour, which is what carries
+   the red "not in the other deck" signal. */
+.mpc-name-btn {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: inherit; text-align: left; cursor: pointer;
+}
+.mpc-name-btn:hover { text-decoration: underline; }
+/* Keyboard focus must be VISIBLE. A focus ring removed for tidiness is how a
+   control becomes unreachable without anyone noticing. */
+.mpc-name-btn:focus-visible {
+  outline: 2px solid var(--accent-blue); outline-offset: 2px; border-radius: 3px;
+}
+
+/* THE CARD PREVIEW. Rendered in a portal on document.body, so it is positioned
+   in viewport coordinates and cannot be clipped by the scrolling column the
+   row lives in. */
+.mpc-preview {
+  position: fixed; z-index: 1300;
+  /* Never intercept the hover that created it: moving the mouse toward the
+     preview must not make it flicker or steal the pointer. */
+  pointer-events: none;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.6));
+}
+.mpc-preview-img { display: block; border-radius: 4.75% / 3.5%; }
+.mpc-preview-empty {
+  display: grid; place-items: center; padding: 1rem; text-align: center;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); color: var(--text-muted); font-size: 0.8rem;
+}
 .mpc-owned { flex: 0 0 auto; font-size: 0.7rem; font-weight: 700;
   color: var(--accent-green, #4ade80); }
 .mpc-price { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-muted);

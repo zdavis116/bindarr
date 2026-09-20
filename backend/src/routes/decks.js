@@ -652,6 +652,10 @@ router.get('/:id/compare/:publicId', async (req, res) => {
         // type, because it defines the deck. Their side carries isCommander
         // from Mana Pool; ours is the 'commander' board.
         isCommander: e.board === 'commander',
+        // HOVER PREVIEW. Zach: "on hover of card name show me card details" --
+        // and he chose the printed card image alone, because the card itself
+        // already shows the rules text, mana cost and type.
+        imageUrl: e.image_url || null,
         quantity: e.quantity_required || e.quantity || 0,
         owned: e.quantity_owned || 0,
         priceCents: Number.isFinite(e.price_trend)
@@ -670,6 +674,39 @@ router.get('/:id/compare/:publicId', async (req, res) => {
       // decks. Verified against a live deck: every card carries a non-empty
       // types array drawn from the seven real card types.
       theirs.set(c.oracleId, { ...c, typeLine: (c.types || []).join(' ') });
+    }
+
+    // HOVER IMAGES FOR THEIR SIDE, IN ONE QUERY.
+    //
+    // Mana Pool's payload carries no image URL, so the images come from the
+    // local catalogue. That is safe and complete here for a reason worth
+    // stating: card_cache is the WHOLE Scryfall catalogue (~34,900 oracle ids,
+    // 100% with an image), not merely the cards Zach owns -- measured against
+    // three real pre-built decks, 0 of 265 cards were missing. So a card he has
+    // never owned still previews.
+    //
+    // One query for the deck, not one per card: the old per-card ownership
+    // lookup in this route already costs ~50 round trips, and this is the same
+    // mistake waiting to happen at 100 cards.
+    //
+    // This READS card_cache and never writes it. Import is forbidden from
+    // inserting rows there, and a preview has even less business doing so: a
+    // row written from a third party's deck list would become a permanent fake
+    // card in the catalogue everything else trusts.
+    const theirIds = [...theirs.keys()];
+    if (theirIds.length > 0) {
+      const imageRows = await db.all(
+        `SELECT oracle_id, MAX(image_url) AS image_url
+           FROM card_cache
+          WHERE oracle_id IN (${theirIds.map(() => '?').join(',')})
+            AND image_url IS NOT NULL AND image_url <> ''
+          GROUP BY oracle_id`,
+        theirIds
+      );
+      for (const row of imageRows) {
+        const card = theirs.get(row.oracle_id);
+        if (card) card.imageUrl = row.image_url;
+      }
     }
 
     // TWO DECKS, NOT THREE BUCKETS.

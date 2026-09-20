@@ -18,10 +18,11 @@
 // Sections line up down the page, so "they run four more creatures than I do"
 // is visible without counting anything.
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { X, ExternalLink, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { sectionCompareCards, compareSectionCount } from './compareSections';
+import CardPreview from './CardPreview';
 
 // Section names come out of the shared deck-view rule; this maps them onto the
 // translation table. The LABELS must match what the deck view shows, because
@@ -107,6 +108,28 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
       setLoadingDiff(false);
     }
   };
+
+  // THE PREVIEW, held as one piece of state for the whole screen.
+  //
+  // A pinned preview (from a tap) must survive the mouse leaving the row, and a
+  // hover preview must not. Keeping both in one object means there is exactly
+  // one answer to "what is showing", rather than a hover flag and a tap flag
+  // that can disagree -- the duplicate-state shape behind four Curve bugs.
+  const [preview, setPreview] = useState(null);
+
+  const showPreview = useCallback((card, el, pinned = false) => {
+    if (!card || !el) {
+      // A hover-out never dismisses a pinned preview; only another tap does.
+      setPreview((p) => (p && p.pinned ? p : null));
+      return;
+    }
+    setPreview((p) => {
+      // Tapping the card that is already pinned closes it -- otherwise there is
+      // no way to dismiss it on a phone without hitting another card.
+      if (pinned && p && p.pinned && p.card.oracleId === card.oracleId) return null;
+      return { card, rect: el.getBoundingClientRect(), pinned: pinned || (p?.pinned ?? false) };
+    });
+  }, []);
 
   // Sectioning is pure work over a list that only changes when a new
   // comparison loads, so it is memoised rather than recomputed on every
@@ -202,16 +225,25 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
                 title={diff.deck.name}
                 subtitle={t('mpc.nDiffer', { n: diff.onlyMineCount })}
                 sections={mineSections}
+                onPreview={showPreview}
                 t={t}
               />
               <DeckColumn
                 title={diff.premade.name || t('mpc.theirDeck')}
                 subtitle={t('mpc.nDiffer', { n: diff.onlyTheirsCount })}
                 sections={theirSections}
+                onPreview={showPreview}
                 theirs
                 t={t}
               />
             </div>
+
+            {preview && (
+              <CardPreview
+                card={preview.card}
+                anchorRect={preview.rect}
+              />
+            )}
           </div>
         )}
       </div>
@@ -227,7 +259,7 @@ export default function DeckCompareModal({ deck, onClose, showToast }) {
 // beside its name: on their side, whether it is already in the collection and
 // what it would cost if not. That is the question this screen exists to answer,
 // and it has no counterpart on his side.
-function DeckColumn({ title, subtitle, sections, theirs, t }) {
+function DeckColumn({ title, subtitle, sections, theirs, t, onPreview }) {
   return (
     <section className={`mpc-deck${theirs ? ' mpc-deck-theirs' : ''}`}>
       <header className="mpc-deck-head">
@@ -247,7 +279,21 @@ function DeckColumn({ title, subtitle, sections, theirs, t }) {
                 // is how the Curve tab ended up with a row and its tooltip
                 // disagreeing.
                 <li key={c.oracleId} className={c.shared ? '' : 'mpc-differs'}>
-                  <span className="mpc-name">{c.name}</span>
+                  {/* A BUTTON, not a bare span. The preview has to be reachable
+                      by tap and by keyboard, not only by a mouse Zach does not
+                      have on his phone -- "renders fine but is unreachable" is
+                      this project's most repeated UI failure. */}
+                  <button
+                    type="button"
+                    className="mpc-name mpc-name-btn"
+                    onMouseEnter={(e) => onPreview(c, e.currentTarget)}
+                    onMouseLeave={() => onPreview(null, null)}
+                    onFocus={(e) => onPreview(c, e.currentTarget)}
+                    onBlur={() => onPreview(null, null)}
+                    onClick={(e) => onPreview(c, e.currentTarget, true)}
+                  >
+                    {c.name}
+                  </button>
                   {!c.shared && theirs && (c.ownedInCollection > 0
                     ? <span className="mpc-owned">{t('mpc.ownN', { n: c.ownedInCollection })}</span>
                     : <span className="mpc-price">{money(c.marketPriceCents)}</span>)}
