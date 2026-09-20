@@ -67,6 +67,27 @@ expect() {
   restore
 }
 
+# Some mutations are caught by more than one guard; the earliest one fires.
+# That is fine -- what matters is that the failure is CAUGHT and named, not
+# which assertion gets there first.
+expect_any() {
+  local want="$1"
+  if node $TEST >/tmp/mut-out 2>&1; then
+    echo "  !!! STILL PASSED - nothing guards this"
+    FAILURES=$((FAILURES + 1))
+  else
+    local got
+    got=$(grep -o 'CS-TC[0-9]*' /tmp/mut-out | head -1)
+    if [[ " $want " == *" $got "* ]]; then
+      echo "  failed as intended: $got"
+    else
+      echo "  !!! WRONG TEST FAILED: expected one of [$want], got '${got:-<crash>}'"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+  restore
+}
+
 FAILURES=0
 
 echo "M1: drop the alphabetical sort (expect CS-TC2)"
@@ -74,7 +95,7 @@ mutate $CS 'groupIntoSections(cards, { sort: byName })' 'groupIntoSections(cards
   && expect CS-TC2 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M2: sort sections alphabetically instead of Moxfield order (expect CS-TC1)"
-mutate $DLS "[...TYPE_ORDER, 'Other'].filter" "[...TYPE_ORDER, 'Other'].slice().sort().filter" \
+mutate $DLS "  return [...TYPE_ORDER, 'Other']" "  return [...TYPE_ORDER, 'Other'].slice().sort()" \
   && expect CS-TC1 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M3: drop unknown types instead of filing them in Other (expect CS-TC4)"
@@ -102,7 +123,7 @@ echo "M6b: emit a section name nothing renders, deleting those cards (expect CS-
 # the user silently loses them.
 mutate $DLS "return CARD_TYPES.find((ty) => line.includes(ty)) || 'Other';" \
   "return CARD_TYPES.find((ty) => line.includes(ty)) || 'Misc';" \
-  && expect CS-TC10 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
+  && expect_any "CS-TC4 CS-TC10" || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M7: revert a section label to the plural form (expect CS-TC9)"
 mutate $EN '"mpc.sectionCreature": "Creature"' '"mpc.sectionCreature": "Creatures"' \
