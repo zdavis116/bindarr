@@ -68,13 +68,17 @@ export function groupIntoSections(cards, { sort } = {}) {
   // surprised us is far worse than one in a miscellaneous section: the user
   // counts to 99 and cannot find the hundredth.
   //
-  // Ordering is TYPE_ORDER first, then ANY section that order does not mention.
-  // Filtering strictly by TYPE_ORDER would silently delete a whole section if a
-  // type were ever dropped from the list -- which is exactly how the shipped
-  // version lost battles. A missing entry must cost ordering, never cards.
-  const ordered = [...TYPE_ORDER, 'Other'].filter((name) => by.has(name));
-  const unlisted = [...by.keys()].filter((name) => !ordered.includes(name));
-  return [...ordered, ...unlisted]
+  // sectionForCard can only ever return a name from TYPE_ORDER or 'Other', so
+  // filtering by that list is total -- it cannot drop a card. An earlier
+  // version appended a second "unlisted sections" pass as insurance; it was
+  // unreachable, and worse, it made a battle render under "Battle" even with
+  // Battle deleted from TYPE_ORDER, which disguised exactly the bug that
+  // shipped. Dead insurance that hides a real failure is worse than none.
+  //
+  // The guarantee this relies on is asserted directly (CS-TC10): every type
+  // line the rule can be handed maps to a section this list contains.
+  return [...TYPE_ORDER, 'Other']
+    .filter((name) => by.has(name))
     .map((name) => {
       const group = by.get(name);
       return { name, cards: sort ? [...group].sort(sort) : group };

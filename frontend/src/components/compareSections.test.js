@@ -258,23 +258,34 @@ const names = (section) => section.cards.map((c) => c.name);
   assert.equal(placed, cards.length,
     'CS-TC10 every card must survive sectioning');
 
-  // THE ACTUAL GUARANTEE, stated in a way the fallback cannot satisfy by
-  // accident: for EVERY section name the rule can produce -- including ones
-  // TYPE_ORDER does not list -- a card of that type still comes back.
+  // THE PROPERTY THE CODE RELIES ON, asserted directly: every section
+  // sectionForCard can emit must be a name groupIntoSections renders. The
+  // grouping filters by [...TYPE_ORDER, 'Other'], so anything outside that set
+  // would be silently deleted.
   //
-  // Checking one hard-coded odd type was not enough. The rule is "no reachable
-  // section may be dropped", so the test enumerates them rather than sampling.
+  // Sampling one odd type was not enough, and neither was an "unlisted
+  // sections" fallback -- that fallback was unreachable AND it hid the missing
+  // Battle section. The rule is checked here instead, where it is cheap and
+  // cannot be faked.
+  const renderable = new Set([...TYPE_ORDER, 'Other']);
   const everyType = [
     'Legendary Creature — Angel', 'Instant', 'Sorcery', 'Artifact — Equipment',
     'Enchantment — Aura', 'Legendary Planeswalker — Teferi', 'Battle — Siege',
-    'Basic Land — Forest', 'Dungeon', 'Conspiracy', 'Phenomenon', '',
+    'Basic Land — Forest', 'Artifact Creature — Golem', 'Artifact Land',
+    'Dungeon', 'Conspiracy', 'Phenomenon', 'Plane — Zendikar', 'Scheme',
+    'Vanguard', '',
   ];
   for (const typeLine of everyType) {
+    const name = sectionForCard(typeLine, false);
+    assert.ok(renderable.has(name),
+      `CS-TC10 "${typeLine}" sections as "${name}", which nothing renders`);
     const out = groupIntoSections([{ name: 'X', typeLine }]);
-    const n = out.reduce((sum, s) => sum + s.cards.length, 0);
-    assert.equal(n, 1,
+    assert.equal(out.reduce((sum, s) => sum + s.cards.length, 0), 1,
       `CS-TC10 a card with type_line "${typeLine}" must not be dropped`);
   }
+  // And the commander path, which bypasses the type line entirely.
+  assert.ok(renderable.has(sectionForCard('anything', true)),
+    'CS-TC10 the commander section must be renderable');
 }
 
 console.log('PASS: CS-TC1 deck view section order');

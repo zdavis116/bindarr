@@ -96,8 +96,12 @@ echo "M6: lose the Battle section, as the shipped version did (expect CS-TC8)"
 mutate $DLS "'Planeswalker', 'Battle', 'Land'" "'Planeswalker', 'Land'" \
   && expect CS-TC8 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M6b: filter strictly by TYPE_ORDER, deleting unlisted cards (expect CS-TC10)"
-mutate $DLS '[...ordered, ...unlisted]' 'ordered' \
+echo "M6b: emit a section name nothing renders, deleting those cards (expect CS-TC10)"
+# The failure CS-TC10 exists for: sectionForCard returns a name that is not in
+# [...TYPE_ORDER, 'Other'], so groupIntoSections filters those cards away and
+# the user silently loses them.
+mutate $DLS "return CARD_TYPES.find((ty) => line.includes(ty)) || 'Other';" \
+  "return CARD_TYPES.find((ty) => line.includes(ty)) || 'Misc';" \
   && expect CS-TC10 || { echo "  ABORT: anchor stale"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "M7: revert a section label to the plural form (expect CS-TC9)"
