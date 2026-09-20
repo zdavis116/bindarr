@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add a product — precon / Secret Lair</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b0b0d; --surface: #141417; --surface2: #1b1b1f;
+    --line: rgba(255,255,255,0.10); --line2: rgba(255,255,255,0.06);
+    --fg: #f2f2f4; --muted: #9a9aa2; --dim: #6c6c74;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --accent: #0a84ff;
+    --gold: #d4a94a;
+    --r: 12px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--fg); line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    display: flex; justify-content: center; gap: 28px; flex-wrap: wrap;
+    padding: 24px 16px 60px;
+  }
+  .phone { width: 100%; max-width: 430px; }
+  h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin-bottom: 2px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+  .screenlabel {
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 10px;
+  }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: var(--r); overflow: hidden; margin-bottom: 12px; }
+  .phead { display:flex; justify-content:space-between; align-items:baseline;
+           padding: 12px 16px; border-bottom: 1px solid var(--line2); }
+  .phead h2 { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em;
+              text-transform: uppercase; color: var(--dim); }
+  .phead .c { font-size: 0.75rem; color: var(--dim); }
+
+  /* ---- SCREEN 1: the Add cards sheet, with ONE new row ---- */
+  .opt { display: flex; align-items: center; gap: 13px; width: 100%;
+         padding: 14px 16px; border-bottom: 1px solid var(--line2);
+         background: none; border-left: 0; border-right: 0; border-top: 0;
+         color: var(--fg); font-family: inherit; text-align: left; cursor: pointer; }
+  .opt:last-child { border-bottom: 0; }
+  .opt:hover { background: var(--surface2); }
+  .opt .ico { width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+              background: var(--surface2); display: grid; place-items: center;
+              font-size: 1rem; }
+  .opt .ttl { font-size: 0.93rem; font-weight: 650; display: block; }
+  .opt .dsc { font-size: 0.76rem; color: var(--dim); display: block; }
+  /* The title/description pair must STACK. As inline spans they ran together
+     into "Scan cardsUse the camera" -- caught by looking at the render, not by
+     reading the markup. */
+  .opt > span:not(.ico):not(.chev):not(.newtag) { flex: 1; min-width: 0; }
+  .opt.isnew .ico { background: rgba(10,132,255,0.16); }
+  .newtag { margin-left: auto; font-size: 0.6rem; font-weight: 800;
+            letter-spacing: 0.06em; color: var(--accent);
+            border: 1px solid rgba(10,132,255,0.5); border-radius: 5px;
+            padding: 2px 5px; flex-shrink: 0; }
+  .opt .chev { margin-left: auto; color: var(--dim); flex-shrink: 0; }
+
+  /* ---- SCREEN 2: product picker ---- */
+  .search { display: flex; align-items: center; gap: 9px; background: var(--surface2);
+            border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+            margin-bottom: 10px; }
+  .search input { flex: 1; background: none; border: 0; color: var(--fg);
+                  font-family: inherit; font-size: 0.9rem; outline: none; }
+  .search input::placeholder { color: var(--dim); }
+
+  .chips { display: flex; gap: 7px; margin-bottom: 12px; flex-wrap: wrap; }
+  .chip { font-size: 0.76rem; padding: 6px 11px; border-radius: 99px;
+          background: var(--surface2); border: 1px solid var(--line2);
+          color: var(--muted); cursor: pointer; font-family: inherit; }
+  .chip.on { background: rgba(10,132,255,0.16); border-color: var(--accent); color: var(--fg); }
+
+  .prod { display: flex; align-items: center; gap: 12px; width: 100%;
+          padding: 12px 16px; border-bottom: 1px solid var(--line2);
+          background: none; border-left:0; border-right:0; border-top:0;
+          color: var(--fg); font-family: inherit; text-align: left; cursor: pointer; }
+  .prod:last-child { border-bottom: 0; }
+  .prod:hover { background: var(--surface2); }
+  .pmain { flex: 1; min-width: 0; }
+  /* Stacked, not inline: as inline spans these read "Sneak AttackCommander deck". */
+  .pname { font-size: 0.9rem; font-weight: 650; display: block; }
+  .pmeta { font-size: 0.73rem; color: var(--dim); display: block; }
+  .pcount { font-size: 0.78rem; color: var(--muted); font-weight: 650; flex-shrink: 0; }
+
+  /* ---- THE EDITION PROBLEM: 332 of 751 drops have a foil twin ---- */
+  .editionbox { border: 1px solid var(--gold); border-radius: 10px;
+                background: rgba(212,169,74,0.07); padding: 12px 14px; margin: 10px 16px 14px; }
+  .editionq { font-size: 0.8rem; font-weight: 650; margin-bottom: 3px; }
+  .editionwhy { font-size: 0.72rem; color: var(--muted); margin-bottom: 10px; }
+  .edopts { display: flex; flex-direction: column; gap: 7px; }
+  .edopt { display: flex; align-items: center; gap: 10px; width: 100%;
+           background: var(--surface2); border: 1px solid var(--line2);
+           border-radius: 9px; padding: 11px 12px; cursor: pointer;
+           font-family: inherit; color: var(--fg); text-align: left; }
+  .edopt.picked { border-color: var(--gold); background: rgba(212,169,74,0.14); }
+  .edswatch { width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0;
+              display: grid; place-items: center; font-size: 0.55rem; font-weight: 800;
+              letter-spacing: 0.04em; }
+  .edswatch.plain { background: #2a2a30; color: var(--muted); }
+  .edswatch.foil {
+    background: linear-gradient(135deg,#ff8fd3,#8fd3ff,#8fffc4,#ffe98f,#ff8fd3);
+    color: #1a1a1f;
+  }
+  .edname { font-size: 0.84rem; font-weight: 650; flex: 1; min-width: 0; }
+  .edsub { font-size: 0.7rem; color: var(--dim); display: block; font-weight: 400; }
+
+  /* ---- SCREEN 3: confirm list ---- */
+  .summary { display: flex; align-items: baseline; gap: 8px; padding: 14px 16px;
+             border-bottom: 1px solid var(--line2); }
+  .bignum { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; }
+  .bigsub { font-size: 0.8rem; color: var(--muted); }
+
+  .selbar { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+            border-bottom: 1px solid var(--line2); }
+  .selbar button { background: none; border: 0; color: var(--accent);
+                   font-family: inherit; font-size: 0.76rem; cursor: pointer;
+                   padding: 0; font-weight: 600; }
+  .selbar .spacer { flex: 1; }
+  .selcount { font-size: 0.73rem; color: var(--dim); }
+
+  .scrollbox { max-height: 440px; overflow-y: auto; }
+  .sechead { position: sticky; top: 0; z-index: 1; background: var(--surface);
+             display: flex; justify-content: space-between; align-items: center;
+             padding: 7px 16px; font-size: 0.66rem; font-weight: 800;
+             letter-spacing: 0.07em; color: var(--dim);
+             border-bottom: 1px solid var(--line2); }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+         border-bottom: 1px solid var(--line2); cursor: pointer; }
+  .row:last-child { border-bottom: 0; }
+  .row input { display: none; }
+  .tick { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0;
+          border: 1.5px solid var(--dim); position: relative; }
+  .row input:checked + .tick { background: var(--accent); border-color: var(--accent); }
+  .row input:checked + .tick::after {
+    content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  .row input:not(:checked) ~ .cname,
+  .row input:not(:checked) ~ .qty { opacity: 0.4; text-decoration: line-through; }
+  .qty { font-size: 0.78rem; font-weight: 700; color: var(--muted);
+         min-width: 26px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .cname { font-size: 0.85rem; flex: 1; min-width: 0; overflow: hidden;
+           text-overflow: ellipsis; white-space: nowrap; }
+  .foil { font-size: 0.58rem; font-weight: 800; letter-spacing: 0.05em;
+          padding: 2px 5px; border-radius: 4px; flex-shrink: 0; color: #1a1a1f;
+          background: linear-gradient(135deg,#ff8fd3,#8fd3ff,#8fffc4,#ffe98f); }
+
+  .notice { display: flex; gap: 9px; padding: 11px 14px; margin-bottom: 12px;
+            border-radius: 10px; font-size: 0.76rem; line-height: 1.4;
+            background: rgba(248,113,113,0.09); border: 1px solid rgba(248,113,113,0.35);
+            color: #fca5a5; }
+
+  .cta { display: flex; gap: 10px; margin-top: 4px; }
+  button.big { flex: 1; min-height: 46px; border: 0; border-radius: 10px;
+               font-family: inherit; font-size: 0.92rem; font-weight: 700;
+               cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.ghost { background: var(--surface2); color: var(--muted);
+                 border: 1px solid var(--line); flex: 0 0 96px; }
+
+  .note { font-size: 0.72rem; color: var(--dim); margin-top: 10px; line-height: 1.5; }
+  .note b { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ============ SCREEN 1 ============ -->
+<div class="phone">
+  <div class="screenlabel">Screen 1 — where it lives</div>
+  <h1>Add cards</h1>
+  <p class="sub">One new row in the sheet you already have. Not a new surface.</p>
+
+  <div class="panel">
+    <button class="opt">
+      <span class="ico">📷</span>
+      <span><span class="ttl">Scan cards</span><span class="dsc">Use the camera</span></span>
+      <span class="chev">›</span>
+    </button>
+    <button class="opt">
+      <span class="ico">🔍</span>
+      <span><span class="ttl">Search for a card</span><span class="dsc">Add one by name</span></span>
+      <span class="chev">›</span>
+    </button>
+    <button class="opt isnew">
+      <span class="ico">📦</span>
+      <span><span class="ttl">Add a product</span><span class="dsc">Precon deck or Secret Lair drop</span></span>
+      <span class="newtag">NEW</span>
+    </button>
+    <button class="opt">
+      <span class="ico">📄</span>
+      <span><span class="ttl">Import from a file</span><span class="dsc">ManaBox, CSV or a pasted list</span></span>
+      <span class="chev">›</span>
+    </button>
+  </div>
+
+  <p class="note">
+    <b>Mana Pool orders</b> would become a fifth row later — it needs an API key
+    from your account, so it is phase 2.
+  </p>
+</div>
+
+<!-- ============ SCREEN 2 ============ -->
+<div class="phone">
+  <div class="screenlabel">Screen 2 — pick the product</div>
+  <h1>Add a product</h1>
+  <p class="sub">191 precon decks and 751 Secret Lair drops.</p>
+
+  <div class="search">
+    <span style="color:var(--dim)">🔍</span>
+    <input value="sneak" placeholder="Deck or drop name…">
+  </div>
+
+  <div class="chips">
+    <button class="chip on">All</button>
+    <button class="chip">Precon decks</button>
+    <button class="chip">Secret Lair</button>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>Results</h2><span class="c">6</span></div>
+    <button class="prod">
+      <span class="pmain">
+        <span class="pname">Sneak Attack</span>
+        <span class="pmeta">Commander deck · Zendikar Rising</span>
+      </span>
+      <span class="pcount">100</span>
+    </button>
+    <button class="prod">
+      <span class="pmain">
+        <span class="pname">Land's Wrath</span>
+        <span class="pmeta">Commander deck · Zendikar Rising</span>
+      </span>
+      <span class="pcount">100</span>
+    </button>
+    <button class="prod">
+      <span class="pmain">
+        <span class="pname">Fae Dominion</span>
+        <span class="pmeta">Commander deck · Wilds of Eldraine</span>
+      </span>
+      <span class="pcount">100</span>
+    </button>
+    <button class="prod">
+      <span class="pmain">
+        <span class="pname">Making Fetch Happen</span>
+        <span class="pmeta">Secret Lair drop</span>
+      </span>
+      <span class="pcount">5</span>
+    </button>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>If a drop has two editions</h2></div>
+    <div class="editionbox">
+      <div class="editionq">Which edition of “A Box of Rocks”?</div>
+      <div class="editionwhy">
+        332 of the 751 drops come in both. The cards are the same — the finish
+        is not, and Bindarr stores a foil and a nonfoil as different cards.
+      </div>
+      <div class="edopts">
+        <button class="edopt picked">
+          <span class="edswatch plain">NON<br>FOIL</span>
+          <span class="edname">A Box of Rocks
+            <span class="edsub">5 nonfoil cards</span></span>
+        </button>
+        <button class="edopt">
+          <span class="edswatch foil">FOIL</span>
+          <span class="edname">A Box of Rocks — Foil Edition
+            <span class="edsub">5 foil cards</span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    Asked as a question with both answers side by side, rather than two
+    near-identical rows in the results list. <b>The finish always comes from the
+    product data, never from its name</b> — “Hidden Pathways” has no “Foil” in
+    its title and is entirely foil.
+  </p>
+</div>
+
+<!-- ============ SCREEN 3 ============ -->
+<div class="phone">
+  <div class="screenlabel">Screen 3 — check it, then add</div>
+  <h1>Sneak Attack</h1>
+  <p class="sub">Commander deck · Zendikar Rising</p>
+
+  <div class="panel">
+    <div class="summary">
+      <span class="bignum">100</span>
+      <span class="bigsub">cards to add to your collection</span>
+    </div>
+    <div class="selbar">
+      <button>Select all</button>
+      <button>Clear all</button>
+      <span class="spacer"></span>
+      <span class="selcount">100 of 100 selected</span>
+    </div>
+    <div class="scrollbox">
+  <div class="sec">
+    <div class="sechead"><span>CREATURE</span><span>31</span></div>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Anowon, the Ruin Thief</span><span class="foil">FOIL</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Changeling Outcast</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Consuming Aberration</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Enigma Thief</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Faerie Vandal</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Frogtosser Banneret</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Gonti, Lord of Luxury</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Invisible Stalker</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Latchkey Faerie</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Lazav, Dimir Mastermind</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Marang River Prowler</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Marsh Flitter</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Master Thief</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Merfolk Windrobber</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Nighthowler</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Nightveil Sprite</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Notion Thief</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Ogre Slumlord</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Oona&#x27;s Blackguard</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Oona, Queen of the Fae</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Scourge of Fleets</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Sepulchral Primordial</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Slither Blade</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Soaring Thought-Thief</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Stinkdrinker Bandit</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Sure-Footed Infiltrator</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Sygg, River Cutthroat</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Syr Konrad, the Grim</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Triton Shorestalker</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Whirler Rogue</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Zulaport Cutthroat</span>
+    </label>
+  </div>
+  <div class="sec">
+    <div class="sechead"><span>INSTANT</span><span>8</span></div>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Aetherize</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Fact or Fiction</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Fated Return</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Murder</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Price of Fame</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Silumgar&#x27;s Command</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Soul Manipulation</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Spinal Embrace</span>
+    </label>
+  </div>
+  <div class="sec">
+    <div class="sechead"><span>SORCERY</span><span>9</span></div>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Distant Melody</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Endless Obedience</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Extract from Darkness</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">In Garruk&#x27;s Wake</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Necromantic Selection</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Notorious Throng</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Open into Wonder</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Rise from the Grave</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Stolen Identity</span>
+    </label>
+  </div>
+  <div class="sec">
+    <div class="sechead"><span>ARTIFACT</span><span>13</span></div>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Arcane Signet</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Blackblade Reforged</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Bonehoard</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Commander&#x27;s Sphere</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Dimir Keyrune</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Dimir Locket</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Dimir Signet</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Heirloom Blade</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Mind Stone</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Obelisk of Urd</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Scytheclaw</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Sol Ring</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Whispersteel Dagger</span>
+    </label>
+  </div>
+  <div class="sec">
+    <div class="sechead"><span>ENCHANTMENT</span><span>1</span></div>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Military Intelligence</span>
+    </label>
+  </div>
+  <div class="sec">
+    <div class="sechead"><span>LAND</span><span>38</span></div>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Command Tower</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Dimir Aqueduct</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Dimir Guildgate</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Dismal Backwater</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">15&times;</span><span class="cname">Island</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Jwar Isle Refuge</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Myriad Landscape</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Rogue&#x27;s Passage</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">1&times;</span><span class="cname">Submerged Boneyard</span>
+    </label>
+    <label class="row">
+      <input type="checkbox" checked>
+      <span class="tick"></span>
+      <span class="qty">15&times;</span><span class="cname">Swamp</span>
+    </label>
+  </div>
+    </div>
+  </div>
+
+  <div class="cta">
+    <button class="big ghost">Cancel</button>
+    <button class="big primary">Add 100 cards</button>
+  </div>
+
+  <p class="note">
+    Grouped by card type in the same order as your deck view. Untick anything
+    you did not get — a damaged card, or a deck you split. <b>Nothing is written
+    until you tap Add.</b> Real data: 15&times; Island and 15&times; Swamp are
+    two rows, not thirty scans.
+  </p>
+</div>
+
+<!-- ============ SCREEN 4 ============ -->
+<div class="phone">
+  <div class="screenlabel">Screen 4 — the honest failure</div>
+  <h1>If a card is unknown</h1>
+  <p class="sub">Rare, but it must never be silent.</p>
+
+  <div class="notice">
+    <span>⚠</span>
+    <span><b>2 cards are not in the catalogue</b> and cannot be added. They are
+    listed below so you know exactly which ones to scan by hand.</span>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><h2>Cannot add</h2><span class="c">2</span></div>
+    <div class="row" style="opacity:0.55; cursor:default">
+      <span class="tick" style="border-style:dashed"></span>
+      <span class="qty">1&times;</span>
+      <span class="cname">Some Unknown Printing</span>
+    </div>
+    <div class="row" style="opacity:0.55; cursor:default">
+      <span class="tick" style="border-style:dashed"></span>
+      <span class="qty">1&times;</span>
+      <span class="cname">Another Unknown Printing</span>
+    </div>
+  </div>
+
+  <div class="cta">
+    <button class="big ghost">Cancel</button>
+    <button class="big primary">Add the other 98</button>
+  </div>
+
+  <p class="note">
+    Measured: <b>0 of 499 cards</b> were missing across ten real products, so
+    this should almost never appear. It exists because a silently dropped card
+    means a 98-card precon and no idea which two are gone.
+  </p>
+</div>
+
+</body>
+</html>
