@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { sectionCompareCards, compareSectionCount } from './compareSections.js';
-import { sectionForCard, groupIntoSections } from './deckListSections.js';
+import { sectionForCard, groupIntoSections, TYPE_ORDER } from './deckListSections.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const names = (section) => section.cards.map((c) => c.name);
@@ -186,6 +186,31 @@ const names = (section) => section.cards.map((c) => c.name);
   // Same rule, literally: both screens import from deckListSections.
   assert.equal(sectionForCard('Battle — Siege', false), 'Battle');
 
+  // Battle must be a FIRST-CLASS section in the display order, sitting between
+  // Planeswalker and Land exactly as the deck view shows it.
+  //
+  // Asserting only "a battle lands in a Battle section" is NOT enough, and this
+  // was a real vacuous test: the groupIntoSections fallback renders any
+  // unlisted section anyway, so a battle appears under "Battle" even with
+  // Battle deleted from TYPE_ORDER. The fallback is a safety net against card
+  // LOSS (CS-TC10); it must not be allowed to disguise a missing section.
+  // So this asserts the ORDER, which the fallback cannot fake -- an unlisted
+  // section sorts last instead of in its proper place.
+  assert.deepEqual(TYPE_ORDER,
+    ['Commander', 'Creature', 'Instant', 'Sorcery', 'Artifact',
+      'Enchantment', 'Planeswalker', 'Battle', 'Land'],
+    'CS-TC8 Battle must be a listed section in the deck view display order');
+
+  {
+    // And positionally, through the real grouping: a battle sorts BEFORE lands.
+    const titles = sectionCompareCards([
+      { oracleId: '1', name: 'Forest', typeLine: 'Basic Land — Forest' },
+      { oracleId: '2', name: 'Invasion of Kaldheim', typeLine: 'Battle — Siege' },
+    ]).map((s) => s.title);
+    assert.deepEqual(titles, ['Battle', 'Land'],
+      'CS-TC8 a battle must sort into its ordered position, not trail the list');
+  }
+
   const deckView = fs.readFileSync(path.join(here, 'DeckView.jsx'), 'utf8');
   const compare = fs.readFileSync(path.join(here, 'compareSections.js'), 'utf8');
   assert.match(deckView, /from '\.\/deckListSections\.js'/,
@@ -233,10 +258,23 @@ const names = (section) => section.cards.map((c) => c.name);
   assert.equal(placed, cards.length,
     'CS-TC10 every card must survive sectioning');
 
-  // Directly: a section name the display order does not mention still appears.
-  const odd = groupIntoSections([{ name: 'X', typeLine: 'Dungeon' }]);
-  assert.equal(odd.reduce((n, s) => n + s.cards.length, 0), 1,
-    'CS-TC10 an unlisted section must still render its cards');
+  // THE ACTUAL GUARANTEE, stated in a way the fallback cannot satisfy by
+  // accident: for EVERY section name the rule can produce -- including ones
+  // TYPE_ORDER does not list -- a card of that type still comes back.
+  //
+  // Checking one hard-coded odd type was not enough. The rule is "no reachable
+  // section may be dropped", so the test enumerates them rather than sampling.
+  const everyType = [
+    'Legendary Creature — Angel', 'Instant', 'Sorcery', 'Artifact — Equipment',
+    'Enchantment — Aura', 'Legendary Planeswalker — Teferi', 'Battle — Siege',
+    'Basic Land — Forest', 'Dungeon', 'Conspiracy', 'Phenomenon', '',
+  ];
+  for (const typeLine of everyType) {
+    const out = groupIntoSections([{ name: 'X', typeLine }]);
+    const n = out.reduce((sum, s) => sum + s.cards.length, 0);
+    assert.equal(n, 1,
+      `CS-TC10 a card with type_line "${typeLine}" must not be dropped`);
+  }
 }
 
 console.log('PASS: CS-TC1 deck view section order');
