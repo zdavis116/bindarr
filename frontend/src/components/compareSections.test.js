@@ -23,6 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { sectionCompareCards, compareSectionCount } from './compareSections.js';
+import { sectionForCard, groupIntoSections } from './deckListSections.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const names = (section) => section.cards.map((c) => c.name);
@@ -41,7 +42,7 @@ const names = (section) => section.cards.map((c) => c.name);
   ];
   const sections = sectionCompareCards(cards);
   assert.deepEqual(sections.map((s) => s.title),
-    ['Commander', 'Creatures', 'Instant', 'Artifact', 'Lands'],
+    ['Commander', 'Creature', 'Instant', 'Artifact', 'Land'],
     'CS-TC1 sections must follow the deck view order');
 }
 
@@ -72,9 +73,9 @@ const names = (section) => section.cards.map((c) => c.name);
 // ---------------------------------------------------------------------------
 {
   const pairs = [
-    ['Artifact Creature — Golem', ['Artifact', 'Creature'], 'Creatures'],
-    ['Legendary Creature — Angel', ['Creature'], 'Creatures'],
-    ['Artifact Land', ['Artifact', 'Land'], 'Lands'],
+    ['Artifact Creature — Golem', ['Artifact', 'Creature'], 'Creature'],
+    ['Legendary Creature — Angel', ['Creature'], 'Creature'],
+    ['Artifact Land', ['Artifact', 'Land'], 'Land'],
     ['Enchantment — Aura', ['Enchantment'], 'Enchantment'],
     ['Legendary Planeswalker — Teferi', ['Planeswalker'], 'Planeswalker'],
   ];
@@ -115,7 +116,7 @@ const names = (section) => section.cards.map((c) => c.name);
   const sections = sectionCompareCards([
     { oracleId: '1', name: 'Forest', typeLine: 'Basic Land — Forest' },
   ]);
-  assert.deepEqual(sections.map((s) => s.title), ['Lands'],
+  assert.deepEqual(sections.map((s) => s.title), ['Land'],
     'CS-TC5 only non-empty sections may appear');
 }
 
@@ -159,6 +160,85 @@ const names = (section) => section.cards.map((c) => c.name);
   assert.match(src, /diff\.stealableCount/, 'CS-TC7 header reads server counts');
 }
 
+// ---------------------------------------------------------------------------
+// CS-TC8: THE REGRESSION THAT ACTUALLY HAPPENED. "Organize it just like the
+// deck view" must mean the deck view's OWN rule, not a rule that resembles it.
+//
+// The first version of this screen borrowed deckSections.js, which looked
+// equivalent and was not: it has no Battle section and uses plural labels. A
+// battle card ("Invasion of Kaldheim // Pyre of the World Tree") landed in an
+// OTHER section that the deck view does not have -- caught only by opening the
+// deployed page, never by a green test.
+//
+// So this asserts the compare screen sections a battle exactly where the deck
+// view does, and that both call the SAME module.
+// ---------------------------------------------------------------------------
+{
+  const sections = sectionCompareCards([
+    { oracleId: '1', name: 'Invasion of Kaldheim', typeLine: 'Battle — Siege' },
+  ]);
+  // Read the section the card actually landed in, so a card that VANISHED
+  // reports as a failed assertion rather than a TypeError on undefined.
+  const battleSection = sections.find((s) => s.cards.length > 0);
+  assert.equal(battleSection && battleSection.title, 'Battle',
+    'CS-TC8 a battle must get the deck view Battle section, not Other');
+
+  // Same rule, literally: both screens import from deckListSections.
+  assert.equal(sectionForCard('Battle — Siege', false), 'Battle');
+
+  const deckView = fs.readFileSync(path.join(here, 'DeckView.jsx'), 'utf8');
+  const compare = fs.readFileSync(path.join(here, 'compareSections.js'), 'utf8');
+  assert.match(deckView, /from '\.\/deckListSections\.js'/,
+    'CS-TC8 the deck view must use the shared sectioning module');
+  assert.match(compare, /from '\.\/deckListSections\.js'/,
+    'CS-TC8 the compare screen must use the shared sectioning module');
+  // No second copy of the priority list anywhere.
+  assert.doesNotMatch(deckView, /const TYPE_PRIORITY/,
+    'CS-TC8 the deck view must not keep its own copy of the priority order');
+}
+
+// ---------------------------------------------------------------------------
+// CS-TC9: the labels shown must be the deck view's labels. Plural headings
+// ("Creatures", "Lands") were part of the same near-copy bug: even once the
+// sections matched, the two screens would still have READ differently.
+// ---------------------------------------------------------------------------
+{
+  const en = JSON.parse(fs.readFileSync(
+    path.join(here, '..', 'locales', 'en.json'), 'utf8'));
+  for (const name of ['Commander', 'Creature', 'Instant', 'Sorcery', 'Artifact',
+    'Enchantment', 'Planeswalker', 'Battle', 'Land', 'Other']) {
+    const key = `mpc.section${name}`;
+    assert.equal(en[key], name,
+      `CS-TC9 ${key} must read "${name}", matching the deck view`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CS-TC10: A SECTION MISSING FROM THE DISPLAY ORDER MUST NOT DELETE ITS CARDS.
+//
+// Found by mutation-testing CS-TC8: removing 'Battle' from TYPE_ORDER did not
+// just misplace battles, it made them VANISH -- the grouping filtered strictly
+// by the order list. That is the worst failure this screen has, because the
+// user counts the list, comes up short, and has nothing to look at.
+//
+// An unlisted section must cost ORDERING (it sorts last), never cards.
+// ---------------------------------------------------------------------------
+{
+  const cards = [
+    { oracleId: '1', name: 'Invasion of Kaldheim', typeLine: 'Battle — Siege' },
+    { oracleId: '2', name: 'Forest', typeLine: 'Basic Land — Forest' },
+  ];
+  const placed = sectionCompareCards(cards)
+    .reduce((n, s) => n + s.cards.length, 0);
+  assert.equal(placed, cards.length,
+    'CS-TC10 every card must survive sectioning');
+
+  // Directly: a section name the display order does not mention still appears.
+  const odd = groupIntoSections([{ name: 'X', typeLine: 'Dungeon' }]);
+  assert.equal(odd.reduce((n, s) => n + s.cards.length, 0), 1,
+    'CS-TC10 an unlisted section must still render its cards');
+}
+
 console.log('PASS: CS-TC1 deck view section order');
 console.log('PASS: CS-TC2 alphabetical within section');
 console.log('PASS: CS-TC3 both sides section identically');
@@ -166,3 +246,6 @@ console.log('PASS: CS-TC4 unknown types land in Other, never dropped');
 console.log('PASS: CS-TC5 empty sections omitted');
 console.log('PASS: CS-TC6 counts are physical cards');
 console.log('PASS: CS-TC7 red highlight reads the server flag');
+console.log('PASS: CS-TC8 battles section like the deck view, one shared rule');
+console.log('PASS: CS-TC9 section labels match the deck view');
+console.log('PASS: CS-TC10 an unlisted section never deletes its cards');

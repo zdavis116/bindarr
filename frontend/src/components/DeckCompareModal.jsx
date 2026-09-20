@@ -23,19 +23,20 @@ import { X, ExternalLink, Search } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { sectionCompareCards, compareSectionCount } from './compareSections';
 
-// Section titles come out of the shared deck-view sectioning rule as plain
-// English keys; this maps them onto the translation table. Keeping the map here
-// rather than translating inside compareSections keeps that module pure and
-// testable without an i18n context.
+// Section names come out of the shared deck-view rule; this maps them onto the
+// translation table. The LABELS must match what the deck view shows, because
+// Zach asked for the two screens to read the same -- singular, Moxfield's
+// order, Battle included.
 const SECTION_KEYS = {
   Commander: 'mpc.sectionCommander',
-  Creatures: 'mpc.sectionCreatures',
-  Sorcery: 'mpc.sectionSorcery',
+  Creature: 'mpc.sectionCreature',
   Instant: 'mpc.sectionInstant',
-  Enchantment: 'mpc.sectionEnchantment',
+  Sorcery: 'mpc.sectionSorcery',
   Artifact: 'mpc.sectionArtifact',
+  Enchantment: 'mpc.sectionEnchantment',
   Planeswalker: 'mpc.sectionPlaneswalker',
-  Lands: 'mpc.sectionLands',
+  Battle: 'mpc.sectionBattle',
+  Land: 'mpc.sectionLand',
   Other: 'mpc.sectionOther',
 };
 
