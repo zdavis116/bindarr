@@ -138,8 +138,15 @@ for (const vp of VIEWPORTS) {
     assert.ok(modal.includes(handler),
       `CP-TC5 the name button must handle ${handler}`);
   }
-  assert.match(css, /\.mpc-name-btn:focus-visible\s*\{[^}]*outline:/,
-    'CP-TC5 the focus ring must be visible, not stripped');
+  // The ring must be a VISIBLE outline. Matching `outline:` alone was not
+  // enough -- `outline: none` satisfied it, so the test passed while the ring
+  // was stripped. Assert a real width/colour and reject the none/0 forms.
+  const focusRule = css.match(/\.mpc-name-btn:focus-visible\s*\{([^}]*)\}/);
+  assert.ok(focusRule, 'CP-TC5 the name button needs a focus-visible rule');
+  assert.match(focusRule[1], /outline:\s*\d+px\s+\w+/,
+    'CP-TC5 the focus ring must have a real width and style');
+  assert.doesNotMatch(focusRule[1], /outline:\s*(none|0)\b/,
+    'CP-TC5 the focus ring must not be stripped');
 }
 
 // ---------------------------------------------------------------------------
