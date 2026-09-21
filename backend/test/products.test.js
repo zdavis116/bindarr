@@ -188,6 +188,15 @@ const repo = path.resolve(here, '..', '..');
     'PR-TC8 quantity must come from the product, not the request body');
   assert.match(add, /finish:\s*card\.finish/,
     'PR-TC8 finish must come from the product, not the request body');
+  // PR-TC11: ONE ROW OF N, NOT N ROWS OF ONE.
+  //
+  // addCardToCollection defaults to stackable:false. Omitting it added the
+  // right 100 cards in the wrong SHAPE -- fifteen rows of "1x Island" instead
+  // of one row of 15 -- and the API cheerfully reported "Added 100 cards",
+  // which was true about the count and silent about the shape. Only counting
+  // rows in the database found it.
+  assert.match(add, /stackable:\s*true/,
+    'PR-TC11 a product add must stack, or 15x Island becomes fifteen rows');
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +354,7 @@ console.log('PASS: PR-TC6 nothing is written until confirm');
 console.log('PASS: PR-TC7 foil/nonfoil twins become one choice');
 console.log('PASS: PR-TC8 commit re-reads the product, ignores posted values');
 console.log('PASS: PR-TC9 the collection add-path is reused, not reimplemented');
+console.log('PASS: PR-TC11 a product add stacks: one row of N, not N rows of one');
 
 previewRouteCheck().then(liveChecks).then(() => process.exit(0))
   .catch((e) => { console.error('FAIL:', e.message); process.exit(1); });

@@ -134,6 +134,19 @@ router.post('/:id/add', async (req, res) => {
         const result = await addCardToCollection(req.user, {
           card_id: card.scryfallId,
           quantity: card.quantity,
+          // ONE ROW OF N, NOT N ROWS OF ONE.
+          //
+          // addCardToCollection defaults to stackable:false, which files each
+          // copy as its own row. Omitting this turned "15x Island" into fifteen
+          // rows of 1 -- the collection held the right 100 cards, but the shape
+          // was wrong and the whole point of this feature is that a basic land
+          // is ONE line, not fifteen. Search-and-add (CardSearch.jsx) passes
+          // stackable: true for the same reason.
+          //
+          // Caught by counting rows in the database after a real add. The API
+          // reported "Added 100 cards from Sneak Attack" and was telling the
+          // truth about the count while being wrong about the shape.
+          stackable: true,
           // Finish comes from the PRODUCT DATA, never from its name.
           finish: card.finish,
           // A sealed product is new cardboard.
