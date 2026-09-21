@@ -46,7 +46,9 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 // here plus a fetcher.
 const EXPORT_FORMATS = [
   { id: 'parens', label: 'Mana Pool', format: 'buylist', bracketStyle: 'parentheses',
-    priced: true, source: 'manapool', massEntry: 'https://manapool.com/add-deck' },
+    priced: true, source: 'manapool', massEntry: 'https://manapool.com/add-deck',
+    // Their Mass Entry screen reads the list from ?deck=<base64 of the list>.
+    prefillParam: 'deck' },
   // CARD KINGDOM TAKES PLAIN NAMES, NOT SET CODES.
   //
   // Verified against their live Deck Builder rather than assumed. Pasting
@@ -225,23 +227,6 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
   // Zach: "I do like the idea of just copying and sending me right to mass
   // entry."
   //
-  // manapool.com/add-deck is their Mass Entry screen -- a `decklist` textarea
-  // that accepts "4 Plains [M20] 261", with an Optimize Price button. It cannot
-  // be prefilled from a URL: eight query parameter names were tried against the
-  // live page and the textarea came back empty every time. So this is clipboard
-  // plus a new tab, and he pastes. A link that LOOKS like it prefills and lands
-  // him on an empty box would be worse than asking for the paste.
-  const copyAndOpen = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(t('deck.mpCopiedForMassEntry'), 'success');
-    } catch {
-      showToast(t('deck.buylistCopyFailed'), 'error');
-      return;   // no tab if the list is not on the clipboard
-    }
-    window.open(activeFormat.massEntry, '_blank', 'noopener');
-  };
-
   // THE TEXT HE PASTES MUST NAME THE PRINTING WE PRICED.
   //
   // Zach: "when I do the copy and paste it into manapool the set code and
@@ -273,6 +258,62 @@ function ExportModal({ open, onClose, cards, title, showToast, deckId }) {
       : cards;
     return buildDeckExport(source, chosen.format, { bracketStyle: chosen.bracketStyle });
   }, [cards, formatId, estimate]);
+
+  // MANA POOL PREFILLS FROM THE URL AFTER ALL.
+  //
+  // Zach: "it looks like you can send the cards to mass entry it looks like
+  // it's a part of the url as a base64 string", with a live example.
+  //
+  // The previous comment here claimed this was impossible -- "eight query
+  // parameter names were tried and the textarea came back empty every time".
+  // That was wrong, and wrong in the expensive direction: it justified making
+  // him paste on every single export. The parameter is `deck`, and the value is
+  // the SAME decklist text, base64'd:
+  //
+  //   1 Doctor Doom, King of Latveria [MSC] 6   ->   MSBEb2N0b3IgRG9vbSwg...
+  //
+  // Verified against the live page, not inferred: a two-card newline-joined
+  // list arrives in the textarea intact and Mass Entry reports "2/2 in stock"
+  // with both cards matched. Newline is the separator; base64 of UTF-8 is
+  // URL-safe here because the alphabet only collides on + / =, which
+  // encodeURIComponent handles.
+  //
+  // CARD KINGDOM HAS NO SUCH PARAMETER, so its tab keeps the clipboard flow.
+  // The button says which one it is rather than implying both behave alike.
+  const massEntryUrl = useMemo(() => {
+    if (!activeFormat?.massEntry || !activeFormat.prefillParam || !text) return null;
+    // btoa() throws on any character above U+00FF, and card names legitimately
+    // contain them (Æther, Lim-Dûl, Jötun). Encode as UTF-8 first.
+    let encoded;
+    try {
+      encoded = btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+    } catch { return null; }
+    const url = `${activeFormat.massEntry}?${activeFormat.prefillParam}=`
+      + `${encodeURIComponent(encoded)}&ref=bindarr`;
+    // A URL too long for the far end silently truncates the list, which is
+    // worse than pasting: he would buy a partial deck and not know. Measured
+    // ~46 chars per card encoded, so 150 cards sits near 7k -- under the 8k
+    // servers commonly enforce. Past that, fall back to the clipboard.
+    return url.length > 7500 ? null : url;
+  }, [activeFormat, text]);
+
+  const copyAndOpen = async () => {
+    // Prefill when the shop supports it: no clipboard, no paste, the list is
+    // simply there when the tab opens.
+    if (massEntryUrl) {
+      window.open(massEntryUrl, '_blank', 'noopener');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(t('deck.mpCopiedForMassEntry'), 'success');
+    } catch {
+      showToast(t('deck.buylistCopyFailed'), 'error');
+      return;   // no tab if the list is not on the clipboard
+    }
+    window.open(activeFormat.massEntry, '_blank', 'noopener');
+  };
+
 
   if (!open) return null;
 

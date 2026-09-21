@@ -100,3 +100,8 @@ yolo11n-obb.pt
 # One-off patch scripts used while developing. Never imported by the app.
 /wire_fp.py
 /thresh.py
+
+# Compare-modal preview harness payload: captured live Mana Pool data, and it
+# is large and regenerable. The harness itself IS tracked -- it renders the
+# real component, so it is how the screen gets reviewed without a desktop.
+/frontend/preview/payload.json

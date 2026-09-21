@@ -14,6 +14,7 @@ import CardSearchResult from './CardSearchResult.jsx';
 import { ChevronLeft, Search, X, AlertTriangle, Plus, Minus,
          Trash2, Lightbulb, ArrowDownToLine, ChevronDown, BarChart3 } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import DeckCompareModal from './DeckCompareModal';
 import { useIsDesktop } from '../utils/breakpoints';
 import CurveTab from './CurveTab';
 import { formatPrice } from '../utils/formatPrice';
@@ -21,47 +22,17 @@ import ExportModal from './ExportModal';
 import CardInspectorModal from './CardInspectorModal';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 
-// Moxfield's order: the commander first because it is the deck's premise, then
-// the types in the order a deck list is normally read.
-// DISPLAY order: how the sections read down the page (Moxfield's order).
-const TYPE_ORDER = ['Commander', 'Creature', 'Instant', 'Sorcery', 'Artifact',
-                    'Enchantment', 'Planeswalker', 'Battle', 'Land'];
-
-// PRIORITY order: which type wins when a card has several. NOT the same list,
-// and conflating them is what filed Zach's artifact lands under Artifact.
+// SECTIONING LIVES IN ONE PLACE: deckListSections.js.
 //
-//   - Land first. "Artifact Land" is a land: it is what he counts when he
-//     checks his mana base, and a land hiding in the artifact section makes
-//     the deck look four lands short. Zach: "Any card with type land should
-//     be a land."
-//   - Creature next. "Artifact Creature" is a creature you cast and attack
-//     with; filing it under Artifact hides it from the creature count.
-//
-// Matches deckSections.js, which had it right -- which is why the data was
-// correct and only this screen was wrong.
-const TYPE_PRIORITY = ['Land', 'Creature', 'Planeswalker', 'Battle',
-                       'Instant', 'Sorcery', 'Enchantment', 'Artifact'];
+// It used to live here, and the compare screen grew a near-copy that silently
+// disagreed (no Battle section, plural labels). Both screens now call the same
+// function, so "organize it like the deck view" is enforced by construction
+// rather than by me matching it by eye.
+import { groupIntoSections } from './deckListSections.js';
 
-// The card types we section by. Read from type_line, NOT from the `types`
-// column -- that column holds COLOURS in this database, which is what made the
-// Collection type filter a second colour picker.
-const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
-                    'Land', 'Planeswalker', 'Sorcery'];
-
-function sectionFor(card) {
-  if (card.board === 'commander') return 'Commander';
-  // Everything before the em dash is the card type(s); after it is subtypes
-  // (Goblin, Equipment), which would produce a section per creature type.
-  const line = (card.type_line || '').split('—')[0];
-  // A "Legendary Artifact Creature" belongs under Creature, and an "Artifact
-  // Land" belongs under Land: the most specific type is what a player looks
-  // for. TYPE_PRIORITY decides which wins -- deliberately NOT the display
-  // order, which puts Artifact before Land.
-  for (const ty of TYPE_PRIORITY) {
-    if (line.includes(ty)) return ty;
-  }
-  return CARD_TYPES.find(ty => line.includes(ty)) || 'Other';
-}
+// The section order, the type PRIORITY (Land beats Creature beats Artifact) and
+// the type_line parsing all moved into deckListSections.js, which the compare
+// screen calls too. A copy here is exactly what let the two disagree.
 
 // The formats buildDeckExport ACTUALLY produces. Verified against
 // utils/deckText.js rather than assumed:
@@ -304,21 +275,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     return deckCards;
   }, [tab, deckCards, considering]);
 
-  const sections = useMemo(() => {
-    const by = new Map();
-    for (const c of shown) {
-      const s = sectionFor(c);
-      if (!by.has(s)) by.set(s, []);
-      by.get(s).push(c);
-    }
-    const order = [...TYPE_ORDER, 'Other'];
-    return order.filter(s => by.has(s)).map(name => ({
-      name,
-      cards: by.get(name),
-      // Count CARDS, not rows: 34 Mountains is 34.
-      count: by.get(name).reduce((n, c) => n + (c.quantity || 0), 0),
-    }));
-  }, [shown]);
+  // Grouping is the SHARED rule (deckListSections), not a local copy. Only the
+  // count is added here, and it keeps this screen's meaning: a deck row always
+  // carries a quantity, so an absent one is a bug rather than a singleton.
+  const sections = useMemo(() => groupIntoSections(shown).map((s) => ({
+    name: s.name,
+    cards: s.cards,
+    // Count CARDS, not rows: 34 Mountains is 34.
+    count: s.cards.reduce((n, c) => n + (c.quantity || 0), 0),
+  })), [shown]);
 
   // Add a card. Zach: "we need a search to add cards to the deck."
   // WHAT COULD BE REPOINTED.
@@ -598,6 +563,11 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       setBusy(false);
     }
   };
+
+  // Compare against a pre-built deck for sale. Zach: "compare with decks I
+  // have already built to see if it makes sense to maybe use some of those
+  // cards in my deck."
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const missingCards = deckCards.filter(c => (c.quantity_missing || 0) > 0);
 
@@ -982,6 +952,19 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         >
           <BarChart3 size={15} />
           {t('deck.tabCurve')}
+        </button>
+        {/* COMPARE IS A DECK-LEVEL ACTION, not a Missing-tab one.
+            I first put it beside Export, which lives inside
+            `tab === 'need' && missingCards.length > 0` -- so it rendered on no
+            other tab and I reported it shipped without looking. It belongs in
+            this row, which already holds the control that changes what the
+            screen is ABOUT rather than which cards are filtered. */}
+        <button
+          type="button"
+          className="deck-analyse-btn"
+          onClick={() => setCompareOpen(true)}
+        >
+          {t('deck.comparePremade')}
         </button>
       </div>
 
@@ -1433,6 +1416,14 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         showToast={showToast}
         deckId={deck?.id || null}
       />
+
+      {compareOpen && (
+        <DeckCompareModal
+          deck={deck}
+          onClose={() => setCompareOpen(false)}
+          showToast={showToast}
+        />
+      )}
 
     </div>
   );

@@ -374,7 +374,26 @@ async function initDb() {
       ship_city TEXT,
       ship_state TEXT,
       ship_postal_code TEXT,
-      ship_country TEXT DEFAULT 'US'
+      ship_country TEXT DEFAULT 'US',
+      -- MANA POOL BUYER API CREDENTIALS.
+      --
+      -- Zach: "adding cards to my collection through ... my orders on
+      -- manapool." The buyer orders API is a DOCUMENTED, supported endpoint
+      -- (GET /buyer/orders), unlike the undocumented deck endpoint the compare
+      -- screen scrapes, and it authenticates with two headers:
+      --   X-ManaPool-Email         his account email
+      --   X-ManaPool-Access-Token  a token he generates, shaped mpat_...
+      --
+      -- Stored in plaintext, deliberately and with eyes open. This is a single
+      -- user app on his own tailnet, and the database already holds his whole
+      -- collection; encrypting one column while the key sits in the same
+      -- filesystem is theatre, not security. What DOES matter is that the token
+      -- never leaves the server: the settings API returns a masked form only
+      -- (see routes/settings.js), so it cannot leak through the frontend, a
+      -- screenshot, or a shared session.
+      manapool_email TEXT,
+      manapool_token TEXT,
+      manapool_orders_synced_at DATETIME
     )
   `);
   await run(`INSERT OR IGNORE INTO app_settings (id, public_base_url) VALUES (1, '')`);
@@ -994,6 +1013,18 @@ async function initDb() {
 
   if (!appSettingsCols.some(c => c.name === 'price_source_order')) {
     await run(`ALTER TABLE app_settings ADD COLUMN price_source_order TEXT DEFAULT '["manapool"]'`);
+  }
+
+  // Mana Pool buyer API credentials. CREATE TABLE IF NOT EXISTS never runs
+  // against his real database, so the columns must also be added here or the
+  // orders feature is dead on every box that already exists.
+  for (const col of ['manapool_email', 'manapool_token']) {
+    if (!appSettingsCols.some(c => c.name === col)) {
+      await run(`ALTER TABLE app_settings ADD COLUMN ${col} TEXT`);
+    }
+  }
+  if (!appSettingsCols.some(c => c.name === 'manapool_orders_synced_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN manapool_orders_synced_at DATETIME`);
   }
 
   const cardCacheCols = await all(`PRAGMA table_info(card_cache)`);

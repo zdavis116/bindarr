@@ -78,6 +78,67 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// MANA POOL ACCOUNT, for buyer orders.
+//
+// Zach: "mana pool orders should be in the add product section." That needs a
+// credential, and this is where it is set.
+//
+// THE TOKEN IS NEVER RETURNED. It is stored in plaintext -- a deliberate choice
+// for a single-user app on his own tailnet, where the same database already
+// holds his entire collection and an encryption key would sit on the same
+// filesystem. But a token echoed back to the browser can leak through a
+// screenshot or a shared session, and that is avoidable for free. The GET
+// reports only whether one is SET, plus its last four characters so he can tell
+// two tokens apart.
+router.get('/manapool', authenticateToken, async (req, res) => {
+  try {
+    const row = await db.get(
+      `SELECT manapool_email, manapool_token, manapool_orders_synced_at
+         FROM app_settings WHERE id = 1`);
+    const token = row?.manapool_token || '';
+    res.json({
+      email: row?.manapool_email || '',
+      connected: !!(row?.manapool_email && token),
+      tokenHint: token ? `…${token.slice(-4)}` : '',
+      lastSyncedAt: row?.manapool_orders_synced_at || null,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to read your Mana Pool settings' });
+  }
+});
+
+router.put('/manapool', authenticateToken, async (req, res) => {
+  const email = String((req.body || {}).email || '').trim();
+  const token = String((req.body || {}).token || '').trim();
+  try {
+    if (!email && !token) {
+      // Clearing both is how he disconnects.
+      await db.run(
+        `UPDATE app_settings SET manapool_email = NULL, manapool_token = NULL WHERE id = 1`);
+      return res.json({ connected: false, email: '', tokenHint: '' });
+    }
+    if (!email || !token) {
+      return res.status(400).json({
+        error: 'Both your Mana Pool email and an API token are required.' });
+    }
+    // Mana Pool's tokens are shaped mpat_... Checking the shape catches a
+    // pasted password or a truncated copy immediately, rather than after a
+    // confusing 401 from a third party.
+    if (!/^mpat_/.test(token)) {
+      return res.status(400).json({
+        error: 'That does not look like a Mana Pool API token — they start with "mpat_".' });
+    }
+    await db.run(
+      `UPDATE app_settings SET manapool_email = ?, manapool_token = ? WHERE id = 1`,
+      [email, token]);
+    res.json({ connected: true, email, tokenHint: `…${token.slice(-4)}` });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to save your Mana Pool settings' });
+  }
+});
+
 // CARD CATALOGUE STATUS, read-only.
 //
 // Every figure here is measured, not derived on the client: the row count is a

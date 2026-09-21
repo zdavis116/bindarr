@@ -4,6 +4,7 @@ const { alternativesForRequirement, repointRequirement } = require('../utils/dec
 const scryfallApi = require('../scryfallApi');
 const { recordPrice , selectedShop } = require('../utils/priceHelpers');
 const { compartmentLabel } = require('../utils/compartmentSort');
+const manapoolDecks = require('../services/manapoolDecks');
 const { buildDeckWarnings } = require('../utils/deckRules');
 const commanderRules = require('../utils/commanderRules');
 const deckIdentity = require('../utils/deckIdentity');
@@ -583,6 +584,198 @@ router.post('/', async (req, res) => {
 // oracle_id is the grouping key rather than the name, because that is what
 // actually means "the same card": it is stable across renames and it will not
 // collide two genuinely different cards that share a name.
+// COMPARE ONE OF ZACH'S DECKS AGAINST A PRE-BUILT ONE FOR SALE.
+//
+// Zach: "I am just looking to compare with decks I have already built to see if
+// it makes sense to maybe use some of those cards in my deck."
+//
+// Two routes: find candidate decks for a commander, then diff one against a
+// deck he owns. The diff is computed HERE, not in the browser, because
+// ownership is a server fact -- deckIdentity.availabilityForDeck is the single
+// place that knows what is owned, allocated elsewhere, or reserved, and a
+// second implementation in the UI would drift from it.
+//
+// Registered ABOVE '/:id' on purpose: Express matches in order, so
+// '/manapool/search' would otherwise be read as a deck whose id is "manapool".
+router.get('/manapool/search', async (req, res) => {
+  try {
+    const { q, bracket } = req.query;
+    const result = await manapoolDecks.searchDecks(q, { bracket });
+    res.json(result);
+  } catch (error) {
+    // A Mana Pool outage is not a Bindarr bug and must not read like one. The
+    // service throws with status 502 and a message worth showing.
+    if (error.name === 'ManaPoolError') {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    sendError(res, error, 'Failed to search Mana Pool decks');
+  }
+});
+
+router.get('/:id/compare/:publicId', async (req, res) => {
+  try {
+    const deck = await requireOwnedDeck(db, req.params.id, req.user.id);
+    const [{ entries }, premade] = await Promise.all([
+      deckIdentity.availabilityForDeck(db, deck.id, req.user.id),
+      manapoolDecks.fetchDeckCards(req.params.publicId),
+    ]);
+
+    // MATCH ON ORACLE ID, NOT NAME.
+    //
+    // The oracle id identifies the CARD; a printing id identifies one edition.
+    // Comparing by name breaks on split and adventure cards (whose names join
+    // two halves) and on the flavour-name reprints this app already had to fix
+    // once -- "Pick Your Poison" and "Fblthp, Lost on the Range" are the same
+    // card under two names.
+    const mine = new Map();
+    for (const e of entries) {
+      if (!e.oracle_id) continue;
+      // CONSIDERING IS NOT IN THE DECK. Those are cards he is thinking about,
+      // and the deck view renders them in their own section below the list. If
+      // they were folded in here, every maybeboard card would read as "the
+      // pre-built deck is missing this" -- a difference that does not exist.
+      if (e.board !== 'commander' && e.board !== 'mainboard'
+        && e.board !== 'sideboard') continue;
+      const prev = mine.get(e.oracle_id);
+      // A deck can list the same card in two rows (different desired printings).
+      if (prev) { prev.quantity += (e.quantity_required || e.quantity || 0); continue; }
+      mine.set(e.oracle_id, {
+        oracleId: e.oracle_id,
+        name: e.display_name || e.name,
+        // SECTIONING INPUT. The frontend owns the type_line -> section rule
+        // (deckSections.sectionForTypeLine) and both sides of this comparison
+        // must go through that same function, or the two columns would sort
+        // Artifact Creatures into different rows and read as a difference that
+        // is not one.
+        typeLine: e.type_line || '',
+        // Commander is its own section in the deck view, above every card
+        // type, because it defines the deck. Their side carries isCommander
+        // from Mana Pool; ours is the 'commander' board.
+        isCommander: e.board === 'commander',
+        // HOVER PREVIEW. Zach: "on hover of card name show me card details" --
+        // and he chose the printed card image alone, because the card itself
+        // already shows the rules text, mana cost and type.
+        imageUrl: e.image_url || null,
+        quantity: e.quantity_required || e.quantity || 0,
+        owned: e.quantity_owned || 0,
+        priceCents: Number.isFinite(e.price_trend)
+          ? Math.round(e.price_trend * 100) : null,
+      });
+    }
+
+    const theirs = new Map();
+    for (const c of premade.cards) {
+      if (!c.oracleId) continue;
+      const prev = theirs.get(c.oracleId);
+      if (prev) { prev.quantity += c.quantity; continue; }
+      // Mana Pool sends card types as an ARRAY (["Artifact","Creature"]),
+      // Bindarr stores a Scryfall type_line string. Joining the array yields a
+      // string the SAME sectioning function can read, so one rule sections both
+      // decks. Verified against a live deck: every card carries a non-empty
+      // types array drawn from the seven real card types.
+      theirs.set(c.oracleId, { ...c, typeLine: (c.types || []).join(' ') });
+    }
+
+    // HOVER IMAGES FOR THEIR SIDE, IN ONE QUERY.
+    //
+    // Mana Pool's payload carries no image URL, so the images come from the
+    // local catalogue. That is safe and complete here for a reason worth
+    // stating: card_cache is the WHOLE Scryfall catalogue (~34,900 oracle ids,
+    // 100% with an image), not merely the cards Zach owns -- measured against
+    // three real pre-built decks, 0 of 265 cards were missing. So a card he has
+    // never owned still previews.
+    //
+    // One query for the deck, not one per card: the old per-card ownership
+    // lookup in this route already costs ~50 round trips, and this is the same
+    // mistake waiting to happen at 100 cards.
+    //
+    // This READS card_cache and never writes it. Import is forbidden from
+    // inserting rows there, and a preview has even less business doing so: a
+    // row written from a third party's deck list would become a permanent fake
+    // card in the catalogue everything else trusts.
+    const theirIds = [...theirs.keys()];
+    if (theirIds.length > 0) {
+      const imageRows = await db.all(
+        `SELECT oracle_id, MAX(image_url) AS image_url
+           FROM card_cache
+          WHERE oracle_id IN (${theirIds.map(() => '?').join(',')})
+            AND image_url IS NOT NULL AND image_url <> ''
+          GROUP BY oracle_id`,
+        theirIds
+      );
+      for (const row of imageRows) {
+        const card = theirs.get(row.oracle_id);
+        if (card) card.imageUrl = row.image_url;
+      }
+    }
+
+    // TWO DECKS, NOT THREE BUCKETS.
+    //
+    // Zach (2026-09-20): "change the views to my deck and the compared deck and
+    // highlight the differences in red with both decks". So the shape is the
+    // shape of a DECK LIST -- the same one the deck view renders -- and the
+    // comparison is an annotation ON each card, not a separate grouping. That
+    // makes the two sides line up section by section, which is what makes the
+    // differences readable at a glance.
+    //
+    // `shared` is computed HERE and only here. The previous Curve bugs all came
+    // from two surfaces computing the same fact; the frontend reads this flag
+    // and never re-derives membership.
+    const mineCards = [];
+    const theirCards = [];
+
+    for (const [oracleId, card] of theirs) {
+      const match = mine.get(oracleId);
+      if (match) {
+        theirCards.push({
+          ...card, shared: true, myQuantity: match.quantity, owned: match.owned,
+        });
+      } else {
+        // For a card he does not run, "do I already own it?" decides whether
+        // stealing the idea costs anything.
+        const ownedRow = await db.get(
+          `SELECT COALESCE(SUM(c.quantity), 0) AS n
+             FROM collection c
+             JOIN card_cache cc ON cc.id = c.card_id
+            WHERE cc.oracle_id = ? AND c.user_id = ? AND c.list_type = 'collection'`,
+          [oracleId, req.user.id]
+        );
+        theirCards.push({ ...card, shared: false, ownedInCollection: ownedRow?.n || 0 });
+      }
+    }
+
+    for (const [oracleId, card] of mine) {
+      mineCards.push({ ...card, shared: theirs.has(oracleId) });
+    }
+
+    // The number that decides whether a deck is worth reading at all: of the
+    // cards it runs that mine does not, how many are already in my collection?
+    const differing = theirCards.filter((c) => !c.shared);
+    const stealable = differing.filter((c) => c.ownedInCollection > 0).length;
+
+    const byName = (a, b) => (a.name || '').localeCompare(b.name || '');
+    res.json({
+      deck: { id: deck.id, name: deck.name },
+      premade: {
+        id: premade.id, url: premade.url,
+        name: premade.name, totalCards: premade.totalCards,
+      },
+      mine: mineCards.sort(byName),
+      theirs: theirCards.sort(byName),
+      // Counts, so the header never disagrees with the lists below it.
+      sharedCount: theirCards.length - differing.length,
+      onlyTheirsCount: differing.length,
+      onlyMineCount: mineCards.filter((c) => !c.shared).length,
+      stealableCount: stealable,
+    });
+  } catch (error) {
+    if (error.name === 'ManaPoolError') {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    sendError(res, error, 'Failed to compare decks');
+  }
+});
+
 router.get('/printings/:oracle_id', async (req, res) => {
   try {
     const rows = await deckIdentity.ownedVariantsForOracle(db, req.user.id, req.params.oracle_id);

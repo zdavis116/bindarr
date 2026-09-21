@@ -19,6 +19,7 @@ const moxfieldRoutes = require('./routes/moxfield');
 const settingsRoutes = require('./routes/settings');
 const tagsRoutes = require('./routes/tags');
 const notesRoutes = require('./routes/notes');
+const productsRoutes = require('./routes/products');
 const { getAuditLogs, revertAuditEvent } = require('./utils/auditLogger');
 const { startHttps, selfSignedTls } = require('./utils/tls');
 
@@ -595,6 +596,9 @@ app.get('/api/audit-logs', getAuditLogs);
 app.post('/api/audit-logs/:id/revert', revertAuditEvent);
 app.use('/api/sets', setsRoutes);
 app.use('/api/decks', decksRoutes);
+// Sealed products (precons, Secret Lair) -> collection. Mounted after
+// collection, whose addCardToCollection it reuses.
+app.use('/api/products', productsRoutes);
 // Paths inside are /moxfield/..., so this mounts at bare /api like collection.
 app.use('/api', moxfieldRoutes);
 app.use('/api/settings', settingsRoutes);

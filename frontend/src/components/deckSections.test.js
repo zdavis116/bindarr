@@ -368,16 +368,30 @@ test('DS-TC27: the Collection grid renders through the shared CardTile', () => {
 });
 
 
-test('DS-TC21: DeckView does not use its display order as type priority', () => {
+test('DS-TC21: the deck list does not use its display order as type priority', () => {
   // The exact shape of the bug: one array serving as both "how the sections
   // read down the page" and "which type wins". They are not the same list --
   // display puts Artifact before Land, priority must not.
+  //
+  // The rule MOVED (2026-09-20) out of DeckView.jsx into deckListSections.js,
+  // which the deck view and the pre-built comparison now share. The rule is
+  // unchanged; only its address is. Asserting against the old file would have
+  // passed forever while checking nothing, so it follows the code.
   const view = fs.readFileSync(path.join(here, 'DeckView.jsx'), 'utf8');
+  const shared = fs.readFileSync(path.join(here, 'deckListSections.js'), 'utf8');
 
-  assert.match(view, /const TYPE_PRIORITY = \['Land'/,
+  assert.match(shared, /const TYPE_PRIORITY = \['Land'/,
     'type priority must be its own list, starting with Land');
-  assert.doesNotMatch(view, /for \(const ty of TYPE_ORDER\) \{[\s\S]{0,120}return ty;/,
-    'sectionFor must not walk the DISPLAY order to pick a type');
+  assert.match(shared, /export const TYPE_ORDER/,
+    'display order must be a separate exported list');
+  assert.doesNotMatch(shared, /for \(const ty of TYPE_ORDER\) \{[\s\S]{0,120}return ty;/,
+    'sectionForCard must not walk the DISPLAY order to pick a type');
+
+  // And the deck view must not have grown a second copy while nobody looked.
+  assert.doesNotMatch(view, /const TYPE_PRIORITY/,
+    'DeckView must use the shared rule, not its own priority list');
+  assert.match(view, /from '\.\/deckListSections\.js'/,
+    'DeckView must import the shared sectioning rule');
 });
 
 test('DS-TC22: an artifact creature is still a creature', () => {

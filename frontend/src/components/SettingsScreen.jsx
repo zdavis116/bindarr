@@ -189,6 +189,42 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   // Which source has its detail open. One at a time -- a phone screen
   // cannot show two expanded sources usefully.
   const [sourceOpen, setSourceOpen] = useState(null);
+  // MANA POOL ACCOUNT, for buyer orders. The token is write-only: the API
+  // returns whether one is set plus its last four characters, never the token
+  // itself, so it cannot leak through a screenshot or a shared session.
+  const [mp, setMp] = useState(null);
+  const [mpEmail, setMpEmail] = useState('');
+  const [mpToken, setMpToken] = useState('');
+  const [mpSaving, setMpSaving] = useState(false);
+  useEffect(() => {
+    fetch('/api/settings/manapool', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => { setMp(d); setMpEmail(d.email || ''); })
+      .catch(() => setMp({ connected: false }));
+  }, []);
+  const saveManapool = async (clear = false) => {
+    setMpSaving(true);
+    try {
+      const res = await fetch('/api/settings/manapool', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clear ? { email: '', token: '' }
+          : { email: mpEmail, token: mpToken }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      setMp(body);
+      setMpToken('');
+      if (clear) setMpEmail('');
+      showToast(clear ? t('settings.manapoolNotConnected')
+        : t('settings.manapoolConnected'), 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to save', 'error');
+    } finally {
+      setMpSaving(false);
+    }
+  };
   // Opens the shared ImportModal. Was a hidden <input> whose file went to a
   // navigation callback that could not receive it -- see the render below.
   const [importOpen, setImportOpen] = useState(false);
@@ -518,6 +554,79 @@ function SettingsScreen({ user, onNavigate, showToast }) {
       )}
 
       <Section title={t('settings.secDataSources')}>
+        {/* MANA POOL ACCOUNT. Every integration on this screen is a
+            Data-sources row with its state visible, so this one is too: it says
+            whether it is connected and when an order was last added, rather
+            than hiding a credential behind a menu. */}
+        <div>
+          <Row
+            icon={Key}
+            label={t('settings.manapoolAccount')}
+            detail={mp?.connected
+              ? `${mp.email} · ${mp.tokenHint}`
+              : t('settings.manapoolWhy')}
+            value={mp?.connected
+              ? t('settings.manapoolConnected') : t('settings.manapoolNotConnected')}
+            expanded={sourceOpen === 'manapool'}
+            onClick={() => setSourceOpen(sourceOpen === 'manapool' ? null : 'manapool')}
+          />
+          {sourceOpen === 'manapool' && (
+            <div style={{ background: 'var(--surface-2)', padding: '0.85rem 1rem 1rem 2.6rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem',
+                color: 'var(--text-muted)', marginBottom: 4 }}>
+                {t('settings.manapoolEmail')}
+              </label>
+              <input
+                type="email"
+                value={mpEmail}
+                onChange={(e) => setMpEmail(e.target.value)}
+                style={{ width: '100%', marginBottom: '0.7rem', padding: '0.55rem 0.7rem',
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                  borderRadius: 8, color: 'var(--text-primary)', font: 'inherit' }}
+              />
+              <label style={{ display: 'block', fontSize: '0.75rem',
+                color: 'var(--text-muted)', marginBottom: 4 }}>
+                {t('settings.manapoolToken')}
+              </label>
+              {/* type=password so it is not shoulder-read or screenshotted.
+                  The stored value is never sent back, so this is always blank
+                  on load -- the row above shows the last four characters. */}
+              <input
+                type="password"
+                value={mpToken}
+                placeholder={mp?.connected ? mp.tokenHint : 'mpat_…'}
+                onChange={(e) => setMpToken(e.target.value)}
+                style={{ width: '100%', padding: '0.55rem 0.7rem',
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
+                  borderRadius: 8, color: 'var(--text-primary)', font: 'inherit' }}
+              />
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)',
+                margin: '0.4rem 0 0.8rem' }}>
+                {t('settings.manapoolTokenHint')}
+              </p>
+              {mp?.lastSyncedAt && (
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)',
+                  margin: '0 0 0.8rem' }}>
+                  {t('settings.manapoolOrdersSynced')}: {when(mp.lastSyncedAt, t)}
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-primary"
+                  disabled={mpSaving || !mpEmail || !mpToken}
+                  onClick={() => saveManapool(false)}>
+                  {t('settings.manapoolSave')}
+                </button>
+                {mp?.connected && (
+                  <button type="button" className="btn btn-secondary"
+                    disabled={mpSaving} onClick={() => saveManapool(true)}>
+                    {t('settings.manapoolDisconnect')}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* EVERY PRICE SHOP IS A DATA SOURCE.
             Zach: "Mana pool should exist as a data source", and later "one thing
             missing is adding card kingdom to the data source section."
