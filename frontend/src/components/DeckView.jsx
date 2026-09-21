@@ -97,6 +97,39 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // Null until fetched; the banner only appears when there is something to do.
   const [repoint, setRepoint] = useState(null);
   const [repointBusy, setRepointBusy] = useState(false);
+  // THE PREVIEW for "Use my printings": the list of cards it would switch,
+  // each with the printing the deck asks for now and the one it would move to.
+  // null means no preview open; an array means "show me this before you act".
+  const [repointPreview, setRepointPreview] = useState(null);
+
+  // Apply the bulk repoint. Lives here rather than inline on the button so the
+  // PREVIEW is the only thing the button opens -- a single code path to the
+  // write means a future edit cannot reintroduce a no-preview shortcut without
+  // deleting this comment first.
+  const applyRepointAll = async () => {
+    setRepointBusy(true);
+    try {
+      const res = await fetch(`/api/decks/${deck.id}/repoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || t('deck.repointFailed'));
+        return;
+      }
+      // The server's own count, not the length of the list we showed.
+      showToast(t('deck.repointDone', { count: data.changed }));
+      setRepoint(null);
+      setRepointPreview(null);
+      onChanged && onChanged();
+    } catch {
+      showToast(t('deck.repointFailed'));
+    } finally {
+      setRepointBusy(false);
+    }
+  };
   // Bumped whenever anything changes what a deck row asks for, so the
   // candidate count refetches.
   const [repointVersion, setRepointVersion] = useState(0);
@@ -745,32 +778,27 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             {t('deck.repointBody')}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {/* SHOW WHAT IT WILL DO, THEN DO IT.
+                Zach: "This still doesnt let me view the printing switch 1st."
+                And earlier: "I just accidentally switched a card to a printing
+                I own but its in use with a precon deck that I dont want to
+                remove from that."
+
+                This button used to POST an empty body -- repoint EVERY
+                unambiguous row at once, no preview, no undo. That is the bulk
+                version of the mis-tap he reported, and it is worse: one press
+                moves N cards. The per-printing confirm in the card sheet did
+                not cover this path at all.
+
+                /repoint-candidates already returns every card with its current
+                printing and the one it would move to, so the preview needs no
+                new endpoint -- only a screen that shows what was always there. */}
             <button
               className="btn btn-primary"
               style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
               disabled={repointBusy}
-              onClick={async () => {
-                setRepointBusy(true);
-                try {
-                  const res = await fetch(`/api/decks/${deck.id}/repoint`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  if (!res.ok) {
-                    showToast(data.error || t('deck.repointFailed'));
-                    return;
-                  }
-                  showToast(t('deck.repointDone', { count: data.changed }));
-                  setRepoint(null);
-                  onChanged && onChanged();
-                } catch {
-                  showToast(t('deck.repointFailed'));
-                } finally {
-                  setRepointBusy(false);
-                }
-              }}
+              onClick={() => setRepointPreview(
+                (repoint.candidates || []).filter(c => c.unambiguous))}
             >
               {repointBusy ? t('deck.repointApplying') : t('deck.repointApply')}
             </button>
@@ -1286,6 +1314,81 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         ) : null}
       </div>
+
+      {/* THE PREVIEW, before any card moves.
+          Zach: "This still doesnt let me view the printing switch 1st."
+          Every card it would touch, with FROM -> TO, and a warning on any
+          printing whose copies are already sleeved into another deck -- that
+          is the fact that would have saved his precon. */}
+      {repointPreview && (
+        <div className="ci-confirm-backdrop"
+             onClick={() => !repointBusy && setRepointPreview(null)}>
+          <div className="ci-confirm rp-preview" onClick={(e) => e.stopPropagation()}>
+            <div className="ci-confirm-title">
+              {t('deck.repointPreviewTitle', { count: repointPreview.length })}
+            </div>
+            <div className="rp-list">
+              {repointPreview.map((c) => {
+                const to = c.alternatives?.[0];
+                // THE FIELD IS quantity_owned, not owned_qty.
+                //
+                // deckRepoint.js builds these rows; the card-sheet's printings
+                // list uses owned_qty and they are DIFFERENT shapes. Guessing
+                // here would have silently shown no warning at all -- the
+                // failure would look exactly like "nothing is committed
+                // elsewhere", which is the one thing this must never say
+                // wrongly. Read the producer, do not assume the consumer.
+                const owned = to?.quantity_owned ?? 0;
+                const avail = to?.quantity_available ?? owned;
+                const spoken = Math.max(0, owned - avail);
+                return (
+                  <div key={c.deck_card_id} className="rp-row">
+                    <div className="rp-name">
+                      {c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}
+                    </div>
+                    <div className="ci-confirm-swap rp-swap">
+                      <span className="ci-confirm-from">
+                        <span className="ci-confirm-label">{t('inspector.confirmFrom')}</span>
+                        <span className="ci-confirm-pr">
+                          {String(c.wants?.set_id || '').toUpperCase()} #{c.wants?.number}
+                        </span>
+                        <span className="ci-confirm-set">{c.wants?.set_name || ''}</span>
+                      </span>
+                      <span className="ci-confirm-arrow">→</span>
+                      <span className="ci-confirm-to">
+                        <span className="ci-confirm-label">{t('inspector.confirmTo')}</span>
+                        <span className="ci-confirm-pr">
+                          {String(to?.set_id || '').toUpperCase()} #{to?.number}
+                        </span>
+                        <span className="ci-confirm-set">{to?.set_name || ''}</span>
+                      </span>
+                    </div>
+                    {spoken > 0 && (
+                      <div className="ci-confirm-warn rp-warn">
+                        {t('inspector.confirmInUse', { count: spoken })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="ci-confirm-actions">
+              <button type="button" className="btn btn-secondary"
+                disabled={repointBusy}
+                onClick={() => setRepointPreview(null)}>
+                {t('common.cancel')}
+              </button>
+              <button type="button" className="btn btn-primary"
+                disabled={repointBusy}
+                onClick={applyRepointAll}>
+                {repointBusy
+                  ? t('deck.repointApplying')
+                  : t('deck.repointPreviewApply', { count: repointPreview.length })}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* COMMANDER SWAP */}
       {commanderOpen && (

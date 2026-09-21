@@ -107,6 +107,27 @@ mutate $SY '                        name = COALESCE(?, name)' \
   '                        name = ?,' \
   && expect DV-TC5 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
+echo "M10: bulk button POSTs directly again, no preview (expect DV-TC6)"
+mutate $DV '              onClick={() => setRepointPreview(
+                (repoint.candidates || []).filter(c => c.unambiguous))}' \
+  '              onClick={applyRepointAll}' \
+  && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+
+echo "M11: preview drops the FROM printing, showing only a count (expect DV-TC6)"
+mutate $DV "                        <span className=\"ci-confirm-label\">{t('inspector.confirmFrom')}</span>" \
+  '                        <span />' \
+  && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+
+echo "M12: preview stops warning about copies in other decks (expect DV-TC6)"
+mutate $DV "                        {t('inspector.confirmInUse', { count: spoken })}" \
+  '                        {String(spoken)}' \
+  && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+
+echo "M13: preview reads the WRONG ownership field (expect DV-TC7)"
+mutate $DV '                const owned = to?.quantity_owned ?? 0;' \
+  '                const owned = to?.owned_qty ?? 0;' \
+  && expect DV-TC7 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+
 echo "--- baseline (must be all PASS):"
 node $TEST || FAILURES=$((FAILURES + 1))
 

@@ -149,8 +149,82 @@ for (const [name, src] of [['DeckView', deckView], ['CollectionList', collection
     'DV-TC5 the name written must be the one fetched from Moxfield');
 }
 
+// ---------------------------------------------------------------------------
+// DV-TC6: "USE MY PRINTINGS" MUST PREVIEW TOO.
+//
+// Zach: "This still doesnt let me view the printing switch 1st." -- after the
+// single-printing confirm shipped.
+//
+// I fixed the per-row tap in the card sheet and left the BULK banner posting
+// an empty body, which repoints every unambiguous card at once with no preview
+// and no undo. That is the same mistake he reported, multiplied: one press
+// moves N cards. I had even asked whether this button needed covering, got no
+// answer, and shipped without it.
+//
+// The guard is on the BUTTON: it may open the preview, never write.
+// ---------------------------------------------------------------------------
+{
+  const banner = deckView.slice(
+    deckView.indexOf('SHOW WHAT IT WILL DO'),
+    deckView.indexOf("{t('deck.repointDismiss')}"));
+  assert.match(banner, /setRepointPreview\(/,
+    'DV-TC6 the bulk button must open a preview');
+  assert.doesNotMatch(banner, /fetch\(/,
+    'DV-TC6 the bulk button must not POST directly');
+  assert.doesNotMatch(banner, /method:\s*'POST'/,
+    'DV-TC6 the bulk button must not write');
+
+  // The preview must show each card and BOTH printings -- a count alone
+  // ("switch 3 cards?") would not have told him a precon card was involved.
+  const dlg = deckView.slice(
+    deckView.indexOf('THE PREVIEW, before any card moves'),
+    deckView.indexOf('{/* COMMANDER SWAP */}'));
+  assert.match(dlg, /rp-name/, 'DV-TC6 the preview must name each card');
+  assert.match(dlg, /confirmFrom/, 'DV-TC6 the preview must show the current printing');
+  assert.match(dlg, /confirmTo/, 'DV-TC6 the preview must show the target printing');
+  assert.match(dlg, /wants\?\.set_id/, 'DV-TC6 the preview must show set codes');
+  assert.match(dlg, /wants\?\.number/, 'DV-TC6 the preview must show collector numbers');
+  assert.match(dlg, /confirmInUse/,
+    'DV-TC6 the preview must warn when copies are already in another deck');
+  // Only the preview's own button may commit.
+  assert.match(dlg, /onClick=\{applyRepointAll\}/,
+    'DV-TC6 only the preview may apply the switch');
+}
+
+// ---------------------------------------------------------------------------
+// DV-TC7: THE PREVIEW MUST READ THE FIELD THE SERVER ACTUALLY SENDS.
+//
+// deckRepoint.js builds alternatives with `quantity_owned`; the card sheet's
+// printings list uses `owned_qty`. They are different shapes from different
+// endpoints. Reading the wrong one here fails SILENTLY -- no warning renders,
+// which looks exactly like "no copies are committed elsewhere". That is the
+// one thing this dialog must never say wrongly, because it is the fact that
+// would have saved his precon.
+// ---------------------------------------------------------------------------
+{
+  const dlg = deckView.slice(
+    deckView.indexOf('THE PREVIEW, before any card moves'),
+    deckView.indexOf('{/* COMMANDER SWAP */}'));
+  assert.match(dlg, /quantity_owned/,
+    'DV-TC7 the preview must read quantity_owned');
+  assert.doesNotMatch(dlg, /to\?\.owned_qty/,
+    'DV-TC7 owned_qty is the other endpoint\'s field and is always undefined here');
+
+  // And the producer must still emit it, or this guard is asserting a fact
+  // that stopped being true.
+  const repointSrc = fs.readFileSync(
+    path.join(repo, 'backend/src/utils/deckRepoint.js'), 'utf8');
+  const alt = repointSrc.slice(repointSrc.indexOf('alternatives.push({'));
+  assert.match(alt.slice(0, 600), /quantity_owned:/,
+    'DV-TC7 deckRepoint must still send quantity_owned');
+  assert.match(alt.slice(0, 600), /quantity_available:/,
+    'DV-TC7 deckRepoint must still send quantity_available');
+}
+
 console.log('PASS: DV-TC1 the pane measures a viewport offset, clamped');
 console.log('PASS: DV-TC2 no pane-top rule can resolve to zero height');
 console.log('PASS: DV-TC3 a printing switch is confirmed and names both printings');
 console.log('PASS: DV-TC4 the confirm exists in both the inline pane and the modal');
 console.log('PASS: DV-TC5 a Moxfield rename updates the Bindarr deck name');
+console.log('PASS: DV-TC6 Use my printings previews before it switches anything');
+console.log('PASS: DV-TC7 the preview reads quantity_owned, the field actually sent');
