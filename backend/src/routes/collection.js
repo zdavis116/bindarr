@@ -2773,4 +2773,13 @@ router.delete('/collection/filters/presets/:id', async (req, res) => {
   }
 });
 
+// THE ONE WAY A CARD ENTERS THE COLLECTION.
+//
+// Exported (2026-09-20) so the product import can reuse it rather than grow a
+// second add-path. It already resolves the finish into the finish/printing
+// column pair, refuses a finish it cannot represent, and handles per-card
+// quantity -- all things a reimplementation would get subtly wrong, and the
+// difference would be a collection that does not match the cards on the shelf.
 module.exports = router;
+module.exports.addCardToCollection = addCardToCollection;
+module.exports.AddCardError = AddCardError;
