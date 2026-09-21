@@ -40,10 +40,15 @@ expect() {
     echo "  !!! STILL PASSED - $want does not guard this"
     FAILURES=$((FAILURES + 1))
   else
-    # The suffix letter matters: PR-TC4b is a DIFFERENT guard from PR-TC4, and
-    # a pattern of PR-TC[0-9]* silently truncates it to PR-TC4 -- the same
-    # too-narrow-regex bug that made the e2e counter under-report three times.
-    local got; got=$(grep -o 'PR-TC[0-9]*[a-z]\?' /tmp/pr-out | head -1)
+    # READ THE FAILURE, NOT THE FIRST MENTION.
+    #
+    # Tests that already passed print "PASS: PR-TC3 ..." BEFORE the failing one
+    # throws, so grepping the first PR-TC in the output reported a guard that
+    # was working fine. Strip the PASS/SKIP lines first, then take the id from
+    # what is left. The suffix letter matters too: PR-TC4b is a different guard
+    # from PR-TC4.
+    local got; got=$(grep -vE '^(PASS|SKIP):' /tmp/pr-out \
+      | grep -oE 'PR-TC[0-9]+[a-z]?' | head -1)
     if [ "$got" = "$want" ]; then echo "  failed as intended: $got"
     else echo "  !!! WRONG TEST: expected $want, got '${got:-<crash>}'"
       FAILURES=$((FAILURES + 1)); fi
