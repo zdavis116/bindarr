@@ -203,7 +203,11 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                         <span className="pp-pname">{g.base}</span>
                         <span className="pp-pmeta">
                           {g.kind === 'precon' ? t('product.kindPrecon') : t('product.kindSecretLair')}
-                          {g.editions[0].setCode ? ` · ${g.editions[0].setCode.toUpperCase()}` : ''}
+                          {/* The SET NAME, not the three-letter code. Zach
+                              searched "Duskmourn" and got nothing; showing
+                              "DSC" would not have told him why a result
+                              matched either. */}
+                          {g.editions[0].setName ? ` · ${g.editions[0].setName}` : ''}
                           {g.editions.length > 1 ? ` · ${t('product.nEditions', { n: g.editions.length })}` : ''}
                         </span>
                       </span>
@@ -246,7 +250,7 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
             <p className="pp-sub">
               {detail.product.kind === 'precon'
                 ? t('product.kindPrecon') : t('product.kindSecretLair')}
-              {detail.product.setCode ? ` · ${detail.product.setCode.toUpperCase()}` : ''}
+              {detail.product.setName ? ` · ${detail.product.setName}` : ''}
             </p>
 
             {/* THE HONEST FAILURE, screen 4 of the mockup. A silently dropped

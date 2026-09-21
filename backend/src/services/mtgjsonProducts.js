@@ -23,6 +23,17 @@
 // in its title and is 100% foil in the data. The flag is the only truth.
 
 const CATALOGUE_URL = 'https://mtgjson.com/api/v5/DeckList.json';
+// SET NAMES, so a product is findable by the set everyone calls it.
+//
+// Zach: "when searching precons I would like to be able to search by set like
+// Duskmorn. When I did that I got nothing I had to search by the precon name
+// of Death Toll."
+//
+// DeckList.json carries only a set CODE ("DSC"), and nobody searches for a
+// three-letter code. SetList.json maps DSC -> "Duskmourn: House of Horror
+// Commander", so joining the two makes "duskmourn" find all four of its
+// precons. Same TTL and the same loud failure handling as the deck list.
+const SETLIST_URL = 'https://mtgjson.com/api/v5/SetList.json';
 const DECK_URL = (fileName) =>
   `https://mtgjson.com/api/v5/decks/${encodeURIComponent(fileName)}.json`;
 
@@ -105,6 +116,24 @@ async function listProducts({ force = false } = {}) {
     throw new ProductSourceError('The product catalogue came back empty.');
   }
 
+  // Set names, joined by code. Fetched alongside rather than lazily, because a
+  // product whose set name is missing is INVISIBLE to a set search -- a silent
+  // partial result, which is the failure mode this whole file avoids.
+  let setNames = {};
+  try {
+    const sets = await fetchJson(SETLIST_URL);
+    for (const s of (sets?.data || [])) {
+      if (s.code) setNames[s.code] = s.name;
+    }
+  } catch (error) {
+    // A set-name outage must not take the whole picker down: products are still
+    // findable by their own name, which is how it worked before. Degrade, and
+    // say so in the log rather than pretending the data is complete.
+    console.warn('mtgjsonProducts: set names unavailable,'
+      + ' search by set will not work this cycle:', error.message);
+    setNames = {};
+  }
+
   const products = raw
     .filter((d) => OFFERED_TYPES[d.type])
     .map((d) => ({
@@ -113,6 +142,7 @@ async function listProducts({ force = false } = {}) {
       kind: OFFERED_TYPES[d.type],
       type: d.type,
       setCode: d.code,
+      setName: setNames[d.code] || null,
       releaseDate: d.releaseDate || null,
     }));
 
@@ -166,7 +196,15 @@ async function searchProducts(query, { kind = null, limit = 40 } = {}) {
   const filtered = all.filter((p) => {
     if (kind && p.kind !== kind) return false;
     if (!q) return true;
-    return p.name.toLowerCase().includes(q);
+    // MATCH THE PRODUCT NAME, THE SET NAME, OR THE SET CODE.
+    //
+    // "duskmourn" must find Death Toll, Endless Punishment, Jump Scare! and
+    // Miracle Worker -- none of which contain the word. Zach searched the set
+    // and got nothing, then had to already know a deck's name to find it,
+    // which defeats the point of browsing.
+    return p.name.toLowerCase().includes(q)
+      || (p.setName || '').toLowerCase().includes(q)
+      || (p.setCode || '').toLowerCase() === q;
   });
   const groups = groupEditions(filtered);
   // Newest first: Zach is far likelier to be adding a product he just bought

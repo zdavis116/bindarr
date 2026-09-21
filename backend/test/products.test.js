@@ -197,6 +197,22 @@ const repo = path.resolve(here, '..', '..');
   // rows in the database found it.
   assert.match(add, /stackable:\s*true/,
     'PR-TC11 a product add must stack, or 15x Island becomes fifteen rows');
+  // PR-TC12: ONE TRANSACTION FOR THE WHOLE PRODUCT.
+  //
+  // Not a micro-optimisation. Every db call goes through a serialized queue,
+  // and each addCardToCollection opens its own transaction, so 72 cards meant
+  // 72 queue round-trips -- 14 seconds of waiting against 25ms of actual SQL.
+  // Bulk INSERT syntax, the obvious "fix", would have saved 9ms.
+  //
+  // It is also the correctness rule: a product is one physical purchase, so a
+  // failure part-way must not leave half a precon in the collection.
+  assert.match(add, /db\.withTransaction\(/,
+    'PR-TC12 the whole product must be added in ONE transaction');
+  // The loop must be INSIDE it, not alongside it.
+  const txAt = add.indexOf('db.withTransaction(');
+  const loopAt = add.indexOf('for (const card of chosen)');
+  assert.ok(txAt >= 0 && loopAt > txAt,
+    'PR-TC12 the per-card loop must run inside the transaction');
 }
 
 // ---------------------------------------------------------------------------
@@ -343,8 +359,34 @@ async function liveChecks() {
     `PR-TC3 expected exactly one foil row, got ${foils.length}`);
   assert.equal(foils[0].name, 'Anowon, the Ruin Thief');
 
+  // PR-TC13: SEARCH BY SET.
+  //
+  // Zach searched "Duskmourn" and got nothing, because DeckList.json carries
+  // only a set CODE ("DSC") and none of that set's four precons have the word
+  // in their name. He had to already know "Death Toll" to find it, which
+  // defeats browsing. Live, because it depends on the real join.
+  const dusk = await svc.searchProducts('duskmourn', { kind: 'precon' });
+  const names = dusk.groups.map((g) => g.base);
+  assert.ok(dusk.groups.length >= 4,
+    `PR-TC13 "duskmourn" must find its precons, got ${dusk.groups.length}`);
+  for (const expected of ['Death Toll', 'Endless Punishment', 'Jump Scare!',
+    'Miracle Worker']) {
+    assert.ok(names.includes(expected),
+      `PR-TC13 "duskmourn" must find ${expected}; got ${names.join(', ')}`);
+  }
+  // And every product must carry a readable set name, not just a code -- the
+  // results row shows it, so a null would render as a bare bullet.
+  const noSet = dusk.groups.filter((g) => !g.editions[0].setName);
+  assert.equal(noSet.length, 0,
+    `PR-TC13 every product needs a set name; ${noSet.length} had none`);
+  // The code itself still works as an exact match.
+  const byCode = await svc.searchProducts('DSC', { kind: 'precon' });
+  assert.ok(byCode.groups.length >= 4,
+    'PR-TC13 a set CODE must also match');
+
   console.log('PASS: PR-TC1 a precon resolves to exactly 100 cards');
   console.log('PASS: PR-TC2 quantities are per-card (15x Island is one row)');
+  console.log('PASS: PR-TC13 searching a set name finds its precons');
 }
 
 console.log('PASS: PR-TC3 finish comes from data, never the product name');
@@ -355,6 +397,7 @@ console.log('PASS: PR-TC7 foil/nonfoil twins become one choice');
 console.log('PASS: PR-TC8 commit re-reads the product, ignores posted values');
 console.log('PASS: PR-TC9 the collection add-path is reused, not reimplemented');
 console.log('PASS: PR-TC11 a product add stacks: one row of N, not N rows of one');
+console.log('PASS: PR-TC12 the whole product is added in ONE transaction');
 
 previewRouteCheck().then(liveChecks).then(() => process.exit(0))
   .catch((e) => { console.error('FAIL:', e.message); process.exit(1); });
