@@ -60,12 +60,9 @@ echo "X2: etched loses to foil (expect PR-TC3)"
 mutate $SVC '  if (card.isEtched) return '"'"'etched'"'"';' '' \
   && expect PR-TC3 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "X3: drop unknown cards from the confirm list (expect PR-TC4)"
-mutate $RT '    const missing = resolved.filter((c) => !c.inCatalogue);' \
-  '    const missing = resolved.filter((c) => !c.inCatalogue);
-    // mutation: silently drop what cannot be added' \
-  && { mutate $RT '      cards: resolved,' '      cards: resolved.filter((c) => c.inCatalogue),' \
-       && expect PR-TC4; } || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+echo "X3: drop unknown cards from the confirm list (expect PR-TC4b)"
+mutate $RT '      cards: resolved,' '      cards: resolved.filter((c) => c.inCatalogue),' \
+  && expect PR-TC4b || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "X4: stop reporting how many are missing (expect PR-TC4)"
 mutate $RT '      missingCount: missing.reduce((n, c) => n + c.quantity, 0),' '' \
@@ -97,10 +94,10 @@ echo "X9: stop exporting the shared add-path (expect PR-TC9)"
 mutate $COL 'module.exports.addCardToCollection = addCardToCollection;' '' \
   && expect PR-TC9 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "X10: merge foil and nonfoil into one row (expect PR-TC7 or a live check)"
+echo "X10: merge foil and nonfoil into one row (expect PR-TC10)"
 mutate $SVC '    const key = `${scryfallId || `name:${c.name}`}|${finish}`;' \
   '    const key = `${scryfallId || `name:${c.name}`}`;' \
-  && expect PR-TC7 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+  && expect PR-TC10 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "--- baseline (offline, must be all PASS):"
 PRODUCTS_OFFLINE=1 node $TEST || FAILURES=$((FAILURES + 1))

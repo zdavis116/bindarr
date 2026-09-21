@@ -23,13 +23,29 @@ const repo = path.resolve(here, '..', '..');
 // this app's exact-only identity model.
 // ---------------------------------------------------------------------------
 {
-  assert.equal(svc.finishOf({ isFoil: true }), 'foil');
-  assert.equal(svc.finishOf({ isFoil: false }), 'nonfoil');
-  assert.equal(svc.finishOf({}), 'nonfoil');
+  // EVERY assertion carries its PR-TC tag. An untagged failure still fails the
+  // suite, but the mutation harness cannot tell WHICH guard fired, so it reads
+  // as a crash -- and a harness that cannot attribute a failure is one I would
+  // start ignoring.
+  assert.equal(svc.finishOf({ isFoil: true }), 'foil',
+    'PR-TC3 isFoil must produce foil');
+  assert.equal(svc.finishOf({ isFoil: false }), 'nonfoil',
+    'PR-TC3 a nonfoil card must produce nonfoil');
+  assert.equal(svc.finishOf({}), 'nonfoil',
+    'PR-TC3 a card with no finish flags is nonfoil');
   // Etched wins: an etched card can also carry isFoil, and etched is the more
   // specific truth.
-  assert.equal(svc.finishOf({ isEtched: true }), 'etched');
-  assert.equal(svc.finishOf({ isFoil: true, isEtched: true }), 'etched');
+  assert.equal(svc.finishOf({ isEtched: true }), 'etched',
+    'PR-TC3 isEtched must produce etched');
+  assert.equal(svc.finishOf({ isFoil: true, isEtched: true }), 'etched',
+    'PR-TC3 etched must win over foil');
+  // THE NAME MUST NOT MATTER. "Hidden Pathways" has no "Foil" in its title and
+  // is entirely foil; a card called "Foil Fighter" that is not foil must come
+  // back nonfoil.
+  assert.equal(svc.finishOf({ name: 'Foil Fighter', isFoil: false }), 'nonfoil',
+    'PR-TC3 a name containing "foil" must not make a card foil');
+  assert.equal(svc.finishOf({ name: 'Hidden Pathways', isFoil: true }), 'foil',
+    'PR-TC3 a foil card with no "foil" in its name is still foil');
 
   // And the rule is enforced in the SOURCE: nothing may read a name to decide
   // a finish. A regex over the service catches a future edit that reintroduces
@@ -121,12 +137,41 @@ const repo = path.resolve(here, '..', '..');
     'PR-TC4 every card must carry an inCatalogue flag');
   assert.match(src, /missingCount/,
     'PR-TC4 the response must report how many cards cannot be added');
-  // The cards array must be built from ALL cards, never filtered to the known
-  // ones -- that filter is exactly how the drop would happen.
-  const cardsRoute = src.slice(src.indexOf("router.get('/:id/cards'"),
-    src.indexOf("router.post('/:id/add'"));
-  assert.doesNotMatch(cardsRoute, /cards\s*\.filter\([^)]*known/,
-    'PR-TC4 the returned list must not be filtered down to known cards');
+
+  // BEHAVIOUR, not a regex over the source.
+  //
+  // The first version of this test only scanned for a `.filter(...known)`
+  // shape, and a mutation that filtered the list a slightly different way
+  // sailed straight through. A source scan can only reject the spelling of the
+  // bug I imagined.
+  //
+  // So the route handler is RUN, against a stubbed db and service: no network,
+  // no fixture database, and the assertion is on what actually comes back.
+  const routeSrc = fs.readFileSync(
+    path.join(repo, 'backend/src/routes/products.js'), 'utf8');
+  assert.match(routeSrc, /addableCards/,
+    'PR-TC4 the count of addable cards must be reported separately');
+}
+
+// ---------------------------------------------------------------------------
+// PR-TC10: A FOIL AND A NONFOIL ARE TWO ROWS, NEVER MERGED.
+//
+// They are different physical objects under this app's exact-only identity
+// model: a foil Sol Ring does not substitute for a nonfoil one. A merge would
+// silently turn "1 foil + 1 nonfoil" into "2 of something", and the collection
+// would claim cards Zach does not own.
+// ---------------------------------------------------------------------------
+{
+  const svcSrc = fs.readFileSync(
+    path.join(repo, 'backend/src/services/mtgjsonProducts.js'), 'utf8');
+  // Scope to fetchProductCards. There are two `const key =` lines in this file
+  // -- the edition grouping key and the merge key -- and an unscoped search
+  // grabbed the wrong one, asserting against a rule that was never in question.
+  const mergeFn = svcSrc.slice(svcSrc.indexOf('async function fetchProductCards'));
+  const keyLine = mergeFn.split('\n').find((l) => l.includes('const key ='));
+  assert.ok(keyLine, 'PR-TC10 the merge must build an explicit key');
+  assert.match(keyLine, /finish/,
+    'PR-TC10 the merge key MUST include the finish, or foil and nonfoil merge');
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +219,83 @@ const repo = path.resolve(here, '..', '..');
 //
 // Skipped with PRODUCTS_OFFLINE=1 so the suite still runs without a network.
 // ---------------------------------------------------------------------------
+async function previewRouteCheck() {
+// ---------------------------------------------------------------------------
+// PR-TC4b: RUN THE PREVIEW ROUTE. Two of the product's cards are unknown to the
+// catalogue; all of them must still come back.
+// ---------------------------------------------------------------------------
+{
+  const Module = require('node:module');
+  const origLoad = Module._load;
+  const productsPath = require.resolve('../src/routes/products.js');
+  delete require.cache[productsPath];
+
+  const fakeCards = [
+    { scryfallId: 'known-1', name: 'Sol Ring', finish: 'nonfoil', quantity: 1 },
+    { scryfallId: 'known-2', name: 'Island', finish: 'nonfoil', quantity: 15 },
+    { scryfallId: 'ghost-1', name: 'Unknown A', finish: 'nonfoil', quantity: 1 },
+    { scryfallId: 'ghost-2', name: 'Unknown B', finish: 'foil', quantity: 1 },
+  ];
+
+  // Stub the two modules the route pulls in. Only `all` is stubbed on db: if
+  // the route tried to WRITE, it would throw, which is itself the PR-TC6 rule.
+  Module._load = function stub(request, parent, isMain) {
+    if (request === '../db') {
+      return {
+        all: async (_sql, params) =>
+          params.filter((p) => p.startsWith('known-')).map((id) => ({ id })),
+        run: async () => { throw new Error('the preview route must not write'); },
+      };
+    }
+    if (request === '../services/mtgjsonProducts') {
+      return {
+        fetchProductCards: async () => ({
+          product: { id: 'p', name: 'Test Deck' },
+          cards: fakeCards,
+          totalCards: 18,
+        }),
+        searchProducts: async () => ({ total: 0, groups: [] }),
+      };
+    }
+    if (request === './collection') {
+      return { addCardToCollection: async () => ({ id: 1 }), AddCardError: Error };
+    }
+    return origLoad(request, parent, isMain);
+  };
+
+  let router;
+  try { router = require('../src/routes/products.js'); }
+  finally { Module._load = origLoad; delete require.cache[productsPath]; }
+
+  // Find the GET /:id/cards handler on the router stack and invoke it.
+  const layer = router.stack.find((l) => l.route?.path === '/:id/cards'
+    && l.route.methods.get);
+  assert.ok(layer, 'PR-TC4b the preview route must exist');
+
+  const body = await new Promise((resolve, reject) => {
+    const res = {
+      json: resolve,
+      status(code) { this._code = code; return this; },
+    };
+    layer.route.stack[0].handle({ params: { id: 'p' }, query: {} }, res, reject);
+  });
+
+  assert.equal(body.cards.length, 4,
+    `PR-TC4b every card must come back, got ${body.cards.length} of 4`);
+  assert.equal(body.cards.filter((c) => !c.inCatalogue).length, 2,
+    'PR-TC4b the two unknown cards must be present and flagged');
+  assert.deepEqual(body.cards.filter((c) => !c.inCatalogue).map((c) => c.name),
+    ['Unknown A', 'Unknown B'],
+    'PR-TC4b the unknown cards must be NAMED so they can be scanned by hand');
+  // addableCards counts physical cards, not rows: 1 Sol Ring + 15 Island.
+  assert.equal(body.addableCards, 16,
+    `PR-TC4b addableCards must count cards, got ${body.addableCards}`);
+  assert.equal(body.missingCount, 2,
+    `PR-TC4b missingCount must count the unknown cards, got ${body.missingCount}`);
+}
+  console.log('PASS: PR-TC4b the preview route returns every card, unknown ones flagged');
+}
+
 async function liveChecks() {
   if (process.env.PRODUCTS_OFFLINE === '1') {
     console.log('SKIP: PR-TC1/PR-TC2 (PRODUCTS_OFFLINE=1)');
@@ -224,5 +346,5 @@ console.log('PASS: PR-TC7 foil/nonfoil twins become one choice');
 console.log('PASS: PR-TC8 commit re-reads the product, ignores posted values');
 console.log('PASS: PR-TC9 the collection add-path is reused, not reimplemented');
 
-liveChecks().then(() => process.exit(0))
+previewRouteCheck().then(liveChecks).then(() => process.exit(0))
   .catch((e) => { console.error('FAIL:', e.message); process.exit(1); });
