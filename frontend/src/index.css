@@ -3481,12 +3481,20 @@ button, input, select, textarea {
        the anchored footer drifts below the fold.
 
        --pane-top is measured at runtime by DeckView (see useEffect there) and
-       is how far down the page this column actually starts -- ~249px, made of
+       is how far down the VIEWPORT this column starts -- ~249px, made of
        the header, the deck title and the progress block. A pure `100vh - 2rem`
        ignored that offset and ran the pane 153px past the fold, which is what
        put the anchored Remove button off-screen. The fallback keeps it sane
-       before the first measurement lands. */
+       before the first measurement lands.
+
+       min-height IS THE SAFETY NET, not decoration. --pane-top was once
+       measured as a PAGE offset (6152px after scrolling a 100-card deck),
+       which made this calc resolve to zero and the whole pane vanish -- Zach:
+       "the whole side panel or card modal disappears". The JS is fixed, but a
+       layout rule that CAN evaluate to zero will find a way to do it again;
+       this makes an invisible pane impossible from the CSS side too. */
     height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    min-height: 18rem;
     overflow: hidden;
   }
 
@@ -3985,6 +3993,9 @@ button, input, select, textarea {
     /* A definite height so the list scrolls INSIDE the pane rather than
        running past the fold -- the same bug the detail pane had. */
     height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    /* Floor, so a bad --pane-top can never collapse this pane to nothing.
+       See .deck-panes-side for the measured failure. */
+    min-height: 18rem;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -4447,6 +4458,9 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
        the tabs was 23px tall -- the card looked empty. Same rule the deck
        view uses on .deck-panes-side. */
     height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+    /* Floor, so a bad --pane-top can never collapse this pane to nothing.
+       See .deck-panes-side for the measured failure. */
+    min-height: 18rem;
     /* This wrapper does NOT scroll -- the inspector owns the height and
        scrolls its own body row, so art, name and tabs stay put. */
     overflow: hidden;
@@ -5815,3 +5829,45 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .pp-skipwhy { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase; color: #fca5a5; flex-shrink: 0;
   border: 1px solid rgba(255,69,58,0.35); border-radius: 4px; padding: 2px 5px; }
+
+/* ===== CONFIRM A PRINTING SWITCH ========================================
+   Zach: "letting me see what printing your switching a card too. Just like
+   the sync from moxfield." A tap used to commit immediately, which moved one
+   of his cards out of a precon. */
+.ci-confirm-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(6px); display: flex; align-items: center;
+  justify-content: center; padding: 1rem;
+  /* Above the inspector, which is itself a modal on the phone. */
+  z-index: 1400;
+}
+.ci-confirm {
+  width: 100%; max-width: 380px;
+  background: var(--surface-1); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md); padding: 1.1rem;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+}
+.ci-confirm-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.3rem; }
+/* THE CARD NAME, large. Not knowing which card he was acting on is the bug. */
+.ci-confirm-card { font-size: 1.05rem; font-weight: 700; color: var(--text-strong);
+  margin-bottom: 0.85rem; line-height: 1.25; }
+.ci-confirm-swap { display: flex; align-items: center; gap: 0.6rem;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: 10px; padding: 0.7rem; }
+.ci-confirm-from, .ci-confirm-to { flex: 1; min-width: 0; display: flex;
+  flex-direction: column; gap: 1px; }
+.ci-confirm-label { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted); }
+.ci-confirm-pr { font-size: 0.85rem; font-weight: 700; color: var(--text-primary);
+  white-space: nowrap; }
+.ci-confirm-set { font-size: 0.68rem; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-confirm-arrow { color: var(--text-muted); flex-shrink: 0; font-size: 1rem; }
+/* The warning that would have saved the precon: this printing is spoken for. */
+.ci-confirm-warn { margin-top: 0.7rem; padding: 0.6rem 0.7rem;
+  font-size: 0.75rem; line-height: 1.4; border-radius: 9px;
+  background: rgba(255,159,10,0.10); border: 1px solid rgba(255,159,10,0.35);
+  color: #ffb340; }
+.ci-confirm-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.ci-confirm-actions .btn { flex: 1; min-height: 44px; }

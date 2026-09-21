@@ -152,9 +152,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     const el = sidePaneRef.current;
     if (!el) return undefined;
     const measure = () => {
-      // Page offset, not viewport offset: getBoundingClientRect().top alone
-      // changes as you scroll, which would resize the pane while scrolling.
-      const top = el.getBoundingClientRect().top + window.scrollY;
+      // WHERE THE PANE STARTS IN THE VIEWPORT, because the CSS subtracts this
+      // from 100vh -- a viewport height. Mixing the two coordinate systems is
+      // what broke it.
+      //
+      // Zach: "if I click a card and scroll to the bottom and then click a
+      // land card the whole side panel or card modal disappears."
+      //
+      // This read `rect.top + window.scrollY`, a PAGE offset, on the theory
+      // that a viewport offset "changes as you scroll". It does -- but the
+      // pane is position:sticky, so its viewport top is stable at the sticky
+      // offset, while the page offset grows without bound as you scroll.
+      // Clicking a land near the bottom of a 100-card list calls
+      // scrollIntoView, the ResizeObserver fires mid-scroll, and --pane-top
+      // was measured at 6152px. calc(100vh - 6152px - 1rem) clamps to zero:
+      // the pane is still in the DOM, 472px wide and 0px tall, which on screen
+      // is simply gone. MEASURED on dev at 1855x731, 388px -> 6152px.
+      //
+      // Clamped to a sane range so a measurement taken mid-layout -- before
+      // sticky settles, or during a smooth scroll -- can never collapse the
+      // pane again. A slightly wrong height is a cosmetic problem; a zero
+      // height is an invisible feature.
+      const raw = el.getBoundingClientRect().top;
+      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
       el.style.setProperty('--pane-top', `${Math.round(top)}px`);
     };
     measure();
@@ -163,7 +183,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     const ro = new ResizeObserver(measure);
     ro.observe(document.body);
     window.addEventListener('resize', measure);
-    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+    // Re-measure after a scroll SETTLES. While sticky is engaged the viewport
+    // top does not move, so this is cheap; it exists so the first paint after
+    // a jump-to-card lands on a real number rather than a transient one.
+    window.addEventListener('scroll', measure, { passive: true });
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+    };
   }, [isDesktop, detailCard]);
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:

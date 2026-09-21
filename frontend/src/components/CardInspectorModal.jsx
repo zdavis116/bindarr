@@ -363,6 +363,23 @@ function CardInspectorModal({
 
   // Declared before switchPrinting; the reference below resolves at TAP time,
   // by which point both consts are bound.
+
+  // CONFIRM BEFORE SWITCHING, showing WHICH printing.
+  //
+  // Zach: "when updating my deck to use cards with printings I own can I see
+  // what card we are referring to before doing it. I just accidentally
+  // switched a card to a printing I own but its in use with a precon deck that
+  // I dont want to remove from that." And: "I just meant letting me see what
+  // printing your switching a card too. Just like the sync from moxfield."
+  //
+  // The Moxfield sync shows what it is about to do and waits. This did not: a
+  // tap on a row in a list committed immediately, which is how a single
+  // mis-tap moved a card out of a precon he had no intention of touching.
+  //
+  // The confirm names the card and shows FROM -> TO, because "are you sure?"
+  // alone would not have prevented his mistake; seeing which printing would.
+  const [confirmRepoint, setConfirmRepoint] = useState(null);
+
   const assignPrintingToDeck = async (pr) => {
     if (!deckId || !deckCardId) return;
     setRepointing(pr.id);
@@ -405,6 +422,7 @@ function CardInspectorModal({
       showToast(t('inspector.repointFailed'));
     } finally {
       setRepointing(null);
+      setConfirmRepoint(null);
     }
   };
 
@@ -1280,13 +1298,17 @@ function CardInspectorModal({
                             <button
                               key={pr.id}
                               type="button"
-                              /* TAP CHOOSES. From a deck that means the deck
-                                 now uses this printing AND the sheet follows
-                                 it. From the collection there is no deck row
-                                 to repoint, so it just shows the printing --
-                                 the only meaning that context has. */
+                              /* TAP ASKS FIRST, from a deck.
+                                 It used to commit immediately, which is how a
+                                 single mis-tap moved one of his cards out of a
+                                 precon. Now it opens a confirm naming the card
+                                 and showing which printing it would switch to.
+                                 From the collection there is no deck row to
+                                 repoint, so it just shows the printing -- the
+                                 only meaning that context has, and nothing is
+                                 changed, so nothing needs confirming. */
                               onClick={() => (deckCardId
-                                ? assignPrintingToDeck(pr)
+                                ? setConfirmRepoint(pr)
                                 : switchPrinting(pr))}
                               disabled={repointing === pr.id}
                               style={{
@@ -1684,11 +1706,78 @@ function CardInspectorModal({
     </>
   );
 
+  // THE CONFIRM, shown before any printing switch from a deck.
+  //
+  // Zach: "letting me see what printing your switching a card too. Just like
+  // the sync from moxfield." So it names the card and shows FROM -> TO rather
+  // than asking a bare "are you sure?" -- the set and number are the whole
+  // point, because that is what he could not see when he mis-tapped.
+  //
+  // Rendered in BOTH return shapes below (inline pane and full modal): a
+  // confirm that only exists on the phone would leave the desktop committing
+  // silently, which is where the mistake actually happened.
+  const repointConfirm = confirmRepoint ? (() => {
+    const from = printings?.find(p => p.id === (deckUse?.card_id || catalogueId));
+    const to = confirmRepoint;
+    const fmt = (p) => (p
+      ? `${String(p.set_id || '').toUpperCase()} #${p.number}`
+      : '—');
+    return (
+      <div className="ci-confirm-backdrop" onClick={() => setConfirmRepoint(null)}>
+        <div className="ci-confirm" onClick={(e) => e.stopPropagation()}>
+          <div className="ci-confirm-title">{t('inspector.confirmRepointTitle')}</div>
+          {/* THE CARD, named. He was not sure which card he was acting on. */}
+          <div className="ci-confirm-card">{view?.name}</div>
+          <div className="ci-confirm-swap">
+            <span className="ci-confirm-from">
+              <span className="ci-confirm-label">{t('inspector.confirmFrom')}</span>
+              <span className="ci-confirm-pr">{fmt(from)}</span>
+              <span className="ci-confirm-set">{from?.set_name || ''}</span>
+            </span>
+            <span className="ci-confirm-arrow">→</span>
+            <span className="ci-confirm-to">
+              <span className="ci-confirm-label">{t('inspector.confirmTo')}</span>
+              <span className="ci-confirm-pr">{fmt(to)}</span>
+              <span className="ci-confirm-set">{to?.set_name || ''}</span>
+            </span>
+          </div>
+          {/* WHERE THE COPY IS COMING FROM. The server already knows a copy is
+              committed elsewhere; not saying so is what let a precon card get
+              taken. owned - available is the count already sleeved. */}
+          {(() => {
+            const owned = to?.owned_qty || 0;
+            const avail = to?.quantity_available ?? owned;
+            const spoken = Math.max(0, owned - avail);
+            if (spoken <= 0) return null;
+            return (
+              <div className="ci-confirm-warn">
+                {t('inspector.confirmInUse', { count: spoken })}
+              </div>
+            );
+          })()}
+          <div className="ci-confirm-actions">
+            <button type="button" className="btn btn-secondary"
+              onClick={() => setConfirmRepoint(null)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-primary"
+              disabled={repointing === to?.id}
+              onClick={() => assignPrintingToDeck(to)}>
+              {repointing === to?.id
+                ? t('inspector.confirmSwitching') : t('inspector.confirmSwitch')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  })() : null;
+
   // INLINE: the same panel, in a grid column instead of over the page.
   if (inline) {
     return (
       <div className="glass-panel card-inspector card-inspector-inline">
         {panelBody}
+        {repointConfirm}
         {isFullScreen && (
           <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />
         )}
@@ -1720,6 +1809,8 @@ function CardInspectorModal({
       <div className="glass-panel card-inspector" onClick={(e) => e.stopPropagation()}>
         {panelBody}
       </div>
+
+      {repointConfirm}
 
       {isFullScreen && (
         <CardImageZoom src={view.image_url} alt={view.name} onClose={() => setIsFullScreen(false)} />
