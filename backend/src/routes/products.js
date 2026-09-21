@@ -16,6 +16,7 @@
 const express = require('express');
 const db = require('../db');
 const products = require('../services/mtgjsonProducts');
+const orders = require('../services/manapoolOrders');
 const collectionRoutes = require('./collection');
 
 const { addCardToCollection, AddCardError } = collectionRoutes;
@@ -26,6 +27,83 @@ const router = express.Router();
 // malformed request cannot ask the server to perform an unbounded number of
 // sequential inserts, not because any real product approaches it.
 const MAX_CARDS = 500;
+
+// ADD A LIST OF CARDS IN ONE TRANSACTION.
+//
+// Shared by the precon path and the Mana Pool orders path, because they differ
+// only in WHERE the cards came from: the rules about stacking, one transaction,
+// and honest counts are identical, and two copies would drift.
+//
+// Each card carries its own quantity, finish, condition and optional purchase
+// price -- an order's cards are not all Near Mint nonfoil the way a sealed
+// precon's are.
+async function addCardsInOneTransaction(user, cards) {
+  const added = [];
+  const failed = [];
+  await db.withTransaction(async () => {
+    for (const card of cards) {
+      try {
+        const result = await addCardToCollection(user, {
+          card_id: card.scryfallId,
+          quantity: card.quantity,
+          // ONE ROW OF N, NOT N ROWS OF ONE.
+          //
+          // addCardToCollection defaults to stackable:false, which files each
+          // copy as its own row. Omitting this turned "15x Island" into fifteen
+          // rows of 1 -- the right cards in the wrong shape. Search-and-add
+          // (CardSearch.jsx) passes stackable: true too.
+          stackable: true,
+          // Finish comes from the DATA, never from a name.
+          finish: card.finish,
+          condition: card.condition,
+          // What he actually paid, when the source knows. A precon does not
+          // price its cards individually; an order does.
+          ...(card.unitPrice ? { purchase_price: card.unitPrice } : {}),
+          list_type: 'collection',
+        });
+        added.push({ scryfallId: card.scryfallId, name: card.name,
+          quantity: card.quantity, id: result.id });
+      } catch (error) {
+        if (!(error instanceof AddCardError)) console.error(error);
+        failed.push({
+          scryfallId: card.scryfallId,
+          name: card.name,
+          error: error.message || 'Failed to add card',
+        });
+      }
+    }
+  }, { timeoutMs: 120000 });
+  return { added, failed };
+}
+
+// Resolve a list of cards against card_cache in ONE query, flagging each.
+//
+// A card that is NOT in the catalogue is returned with inCatalogue:false and
+// MUST still appear: a silently dropped card means a short order and no way to
+// tell which cards are missing.
+async function flagAgainstCatalogue(cards) {
+  const ids = [...new Set(cards.map((c) => c.scryfallId).filter(Boolean))];
+  const known = new Set();
+  if (ids.length) {
+    const rows = await db.all(
+      `SELECT id FROM card_cache WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    for (const r of rows) known.add(r.id);
+  }
+  return cards.map((c) => ({
+    ...c,
+    inCatalogue: !!(c.scryfallId && known.has(c.scryfallId)),
+  }));
+}
+
+// The stored Mana Pool credentials. Read per request rather than cached, so
+// changing them in Settings takes effect immediately.
+async function manapoolCreds() {
+  const row = await db.get(
+    'SELECT manapool_email AS email, manapool_token AS token FROM app_settings WHERE id = 1');
+  return { email: row?.email || null, token: row?.token || null };
+}
 
 function sendSourceError(res, error, fallback) {
   // A third party being down must look like a third party being down, never
@@ -39,6 +117,121 @@ function sendSourceError(res, error, fallback) {
   console.error(error);
   return res.status(500).json({ error: fallback });
 }
+
+// ORDER ROUTES ARE DECLARED FIRST, DELIBERATELY.
+//
+// Express matches in declaration order, and `/:id/cards` happily matches
+// `/orders/list` with id="orders". Declared after the precon routes, every
+// orders request was swallowed by the precon handler and looked for a product
+// called "orders". Verified by printing router.stack, not by reasoning about
+// it.
+// ===========================================================================
+// MANA POOL ORDERS
+//
+// Zach: "mana pool orders should be in the add product section." So these live
+// on the same router and surface as a filter INSIDE the product picker, not as
+// another row in the Add cards sheet.
+//
+// Same two-step contract as precons: look, then commit. Nothing is written
+// until the POST.
+// ===========================================================================
+
+// THE ORDER LIST. Summary only -- Mana Pool's list endpoint carries no cards,
+// so this is cheap and the detail call happens when he picks one.
+router.get('/orders/list', async (req, res) => {
+  try {
+    const creds = await manapoolCreds();
+    const list = await orders.listOrders(creds);
+    res.json({ orders: list, connected: true });
+  } catch (error) {
+    // NOT CONNECTED IS NOT AN ERROR. The picker shows a "connect your account"
+    // state rather than a red failure, because he has not done anything wrong.
+    if (error.code === 'MANAPOOL_AUTH' && !error.message.includes('rejected')) {
+      return res.json({ orders: [], connected: false, reason: error.message });
+    }
+    sendSourceError(res, error, 'Failed to read your Mana Pool orders');
+  }
+});
+
+// ONE ORDER'S CARDS, resolved against the catalogue. Read-only.
+router.get('/orders/:id/cards', async (req, res) => {
+  try {
+    const creds = await manapoolCreds();
+    const { order, cards, skipped, totalCards } =
+      await orders.fetchOrderCards(req.params.id, creds);
+
+    const resolved = await flagAgainstCatalogue(cards);
+    const missing = resolved.filter((c) => !c.inCatalogue);
+
+    res.json({
+      product: {
+        id: order.id,
+        name: `Order ${order.orderNumber}`,
+        kind: 'order',
+        orderNumber: order.orderNumber,
+        createdAt: order.createdAt,
+        totalCents: order.totalCents,
+      },
+      cards: resolved,
+      totalCards,
+      addableCards: resolved.filter((c) => c.inCatalogue)
+        .reduce((n, c) => n + c.quantity, 0),
+      missingCount: missing.reduce((n, c) => n + c.quantity, 0),
+      // Sealed products and unshipped lines are NAMED, never silently absent.
+      // "Why is my order 3 cards short" must have an answer on the screen.
+      skipped,
+    });
+  } catch (error) {
+    sendSourceError(res, error, 'Failed to read that order');
+  }
+});
+
+// COMMIT AN ORDER.
+//
+// Re-reads the order from Mana Pool rather than trusting posted values, for the
+// same reason the precon path re-reads the product: a stale or tampered client
+// must not be able to write a quantity, condition or price that the order does
+// not contain.
+router.post('/orders/:id/add', async (req, res) => {
+  const { scryfall_ids: scryfallIds } = req.body || {};
+  if (!Array.isArray(scryfallIds) || scryfallIds.length === 0) {
+    return res.status(400).json({ error: 'scryfall_ids must be a non-empty array' });
+  }
+  if (scryfallIds.length > MAX_CARDS) {
+    return res.status(400).json({ error: `At most ${MAX_CARDS} cards at a time` });
+  }
+
+  try {
+    const creds = await manapoolCreds();
+    const { order, cards } = await orders.fetchOrderCards(req.params.id, creds);
+    const wanted = new Set(scryfallIds);
+    const chosen = cards.filter((c) => c.scryfallId && wanted.has(c.scryfallId));
+
+    if (chosen.length === 0) {
+      return res.status(400).json({ error: 'None of those cards are in that order' });
+    }
+
+    // The card records already carry the condition he bought and what he paid,
+    // so unlike a precon nothing is overridden here.
+    const { added, failed } = await addCardsInOneTransaction(req.user, chosen);
+
+    await db.run(
+      `UPDATE app_settings SET manapool_orders_synced_at = CURRENT_TIMESTAMP WHERE id = 1`);
+
+    const addedCards = added.reduce((n, a) => n + a.quantity, 0);
+    res.status(failed.length && !added.length ? 500 : 200).json({
+      product: { id: order.id, name: `Order ${order.orderNumber}` },
+      addedRows: added.length,
+      addedCards,
+      failed,
+      message: failed.length
+        ? `Added ${addedCards} cards; ${failed.length} could not be added.`
+        : `Added ${addedCards} cards from order ${order.orderNumber}.`,
+    });
+  } catch (error) {
+    sendSourceError(res, error, 'Failed to add that order');
+  }
+});
 
 // THE PICKER.
 //
@@ -69,22 +262,7 @@ router.get('/:id/cards', async (req, res) => {
   try {
     const { product, cards, totalCards } = await products.fetchProductCards(req.params.id);
 
-    const ids = [...new Set(cards.map((c) => c.scryfallId).filter(Boolean))];
-    const known = new Set();
-    if (ids.length) {
-      // ONE query, not one per card. This route already runs on a phone over a
-      // tailnet; 100 round trips would be felt.
-      const rows = await db.all(
-        `SELECT id FROM card_cache WHERE id IN (${ids.map(() => '?').join(',')})`,
-        ids
-      );
-      for (const r of rows) known.add(r.id);
-    }
-
-    const resolved = cards.map((c) => ({
-      ...c,
-      inCatalogue: !!(c.scryfallId && known.has(c.scryfallId)),
-    }));
+    const resolved = await flagAgainstCatalogue(cards);
 
     const missing = resolved.filter((c) => !c.inCatalogue);
     res.json({
@@ -124,71 +302,27 @@ router.post('/:id/add', async (req, res) => {
       return res.status(400).json({ error: 'None of those cards are in that product' });
     }
 
-    // ONE TRANSACTION FOR THE WHOLE PRODUCT.
+    // ONE TRANSACTION FOR THE WHOLE PRODUCT, via the shared helper.
     //
     // Zach: "it takes way to long to add a deck. Why is it inserting 1 card at
-    // a time? Shouldnt it be bulk inserting."
+    // a time? Shouldnt it be bulk inserting." Right that it was slow, but
+    // MEASURED the cost was never the INSERT:
     //
-    // He was right that it was slow and right to push, but MEASURED, the cost
-    // was not the INSERT:
+    //   72 inserts, a transaction each :    12 ms
+    //   72 inserts, one transaction    :     3 ms
+    //   the real HTTP request          : 14,034 ms
     //
-    //   72 inserts, a transaction each  : 12 ms
-    //   72 inserts, one transaction     :  3 ms
-    //   72x placement scan              :  5 ms
-    //   72x card_cache lookup           :  7 ms
-    //   the actual HTTP request         : 14 SECONDS
+    // Every db call goes through a serialized queue and every
+    // addCardToCollection opened its own transaction, so each card queued and
+    // committed separately. Bulk INSERT syntax would have saved 9ms of a 14s
+    // wait. Measured after: 0.37s.
     //
-    // So ~99.8% of the wait was never SQL. Every db call goes through a
-    // SERIALIZED queue (db.js enqueue), and every addCardToCollection opens its
-    // own db.withTransaction -- so each card queued, waited its turn, and
-    // committed separately. Switching to bulk INSERT syntax would have saved
-    // nine milliseconds of a fourteen-second wait.
-    //
-    // withTransaction NESTS: a nested call joins the owner's transaction
-    // instead of queueing behind it (db.js: `if (ownsActiveTransaction())`).
-    // Wrapping the loop therefore collapses 72 queue round-trips into one,
-    // without changing addCardToCollection or how a single add behaves.
-    //
-    // It is also more correct: a product is one physical purchase, so a failure
-    // half way through should not leave half a precon in the collection.
-    //
-    // Still SEQUENTIAL inside the transaction, on purpose: placement resolves
-    // against the rows already inserted, so concurrent adds would race for the
-    // same slot.
-    const added = [];
-    const failed = [];
-    await db.withTransaction(async () => {
-      for (const card of chosen) {
-        try {
-          const result = await addCardToCollection(req.user, {
-            card_id: card.scryfallId,
-            quantity: card.quantity,
-            // ONE ROW OF N, NOT N ROWS OF ONE.
-            //
-            // addCardToCollection defaults to stackable:false, which files each
-            // copy as its own row. Omitting this turned "15x Island" into
-            // fifteen rows of 1 -- the collection held the right 100 cards, but
-            // the shape was wrong, and a basic land should be ONE line.
-            // Search-and-add (CardSearch.jsx) passes stackable: true too.
-            stackable: true,
-            // Finish comes from the PRODUCT DATA, never from its name.
-            finish: card.finish,
-            // A sealed product is new cardboard.
-            condition: 'Near Mint',
-            list_type: 'collection',
-          });
-          added.push({ scryfallId: card.scryfallId, name: card.name,
-            quantity: card.quantity, id: result.id });
-        } catch (error) {
-          if (!(error instanceof AddCardError)) console.error(error);
-          failed.push({
-            scryfallId: card.scryfallId,
-            name: card.name,
-            error: error.message || 'Failed to add card',
-          });
-        }
-      }
-    }, { timeoutMs: 120000 });
+    // A sealed product is new cardboard, so every card is Near Mint. An ORDER
+    // is different -- it carries the condition he actually bought.
+    const { added, failed } = await addCardsInOneTransaction(
+      req.user,
+      chosen.map((c) => ({ ...c, condition: 'Near Mint' })),
+    );
 
     const addedCards = added.reduce((n, a) => n + a.quantity, 0);
     // NEVER CLAIM SUCCESS NOT VERIFIED. The counts are what actually happened,
@@ -206,5 +340,6 @@ router.post('/:id/add', async (req, res) => {
     sendSourceError(res, error, 'Failed to add that product');
   }
 });
+
 
 module.exports = router;

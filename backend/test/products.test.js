@@ -184,33 +184,43 @@ const repo = path.resolve(here, '..', '..');
   const add = src.slice(src.indexOf("router.post('/:id/add'"));
   assert.match(add, /fetchProductCards\(req\.params\.id\)/,
     'PR-TC8 the commit route must re-read the product');
-  assert.match(add, /quantity:\s*card\.quantity/,
+  // The commit route must NOT read quantity or finish out of the request body:
+  // a stale or tampered client must not be able to write a quantity the product
+  // does not contain. It passes `chosen`, which came from the re-read.
+  assert.doesNotMatch(add, /quantity:\s*req\.body/,
     'PR-TC8 quantity must come from the product, not the request body');
-  assert.match(add, /finish:\s*card\.finish/,
+  assert.doesNotMatch(add, /finish:\s*req\.body/,
     'PR-TC8 finish must come from the product, not the request body');
+
+  // The rules below moved into addCardsInOneTransaction when the Mana Pool
+  // orders path needed the same behaviour. Assert them WHERE THEY LIVE -- a
+  // test that keeps asserting the old location passes or fails for reasons
+  // unrelated to the rule.
+  const shared = src.slice(src.indexOf('async function addCardsInOneTransaction'),
+    src.indexOf('async function flagAgainstCatalogue'));
+  assert.match(shared, /quantity:\s*card\.quantity/,
+    'PR-TC8 quantity must come from the card record');
+  assert.match(shared, /finish:\s*card\.finish/,
+    'PR-TC8 finish must come from the card record');
   // PR-TC11: ONE ROW OF N, NOT N ROWS OF ONE.
   //
   // addCardToCollection defaults to stackable:false. Omitting it added the
   // right 100 cards in the wrong SHAPE -- fifteen rows of "1x Island" instead
-  // of one row of 15 -- and the API cheerfully reported "Added 100 cards",
-  // which was true about the count and silent about the shape. Only counting
-  // rows in the database found it.
-  assert.match(add, /stackable:\s*true/,
+  // of one row of 15 -- and the API reported "Added 100 cards", true about the
+  // count and silent about the shape. Only counting rows in the database found
+  // it.
+  assert.match(shared, /stackable:\s*true/,
     'PR-TC11 a product add must stack, or 15x Island becomes fifteen rows');
   // PR-TC12: ONE TRANSACTION FOR THE WHOLE PRODUCT.
   //
-  // Not a micro-optimisation. Every db call goes through a serialized queue,
-  // and each addCardToCollection opens its own transaction, so 72 cards meant
-  // 72 queue round-trips -- 14 seconds of waiting against 25ms of actual SQL.
+  // Not a micro-optimisation. Every db call goes through a serialized queue and
+  // each addCardToCollection opens its own transaction, so 72 cards meant 72
+  // queue round-trips -- 14 seconds of waiting against 25ms of actual SQL.
   // Bulk INSERT syntax, the obvious "fix", would have saved 9ms.
-  //
-  // It is also the correctness rule: a product is one physical purchase, so a
-  // failure part-way must not leave half a precon in the collection.
-  assert.match(add, /db\.withTransaction\(/,
+  assert.match(shared, /db\.withTransaction\(/,
     'PR-TC12 the whole product must be added in ONE transaction');
-  // The loop must be INSIDE it, not alongside it.
-  const txAt = add.indexOf('db.withTransaction(');
-  const loopAt = add.indexOf('for (const card of chosen)');
+  const txAt = shared.indexOf('db.withTransaction(');
+  const loopAt = shared.indexOf('for (const card of cards)');
   assert.ok(txAt >= 0 && loopAt > txAt,
     'PR-TC12 the per-card loop must run inside the transaction');
 }
@@ -232,6 +242,140 @@ const repo = path.resolve(here, '..', '..');
   const collection = require('../src/routes/collection');
   assert.equal(typeof collection.addCardToCollection, 'function',
     'PR-TC9 addCardToCollection must be exported');
+}
+
+// ---------------------------------------------------------------------------
+// MANA POOL ORDERS
+// ---------------------------------------------------------------------------
+
+// PR-TC14: THE ORDER ROUTES MUST BE REACHABLE.
+//
+// Express matches in declaration order and `/:id/cards` matches
+// `/orders/list` with id="orders". Declared after the precon routes, every
+// orders request was swallowed and looked for a product called "orders" --
+// a feature that is fully built and completely unreachable, which is this
+// project's most repeated bug class.
+{
+  const router = require('../src/routes/products.js');
+  const paths = router.stack.filter((l) => l.route).map((l) => l.route.path);
+  const ordersList = paths.indexOf('/orders/list');
+  const productCards = paths.indexOf('/:id/cards');
+  assert.ok(ordersList >= 0, 'PR-TC14 /orders/list must exist');
+  assert.ok(ordersList < productCards,
+    'PR-TC14 /orders/list must be declared BEFORE /:id/cards or it never matches');
+  assert.ok(paths.indexOf('/orders/:id/cards') < productCards,
+    'PR-TC14 /orders/:id/cards must be declared before /:id/cards');
+  assert.ok(paths.indexOf('/orders/:id/add') < paths.indexOf('/:id/add'),
+    'PR-TC14 /orders/:id/add must be declared before /:id/add');
+}
+
+// PR-TC15: ONLY WHAT SHIPPED.
+//
+// Zach: "Only what actually shipped -- don't add refunded/missing cards."
+// An order can be partly refunded or replaced. Adding the ORDERED quantity
+// would put cards in his collection a seller never sent, and he would not
+// notice -- worse than the scanning this replaces.
+{
+  const src = fs.readFileSync(
+    path.join(repo, 'backend/src/services/manapoolOrders.js'), 'utf8');
+  assert.match(src, /shipped_quantity/,
+    'PR-TC15 the orders service must read shipped_quantity');
+  const fn = src.slice(src.indexOf('async function fetchOrderCards'));
+  assert.match(fn, /const shipped = item\.shipped_quantity/,
+    'PR-TC15 quantity must come from shipped_quantity');
+  assert.match(fn, /quantity:\s*shipped/,
+    'PR-TC15 the card quantity must BE the shipped count');
+  // Scoped to the CARD RECORD. An unscoped search also hit the unit-price
+  // division (price_cents / item.quantity), which is a legitimate use -- the
+  // per-card price genuinely needs the ordered quantity. Asserting over the
+  // whole function would have forced me to break correct code to satisfy a
+  // test, which is how a guard starts lying.
+  const cardRecord = fn.slice(fn.indexOf('cards.push({'), fn.indexOf('sellerUsername'));
+  assert.doesNotMatch(cardRecord, /quantity:\s*item\.quantity\b/,
+    'PR-TC15 must not use the ordered quantity as the card quantity');
+  // Nothing in the function may fall back from shipped to ordered.
+  assert.doesNotMatch(fn, /shipped_quantity\s*\?\?\s*item\.quantity/,
+    'PR-TC15 must never fall back from shipped to ordered quantity');
+  // A line that shipped nothing is skipped AND named.
+  assert.match(fn, /if \(shipped <= 0\)/,
+    'PR-TC15 a line that shipped nothing must be skipped');
+  assert.match(fn, /skipped\.push/,
+    'PR-TC15 skipped lines must be reported, never silently dropped');
+}
+
+// PR-TC16: CONDITION AND FINISH COME FROM THE ORDER DATA.
+//
+// Zach chose "use the real condition from the order -- NM, LP, MP, HP, DMG as
+// bought", unlike a precon which is always Near Mint. Recording a played card
+// as Near Mint overstates what he owns, and the price of his collection with
+// it.
+{
+  const svc = require('../src/services/manapoolOrders.js');
+  assert.equal(svc.CONDITION_BY_ID.NM, 'Near Mint');
+  assert.equal(svc.CONDITION_BY_ID.LP, 'Lightly Played');
+  assert.equal(svc.CONDITION_BY_ID.MP, 'Moderately Played');
+  assert.equal(svc.CONDITION_BY_ID.HP, 'Heavily Played');
+  assert.equal(svc.CONDITION_BY_ID.DMG, 'Damaged');
+  // Mana Pool's "unspecified". Near Mint would be a flattering guess about a
+  // card he can see and I cannot; Lightly Played is his stated floor.
+  assert.equal(svc.CONDITION_BY_ID.UC, 'Lightly Played',
+    'PR-TC16 an unspecified condition must not default to Near Mint');
+  assert.equal(svc.FINISH_BY_ID.NF, 'nonfoil');
+  assert.equal(svc.FINISH_BY_ID.FO, 'foil');
+  assert.equal(svc.FINISH_BY_ID.EF, 'etched');
+
+  const src = fs.readFileSync(
+    path.join(repo, 'backend/src/services/manapoolOrders.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function fetchOrderCards'));
+  assert.match(fn, /FINISH_BY_ID\[single\.finish_id\]/,
+    'PR-TC16 finish must come from finish_id');
+  assert.match(fn, /CONDITION_BY_ID\[single\.condition_id\]/,
+    'PR-TC16 condition must come from condition_id');
+}
+
+// PR-TC17: A SEALED PRODUCT IN AN ORDER IS A BOX, NOT CARDS.
+//
+// Ordering a precon on Mana Pool gives one sealed line. Silently expanding it
+// into 100 loose cards would be a decision he did not make -- and he may not
+// have opened it.
+{
+  const src = fs.readFileSync(
+    path.join(repo, 'backend/src/services/manapoolOrders.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function fetchOrderCards'));
+  assert.match(fn, /mtg_sealed/,
+    'PR-TC17 sealed products must be recognised');
+  assert.match(fn, /reason: 'sealed'/,
+    'PR-TC17 a sealed line must be skipped and NAMED');
+}
+
+// PR-TC18: A BAD TOKEN MUST NOT LOOK LIKE AN EMPTY ORDER HISTORY.
+//
+// They are different problems with different fixes. "You have no orders" would
+// send him looking in entirely the wrong place.
+{
+  const src = fs.readFileSync(
+    path.join(repo, 'backend/src/services/manapoolOrders.js'), 'utf8');
+  assert.match(src, /res\.status === 401 \|\| res\.status === 403/,
+    'PR-TC18 a 401/403 must be distinguished');
+  assert.match(src, /class ManaPoolAuthError/,
+    'PR-TC18 an auth failure needs its own error type');
+  // And the service must never return an empty list on failure.
+  assert.doesNotMatch(src, /catch[\s\S]{0,120}return \[\]/,
+    'PR-TC18 a failure must never degrade into an empty list');
+}
+
+// PR-TC19: THE TOKEN NEVER LEAVES THE SERVER.
+//
+// It is stored in plaintext on his own tailnet, which is a deliberate choice --
+// but a token echoed back to the browser can leak through a screenshot or a
+// shared session, and that is avoidable.
+{
+  const settings = fs.readFileSync(
+    path.join(repo, 'backend/src/routes/settings.js'), 'utf8');
+  assert.doesNotMatch(settings, /SELECT[^;]*manapool_token[^;]*AS\s+token/i,
+    'PR-TC19 the settings API must not return the raw token');
+  assert.match(settings, /manapool_token/,
+    'PR-TC19 settings must handle the token at all');
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +542,12 @@ console.log('PASS: PR-TC8 commit re-reads the product, ignores posted values');
 console.log('PASS: PR-TC9 the collection add-path is reused, not reimplemented');
 console.log('PASS: PR-TC11 a product add stacks: one row of N, not N rows of one');
 console.log('PASS: PR-TC12 the whole product is added in ONE transaction');
+console.log('PASS: PR-TC14 the order routes are reachable, not shadowed');
+console.log('PASS: PR-TC15 orders add only what actually shipped');
+console.log('PASS: PR-TC16 condition and finish come from the order data');
+console.log('PASS: PR-TC17 a sealed line is skipped and named, not expanded');
+console.log('PASS: PR-TC18 a bad token is not an empty order history');
+console.log('PASS: PR-TC19 the API token never leaves the server');
 
 previewRouteCheck().then(liveChecks).then(() => process.exit(0))
   .catch((e) => { console.error('FAIL:', e.message); process.exit(1); });

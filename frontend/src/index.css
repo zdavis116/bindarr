@@ -5810,3 +5810,8 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 @media (max-width: 860px) {
   .pp-panel { max-height: 94vh; padding: 1rem; }
 }
+
+/* A skipped order line says WHY on the row: sealed box, or never shipped. */
+.pp-skipwhy { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: #fca5a5; flex-shrink: 0;
+  border: 1px solid rgba(255,69,58,0.35); border-radius: 4px; padding: 2px 5px; }

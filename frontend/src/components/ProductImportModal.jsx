@@ -25,7 +25,9 @@ const KINDS = [
   // should be in the add product section" -- rather than as another row in the
   // Add cards sheet. Disabled until the account key exists (phase 2); a control
   // that appears later is a surprise, a disabled one that says why is an answer.
-  { value: 'orders', labelKey: 'product.kindOrders', soon: true },
+  // Zach: "mana pool orders should be in the add product section." A filter
+  // chip on this screen, not another row in the Add cards sheet.
+  { value: 'orders', labelKey: 'product.kindOrders' },
 ];
 
 // Section labels, from the SAME rule the deck view and compare screen use.
@@ -60,12 +62,27 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
   const [excluded, setExcluded] = useState(() => new Set());
   const [adding, setAdding] = useState(false);
 
+  // NOT CONNECTED is a state, not an error: he has not done anything wrong.
+  const [ordersState, setOrdersState] = useState(null);
+
   const search = useCallback(async (q, k) => {
     setSearching(true);
+    setOrdersState(null);
     try {
+      // ORDERS ARE A DIFFERENT SOURCE, not a filter over the same list. They
+      // come from his Mana Pool account and need a credential, so the chip
+      // switches endpoint rather than narrowing the precon results.
+      if (k === 'orders') {
+        const res = await fetch('/api/products/orders/list', { credentials: 'include' });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || t('product.errOrders'));
+        setOrdersState(body);
+        setGroups(null);
+        return;
+      }
       const params = new URLSearchParams();
       if (q) params.set('q', q);
-      if (k && k !== 'orders') params.set('kind', k);
+      if (k) params.set('kind', k);
       const res = await fetch(`/api/products?${params}`, { credentials: 'include' });
       const body = await res.json();
       // MTGJSON BEING DOWN MUST LOOK LIKE MTGJSON BEING DOWN. An empty list
@@ -85,12 +102,14 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
   // products are the ones he is most likely to have just bought.
   useEffect(() => { search('', ''); }, [search]);
 
-  const openProduct = async (product) => {
+  const openProduct = async (product, isOrder = false) => {
     setEditionFor(null);
     setLoading(true);
     try {
-      const res = await fetch(`/api/products/${encodeURIComponent(product.id)}/cards`,
-        { credentials: 'include' });
+      const url = isOrder
+        ? `/api/products/orders/${encodeURIComponent(product.id)}/cards`
+        : `/api/products/${encodeURIComponent(product.id)}/cards`;
+      const res = await fetch(url, { credentials: 'include' });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || t('product.errLoad'));
       setDetail(body);
@@ -128,7 +147,12 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
   const commit = async () => {
     setAdding(true);
     try {
-      const res = await fetch(`/api/products/${encodeURIComponent(detail.product.id)}/add`, {
+      // An order commits to the orders endpoint: it re-reads from Mana Pool,
+      // and carries the condition he bought and what he paid.
+      const addUrl = detail.product.kind === 'order'
+        ? `/api/products/orders/${encodeURIComponent(detail.product.id)}/add`
+        : `/api/products/${encodeURIComponent(detail.product.id)}/add`;
+      const res = await fetch(addUrl, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -160,6 +184,10 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
             <h3 className="pp-title">{t('product.title')}</h3>
             <p className="pp-sub">{t('product.subtitle')}</p>
 
+            {/* The search box filters the PRODUCT catalogue. For orders it
+                would do nothing, and a control that silently does nothing is
+                worse than one that is absent. */}
+            {kind !== 'orders' && (
             <div className="pp-search">
               <Search size={15} />
               <input
@@ -169,6 +197,7 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                 onChange={(e) => { setQuery(e.target.value); search(e.target.value, kind); }}
               />
             </div>
+            )}
 
             <div className="pp-chips">
               {KINDS.map((k) => (
@@ -187,11 +216,11 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
             {searching && <p className="pp-empty">{t('product.searching')}</p>}
 
-            {!searching && groups && groups.length === 0 && (
+            {!searching && kind !== 'orders' && groups && groups.length === 0 && (
               <p className="pp-empty">{t('product.noResults')}</p>
             )}
 
-            {!searching && groups && groups.length > 0 && (
+            {!searching && kind !== 'orders' && groups && groups.length > 0 && (
               <div className="pp-results">
                 {groups.map((g) => (
                   <div key={`${g.kind}:${g.base}`}>
@@ -242,16 +271,66 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
               </div>
             )}
 
+            {/* MANA POOL ORDERS. A different source on the same screen, so
+                the rows read the same: what it is, when, and how big. */}
+            {!searching && ordersState && !ordersState.connected && (
+              <div className="pp-editionbox">
+                <div className="pp-editionq">{t('product.ordersConnect')}</div>
+                <div className="pp-editionwhy">{t('product.ordersConnectWhy')}</div>
+              </div>
+            )}
+
+            {!searching && ordersState?.connected && ordersState.orders.length === 0 && (
+              <p className="pp-empty">{t('product.ordersNone')}</p>
+            )}
+
+            {!searching && ordersState?.connected && ordersState.orders.length > 0 && (
+              <div className="pp-results">
+                {ordersState.orders.map((o) => (
+                  <button key={o.id} type="button" className="pp-prod" disabled={loading}
+                    onClick={() => openProduct({ id: o.id }, true)}>
+                    <span className="pp-pmain">
+                      <span className="pp-pname">
+                        {t('product.orderNumber', { n: o.orderNumber })}
+                      </span>
+                      <span className="pp-pmeta">
+                        {new Date(o.createdAt).toLocaleDateString()}
+                        {o.sellers.length ? ` · ${o.sellers.join(', ')}` : ''}
+                        {` · ${t('product.nItems', { n: o.itemCount })}`}
+                      </span>
+                    </span>
+                    <span className="pp-pcount">
+                      {(o.totalCents / 100).toLocaleString(undefined,
+                        { style: 'currency', currency: 'USD' })}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {loading && <p className="pp-empty">{t('product.loading')}</p>}
           </>
         ) : (
           <>
             <h3 className="pp-title">{detail.product.name}</h3>
             <p className="pp-sub">
-              {detail.product.kind === 'precon'
-                ? t('product.kindPrecon') : t('product.kindSecretLair')}
+              {detail.product.kind === 'order' ? t('product.kindOrder')
+                : detail.product.kind === 'precon' ? t('product.kindPrecon')
+                : t('product.kindSecretLair')}
               {detail.product.setName ? ` · ${detail.product.setName}` : ''}
+              {detail.product.createdAt
+                ? ` · ${new Date(detail.product.createdAt).toLocaleDateString()}` : ''}
             </p>
+
+            {/* SKIPPED ORDER LINES, named. "Why is my order 3 cards short"
+                must have an answer on the screen: a sealed box is not cards,
+                and a refunded line never arrived. */}
+            {(detail.skipped || []).length > 0 && (
+              <p className="pp-notice">
+                <AlertTriangle size={15} />
+                <span>{t('product.skippedNotice', { n: detail.skipped.length })}</span>
+              </p>
+            )}
 
             {/* THE HONEST FAILURE, screen 4 of the mockup. A silently dropped
                 card means a 98-card precon and no idea which two are gone. */}
@@ -305,6 +384,26 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                   ))}
                 </div>
               ))}
+
+              {(detail.skipped || []).length > 0 && (
+                <div className="pp-sec">
+                  <div className="pp-sechead pp-sechead-bad">
+                    <span>{t('product.cannotAdd')}</span>
+                    <span>{detail.skipped.length}</span>
+                  </div>
+                  {detail.skipped.map((c, i) => (
+                    <div key={`${c.name}-${i}`} className="pp-row pp-row-bad">
+                      <span className="pp-tick pp-tick-bad" />
+                      <span className="pp-qty">{c.quantity}&times;</span>
+                      <span className="pp-cname">{c.name}</span>
+                      <span className="pp-skipwhy">
+                        {c.reason === 'sealed'
+                          ? t('product.skippedSealed') : t('product.skippedNotShipped')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {missing.length > 0 && (
                 <div className="pp-sec">
