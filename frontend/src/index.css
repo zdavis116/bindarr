@@ -5667,3 +5667,146 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .mpc-deck-body { max-height: 38vh; }
   .mpc-panel { max-height: 94vh; padding: 1rem; }
 }
+
+/* ===== ADD A PRODUCT (precon / Secret Lair) ===============================
+   Built to sketches/017-add-product, which Zach approved with "Build it
+   EXACTLY to the mockup. Do NOT deviate." These rules are ported from that
+   file; where the two differ, the sketch is right and this is wrong. */
+.pp-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(5px); display: flex; align-items: center;
+  justify-content: center; z-index: 1200; padding: 1rem;
+}
+.pp-panel {
+  width: 100%; max-width: 480px; max-height: 88vh;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 1.5rem; position: relative; overflow: hidden;
+}
+.pp-close { position: absolute; top: 1rem; right: 1rem; border-radius: 50%; }
+.pp-title { font-size: 1.4rem; letter-spacing: -0.02em; color: var(--text-strong);
+  padding-right: 2.5rem; }
+.pp-sub { color: var(--text-muted); font-size: 0.85rem; margin: -0.3rem 0 0.3rem; }
+.pp-empty { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+
+.pp-search { display: flex; align-items: center; gap: 0.55rem;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: 10px; padding: 0.6rem 0.75rem; color: var(--text-muted); }
+.pp-input { flex: 1; background: none; border: 0; color: var(--text-primary);
+  font-family: inherit; font-size: 0.9rem; outline: none; min-width: 0; }
+
+.pp-chips { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.pp-chip { font-size: 0.76rem; padding: 0.38rem 0.7rem; border-radius: 99px;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  color: var(--text-muted); cursor: pointer; font-family: inherit; }
+.pp-chip.on { background: rgba(10,132,255,0.16); border-color: var(--accent-blue);
+  color: var(--text-strong); }
+/* Mana Pool orders are shown but disabled: a control that materialises later is
+   a surprise; a disabled one that says when it is coming is an answer. */
+.pp-chip.soon { opacity: 0.45; cursor: not-allowed; }
+
+.pp-results { overflow-y: auto; min-height: 0; flex: 1;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); }
+.pp-prod { display: flex; align-items: center; gap: 0.7rem; width: 100%;
+  padding: 0.7rem 0.9rem; background: none; border: 0;
+  border-bottom: 1px solid var(--border-glass); color: var(--text-primary);
+  font-family: inherit; text-align: left; cursor: pointer; }
+.pp-prod:hover { background: rgba(255,255,255,0.03); }
+.pp-pmain { flex: 1; min-width: 0; }
+.pp-pname { font-size: 0.9rem; font-weight: 650; display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-pmeta { font-size: 0.73rem; color: var(--text-muted); display: block; }
+.pp-picon { color: var(--text-muted); flex-shrink: 0; }
+
+/* THE EDITION QUESTION. 332 of 751 Secret Lair drops have a foil twin whose
+   name differs by a suffix, and picking wrong records cards he does not own.
+   Asked outright, with both answers side by side. */
+.pp-editionbox { border: 1px solid #d4a94a; border-radius: 10px;
+  background: rgba(212,169,74,0.07); padding: 0.75rem 0.85rem; margin: 0.6rem 0.9rem 0.85rem; }
+.pp-editionq { font-size: 0.8rem; font-weight: 650; margin-bottom: 0.2rem; }
+.pp-editionwhy { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+.pp-edopts { display: flex; flex-direction: column; gap: 0.45rem; }
+.pp-edopt { display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: 9px; padding: 0.65rem 0.7rem; cursor: pointer;
+  font-family: inherit; color: var(--text-primary); text-align: left; }
+.pp-edopt:hover { border-color: #d4a94a; background: rgba(212,169,74,0.14); }
+.pp-edswatch { width: 44px; height: 30px; border-radius: 7px; flex-shrink: 0;
+  display: grid; place-items: center; font-size: 0.52rem; font-weight: 800;
+  letter-spacing: 0.04em; }
+.pp-edswatch.plain { background: #2a2a30; color: var(--text-muted); }
+/* The foil swatch is the rainbow the card actually is -- a word alone is what
+   makes these two rows look identical in the first place. */
+.pp-edswatch.foil {
+  background: linear-gradient(135deg,#ff8fd3,#8fd3ff,#8fffc4,#ffe98f,#ff8fd3);
+  color: #1a1a1f;
+}
+.pp-edname { font-size: 0.84rem; font-weight: 650; flex: 1; min-width: 0; }
+
+.pp-notice { display: flex; gap: 0.55rem; align-items: flex-start;
+  padding: 0.65rem 0.8rem; border-radius: 10px; margin: 0;
+  font-size: 0.76rem; line-height: 1.4;
+  background: rgba(255,69,58,0.09); border: 1px solid rgba(255,69,58,0.35);
+  color: #fca5a5; }
+.pp-notice svg { flex-shrink: 0; margin-top: 1px; }
+
+.pp-summary { display: flex; align-items: baseline; gap: 0.5rem; }
+.pp-bignum { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em;
+  color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.pp-bigsub { font-size: 0.8rem; color: var(--text-muted); }
+
+.pp-selbar { display: flex; align-items: center; gap: 0.7rem; }
+/* Select-all / clear-all is not optional: N toggles without them is a pattern
+   Zach has rejected before. */
+.pp-selbar button { background: none; border: 0; color: var(--accent-blue);
+  font-family: inherit; font-size: 0.76rem; cursor: pointer; padding: 0;
+  font-weight: 600; }
+.pp-spacer { flex: 1; }
+.pp-selcount { font-size: 0.73rem; color: var(--text-muted);
+  font-variant-numeric: tabular-nums; }
+
+.pp-scroll { overflow-y: auto; min-height: 0; flex: 1;
+  background: var(--bg-secondary); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm); }
+.pp-sechead { position: sticky; top: 0; z-index: 1; background: var(--bg-secondary);
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.4rem 0.9rem; font-size: 0.66rem; font-weight: 800;
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-glass); }
+.pp-sechead-bad { color: #fca5a5; }
+.pp-row { display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.5rem 0.9rem; border-bottom: 1px solid var(--border-glass);
+  cursor: pointer; }
+.pp-row:last-child { border-bottom: 0; }
+.pp-row input { display: none; }
+.pp-tick { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0;
+  border: 1.5px solid var(--text-muted); position: relative; }
+.pp-row input:checked + .pp-tick { background: var(--accent-blue);
+  border-color: var(--accent-blue); }
+.pp-row input:checked + .pp-tick::after {
+  content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+/* An unticked row stays READABLE and in place -- nothing floats, and a row that
+   vanished on untick would make the list impossible to check twice. */
+.pp-row input:not(:checked) ~ .pp-cname,
+.pp-row input:not(:checked) ~ .pp-qty { opacity: 0.4; text-decoration: line-through; }
+.pp-qty { font-size: 0.78rem; font-weight: 700; color: var(--text-muted);
+  min-width: 26px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.pp-cname { font-size: 0.85rem; flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.pp-foil { font-size: 0.56rem; font-weight: 800; letter-spacing: 0.05em;
+  padding: 2px 5px; border-radius: 4px; flex-shrink: 0; color: #1a1a1f;
+  background: linear-gradient(135deg,#ff8fd3,#8fd3ff,#8fffc4,#ffe98f); }
+.pp-row-bad { cursor: default; opacity: 0.55; }
+.pp-tick-bad { border-style: dashed; }
+
+.pp-cta { display: flex; gap: 0.6rem; }
+.pp-big { flex: 1; min-height: 46px; font-size: 0.92rem; font-weight: 700; }
+.pp-primary { flex: 2; }
+
+/* Zach reviews on a PHONE. The panel takes the screen and the list gets the
+   space, because a 100-card list in a short box is the case that breaks. */
+@media (max-width: 860px) {
+  .pp-panel { max-height: 94vh; padding: 1rem; }
+}

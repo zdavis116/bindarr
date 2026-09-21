@@ -23,10 +23,10 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Search, X, LayoutGrid, List, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown,
-} from 'lucide-react';
+  Search, X, LayoutGrid, List, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown, Package } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
+import ProductImportModal from './ProductImportModal';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import CardInspectorModal from './CardInspectorModal';
@@ -180,6 +180,8 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  // Add a product (precon / Secret Lair) -- sketches/017-add-product.
+  const [productOpen, setProductOpen] = useState(false);
   const [bulkLocation, setBulkLocation] = useState('');
   const groupAnchor = useRef(null);
   const [locations, setLocations] = useState([]);
@@ -503,6 +505,21 @@ const cardTypesOf = (card) => {
                           onClick={() => { setAddMenuOpen(false); onNavigate && onNavigate('add-cards'); }}>
                     <Camera size={18} />
                     <span>{t('collection.addCardsAction')}<small style={MENU_SUB}>{t('collection.addCardsActionSub')}</small></span>
+                  </button>
+                  {/* ADD A PRODUCT — sketches/017-add-product screen 1.
+                      Zach: "it's silly I have to scan those in when those lists
+                      are exactly what I would scan." A precon or a Secret Lair
+                      drop has a known card list, so scanning 100 cards is data
+                      entry for something already written down.
+
+                      It sits HERE, in the sheet that already exists, rather
+                      than as a new surface — he dislikes redundant surfaces,
+                      one list not two. Mana Pool orders live INSIDE this
+                      screen as a filter, not as another row. */}
+                  <button role="menuitem" style={MENU_ITEM}
+                          onClick={() => { setAddMenuOpen(false); setProductOpen(true); }}>
+                    <Package size={18} />
+                    <span>{t('collection.addProduct')}<small style={MENU_SUB}>{t('collection.addProductSub')}</small></span>
                   </button>
                   {/* Import is SHOWN but disabled until Feature 3. A control
                       that materialises later is a surprise; a disabled one that
@@ -988,6 +1005,13 @@ const cardTypesOf = (card) => {
         </>
       )}
 
+      {productOpen && (
+        <ProductImportModal
+          onClose={() => setProductOpen(false)}
+          onAdded={() => { setProductOpen(false); onUpdate && onUpdate(); }}
+          showToast={showToast}
+        />
+      )}
       {importOpen && (
         <ImportModal
           onClose={() => setImportOpen(false)}
