@@ -177,9 +177,14 @@ for (const [name, src] of [['DeckView', deckView], ['CollectionList', collection
     'DV-TC6 the toggle must collapse again');
 
   // The expanded detail, in the drift panel's markup rather than a lookalike.
+  // "Like the moxfield sync" means USE ITS CLASSES: a lookalike drifts the
+  // moment one of them is restyled, and then the two panels disagree.
   assert.match(banner, /mfx-group-label/,
     'DV-TC6 the detail must use the drift panel markup');
+  assert.match(banner, /className="mfx-row"/,
+    'DV-TC6 each row must be a drift-panel row, not a private class');
   assert.match(banner, /mfx-row-name/, 'DV-TC6 the detail must name each card');
+  assert.match(banner, /mfx-row-meta/, 'DV-TC6 the detail must use the drift meta line');
   assert.match(banner, /wants\?\.set_id/,
     'DV-TC6 the detail must show the printing the deck asks for now');
   assert.match(banner, /to\?\.set_id/,
