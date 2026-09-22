@@ -97,6 +97,37 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // Null until fetched; the banner only appears when there is something to do.
   const [repoint, setRepoint] = useState(null);
   const [repointBusy, setRepointBusy] = useState(false);
+  // "See changes" on the repoint banner, matching the Moxfield drift panel:
+  // false = collapsed, true = the list of cards it would switch is expanded
+  // inline. Zach: "Can this work just like the moxfield sync?"
+  const [repointDetail, setRepointDetail] = useState(false);
+
+  // Apply the bulk repoint. Lives here rather than inline on the button so
+  // there is ONE named path to the write -- easy to grep, and a later edit
+  // cannot quietly add a second one.
+  const applyRepointAll = async () => {
+    setRepointBusy(true);
+    try {
+      const res = await fetch(`/api/decks/${deck.id}/repoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || t('deck.repointFailed'));
+        return;
+      }
+      // The server's own count, not the length of the list we showed.
+      showToast(t('deck.repointDone', { count: data.changed }));
+      setRepoint(null);
+      onChanged && onChanged();
+    } catch {
+      showToast(t('deck.repointFailed'));
+    } finally {
+      setRepointBusy(false);
+    }
+  };
   // Bumped whenever anything changes what a deck row asks for, so the
   // candidate count refetches.
   const [repointVersion, setRepointVersion] = useState(0);
@@ -152,9 +183,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     const el = sidePaneRef.current;
     if (!el) return undefined;
     const measure = () => {
-      // Page offset, not viewport offset: getBoundingClientRect().top alone
-      // changes as you scroll, which would resize the pane while scrolling.
-      const top = el.getBoundingClientRect().top + window.scrollY;
+      // WHERE THE PANE STARTS IN THE VIEWPORT, because the CSS subtracts this
+      // from 100vh -- a viewport height. Mixing the two coordinate systems is
+      // what broke it.
+      //
+      // Zach: "if I click a card and scroll to the bottom and then click a
+      // land card the whole side panel or card modal disappears."
+      //
+      // This read `rect.top + window.scrollY`, a PAGE offset, on the theory
+      // that a viewport offset "changes as you scroll". It does -- but the
+      // pane is position:sticky, so its viewport top is stable at the sticky
+      // offset, while the page offset grows without bound as you scroll.
+      // Clicking a land near the bottom of a 100-card list calls
+      // scrollIntoView, the ResizeObserver fires mid-scroll, and --pane-top
+      // was measured at 6152px. calc(100vh - 6152px - 1rem) clamps to zero:
+      // the pane is still in the DOM, 472px wide and 0px tall, which on screen
+      // is simply gone. MEASURED on dev at 1855x731, 388px -> 6152px.
+      //
+      // Clamped to a sane range so a measurement taken mid-layout -- before
+      // sticky settles, or during a smooth scroll -- can never collapse the
+      // pane again. A slightly wrong height is a cosmetic problem; a zero
+      // height is an invisible feature.
+      const raw = el.getBoundingClientRect().top;
+      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
       el.style.setProperty('--pane-top', `${Math.round(top)}px`);
     };
     measure();
@@ -163,7 +214,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     const ro = new ResizeObserver(measure);
     ro.observe(document.body);
     window.addEventListener('resize', measure);
-    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+    // Re-measure after a scroll SETTLES. While sticky is engaged the viewport
+    // top does not move, so this is cheap; it exists so the first paint after
+    // a jump-to-card lands on a real number rather than a transient one.
+    window.addEventListener('scroll', measure, { passive: true });
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+    };
   }, [isDesktop, detailCard]);
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:
@@ -717,34 +776,34 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             {t('deck.repointBody')}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {/* THE MOXFIELD SHAPE, because he asked for it by name.
+                Zach: "Can this work just like the moxfield sync? Where I can
+                just click see changes and see it that way"
+
+                So: act / see changes / dismiss, and the detail expands INLINE
+                under the banner rather than opening a dialog. Same classes as
+                the drift panel (.mfx-group-label / .mfx-row), because "like
+                the moxfield sync" means USE ITS MARKUP, not build something
+                that resembles it -- a lookalike drifts the moment one of them
+                is restyled.
+
+                The earlier version of this put the preview in a modal. That
+                showed the right facts but was a second pattern for the same
+                job, and he has said before he dislikes redundant surfaces. */}
             <button
               className="btn btn-primary"
               style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
               disabled={repointBusy}
-              onClick={async () => {
-                setRepointBusy(true);
-                try {
-                  const res = await fetch(`/api/decks/${deck.id}/repoint`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  if (!res.ok) {
-                    showToast(data.error || t('deck.repointFailed'));
-                    return;
-                  }
-                  showToast(t('deck.repointDone', { count: data.changed }));
-                  setRepoint(null);
-                  onChanged && onChanged();
-                } catch {
-                  showToast(t('deck.repointFailed'));
-                } finally {
-                  setRepointBusy(false);
-                }
-              }}
+              onClick={applyRepointAll}
             >
               {repointBusy ? t('deck.repointApplying') : t('deck.repointApply')}
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+              onClick={() => setRepointDetail(v => !v)}
+            >
+              {repointDetail ? t('deck.driftHideChanges') : t('deck.driftSeeChanges')}
             </button>
             <button
               className="btn btn-secondary"
@@ -754,6 +813,55 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               {t('deck.repointDismiss')}
             </button>
           </div>
+
+          {/* WHAT ACTUALLY CHANGES, in the drift panel's own markup.
+              One row per card: the printing the deck asks for now, the one it
+              would move to, and -- when the copies are already sleeved into
+              another deck -- a warning. That last fact is the one that would
+              have stopped his precon card being taken.
+
+              quantity_owned, NOT owned_qty: deckRepoint.js builds these rows
+              and the card sheet's printings list uses a different shape.
+              Reading the wrong key fails silently, showing no warning at all,
+              which looks exactly like "nothing is committed elsewhere". */}
+          {repointDetail ? (
+            <div style={{ marginTop: '0.6rem' }}>
+              <div className="mfx-group-label">{t('deck.repointGroupSwitching')}</div>
+              {(repoint.candidates || []).filter(c => c.unambiguous).map((c) => {
+                const to = c.alternatives?.[0];
+                const owned = to?.quantity_owned ?? 0;
+                const avail = to?.quantity_available ?? owned;
+                const spoken = Math.max(0, owned - avail);
+                return (
+                  <div className="mfx-row" key={c.deck_card_id}>
+                    <span className="mfx-row-name">
+                      {c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}
+                    </span>
+                    <span className="mfx-row-meta">
+                      {/* SET CODE AND NUMBER ONLY.
+                          .mfx-row-meta is nowrap and does not shrink -- it was
+                          sized for the drift panel's "AKH #123 · main". Adding
+                          the full set name ("The Lost Caverns of Ixalan
+                          Commander") overflowed the row on a phone: the name
+                          clipped at the screen edge and the card name wrapped.
+                          The code IS the identifier he matches against the
+                          card in hand, so the long name was the redundant
+                          half. Do not restyle the shared class for one
+                          caller -- that drifts both panels. */}
+                      {`${String(c.wants?.set_id || '').toUpperCase()} #${c.wants?.number}`}
+                      {' → '}
+                      {`${String(to?.set_id || '').toUpperCase()} #${to?.number}`}
+                    </span>
+                    {spoken > 0 ? (
+                      <span className="mfx-inuse-tag">
+                        {t('deck.repointInUse', { count: spoken })}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       )}
 

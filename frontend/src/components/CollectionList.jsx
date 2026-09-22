@@ -161,7 +161,15 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
     const el = sidePaneRef.current;
     if (!el) return undefined;
     const measure = () => {
-      const top = el.getBoundingClientRect().top + window.scrollY;
+      // VIEWPORT offset, because the CSS subtracts this from 100vh. This read
+      // `rect.top + window.scrollY` -- a PAGE offset -- which is the same bug
+      // that made the DECK view's detail pane vanish entirely: scrolled far
+      // enough down, calc(100vh - <page offset>) clamps to zero and the pane
+      // is 0px tall. The pane is sticky, so its viewport top is stable and the
+      // scroll term was never needed. Clamped so no transient measurement can
+      // collapse it. See DeckView.jsx for the measured numbers.
+      const raw = el.getBoundingClientRect().top;
+      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
       el.style.setProperty('--pane-top', `${Math.round(top)}px`);
     };
     measure();

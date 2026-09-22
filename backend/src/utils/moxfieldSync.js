@@ -327,10 +327,27 @@ async function applySync(userId, deckId, plan) {
       // the other side holds Moxfield's '2026-09-03T16:09:06.33Z' -- comparing
       // those as strings is meaningless, and on the same day ' ' vs 'T'
       // inverts the answer.
+      //
+      // THE NAME TRAVELS TOO.
+      //
+      // Zach: "when I updated a deck name in moxfield the deckname didnt
+      // update on bindarr I would like the deckname to update when I do that."
+      //
+      // planSync already fetches it -- `plan.deck.name` has been carried all
+      // the way here and then dropped, so a rename on Moxfield left Bindarr
+      // showing the old title forever with no indication the two had diverged.
+      // Moxfield is the source of truth for a synced deck's contents, so it is
+      // the source of truth for its name.
+      //
+      // COALESCE, not a bare assignment: a payload that omits the name must
+      // never blank a deck's title. Losing the name is worse than keeping a
+      // stale one.
       `UPDATE decks SET moxfield_synced_at = ?,
-                        moxfield_updated_at = ?
+                        moxfield_updated_at = ?,
+                        name = COALESCE(?, name)
         WHERE id = ? AND user_id = ?`,
-      [plan.deck.last_updated_at, plan.deck.last_updated_at, deckId, userId]);
+      [plan.deck.last_updated_at, plan.deck.last_updated_at,
+       plan.deck.name || null, deckId, userId]);
 
     await db.run('COMMIT');
   } catch (err) {
