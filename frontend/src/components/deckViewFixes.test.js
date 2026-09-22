@@ -192,6 +192,17 @@ for (const [name, src] of [['DeckView', deckView], ['CollectionList', collection
   assert.match(banner, /repointInUse/,
     'DV-TC6 the detail must warn when copies are already in another deck');
 
+  // THE META LINE MUST FIT. .mfx-row-meta is `white-space: nowrap` with no
+  // shrink, sized for the drift panel's short "AKH #123 · main". Appending the
+  // full set name overflowed the row at 390px: the name clipped at the screen
+  // edge and the card name wrapped mid-word. Set code + number is the
+  // identifier he matches against the card in hand; the long name was the
+  // redundant half. Measured on dev at 390x844.
+  const meta = banner.slice(banner.indexOf('className="mfx-row-meta"'),
+    banner.indexOf('</span>', banner.indexOf('className="mfx-row-meta"')));
+  assert.doesNotMatch(meta, /set_name/,
+    'DV-TC6 the nowrap meta line must not carry the full set name');
+
   // ONE path to the write, and it is a named function.
   assert.match(banner, /onClick=\{applyRepointAll\}/,
     'DV-TC6 the apply button must call the single named write path');

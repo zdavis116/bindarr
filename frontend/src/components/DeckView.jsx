@@ -838,10 +838,19 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                       {c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}
                     </span>
                     <span className="mfx-row-meta">
+                      {/* SET CODE AND NUMBER ONLY.
+                          .mfx-row-meta is nowrap and does not shrink -- it was
+                          sized for the drift panel's "AKH #123 · main". Adding
+                          the full set name ("The Lost Caverns of Ixalan
+                          Commander") overflowed the row on a phone: the name
+                          clipped at the screen edge and the card name wrapped.
+                          The code IS the identifier he matches against the
+                          card in hand, so the long name was the redundant
+                          half. Do not restyle the shared class for one
+                          caller -- that drifts both panels. */}
                       {`${String(c.wants?.set_id || '').toUpperCase()} #${c.wants?.number}`}
                       {' → '}
                       {`${String(to?.set_id || '').toUpperCase()} #${to?.number}`}
-                      {to?.set_name ? ` · ${to.set_name}` : ''}
                     </span>
                     {spoken > 0 ? (
                       <span className="mfx-inuse-tag">

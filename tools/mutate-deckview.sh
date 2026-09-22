@@ -132,6 +132,14 @@ mutate $DV '                  <div className="mfx-row" key={c.deck_card_id}>' \
   '                  <div className="rp-own-row" key={c.deck_card_id}>' \
   && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
+echo "M15: put the long set name back in the nowrap meta line (expect DV-TC6)"
+mutate $DV "                      {\`\${String(to?.set_id || '').toUpperCase()} #\${to?.number}\`}
+                    </span>" \
+  "                      {\`\${String(to?.set_id || '').toUpperCase()} #\${to?.number}\`}
+                      {to?.set_name ? \` · \${to.set_name}\` : ''}
+                    </span>" \
+  && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+
 echo "--- baseline (must be all PASS):"
 node $TEST || FAILURES=$((FAILURES + 1))
 
