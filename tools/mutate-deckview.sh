@@ -107,26 +107,30 @@ mutate $SY '                        name = COALESCE(?, name)' \
   '                        name = ?,' \
   && expect DV-TC5 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M10: bulk button POSTs directly again, no preview (expect DV-TC6)"
-mutate $DV '              onClick={() => setRepointPreview(
-                (repoint.candidates || []).filter(c => c.unambiguous))}' \
-  '              onClick={applyRepointAll}' \
+echo "M10: drop the see-changes toggle (expect DV-TC6)"
+mutate $DV '              onClick={() => setRepointDetail(v => !v)}' \
+  '              onClick={() => {}}' \
   && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M11: preview drops the FROM printing, showing only a count (expect DV-TC6)"
-mutate $DV "                        <span className=\"ci-confirm-label\">{t('inspector.confirmFrom')}</span>" \
-  '                        <span />' \
+echo "M11: detail drops the FROM printing (expect DV-TC6)"
+mutate $DV "                      {\`\${String(c.wants?.set_id || '').toUpperCase()} #\${c.wants?.number}\`}" \
+  "                      {''}" \
   && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M12: preview stops warning about copies in other decks (expect DV-TC6)"
-mutate $DV "                        {t('inspector.confirmInUse', { count: spoken })}" \
+echo "M12: detail stops warning about copies in other decks (expect DV-TC6)"
+mutate $DV "                        {t('deck.repointInUse', { count: spoken })}" \
   '                        {String(spoken)}' \
   && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
-echo "M13: preview reads the WRONG ownership field (expect DV-TC7)"
+echo "M13: detail reads the WRONG ownership field (expect DV-TC7)"
 mutate $DV '                const owned = to?.quantity_owned ?? 0;' \
   '                const owned = to?.owned_qty ?? 0;' \
   && expect DV-TC7 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
+
+echo "M14: detail uses its own markup instead of the drift panel's (expect DV-TC6)"
+mutate $DV '                  <div className="mfx-row" key={c.deck_card_id}>' \
+  '                  <div className="rp-own-row" key={c.deck_card_id}>' \
+  && expect DV-TC6 || { echo "  ABORT: stale anchor"; FAILURES=$((FAILURES+1)); restore; }
 
 echo "--- baseline (must be all PASS):"
 node $TEST || FAILURES=$((FAILURES + 1))

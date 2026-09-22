@@ -5872,15 +5872,12 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .ci-confirm-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 .ci-confirm-actions .btn { flex: 1; min-height: 44px; }
 
-/* The bulk "Use my printings" preview: same dialog chrome as the single
-   confirm, but a scrolling list because it can cover many cards. */
-.rp-preview { max-width: 440px; }
-.rp-list { max-height: 44vh; overflow-y: auto; display: flex;
-  flex-direction: column; gap: 0.55rem; margin-top: 0.2rem; }
-.rp-row { border: 1px solid var(--border-glass); border-radius: 10px;
-  padding: 0.55rem 0.6rem; background: var(--bg-secondary); }
-.rp-name { font-size: 0.85rem; font-weight: 700; color: var(--text-strong);
-  margin-bottom: 0.4rem; line-height: 1.25; }
-/* The swap row sits inside a card here, so it drops its own background. */
-.rp-swap { background: transparent; border: 0; padding: 0; }
-.rp-warn { margin-top: 0.5rem; }
+/* Copies of this printing are already sleeved into another deck. Same shape as
+   .mfx-owned-tag (its sibling in the same row) but amber, because this one is
+   a caution rather than reassurance -- it is the fact that would have stopped
+   a precon card being taken. */
+.mfx-inuse-tag {
+  font-size: 0.68rem; padding: 0.12rem 0.4rem; border-radius: 5px;
+  background: rgba(255, 159, 10, 0.13); color: #ff9f0a; white-space: nowrap;
+  flex-shrink: 0;
+}

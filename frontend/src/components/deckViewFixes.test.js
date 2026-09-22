@@ -150,64 +150,74 @@ for (const [name, src] of [['DeckView', deckView], ['CollectionList', collection
 }
 
 // ---------------------------------------------------------------------------
-// DV-TC6: "USE MY PRINTINGS" MUST PREVIEW TOO.
+// DV-TC6: "USE MY PRINTINGS" MUST SHOW WHAT IT WILL CHANGE, MOXFIELD-STYLE.
 //
-// Zach: "This still doesnt let me view the printing switch 1st." -- after the
-// single-printing confirm shipped.
+// Zach first: "This still doesnt let me view the printing switch 1st." Then,
+// on the modal I built for it: "Can this work just like the moxfield sync?
+// Where I can just click see changes and see it that way"
 //
-// I fixed the per-row tap in the card sheet and left the BULK banner posting
-// an empty body, which repoints every unambiguous card at once with no preview
-// and no undo. That is the same mistake he reported, multiplied: one press
-// moves N cards. I had even asked whether this button needed covering, got no
-// answer, and shipped without it.
+// So the shape is the drift banner's: act / see changes / dismiss, with the
+// detail expanding INLINE in the banner's own markup -- not a second dialog
+// pattern for the same job.
 //
-// The guard is on the BUTTON: it may open the preview, never write.
+// The guard is on the DETAIL: the banner must be able to show every card it
+// would switch, with both printings, before anything is written.
 // ---------------------------------------------------------------------------
 {
   const banner = deckView.slice(
-    deckView.indexOf('SHOW WHAT IT WILL DO'),
-    deckView.indexOf("{t('deck.repointDismiss')}"));
-  assert.match(banner, /setRepointPreview\(/,
-    'DV-TC6 the bulk button must open a preview');
-  assert.doesNotMatch(banner, /fetch\(/,
-    'DV-TC6 the bulk button must not POST directly');
-  assert.doesNotMatch(banner, /method:\s*'POST'/,
-    'DV-TC6 the bulk button must not write');
+    deckView.indexOf('THE MOXFIELD SHAPE'),
+    deckView.indexOf('{/* MOXFIELD HAS CHANGES'));
 
-  // The preview must show each card and BOTH printings -- a count alone
-  // ("switch 3 cards?") would not have told him a precon card was involved.
-  const dlg = deckView.slice(
-    deckView.indexOf('THE PREVIEW, before any card moves'),
-    deckView.indexOf('{/* COMMANDER SWAP */}'));
-  assert.match(dlg, /rp-name/, 'DV-TC6 the preview must name each card');
-  assert.match(dlg, /confirmFrom/, 'DV-TC6 the preview must show the current printing');
-  assert.match(dlg, /confirmTo/, 'DV-TC6 the preview must show the target printing');
-  assert.match(dlg, /wants\?\.set_id/, 'DV-TC6 the preview must show set codes');
-  assert.match(dlg, /wants\?\.number/, 'DV-TC6 the preview must show collector numbers');
-  assert.match(dlg, /confirmInUse/,
-    'DV-TC6 the preview must warn when copies are already in another deck');
-  // Only the preview's own button may commit.
-  assert.match(dlg, /onClick=\{applyRepointAll\}/,
-    'DV-TC6 only the preview may apply the switch');
+  // A "see changes" toggle, using the drift panel's own labels.
+  assert.match(banner, /setRepointDetail\(/,
+    'DV-TC6 the banner needs a see-changes toggle');
+  assert.match(banner, /driftSeeChanges/,
+    'DV-TC6 the toggle must reuse the Moxfield label');
+  assert.match(banner, /driftHideChanges/,
+    'DV-TC6 the toggle must collapse again');
+
+  // The expanded detail, in the drift panel's markup rather than a lookalike.
+  assert.match(banner, /mfx-group-label/,
+    'DV-TC6 the detail must use the drift panel markup');
+  assert.match(banner, /mfx-row-name/, 'DV-TC6 the detail must name each card');
+  assert.match(banner, /wants\?\.set_id/,
+    'DV-TC6 the detail must show the printing the deck asks for now');
+  assert.match(banner, /to\?\.set_id/,
+    'DV-TC6 the detail must show the printing it would switch to');
+  assert.match(banner, /repointInUse/,
+    'DV-TC6 the detail must warn when copies are already in another deck');
+
+  // ONE path to the write, and it is a named function.
+  assert.match(banner, /onClick=\{applyRepointAll\}/,
+    'DV-TC6 the apply button must call the single named write path');
+  assert.doesNotMatch(banner, /method:\s*'POST'/,
+    'DV-TC6 the banner must not inline a second POST');
+
+  // And the modal it replaced must be gone, not left behind as a dead second
+  // surface. He has pushed back on redundant surfaces before.
+  assert.doesNotMatch(deckView, /rp-preview/,
+    'DV-TC6 the old preview modal must be removed, not left orphaned');
+  assert.doesNotMatch(deckView, /repointPreview/,
+    'DV-TC6 no leftover preview state');
 }
 
 // ---------------------------------------------------------------------------
-// DV-TC7: THE PREVIEW MUST READ THE FIELD THE SERVER ACTUALLY SENDS.
+// DV-TC7: THE DETAIL MUST READ THE FIELD THE SERVER ACTUALLY SENDS.
 //
 // deckRepoint.js builds alternatives with `quantity_owned`; the card sheet's
 // printings list uses `owned_qty`. They are different shapes from different
 // endpoints. Reading the wrong one here fails SILENTLY -- no warning renders,
 // which looks exactly like "no copies are committed elsewhere". That is the
-// one thing this dialog must never say wrongly, because it is the fact that
+// one thing this panel must never say wrongly, because it is the fact that
 // would have saved his precon.
 // ---------------------------------------------------------------------------
 {
-  const dlg = deckView.slice(
-    deckView.indexOf('THE PREVIEW, before any card moves'),
-    deckView.indexOf('{/* COMMANDER SWAP */}'));
-  assert.match(dlg, /quantity_owned/,
-    'DV-TC7 the preview must read quantity_owned');
-  assert.doesNotMatch(dlg, /to\?\.owned_qty/,
+  const banner = deckView.slice(
+    deckView.indexOf('THE MOXFIELD SHAPE'),
+    deckView.indexOf('{/* MOXFIELD HAS CHANGES'));
+  assert.match(banner, /quantity_owned/,
+    'DV-TC7 the detail must read quantity_owned');
+  assert.doesNotMatch(banner, /to\?\.owned_qty/,
     'DV-TC7 owned_qty is the other endpoint\'s field and is always undefined here');
 
   // And the producer must still emit it, or this guard is asserting a fact
@@ -226,5 +236,5 @@ console.log('PASS: DV-TC2 no pane-top rule can resolve to zero height');
 console.log('PASS: DV-TC3 a printing switch is confirmed and names both printings');
 console.log('PASS: DV-TC4 the confirm exists in both the inline pane and the modal');
 console.log('PASS: DV-TC5 a Moxfield rename updates the Bindarr deck name');
-console.log('PASS: DV-TC6 Use my printings previews before it switches anything');
-console.log('PASS: DV-TC7 the preview reads quantity_owned, the field actually sent');
+console.log('PASS: DV-TC6 Use my printings has a see-changes panel, Moxfield-style');
+console.log('PASS: DV-TC7 the detail reads quantity_owned, the field actually sent');

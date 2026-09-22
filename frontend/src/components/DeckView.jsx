@@ -97,15 +97,14 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // Null until fetched; the banner only appears when there is something to do.
   const [repoint, setRepoint] = useState(null);
   const [repointBusy, setRepointBusy] = useState(false);
-  // THE PREVIEW for "Use my printings": the list of cards it would switch,
-  // each with the printing the deck asks for now and the one it would move to.
-  // null means no preview open; an array means "show me this before you act".
-  const [repointPreview, setRepointPreview] = useState(null);
+  // "See changes" on the repoint banner, matching the Moxfield drift panel:
+  // false = collapsed, true = the list of cards it would switch is expanded
+  // inline. Zach: "Can this work just like the moxfield sync?"
+  const [repointDetail, setRepointDetail] = useState(false);
 
-  // Apply the bulk repoint. Lives here rather than inline on the button so the
-  // PREVIEW is the only thing the button opens -- a single code path to the
-  // write means a future edit cannot reintroduce a no-preview shortcut without
-  // deleting this comment first.
+  // Apply the bulk repoint. Lives here rather than inline on the button so
+  // there is ONE named path to the write -- easy to grep, and a later edit
+  // cannot quietly add a second one.
   const applyRepointAll = async () => {
     setRepointBusy(true);
     try {
@@ -122,7 +121,6 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       // The server's own count, not the length of the list we showed.
       showToast(t('deck.repointDone', { count: data.changed }));
       setRepoint(null);
-      setRepointPreview(null);
       onChanged && onChanged();
     } catch {
       showToast(t('deck.repointFailed'));
@@ -778,29 +776,34 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
             {t('deck.repointBody')}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {/* SHOW WHAT IT WILL DO, THEN DO IT.
-                Zach: "This still doesnt let me view the printing switch 1st."
-                And earlier: "I just accidentally switched a card to a printing
-                I own but its in use with a precon deck that I dont want to
-                remove from that."
+            {/* THE MOXFIELD SHAPE, because he asked for it by name.
+                Zach: "Can this work just like the moxfield sync? Where I can
+                just click see changes and see it that way"
 
-                This button used to POST an empty body -- repoint EVERY
-                unambiguous row at once, no preview, no undo. That is the bulk
-                version of the mis-tap he reported, and it is worse: one press
-                moves N cards. The per-printing confirm in the card sheet did
-                not cover this path at all.
+                So: act / see changes / dismiss, and the detail expands INLINE
+                under the banner rather than opening a dialog. Same classes as
+                the drift panel (.mfx-group-label / .mfx-row), because "like
+                the moxfield sync" means USE ITS MARKUP, not build something
+                that resembles it -- a lookalike drifts the moment one of them
+                is restyled.
 
-                /repoint-candidates already returns every card with its current
-                printing and the one it would move to, so the preview needs no
-                new endpoint -- only a screen that shows what was always there. */}
+                The earlier version of this put the preview in a modal. That
+                showed the right facts but was a second pattern for the same
+                job, and he has said before he dislikes redundant surfaces. */}
             <button
               className="btn btn-primary"
               style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
               disabled={repointBusy}
-              onClick={() => setRepointPreview(
-                (repoint.candidates || []).filter(c => c.unambiguous))}
+              onClick={applyRepointAll}
             >
               {repointBusy ? t('deck.repointApplying') : t('deck.repointApply')}
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+              onClick={() => setRepointDetail(v => !v)}
+            >
+              {repointDetail ? t('deck.driftHideChanges') : t('deck.driftSeeChanges')}
             </button>
             <button
               className="btn btn-secondary"
@@ -810,6 +813,46 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               {t('deck.repointDismiss')}
             </button>
           </div>
+
+          {/* WHAT ACTUALLY CHANGES, in the drift panel's own markup.
+              One row per card: the printing the deck asks for now, the one it
+              would move to, and -- when the copies are already sleeved into
+              another deck -- a warning. That last fact is the one that would
+              have stopped his precon card being taken.
+
+              quantity_owned, NOT owned_qty: deckRepoint.js builds these rows
+              and the card sheet's printings list uses a different shape.
+              Reading the wrong key fails silently, showing no warning at all,
+              which looks exactly like "nothing is committed elsewhere". */}
+          {repointDetail ? (
+            <div style={{ marginTop: '0.6rem' }}>
+              <div className="mfx-group-label">{t('deck.repointGroupSwitching')}</div>
+              {(repoint.candidates || []).filter(c => c.unambiguous).map((c) => {
+                const to = c.alternatives?.[0];
+                const owned = to?.quantity_owned ?? 0;
+                const avail = to?.quantity_available ?? owned;
+                const spoken = Math.max(0, owned - avail);
+                return (
+                  <div className="mfx-row" key={c.deck_card_id}>
+                    <span className="mfx-row-name">
+                      {c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}
+                    </span>
+                    <span className="mfx-row-meta">
+                      {`${String(c.wants?.set_id || '').toUpperCase()} #${c.wants?.number}`}
+                      {' → '}
+                      {`${String(to?.set_id || '').toUpperCase()} #${to?.number}`}
+                      {to?.set_name ? ` · ${to.set_name}` : ''}
+                    </span>
+                    {spoken > 0 ? (
+                      <span className="mfx-inuse-tag">
+                        {t('deck.repointInUse', { count: spoken })}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1314,81 +1357,6 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           </div>
         ) : null}
       </div>
-
-      {/* THE PREVIEW, before any card moves.
-          Zach: "This still doesnt let me view the printing switch 1st."
-          Every card it would touch, with FROM -> TO, and a warning on any
-          printing whose copies are already sleeved into another deck -- that
-          is the fact that would have saved his precon. */}
-      {repointPreview && (
-        <div className="ci-confirm-backdrop"
-             onClick={() => !repointBusy && setRepointPreview(null)}>
-          <div className="ci-confirm rp-preview" onClick={(e) => e.stopPropagation()}>
-            <div className="ci-confirm-title">
-              {t('deck.repointPreviewTitle', { count: repointPreview.length })}
-            </div>
-            <div className="rp-list">
-              {repointPreview.map((c) => {
-                const to = c.alternatives?.[0];
-                // THE FIELD IS quantity_owned, not owned_qty.
-                //
-                // deckRepoint.js builds these rows; the card-sheet's printings
-                // list uses owned_qty and they are DIFFERENT shapes. Guessing
-                // here would have silently shown no warning at all -- the
-                // failure would look exactly like "nothing is committed
-                // elsewhere", which is the one thing this must never say
-                // wrongly. Read the producer, do not assume the consumer.
-                const owned = to?.quantity_owned ?? 0;
-                const avail = to?.quantity_available ?? owned;
-                const spoken = Math.max(0, owned - avail);
-                return (
-                  <div key={c.deck_card_id} className="rp-row">
-                    <div className="rp-name">
-                      {c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}
-                    </div>
-                    <div className="ci-confirm-swap rp-swap">
-                      <span className="ci-confirm-from">
-                        <span className="ci-confirm-label">{t('inspector.confirmFrom')}</span>
-                        <span className="ci-confirm-pr">
-                          {String(c.wants?.set_id || '').toUpperCase()} #{c.wants?.number}
-                        </span>
-                        <span className="ci-confirm-set">{c.wants?.set_name || ''}</span>
-                      </span>
-                      <span className="ci-confirm-arrow">→</span>
-                      <span className="ci-confirm-to">
-                        <span className="ci-confirm-label">{t('inspector.confirmTo')}</span>
-                        <span className="ci-confirm-pr">
-                          {String(to?.set_id || '').toUpperCase()} #{to?.number}
-                        </span>
-                        <span className="ci-confirm-set">{to?.set_name || ''}</span>
-                      </span>
-                    </div>
-                    {spoken > 0 && (
-                      <div className="ci-confirm-warn rp-warn">
-                        {t('inspector.confirmInUse', { count: spoken })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="ci-confirm-actions">
-              <button type="button" className="btn btn-secondary"
-                disabled={repointBusy}
-                onClick={() => setRepointPreview(null)}>
-                {t('common.cancel')}
-              </button>
-              <button type="button" className="btn btn-primary"
-                disabled={repointBusy}
-                onClick={applyRepointAll}>
-                {repointBusy
-                  ? t('deck.repointApplying')
-                  : t('deck.repointPreviewApply', { count: repointPreview.length })}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* COMMANDER SWAP */}
       {commanderOpen && (
