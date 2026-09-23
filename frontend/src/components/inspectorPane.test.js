@@ -173,15 +173,76 @@ test('PANE-TC7: only the printings list scrolls, and the cap is viewport-relativ
 });
 
 test('PANE-TC8: Edit Card and Buy are anchored, not scrolled to', () => {
-  // .ci-footer-acts is the EXISTING sticky footer the deck view's
-  // remove-from-deck button already used. Reused rather than reinvented, so
-  // both panes anchor the same way.
-  assert.match(css, /\.card-inspector-inline \.ci-footer-acts \{[^}]*position: sticky/,
-    'the footer must be sticky');
+  // ANCHORED ON BOTH SURFACES, which is the whole point.
+  //
+  // This used to assert `.card-inspector-inline .ci-footer-acts` -- the
+  // DESKTOP-scoped rule -- and passed while the phone modal had no anchoring
+  // at all. Zach reported it from his phone: "Edit card doesn't anchor to the
+  // bottom when I expand printings".
+  //
+  // Width-scoping a shared rule with nothing on the other side is this
+  // codebase's most frequent layout bug, and a test that only checks the side
+  // that works is how it survives. So this asserts the rule is UNSCOPED.
+  // STRIP COMMENTS BEFORE ASSERTING ABSENCE.
+  //
+  // My first version searched the raw stylesheet and matched the phrase inside
+  // the comment that EXPLAINS why the rule was un-scoped -- the "matched a word
+  // in a comment instead of the code" failure this project has hit before. An
+  // absence assertion has to look at code only.
+  const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(cssCode.indexOf('.card-inspector-inline .ci-footer-acts'), -1,
+    'the footer rule must NOT be scoped to the desktop pane -- the phone '
+    + 'modal renders the same markup and needs the same anchoring');
+
+  const at = cssCode.indexOf('\n.ci-footer-acts {');
+  assert.ok(at > 0, 'there must be an unscoped .ci-footer-acts rule');
+  const block = cssCode.slice(at, cssCode.indexOf('}', at));
+  assert.match(block, /position: sticky/, 'the footer must be sticky');
+  assert.match(block, /bottom: 0/, 'pinned to the bottom of its scroll box');
+  // Content scrolls UNDER it; a see-through destructive button with rules text
+  // sliding behind it is how you misread which card you are deleting.
+  assert.match(block, /background:/, 'and must be opaque');
+
+  // IT MUST BE INSIDE THE SCROLLER TO STICK. position:sticky against an
+  // ancestor that does not scroll simply does nothing -- silently.
+  // Sliced from the SAME comment-stripped source; mixing the two gave an
+  // offset from one string and content from the other.
+  const scrollAt = cssCode.indexOf('.card-inspector .ci-scroll {');
+  assert.ok(scrollAt > 0, 'the modal must have a scrolling body');
+  assert.match(cssCode.slice(scrollAt, cssCode.indexOf('}', scrollAt)),
+    /overflow-y: auto/,
+    'the modal body must be the scroll container the footer sticks within');
+
   const actions = inspCode.slice(inspCode.indexOf("t('inspector.editCard')") - 2000,
                                  inspCode.indexOf("t('inspector.editCard')") + 200);
   assert.match(actions, /className="ci-footer-acts"/,
     'Edit Card must live inside the anchored footer');
+});
+
+test('PANE-TC8b: the price captions are attached to the price, not floating', () => {
+  // Zach: "why is 152 in stock floating at the bottom and the item price no
+  // shipping is awkwardly floating there as well".
+  //
+  // Both were standalone divs positioned against the full-width Buy button
+  // that used to sit mid-tab. Moving that button into the anchored footer left
+  // them as captions with nothing to caption -- "item price, before shipping"
+  // kept a -0.5rem margin meant to tuck under it, and the stock count was
+  // stranded below the action row.
+  //
+  // They are facts ABOUT THE PRICE, so they belong on the Value row.
+  assert.doesNotMatch(inspCode, /marginTop: '-0\.5rem', marginBottom: '0\.85rem'/,
+    'the floating item-price caption must be gone, not merely moved');
+  assert.doesNotMatch(inspCode,
+    /textAlign: 'center', marginTop: '0\.35rem'\s*\n\s*\}\}>\s*\n\s*\{t\('inspector\.inStock'/,
+    'the stranded stock count must be gone');
+
+  // And both must now render INSIDE the Value row's string.
+  const valueRow = inspCode.slice(inspCode.indexOf("[t('inspector.value')"),
+                                  inspCode.indexOf("t('inspector.availableToUse')"));
+  assert.match(valueRow, /t\('inspector\.inStock'/,
+    'stock must render on the Value row');
+  assert.match(valueRow, /t\('inspector\.itemPrice'\)/,
+    'the shipping caveat must render on the Value row');
 });
 
 test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scroll', () => {

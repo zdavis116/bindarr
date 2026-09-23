@@ -128,6 +128,23 @@ mutate "modal close row goes absolute" "$CSS" \
   flex: 0 0 auto;" \
   "CIL-TC6"
 
+# 11. THE BUG ZACH HIT ON HIS PHONE: the footer rule goes back to being
+#     desktop-only, so the modal loses its anchoring entirely.
+mutate "footer scoped to desktop again" "$CSS" \
+  "
+.ci-footer-acts {
+  position: sticky;" \
+  "
+.card-inspector-inline .ci-footer-acts {
+  position: sticky;" \
+  "PANE-TC8"
+
+# 12. The stray stock caption comes back as a floating div.
+mutate "stock caption floats again" "$INSP" \
+  "                              + (thisPrinting.price_available_qty > 0" \
+  "                              + (false" \
+  "PANE-TC8b"
+
 if ! git diff --quiet -- frontend/src; then
   echo "ABORT: tree is dirty after the run — a restore failed." >&2
   git diff --stat -- frontend/src >&2
