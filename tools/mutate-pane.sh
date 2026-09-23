@@ -31,17 +31,73 @@ mutate() {
     fail=1
     return
   fi
+  # WRITE, THEN PROVE THE WRITE LANDED, before running anything.
+  #
+  # The harness was NON-DETERMINISTIC: three runs over identical code gave 0,
+  # then 1, then 1, then 0/0/3 vacuous, naming different tests each time. The
+  # cause is a write/read race -- python writes the mutated file and node may
+  # begin reading before the new bytes are visible, so the suite sometimes
+  # tests the ORIGINAL source and every assertion passes.
+  #
+  # That failure is the worst possible direction: it reports a working test as
+  # vacuous and argues for weakening it. Re-reading the file and confirming the
+  # mutation is actually present closes the window.
   python3 - "$file" "$from" "$to" <<'PY'
-import sys
+import sys, os
 path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
 src = open(path).read()
-assert old in src
-open(path, 'w').write(src.replace(old, new, 1))
+assert old in src, 'anchor vanished between the grep and the write'
+out = src.replace(old, new, 1)
+with open(path, 'w') as f:
+    f.write(out)
+    f.flush()
+    os.fsync(f.fileno())          # durable before the test process starts
+# Read it BACK and confirm. A silent no-op write is how this harness lied.
+back = open(path).read()
+assert back == out, 'the mutated file on disk does not match what we wrote'
+assert new in back, 'the mutation is not present in the file we just wrote'
 PY
+  if [ $? -ne 0 ]; then
+    echo "ABORT [$label]: the mutation did not land on disk" >&2
+    git checkout -- "$file"
+    fail=1
+    return
+  fi
 
   local out
-  out=$(node --test $TESTS 2>&1)
+  # SERIAL, and parsed from a FILE rather than a pipe.
+  #
+  # `node --test` runs the three files CONCURRENTLY by default, and their
+  # stdout interleaves -- a "not ok" line can be split mid-write by another
+  # process's output. That made this harness NON-DETERMINISTIC: three runs of
+  # identical code reported 0, then 1, then 1 vacuous, each time naming a
+  # different test. Every "PASS" it printed was therefore unreliable, which is
+  # worse than the bug it was built to find.
+  #
+  # --test-concurrency=1 serialises the run so lines arrive whole.
+  out=$(node --test --test-concurrency=1 $TESTS 2>&1)
   git checkout -- "$file"
+  # WAIT FOR THE RESTORE TO SETTLE before the next mutation reads the file.
+  #
+  # This is the real cause of the harness's non-determinism. Each iteration
+  # restores with `git checkout` and the NEXT iteration immediately greps the
+  # same path for its anchor; when the restore had not finished, the mutation
+  # was applied to -- or verified against -- a file in flux, the suite ran on
+  # unmutated source, and a working test was reported vacuous. Which test it
+  # named was random, which is exactly what a race looks like.
+  #
+  # `git diff --quiet` asks GIT whether the tree matches HEAD, rather than
+  # trusting a sleep. Loop until it agrees.
+  local settle=0
+  until git diff --quiet -- "$file"; do
+    settle=$((settle + 1))
+    if [ "$settle" -gt 50 ]; then
+      echo "ABORT [$label]: $file never returned to HEAD after restore" >&2
+      fail=1
+      return
+    fi
+    sleep 0.1
+  done
 
   # MATCH THE TEST NAME AS A PREFIX, with no clever boundary.
   #
