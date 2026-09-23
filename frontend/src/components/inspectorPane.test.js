@@ -102,23 +102,23 @@ test('PANE-TC4: tapping the open card closes it, on BOTH screens', () => {
   assert.equal(deckTaps.length, 2,
     'setSelectedCardId may only appear in useState and inside selectDeckCard/onClose');
 
-  // COUNT THE RAW SETTER, do not pattern-match the handler around it.
+  // COUNT BOTH SIDES. Counting only the raw setter was VACUOUS: swapping a tap
+  // site from openInspector(card) to setInspectorCard(card) SUBSTITUTES one
+  // call for the other, so a total that only counts one side does not move.
+  // The harness caught it. Pin both numbers, and the tap sites explicitly.
   //
-  // My first version asserted /onClick=\{[^}]*setInspectorCard\(card\)/ and was
-  // VACUOUS -- the mutation harness caught it. The tap handler contains `}`
-  // characters (`if (selectMode) { ... }`) before ever reaching the call, so
-  // [^}]* could never span the distance and the assertion could not fail. It
-  // was testing nothing while reading like it tested everything.
-  //
-  // setInspectorCard is legitimately used three times: the useState
-  // declaration, inside openInspector, and the two onClose handlers. Any
-  // FOURTH use is a tap site that bypassed the toggle.
+  // setInspectorCard: useState + inside openInspector + two onClose handlers.
   const collSets = collCode.match(/setInspectorCard\(/g) || [];
   assert.equal(collSets.length, 4,
     'setInspectorCard may only appear in useState, openInspector and the two '
     + 'onClose handlers -- a further use is a tap site bypassing the toggle');
-  assert.match(collCode, /openInspector\(card\);/,
-    'and the tap sites must call openInspector');
+
+  // openInspector: the definition plus BOTH tap sites (grid tile and list
+  // row). If either tap site stops calling it, this number drops.
+  const collOpens = collCode.match(/openInspector\(/g) || [];
+  assert.equal(collOpens.length, 3,
+    'openInspector must be defined once and called from BOTH tap sites -- the '
+    + 'grid tile and the list row, or the two views toggle differently');
 });
 
 test('PANE-TC5: the flip toggle is off the artwork', () => {
