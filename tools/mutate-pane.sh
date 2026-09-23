@@ -12,7 +12,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cache/hermes-node20/node-v20.20.2-linux-x64/bin:$PATH"
 
-TESTS="frontend/src/components/inspectorPane.test.js frontend/src/components/cardAvailability.test.js"
+TESTS="frontend/src/components/inspectorPane.test.js frontend/src/components/cardAvailability.test.js frontend/src/components/cardInspectorLayout.test.js"
 
 if ! git diff --quiet -- frontend/src; then
   echo "ABORT: uncommitted changes under frontend/src. Commit first." >&2
@@ -110,6 +110,23 @@ mutate "availability row conditional again" "$INSP" \
   "                    [t('inspector.availableToUse')," \
   "                    ...(thisPrintingCommitted > 0 ? [[t('inspector.availableToUse')," \
   "AV-TC4"
+
+# 9. The pane loses its positioning context, so the absolute close button
+#    resolves against the VIEWPORT and flies to the page corner.
+mutate "pane loses position:relative" "$CSS" \
+  "    position: relative;
+    grid-template-columns: 120px minmax(0, 1fr);" \
+  "    grid-template-columns: 120px minmax(0, 1fr);" \
+  "CIL-TC6"
+
+# 10. The MODAL's close row goes absolute -- the bug Zach reported twice, where
+#     the X followed the panel off-screen.
+mutate "modal close row goes absolute" "$CSS" \
+  "  justify-content: flex-end;
+  flex: 0 0 auto;" \
+  "  position: absolute;
+  flex: 0 0 auto;" \
+  "CIL-TC6"
 
 if ! git diff --quiet -- frontend/src; then
   echo "ABORT: tree is dirty after the run — a restore failed." >&2

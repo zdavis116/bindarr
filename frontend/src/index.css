@@ -1087,6 +1087,26 @@ button, input, select, textarea {
   -webkit-overflow-scrolling: touch;
 }
 
+/* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
+   These were inline styles on the element. Moved into a class so the desktop
+   pane can override them; an inline style cannot be beaten by a stylesheet,
+   which is why the pane had no way to place this button differently.
+
+   Unscoped, because the phone modal is the other side of the breakpoint and
+   width-scoping shared design with nothing on the other side is this
+   codebase's most frequent layout bug. */
+.ci-close-row {
+  order: -1;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  /* Pulled tight: this row exists only to place the button, so its height is
+     pure slack above the card. Zach: "feels like maybe there is to much white
+     space". */
+  margin-bottom: -1.75rem;
+}
+
 /* OTHER PRINTINGS DISCLOSURE -- SHARED BY BOTH SURFACES, UNSCOPED.
    The <details> renders in the phone modal AND the desktop pane. The scroll
    cap below is desktop-only (the pane has a fixed height to protect; the modal
@@ -3585,6 +3605,10 @@ button, input, select, textarea {
      component's JSX and breaking the modal that shares it. */
   .card-inspector-inline {
     display: grid;
+    /* THE POSITIONING CONTEXT for .ci-close-row, which is absolute. Without
+       this the close button would resolve against the viewport and sit in the
+       page's top-right corner rather than the pane's. */
+    position: relative;
     grid-template-columns: 120px minmax(0, 1fr);
     /* THREE ROWS: [art | identity], tabs, then the body.
        The body row is minmax(0, 1fr) so it takes the leftover height and can
@@ -3727,6 +3751,30 @@ button, input, select, textarea {
      Applied to the pane only, so the phone modal keeps its own sizing. */
   .card-inspector-inline .ci-scroll {
     font-size: 0.86rem;
+  }
+
+  /* THE CLOSE BUTTON IS PLACED, NOT LEFT TO THE FLOW.
+     The close row was written for the MODAL, where the panel is a flex column
+     and `order: -1` + a negative margin lifts it above the art. The pane is a
+     GRID -- so an unplaced item simply took the next free cell and the button
+     landed in the middle of the pane at y=416, floating under the artwork
+     instead of sitting in a corner. Measured, not eyeballed: art bottom 407,
+     button top 416.
+
+     Pinned to the pane's top-right corner instead. Absolute against the pane,
+     which is position:relative, so it leaves the grid entirely and cannot
+     claim a cell or add a row -- the header layout is untouched.
+
+     Targeted by CLASS, not `:has(> button[aria-label])`. The structural
+     selector worked but was a guess about shape; a class says what the element
+     IS and survives someone adding a second aria-labelled button. */
+  .card-inspector-inline .ci-close-row {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    width: auto;
+    margin: 0;
+    z-index: 3;
   }
 
   .card-inspector-inline .ci-scroll .btn {

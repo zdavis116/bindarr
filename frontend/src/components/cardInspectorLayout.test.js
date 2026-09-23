@@ -128,7 +128,7 @@ test('CIL-TC5: the scroller can actually shrink', () => {
   assert.match(rule, /overflow-y:\s*auto/);
 });
 
-// --- CIL-TC6: THE CLOSE BUTTON IS IN THE FLOW ------------------------------
+// --- CIL-TC6: THE CLOSE BUTTON CANNOT FOLLOW THE PANEL OFF-SCREEN ----------
 //
 // Zach reported the X missing TWICE, for two different reasons:
 //
@@ -141,7 +141,20 @@ test('CIL-TC5: the scroller can actually shrink', () => {
 // to the layout. It goes wherever its containing block's top goes, including
 // off-screen, and no amount of fixing the SCROLLING addresses that.
 //
-// In the flex flow it cannot be anywhere the panel is not.
+// THE MODAL KEEPS THE FLEX FLOW. In the flex column it cannot be anywhere the
+// panel is not, which is the property that fixed both reports.
+//
+// THE DESKTOP PANE IS THE ONE EXCEPTION, added 2026-09-23, and it is safe for
+// a reason that does not apply to the modal: the pane is a GRID with a fixed
+// height and `overflow: hidden`, so it never scrolls and its top never leaves
+// the viewport -- there is nothing for the button to follow. Left in the flow
+// it had no cell of its own and landed in the MIDDLE of the pane at y=416,
+// under the artwork (measured: art bottom 407).
+//
+// So the rule this case protects is not "never absolute" -- it is "never
+// absolute inside something that can scroll or overflow". Asserted that way
+// below, rather than by spelling, because the styles now live in a class and
+// asserting the old inline literal would fail a correct refactor.
 
 test('CIL-TC6: the close button is laid out, not absolutely positioned', () => {
   // ANCHOR ON THE ICON. Searching for onClick={handleClose} found the
@@ -160,8 +173,33 @@ test('CIL-TC6: the close button is laid out, not absolutely positioned', () => {
   assert.doesNotMatch(tag, /position:\s*'absolute'/,
     'an absolute close button follows the panel off-screen when the panel '
     + 'does not fit -- Zach reported this twice as a missing X');
-  assert.match(src.slice(Math.max(0, open - 500), open), /justifyContent: 'flex-end'/,
-    'the button must sit in a laid-out flex row');
+
+  // The row is a class now, so the flex rules are asserted in the STYLESHEET.
+  // The modal's .ci-close-row must stay in the flow. (`css` is read once at
+  // module scope; re-reading it here would shadow that.)
+  const base = css.slice(css.indexOf('.ci-close-row {'),
+                         css.indexOf('}', css.indexOf('.ci-close-row {')));
+  assert.match(base, /justify-content: flex-end/,
+    'the modal close row must remain a laid-out flex row');
+  assert.doesNotMatch(base, /position:\s*absolute/,
+    'and must NOT be absolute -- that is the bug Zach reported twice');
+
+  // The pane override may be absolute ONLY because the pane cannot scroll.
+  // If that ever changes, this guard fails and the exception must be revisited.
+  //
+  // THERE ARE SEVERAL `.card-inspector-inline {` BLOCKS (a base plus
+  // breakpoint overrides), so indexOf() grabbed the first one -- a mid-range
+  // override with `height: auto` -- and reported a failure about the wrong
+  // rule. Find the block that actually establishes the grid.
+  const gridAt = css.indexOf('.card-inspector-inline {\n    display: grid;');
+  assert.ok(gridAt > 0, 'the pane must have a grid layout block');
+  const paneBlock = css.slice(gridAt, css.indexOf('}', gridAt));
+  assert.match(paneBlock, /overflow: hidden/,
+    'the pane may only pin its close button because the pane itself never '
+    + 'scrolls -- if it gains a scrollbar, the button can follow it away');
+  assert.match(paneBlock, /position: relative/,
+    'and the pane must be the positioning context, or the button resolves '
+    + 'against the viewport instead of the pane');
 });
 
 // --- CIL-TC7: THE PANEL MUST FIT, NOT JUST CLIP ----------------------------

@@ -704,17 +704,13 @@ function CardInspectorModal({
           behaviour, because each owns its own selection state; this button
           only reports the intent. */}
       {(!inline || onClose) && (
-        <div style={{
-          order: -1,
-          width: '100%',
-          display: 'flex',
-          justifyContent: 'flex-end',
-          flex: '0 0 auto',
-          // Pulled tight: this row exists only to place the button, so
-          // its height is pure slack above the card. Zach: "feels like maybe
-          // there is to much white space".
-          marginBottom: '-1.75rem',
-        }}>
+        /* LAYOUT LIVES IN THE CLASS, NOT IN A style PROP.
+           These were inline styles, and an inline style CANNOT be overridden
+           by a stylesheet -- so the pane had no way to place this row
+           differently from the modal, and the button ended up floating in the
+           middle of the pane. The modal's rules are now .ci-close-row and the
+           pane's override is .card-inspector-inline .ci-close-row. */
+        <div className="ci-close-row">
           <button
             type="button"
             className="btn btn-secondary btn-icon-only"
