@@ -1414,9 +1414,20 @@ function CardInspectorModal({
                             : t('inspector.ownNoneOfThese')}
                         </span>
                       </summary>
+                    {/* INLINE STYLES HERE CANNOT BE OVERRIDDEN BY THE
+                        STYLESHEET, so only the decoration lives inline and the
+                        SIZING lives in .ci-printings-list.
+
+                        `overflow: hidden` used to be in this style prop. It
+                        beat the stylesheet's `overflow-y: auto` outright --
+                        computed style read `hidden` in every measurement --
+                        so the list could never scroll, could never be capped,
+                        and grew until it pushed Edit Card off the screen. The
+                        border radius still needs clipping, which `overflow-y:
+                        auto` + `overflow-x: hidden` in the class provides. */}
                     <div className="ci-printings-list" style={{
                       background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
-                      borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                      borderRadius: 'var(--radius-md)',
                     }}>
                       {/* Exclude the printing CURRENTLY in use, not the one
                           the sheet was opened with. `card` is the caller's

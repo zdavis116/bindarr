@@ -34,6 +34,26 @@ SET_VAL = """(el,v)=>{const s=Object.getOwnPropertyDescriptor(
   window.HTMLInputElement.prototype,'value').set;
   s.call(el,v); el.dispatchEvent(new Event('input',{bubbles:true}));}"""
 
+# DISABLE THE HTTP CACHE, and the service worker with it.
+#
+# Bindarr is a PWA: workbox precaches the bundle, so a freshly deployed CSS
+# file is NOT what a returning page loads. A probe run straight after a deploy
+# reported byte-identical "before" numbers and looked like the fix had not
+# landed -- while the server was serving the correct new file all along.
+# Verified by grepping the deployed CSS directly.
+cdp.send('Network.enable')
+cdp.send('Network.setCacheDisabled', cacheDisabled=True)
+ev("""(async()=>{
+  if (navigator.serviceWorker) {
+    const rs = await navigator.serviceWorker.getRegistrations();
+    for (const r of rs) await r.unregister();
+  }
+  if (window.caches) {
+    const ks = await caches.keys();
+    for (const k of ks) await caches.delete(k);
+  }
+  return 'cleared';})()""")
+
 cdp.send('Page.navigate', url='https://bindarr-dev.tail387aa3.ts.net')
 until("!!document.querySelector('input[type=password]')||"
       "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Collection')",
