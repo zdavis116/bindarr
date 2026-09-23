@@ -36,13 +36,20 @@ SET_VAL = """(el,v)=>{const s=Object.getOwnPropertyDescriptor(
 
 # DISABLE THE HTTP CACHE, and the service worker with it.
 #
-# Bindarr is a PWA: workbox precaches the bundle, so a freshly deployed CSS
-# file is NOT what a returning page loads. A probe run straight after a deploy
-# reported byte-identical "before" numbers and looked like the fix had not
-# landed -- while the server was serving the correct new file all along.
-# Verified by grepping the deployed CSS directly.
+# Bindarr is a PWA: workbox precaches index.html, so a returning page loads the
+# OLD asset filenames even though the server's index.html references the new
+# ones. Two probe runs reported byte-identical numbers after a correct deploy,
+# including a computed style for an inline rule I had just deleted -- because
+# the browser was running the previous bundle entirely.
+#
+# ORDER MATTERS: unregistering before the first navigation does nothing, since
+# the page then loads and re-registers the worker. Navigate, clear, then
+# RELOAD -- the second load is the clean one.
 cdp.send('Network.enable')
 cdp.send('Network.setCacheDisabled', cacheDisabled=True)
+
+cdp.send('Page.navigate', url='https://bindarr-dev.tail387aa3.ts.net')
+time.sleep(4)
 ev("""(async()=>{
   if (navigator.serviceWorker) {
     const rs = await navigator.serviceWorker.getRegistrations();
@@ -53,8 +60,22 @@ ev("""(async()=>{
     for (const k of ks) await caches.delete(k);
   }
   return 'cleared';})()""")
-
+time.sleep(1)
 cdp.send('Page.navigate', url='https://bindarr-dev.tail387aa3.ts.net')
+time.sleep(3)
+
+# PROVE the fresh bundle is what loaded, rather than assuming the clear worked.
+loaded = ev("[...document.querySelectorAll('link[rel=stylesheet]')]"
+            ".map(l=>l.href.split('/').pop()).join(',')")
+print('stylesheets loaded:', loaded)
+rule = ev("""(()=>{for(const s of document.styleSheets){try{
+  for(const r of s.cssRules){if(r.selectorText&&r.selectorText.includes('ci-printings-list'))
+    return r.cssText;}}catch(e){}}return 'RULE NOT FOUND';})()""")
+print('printings rule:', rule)
+if 'NOT FOUND' in str(rule):
+    raise SystemExit('ABORT: the browser is still running a stale bundle; '
+                     'measurements would describe the old code.')
+
 until("!!document.querySelector('input[type=password]')||"
       "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Collection')",
       'load')

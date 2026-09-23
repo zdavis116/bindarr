@@ -155,21 +155,45 @@ test('PANE-TC6: other printings is a disclosure, closed by default', () => {
 });
 
 test('PANE-TC7: only the printings list scrolls, and the cap is viewport-relative', () => {
-  // SLICE THE RULE OUT, then assert on it. The earlier version used
-  // /\.ci-printings-list \{[^}]*max-height: \d+vh/ and was VACUOUS: `[^}]*`
-  // cannot cross the `}` that ends the preceding declaration block, so the
-  // pattern matched whatever happened to sit nearby rather than the rule
-  // itself. Changing 28vh to 240px left it green.
-  const start = css.indexOf('.card-inspector-inline .ci-printings-list {');
-  assert.ok(start > 0, 'the printings list must have its own rule');
-  const block = css.slice(start, css.indexOf('}', start));
+  // THE CAP MUST BE UNSCOPED. It lived in `@media (min-width:1024px)` as
+  // `.card-inspector-inline .ci-printings-list`, so the PHONE modal had
+  // `max-height: none`. Measured on Waste Not at 390x844: the list ran to
+  // y=998 against an 844 viewport, which forced the whole tab body to scroll
+  // and took Edit Card off the screen. Zach reported all three symptoms at
+  // once -- hidden Edit button, body scrollbar, over-long pane.
+  const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(cssCode.indexOf('.card-inspector-inline .ci-printings-list'), -1,
+    'the printings cap must NOT be desktop-scoped -- the phone modal renders '
+    + 'the same list and is where it overflowed');
 
-  assert.match(block, /overflow-y: auto/, 'the printings list must be the scroller');
+  const at = cssCode.indexOf('\n.ci-printings-list {');
+  assert.ok(at > 0, 'there must be an unscoped .ci-printings-list rule');
+  const block = cssCode.slice(at, cssCode.indexOf('}', at));
+
   assert.match(block, /max-height:\s*\d+(\.\d+)?vh/,
     'the cap must be in vh -- a pixel cap measured on one screen is the bug '
     + 'this codebase keeps rediscovering (his desktop is only 731px tall)');
   assert.doesNotMatch(block, /max-height:\s*\d+px/,
     'and must NOT be a fixed pixel height');
+
+  // AUTO, NEVER SCROLL. Zach: "when I expand the printings a scroll bar always
+  // appears even if I dont need to scroll". `overflow-y: scroll` reserves a
+  // gutter unconditionally; `auto` shows one only when the content exceeds the
+  // cap. Verified on real data: a 3-printing card does not scroll (181 = 181),
+  // a 5-printing card does (302 > 234).
+  assert.match(block, /overflow-y:\s*auto/,
+    'the list must use overflow-y:auto so the scrollbar appears only when needed');
+  assert.doesNotMatch(block, /overflow-y:\s*scroll/,
+    'overflow-y:scroll would show a scrollbar on a list that fits');
+
+  // AND NO INLINE overflow ON THE ELEMENT. An inline style CANNOT be
+  // overridden by a stylesheet: `overflow: 'hidden'` in the style prop beat
+  // this rule outright, computed style read `hidden` in every measurement, and
+  // the list could never scroll or be capped no matter what the CSS said.
+  const listTag = inspCode.slice(inspCode.indexOf('className="ci-printings-list"'),
+                                 inspCode.indexOf('className="ci-printings-list"') + 260);
+  assert.doesNotMatch(listTag, /overflow:/,
+    'the list must not set overflow inline -- it silently beats the stylesheet');
 });
 
 test('PANE-TC8: Edit Card and Buy are anchored, not scrolled to', () => {
@@ -219,36 +243,43 @@ test('PANE-TC8: Edit Card and Buy are anchored, not scrolled to', () => {
     'Edit Card must live inside the anchored footer');
 });
 
-test('PANE-TC8b: the price captions are attached to the price, not floating', () => {
-  // Zach: "why is 152 in stock floating at the bottom and the item price no
-  // shipping is awkwardly floating there as well".
+test('PANE-TC8b: the Value row is the price, the condition, and a shop BADGE', () => {
+  // Zach, first: "why is 152 in stock floating at the bottom and the item
+  // price no shipping is awkwardly floating there as well". I attached both to
+  // the Value row -- which fixed the floating, and produced "$22.75 · Mana
+  // Pool LP · 10 in stock · item price, before shipping": four facts in a
+  // run-on string that wrapped to two lines at 390px.
   //
-  // Both were standalone divs positioned against the full-width Buy button
-  // that used to sit mid-tab. Moving that button into the anchored footer left
-  // them as captions with nothing to caption -- "item price, before shipping"
-  // kept a -0.5rem margin meant to tuck under it, and the stock count was
-  // stranded below the action row.
+  // Then: "the value section is to long winded. I think just saying the price
+  // and quality is good enough. You could maybe put a badge on it like mana
+  // pool or card kingdom."
   //
-  // They are facts ABOUT THE PRICE, so they belong on the Value row.
+  // So the row is now PRICE + CONDITION, with the shop as a badge. Stock and
+  // the shipping caveat are gone entirely: stock is visible where you buy, and
+  // "before shipping" is true of every price Bindarr shows, so repeating it on
+  // every row taught nothing.
   assert.doesNotMatch(inspCode, /marginTop: '-0\.5rem', marginBottom: '0\.85rem'/,
     'the floating item-price caption must be gone, not merely moved');
-  assert.doesNotMatch(inspCode,
-    /textAlign: 'center', marginTop: '0\.35rem'\s*\n\s*\}\}>\s*\n\s*\{t\('inspector\.inStock'/,
-    'the stranded stock count must be gone');
 
-  // And both must now render INSIDE the Value row's string.
-  //
-  // CHECKED INDEPENDENTLY, not as a pair. An earlier version sliced the Value
-  // row and asserted both captions were somewhere in it; disabling the stock
-  // caption alone left the itemPrice match satisfied and the case stayed
-  // green. The harness caught it. Each caption is its own assertion, anchored
-  // on the condition that decides whether it renders.
   const valueRow = inspCode.slice(inspCode.indexOf("[t('inspector.value')"),
                                   inspCode.indexOf("t('inspector.availableToUse')"));
-  assert.match(valueRow, /thisPrinting\.price_available_qty > 0\s*\n?\s*\?\s*`[^`]*\$\{t\('inspector\.inStock'/,
-    'stock must render on the Value row, gated on there being stock');
-  assert.match(valueRow, /thisPrinting\.price_source !== 'scryfall'\s*\n?\s*\?\s*`[^`]*\$\{t\('inspector\.itemPrice'\)/,
-    'the shipping caveat must render on the Value row, gated on a real shop');
+
+  // The two facts that stay, checked independently -- an earlier version
+  // asserted a pair and one masked the other when only one broke.
+  assert.match(valueRow, /price_condition/,
+    'the condition must render with the price: it decides whether the number '
+    + 'is worth acting on at his LP floor');
+  assert.match(valueRow, /borderRadius: 999/,
+    'the shop must render as a pill badge, not another word in the sentence');
+  assert.match(valueRow, /price_source_label/,
+    'and the badge must name the shop the price came from');
+
+  // The two that must NOT come back on this row.
+  assert.doesNotMatch(valueRow, /inspector\.inStock/,
+    'stock must not be on the Value row -- it is visible where you buy');
+  assert.doesNotMatch(valueRow, /inspector\.itemPrice/,
+    'the shipping caveat must not be on the Value row -- it is true of every '
+    + 'price shown, so stating it per-row is noise');
 });
 
 test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scroll', () => {
