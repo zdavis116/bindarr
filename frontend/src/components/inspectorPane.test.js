@@ -237,12 +237,18 @@ test('PANE-TC8b: the price captions are attached to the price, not floating', ()
     'the stranded stock count must be gone');
 
   // And both must now render INSIDE the Value row's string.
+  //
+  // CHECKED INDEPENDENTLY, not as a pair. An earlier version sliced the Value
+  // row and asserted both captions were somewhere in it; disabling the stock
+  // caption alone left the itemPrice match satisfied and the case stayed
+  // green. The harness caught it. Each caption is its own assertion, anchored
+  // on the condition that decides whether it renders.
   const valueRow = inspCode.slice(inspCode.indexOf("[t('inspector.value')"),
                                   inspCode.indexOf("t('inspector.availableToUse')"));
-  assert.match(valueRow, /t\('inspector\.inStock'/,
-    'stock must render on the Value row');
-  assert.match(valueRow, /t\('inspector\.itemPrice'\)/,
-    'the shipping caveat must render on the Value row');
+  assert.match(valueRow, /thisPrinting\.price_available_qty > 0\s*\n?\s*\?\s*`[^`]*\$\{t\('inspector\.inStock'/,
+    'stock must render on the Value row, gated on there being stock');
+  assert.match(valueRow, /thisPrinting\.price_source !== 'scryfall'\s*\n?\s*\?\s*`[^`]*\$\{t\('inspector\.itemPrice'\)/,
+    'the shipping caveat must render on the Value row, gated on a real shop');
 });
 
 test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scroll', () => {
