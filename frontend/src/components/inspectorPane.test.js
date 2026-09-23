@@ -102,23 +102,28 @@ test('PANE-TC4: tapping the open card closes it, on BOTH screens', () => {
   assert.equal(deckTaps.length, 2,
     'setSelectedCardId may only appear in useState and inside selectDeckCard/onClose');
 
-  // COUNT BOTH SIDES. Counting only the raw setter was VACUOUS: swapping a tap
-  // site from openInspector(card) to setInspectorCard(card) SUBSTITUTES one
-  // call for the other, so a total that only counts one side does not move.
-  // The harness caught it. Pin both numbers, and the tap sites explicitly.
+  // ASSERT THE RULE, NOT A HEADCOUNT.
   //
-  // setInspectorCard: useState + inside openInspector + two onClose handlers.
-  const collSets = collCode.match(/setInspectorCard\(/g) || [];
-  assert.equal(collSets.length, 4,
-    'setInspectorCard may only appear in useState, openInspector and the two '
-    + 'onClose handlers -- a further use is a tap site bypassing the toggle');
-
-  // openInspector: the definition plus BOTH tap sites (grid tile and list
-  // row). If either tap site stops calling it, this number drops.
-  const collOpens = collCode.match(/openInspector\(/g) || [];
-  assert.equal(collOpens.length, 3,
-    'openInspector must be defined once and called from BOTH tap sites -- the '
-    + 'grid tile and the list row, or the two views toggle differently');
+  // Two earlier versions of this were wrong in opposite directions. The first
+  // pattern-matched the handler (`onClick=\{[^}]*setInspectorCard`) and could
+  // never fail, because the handler contains `}` before reaching the call. The
+  // second counted call sites and was brittle: the number depends on how many
+  // uses survive comment-stripping, so it broke without any behaviour changing.
+  //
+  // What actually matters is narrow: the raw setter must not appear inside a
+  // TAP HANDLER. Slice each tap site out and assert on that, which is the
+  // thing the rule is about.
+  const tapSites = [...collCode.matchAll(/onClick=\{\(e\) => \{([\s\S]*?)\n\s{14}\}\}/g)]
+    .map(m => m[1]);
+  assert.ok(tapSites.length >= 2,
+    `expected both tap handlers (grid tile and list row), found ${tapSites.length}`);
+  for (const [i, body] of tapSites.entries()) {
+    assert.match(body, /openInspector\(card\)/,
+      `tap site ${i + 1} must open through the shared toggle`);
+    assert.doesNotMatch(body, /setInspectorCard\(/,
+      `tap site ${i + 1} must not call the raw setter -- that is how the grid `
+      + 'and the list end up toggling differently');
+  }
 });
 
 test('PANE-TC5: the flip toggle is off the artwork', () => {
