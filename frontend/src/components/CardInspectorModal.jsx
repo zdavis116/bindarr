@@ -1208,44 +1208,59 @@ function CardInspectorModal({
                     //
                     // thisPrinting comes from /card/:id/decks, which prices
                     // through the chain. One source of truth per sheet.
+                    // THE PRICE, THE CONDITION, AND A BADGE FOR THE SHOP.
+                    //
+                    // Zach: "the value section is to long winded. I think just
+                    // saying the price and quality is good enough. You could
+                    // maybe put a badge on it like mana pool or card kingdom".
+                    //
+                    // It had grown to "$22.75 · Mana Pool LP · 10 in stock ·
+                    // item price, before shipping" -- four facts in one run-on
+                    // string that wrapped onto two lines in a 390px modal. Each
+                    // was added for a real reason, but together they buried the
+                    // number the row exists to show.
+                    //
+                    // So: the PRICE and the CONDITION are the answer, and the
+                    // shop becomes a badge -- recognisable at a glance without
+                    // spending a word. Stock and the shipping caveat are gone
+                    // from this row; stock is visible on the Buy button's
+                    // destination anyway, and "before shipping" is true of
+                    // every price Bindarr shows, so stating it per-row taught
+                    // nothing.
                     [t('inspector.value'), (thisPrinting?.price_trend ?? card.price_trend) && ownedCopies
-                      ? `$${(Number(thisPrinting?.price_trend ?? card.price_trend) * ownedCopies).toFixed(2)}`
-                        + (thisPrinting?.price_source_label
-                            ? ` · ${thisPrinting.price_source_label}`
-                              // The condition the price is FOR. Zach accepts LP
-                              // or NM only, so which one he is looking at
-                              // decides whether the number is worth acting on.
-                              + (thisPrinting.price_condition
-                                  ? ` ${thisPrinting.price_condition}`
-                                  : '')
-                              // STOCK AND THE SHIPPING CAVEAT BELONG TO THE
-                              // PRICE, so they render ON the price row.
-                              //
-                              // Zach: "why is 152 in stock floating at the
-                              // bottom and the item price no shipping is
-                              // awkwardly floating there as well".
-                              //
-                              // Both were positioned against the full-width
-                              // Buy button that used to sit mid-tab. When that
-                              // moved into the anchored footer, "item price,
-                              // before shipping" kept a -0.5rem margin meant to
-                              // tuck under it and "152 in stock" was left
-                              // stranded below the action row -- two captions
-                              // with nothing left to caption.
-                              //
-                              // They are facts ABOUT THIS NUMBER: what the
-                              // price excludes, and whether anyone is actually
-                              // selling at it. Attached to the number, they
-                              // read as qualifiers; floating free, they read as
-                              // stray text.
-                              + (thisPrinting.price_available_qty > 0
-                                  ? ` · ${t('inspector.inStock', {
-                                      count: thisPrinting.price_available_qty })}`
-                                  : '')
-                              + (thisPrinting.price_source !== 'scryfall'
-                                  ? ` · ${t('inspector.itemPrice')}`
-                                  : '')
-                            : '')
+                      ? (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                          justifyContent: 'flex-end', flexWrap: 'wrap',
+                        }}>
+                          <span>
+                            {`$${(Number(thisPrinting?.price_trend ?? card.price_trend) * ownedCopies).toFixed(2)}`}
+                            {/* The condition the price is FOR. Zach accepts LP
+                                or NM only, so which one he is looking at
+                                decides whether the number is worth acting on.
+                                It stays inline with the price because it
+                                QUALIFIES the price -- a badge would imply it
+                                describes the shop. */}
+                            {thisPrinting?.price_condition
+                              ? ` ${thisPrinting.price_condition}`
+                              : ''}
+                          </span>
+                          {thisPrinting?.price_source_label && (
+                            <span style={{
+                              fontSize: '0.62rem', fontWeight: 700,
+                              letterSpacing: '0.02em',
+                              padding: '0.12rem 0.4rem',
+                              borderRadius: 999,
+                              background: 'var(--surface-2)',
+                              border: '1px solid var(--border-glass)',
+                              color: 'var(--text-secondary)',
+                              whiteSpace: 'nowrap',
+                            }}>
+                              {thisPrinting.price_source_label}
+                            </span>
+                          )}
+                        </span>
+                      )
                       : null],
                     // AVAILABILITY OF *THIS* PRINTING, on the tab that claims
                     // to describe what he owns.

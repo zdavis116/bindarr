@@ -1123,6 +1123,39 @@ button, input, select, textarea {
   border-top: 1px solid var(--border-glass);
 }
 
+/* OTHER PRINTINGS: THE ONLY THING THAT SCROLLS -- ON BOTH SURFACES.
+   Zach: "other printings should be a dropdown I can toggle... that is the only
+   thing that should be scrollable", then from his phone: "why is the pane so
+   long that its hiding the edit button" and "when I expand the printings a
+   scroll bar always appears even if I dont need to scroll".
+
+   All three are one cause. This cap lived inside `@media (min-width:1024px)`
+   as `.card-inspector-inline .ci-printings-list`, so on the phone the list had
+   `max-height: none`. Measured on Waste Not at 390x844: the list ran from
+   y=695 to y=998 -- 154px past the viewport -- which forced .ci-scroll (the
+   whole tab body) to scroll instead, taking Edit Card with it and showing the
+   body's scrollbar.
+
+   Capping the LIST fixes all three at once: the body no longer overflows, so
+   its scrollbar goes away and the anchored footer stays put; and the list gets
+   its own scrollbar ONLY when its content exceeds the cap, because overflow-y
+   is `auto` rather than `scroll`.
+
+   WHY CAP THE LIST RATHER THAN GROW THE PANEL: the printings list is the one
+   unbounded thing here (some cards have 20+), while everything else on the tab
+   is a fixed handful of rows. An unbounded child must not size its parent.
+
+   The cap is in vh so it shrinks on a short window instead of assuming a tall
+   one -- a fixed pixel cap measured on one screen is the bug this codebase
+   keeps rediscovering. 28vh is ~236px on his phone, about four rows, so a
+   5-printing list scrolls by one row and a 3-printing list does not scroll at
+   all. */
+.ci-printings-list {
+  max-height: 28vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
    These were inline styles on the element. Moved into a class so the desktop
    pane can override them; an inline style cannot be beaten by a stylesheet,
@@ -3812,25 +3845,12 @@ button, input, select, textarea {
     padding: 0.5rem 0.8rem;
   }
 
-  /* OTHER PRINTINGS: THE ONLY THING THAT SCROLLS.
-     Zach: "other printings should be a dropdown I can toggle so I can hide the
-     other printings. It should default closed... Also that is the only thing
-     that should be scrollable."
-
-     WHY THIS IS SCOPED INSIDE THE INLINE PANE and the list itself is capped
-     rather than the pane made taller: the printings list is unbounded (some
-     cards have 20+ printings) while everything else on the tab is a fixed
-     handful of rows. Letting an unbounded list size the pane is what pushed
-     Edit Card off the bottom.
-
-     The cap is in vh so it shrinks on his short 731px-tall desktop rather than
-     assuming a tall window -- a fixed pixel cap measured on one screen is the
-     bug this app keeps rediscovering. */
-  .card-inspector-inline .ci-printings-list {
-    max-height: 28vh;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
+  /* OTHER PRINTINGS: the cap itself is UNSCOPED (see .ci-printings-list near
+     .card-inspector .ci-scroll). This block is intentionally empty of the
+     height rule now -- scoping it to the pane meant the PHONE modal had
+     `max-height: none`, the list ran 154px past the viewport, and Edit Card
+     went with it. Measured on Waste Not: list bottom 998 against an 844
+     viewport. */
 
   /* The chevron itself is UNSCOPED (see .ci-printings near .card-inspector
      .ci-scroll) because the phone modal renders the same disclosure. Only the
