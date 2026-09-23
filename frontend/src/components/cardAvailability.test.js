@@ -84,18 +84,49 @@ test('AV-TC4: the tab is also honest about the printing it is OPEN on', () => {
   assert.ok('inspector.availableToUse' in en && 'inspector.availableOfOwned' in en,
     'both strings must exist');
 
-  // THE CONDITION MUST BE REACHABLE, not merely present.
+  // THE ROW IS NO LONGER CONDITIONAL AT ALL.
   //
-  // My first version asserted the label existed and passed with the row gated
-  // behind `false && thisPrintingCommitted > 0` -- rendering nothing, forever,
-  // while the test stayed green. That is this project's recurring UI blind
-  // spot: a control that exists in the source and never reaches the screen.
-  // Assert the spread is gated ONLY on the real condition.
-  const spread = code.slice(code.indexOf('...(thisPrintingCommitted'),
-                            code.indexOf("t('inspector.availableToUse')"));
-  assert.match(spread, /^\.\.\.\(thisPrintingCommitted > 0\s*$/m,
-    'the row must be gated on the committed count alone -- no constant that '
-    + 'can silently disable it while the label still exists in the source');
+  // This used to assert the row was gated on `thisPrintingCommitted > 0` and
+  // on nothing else -- a reachability guard, because an earlier version passed
+  // while the row sat behind `false &&` and never rendered.
+  //
+  // The REQUIREMENT changed (2026-09-23). Zach: "there is an available to use
+  // section in the yours tab for some cards (ones in decks) and not for other
+  // cards (not in decks) available to use should always show." A row that
+  // appears and disappears is one you have to notice rather than read; on a
+  // card with nothing committed its absence read as missing data rather than
+  // as zero.
+  //
+  // So the guard is now the stronger one: the row must not be gated by
+  // ANYTHING. The old assertion would have made a correct fix look like a
+  // regression, which is the trap this file has fallen into before.
+  assert.doesNotMatch(code, /\.\.\.\(thisPrintingCommitted > 0/,
+    'the availability row must NOT be conditional on the committed count');
+  assert.match(code, /\[t\('inspector\.availableToUse'\),/,
+    'it must be an unconditional entry in the rows array');
+});
+
+test('AV-TC4b: the "(x in decks)" parenthetical only appears when it is true', () => {
+  // Zach: "for cards not in a deck the count should reflect appropriately and
+  // for cards in decks it should reflect appropriately but also with (x in
+  // decks) in parenthesis."
+  //
+  // So an uncommitted card reads "4 of 4 free" and a committed one reads
+  // "1 of 4 free (3 in decks)". Rendering "(0 in decks)" would be noise
+  // dressed as information -- the density complaint that caused the row to be
+  // hidden in the first place, reintroduced in a smaller costume.
+  assert.ok('inspector.availableOfOwnedInDecks' in en,
+    'the committed-case string must exist');
+  assert.match(en['inspector.availableOfOwnedInDecks'], /\{available\}/);
+  assert.match(en['inspector.availableOfOwnedInDecks'], /\{owned\}/);
+  assert.match(en['inspector.availableOfOwnedInDecks'], /\{committed\}/,
+    'the parenthetical must interpolate the committed count');
+  // The plain string must NOT mention decks: it is the one used when none are.
+  assert.doesNotMatch(en['inspector.availableOfOwned'], /decks/,
+    'the uncommitted string must not claim anything about decks');
+  // And the component must actually choose between them on the committed count.
+  assert.match(code, /thisPrintingCommitted > 0\s*\n?\s*\?/,
+    'the component must branch on whether anything is committed');
 });
 
 test('AV-TC5: availability is the SERVER\'s number, not a second calculation', () => {

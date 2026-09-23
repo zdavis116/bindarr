@@ -689,9 +689,21 @@ function CardInspectorModal({
           goes, including off-screen.
           As a flex row it cannot be anywhere the panel is not.
 
-          Not rendered inline: the pane always shows a card (the commander on
-          load), so closing it would leave an empty column and no way back. */}
-      {!inline && (
+          SHOWN INLINE TOO, AS OF 2026-09-23. It used to be modal-only, on the
+          reasoning that "the pane always shows a card (the commander on load),
+          so closing it would leave an empty column and no way back."
+
+          Zach: "being able to close the right panel card description like if I
+          am looking for a card click it and then navigate away and the card
+          isnt on screen anymore I would like to be hide it."
+
+          The premise was what was wrong, not the logic: the pane does NOT have
+          to keep occupying the column. Closing it now removes it and gives the
+          width back to the list, and the way back is tapping any card -- which
+          is how it was opened in the first place. Each pane owns that
+          behaviour, because each owns its own selection state; this button
+          only reports the intent. */}
+      {(!inline || onClose) && (
         <div style={{
           order: -1,
           width: '100%',
@@ -769,26 +781,6 @@ function CardInspectorModal({
                 transition: 'transform 0.2s ease'
               }}
             />
-            {/* FLIP. Rendered only when there IS a second face -- a
-                single-faced card must not grow a button that does nothing. */}
-            {view.back_image_url && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setShowBack(v => !v); }}
-                style={{
-                  position: 'absolute', right: 10, bottom: 10,
-                  display: 'flex', alignItems: 'center', gap: '0.35rem',
-                  minHeight: 34, padding: '0 0.7rem',
-                  borderRadius: 'var(--radius-md)', border: 0,
-                  background: 'rgba(0,0,0,0.72)', color: '#fff',
-                  font: 'inherit', fontSize: '0.78rem', fontWeight: 600,
-                  cursor: 'pointer', zIndex: 2,
-                }}
-              >
-                <RefreshCw size={13} />
-                {showBack ? view.name : view.back_name}
-              </button>
-            )}
             <div style={{
               position: 'absolute',
               bottom: '0.6rem',
@@ -908,6 +900,50 @@ function CardInspectorModal({
                 count: (isBasicLand ? deckUse.owned : deckUse.ownedThisPrinting) ?? 0
               })}` : ''}
             </p>
+
+            {/* FLIP, BELOW THE IDENTITY LINE -- NOT ON THE ART.
+                Zach: "the flip toggle practically covers all the card art that
+                shouldnt be that way. Maybe the flip should be under the mythic
+                - 1x owned since there is space there."
+
+                It was absolutely positioned bottom-right INSIDE the image
+                wrapper, and its label is the other face's full name -- "The
+                Sensational She-Hulk" -- so the button was as wide as the card
+                and sat across the artwork. The control for looking at the card
+                was covering the card.
+
+                Here it is a normal element in the flow, under the set/rarity
+                line, which is the dead space he pointed at. Rendered only when
+                there IS a second face: a single-faced card must not grow a
+                button that does nothing. */}
+            {view.back_image_url && (
+              <button
+                type="button"
+                onClick={() => setShowBack(v => !v)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  marginTop: '0.5rem',
+                  minHeight: 32, padding: '0 0.7rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-glass)',
+                  background: 'var(--surface-2)', color: 'var(--text-primary)',
+                  font: 'inherit', fontSize: '0.78rem', fontWeight: 600,
+                  cursor: 'pointer',
+                  // The face name can be long ("The Sensational She-Hulk"), and
+                  // in a narrow pane an unclamped label would push the header
+                  // wider than the column. Truncate the NAME, never the icon:
+                  // the icon is what makes it recognisably a flip control.
+                  maxWidth: '100%',
+                }}
+              >
+                <RefreshCw size={13} style={{ flexShrink: 0 }} />
+                <span style={{
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {showBack ? view.name : view.back_name}
+                </span>
+              </button>
+            )}
 
             {/* THREE TABS. Each answers a different question, which is the
                 only thing that justifies a tap: what the card IS, what you
@@ -1198,16 +1234,42 @@ function CardInspectorModal({
                     // than the panel about it. Zach's AKH Mountain: 6 owned, 6
                     // sleeved, 0 free.
                     //
-                    // Rendered only when something IS committed. On a card with
-                    // nothing in a deck the row would state a fact with no
-                    // consequence, and this tab is already dense.
-                    ...(thisPrintingCommitted > 0
-                      ? [[t('inspector.availableToUse'),
-                          thisPrintingAvailable > 0
-                            ? t('inspector.availableOfOwned', {
-                                available: thisPrintingAvailable, owned: ownedCopies })
-                            : t('inspector.allInDecks', { count: thisPrintingCommitted })]]
-                      : []),
+                    // AVAILABILITY OF *THIS* PRINTING, ALWAYS SHOWN.
+                    //
+                    // Zach: "there is an available to use section in the yours
+                    // tab for some cards (ones in decks) and not for other
+                    // cards (not in decks) available to use should always show."
+                    //
+                    // It used to render only when something was committed, on
+                    // the reasoning that "0 in decks" is a fact with no
+                    // consequence and this tab is dense. That was wrong, and
+                    // the failure is the interesting kind: a row that comes and
+                    // goes is not a row you can READ, it is one you have to
+                    // NOTICE. Scanning a binder card by card, "Available: 4"
+                    // present on one card and absent on the next reads as
+                    // missing data, not as zero -- so the honest answer was
+                    // being delivered as an ambiguity.
+                    //
+                    // A row that is always there has a stable position, which
+                    // is what makes a number glanceable.
+                    //
+                    // THE PARENTHETICAL ONLY APPEARS WHEN IT SAYS SOMETHING.
+                    // Zach: "for cards not in a deck the count should reflect
+                    // appropriately and for cards in decks it should reflect
+                    // appropriately but also with (x in decks) in parenthesis."
+                    // So an uncommitted card reads "4 of 4" and a committed one
+                    // reads "1 of 4 (3 in decks)" -- never "(0 in decks)",
+                    // which is noise dressed as information.
+                    [t('inspector.availableToUse'),
+                      thisPrintingCommitted > 0
+                        ? (thisPrintingAvailable > 0
+                            ? t('inspector.availableOfOwnedInDecks', {
+                                available: thisPrintingAvailable,
+                                owned: ownedCopies,
+                                committed: thisPrintingCommitted })
+                            : t('inspector.allInDecks', { count: thisPrintingCommitted }))
+                        : t('inspector.availableOfOwned', {
+                            available: thisPrintingAvailable, owned: ownedCopies })],
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{
                       display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
@@ -1220,45 +1282,20 @@ function CardInspectorModal({
                   ))}
                 </div>
 
-                {/* BUY THIS CARD. Zach: "it would be nice as well to have a
-                    button that takes you right to the card in manapool whether
-                    the price is clickable or something else in the card
-                    detail."
+                {/* THE BUY LINK MOVED TO THE ANCHORED FOOTER, beside Edit Card.
+                    Zach: "I think the buy on mana pool should be a little
+                    button next to edit card."
 
-                    A full-width button rather than only the small icons in the
-                    printings list: this is the printing the sheet is open on,
-                    and it is the one he is most likely to want.
+                    It used to be a full-width button here, mid-scroll, which
+                    made it both the widest thing on the tab and something you
+                    had to scroll to. Both it and Edit Card are ACTIONS on this
+                    card, so they belong together at the bottom where actions
+                    live -- and neither should cost a scroll.
 
-                    Rendered ONLY when the marketplace actually returned a URL
-                    for this printing. A link built from set code and number
-                    would 404 on anything the marketplace does not carry, and a
-                    dead buy button is worse than none. */}
-                {thisPrinting?.price_url && (
-                  <a
-                    href={thisPrinting.price_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      gap: '0.4rem', width: '100%', marginBottom: '0.85rem',
-                      padding: '0.7rem', borderRadius: 10,
-                      background: 'var(--surface-2)',
-                      border: '1px solid var(--border-glass)',
-                      color: 'var(--accent-blue, #0a84ff)',
-                      fontSize: '0.82rem', fontWeight: 600, textDecoration: 'none',
-                    }}
-                  >
-                    <ExternalLink size={14} />
-                    {t('inspector.buyOn', { source: thisPrinting.price_source_label })}
-                    {/* Stock, because a price with nothing behind it is a quote
-                        rather than an offer. */}
-                    {thisPrinting.price_available_qty > 0 && (
-                      <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
-                        · {t('inspector.inStock', { count: thisPrinting.price_available_qty })}
-                      </span>
-                    )}
-                  </a>
-                )}
+                    The stock count survives the move: a price with nothing
+                    behind it is a quote rather than an offer. It renders as a
+                    separate line under the footer, because putting it inside a
+                    "little button" would make the button wide again. */}
 
                 {/* SAY THAT THIS IS THE ITEM PRICE.
                     Zach found a $32.99 LP copy sitting below a $33.73 NM one on
@@ -1297,25 +1334,53 @@ function CardInspectorModal({
                     list in the app and would not answer a question he has. */}
                 {!isBasicLand && printings && printings.length > 1 && (
                   <div style={{ marginBottom: '0.85rem' }}>
-                    <div style={{
-                      fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
-                      textTransform: 'uppercase', color: 'var(--text-muted)',
-                      marginBottom: '0.4rem',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                    }}>
-                      <span>{t('inspector.otherPrintings')}</span>
-                      {/* States the fact plainly rather than leaving him to
-                          infer it from an absence. */}
-                      <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
-                        {/* Only when it is TRUE. It was unconditional,
-                            printed over a list containing the printing he
-                            owns. */}
-                        {(deckUse?.printings || []).some(pr => (pr.owned_qty || 0) > 0)
-                          ? t('inspector.ownSomeOfThese')
-                          : t('inspector.ownNoneOfThese')}
-                      </span>
-                    </div>
-                    <div style={{
+                    {/* COLLAPSIBLE, DEFAULT CLOSED.
+                        Zach: "other printings should be a dropdown I can toggle
+                        so I can hide the other printings. It should default
+                        closed and then I can toggle it open."
+
+                        This list is the longest thing on the tab -- MSH alone
+                        gave Jennifer Walters three rows -- and it pushed Edit
+                        Card off the bottom of the pane. Open by default, it
+                        made the ANSWER (what do I own, what is it worth) cost a
+                        scroll past a list that is only needed when choosing
+                        between printings.
+
+                        A <details> element rather than a useState toggle: the
+                        browser owns the open/closed state and the disclosure
+                        semantics, which means keyboard and screen readers work
+                        without this component reimplementing either. */}
+                    <details className="ci-printings">
+                      <summary style={{
+                        fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                        textTransform: 'uppercase', color: 'var(--text-muted)',
+                        marginBottom: '0.4rem', cursor: 'pointer',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                        gap: '0.5rem',
+                        // The default triangle is replaced by a rotating chevron
+                        // in CSS (.ci-printings), so the marker is hidden here.
+                        listStyle: 'none',
+                      }}>
+                        {/* THE COUNT IS ON THE CLOSED ROW. A collapsed section
+                            that says only "Other printings" hides whether there
+                            is anything worth opening; "Other printings (3)" is
+                            a reason to tap or not to. */}
+                        <span>
+                          {t('inspector.otherPrintings')}
+                          {` (${printings.filter(pr => pr.id !== (deckUse?.card_id || catalogueId)).length})`}
+                        </span>
+                        {/* States the fact plainly rather than leaving him to
+                            infer it from an absence. */}
+                        <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
+                          {/* Only when it is TRUE. It was unconditional,
+                              printed over a list containing the printing he
+                              owns. */}
+                          {(deckUse?.printings || []).some(pr => (pr.owned_qty || 0) > 0)
+                            ? t('inspector.ownSomeOfThese')
+                            : t('inspector.ownNoneOfThese')}
+                        </span>
+                      </summary>
+                    <div className="ci-printings-list" style={{
                       background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)',
                       borderRadius: 'var(--radius-md)', overflow: 'hidden',
                     }}>
@@ -1481,6 +1546,7 @@ function CardInspectorModal({
                           );
                         })}
                     </div>
+                    </details>
                   </div>
                 )}
 
@@ -1498,35 +1564,93 @@ function CardInspectorModal({
                     and delete should live as well." Editing, favouriting and
                     deleting all act on a COLLECTION ROW, so they belong on the
                     tab that describes it -- and only when one exists. */}
-                {ownedEntry && !readOnly && (
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
-                    <button
-                      className="btn btn-primary"
-                      style={{ flex: 1 }}
-                      onClick={() => setMode('edit')}
-                    >
-                      {t('inspector.editCard')}
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
-                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
-                      onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
-                      title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
-                    >
-                      <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-icon-only"
-                      style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
-                      onClick={handleDelete}
-                      title={t('inspector.deleteCard')}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                {/* ANCHORED ACTIONS. Zach: "Edit Card should always be visible
+                    at the bottom no need to scroll to it. And I think the buy
+                    on mana pool should be a little button next to edit card."
+
+                    .ci-footer-acts is the existing sticky footer the deck
+                    view's Remove-from-deck button already uses -- reused, not
+                    reinvented, so both panes anchor the same way and a change
+                    to one cannot leave the other scrolling.
+
+                    Edit Card FLEXES and the rest are fixed-width icons: the
+                    primary action should absorb the spare room, and "a little
+                    button" is exactly an icon-sized one. */}
+                {(ownedEntry && !readOnly) || thisPrinting?.price_url ? (
+                  <div className="ci-footer-acts">
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {ownedEntry && !readOnly && (
+                        <button
+                          className="btn btn-primary"
+                          style={{ flex: 1 }}
+                          onClick={() => setMode('edit')}
+                        >
+                          {t('inspector.editCard')}
+                        </button>
+                      )}
+                      {/* BUY, ONLY WITH A REAL URL. A link built from set code
+                          and number would 404 on anything the marketplace does
+                          not carry, and a dead buy button is worse than none.
+                          Kept as an <a> so middle-click and "open in new tab"
+                          behave the way a link should. */}
+                      {thisPrinting?.price_url && (
+                        <a
+                          href={thisPrinting.price_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary"
+                          title={t('inspector.buyOn', { source: thisPrinting.price_source_label })}
+                          aria-label={t('inspector.buyOn', { source: thisPrinting.price_source_label })}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                            // Grows to a labelled button when it is the ONLY
+                            // action (a card he does not own has no Edit), and
+                            // stays small beside Edit when both are present.
+                            flex: ownedEntry && !readOnly ? '0 0 auto' : 1,
+                            justifyContent: 'center',
+                            color: 'var(--accent-blue, #0a84ff)',
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <ExternalLink size={15} />
+                          {!(ownedEntry && !readOnly) && t('inspector.buyOn', {
+                            source: thisPrinting.price_source_label })}
+                        </a>
+                      )}
+                      {ownedEntry && !readOnly && (
+                        <>
+                          <button
+                            type="button"
+                            className={`btn ${favorite === 1 ? 'btn-primary' : 'btn-secondary'} btn-icon-only`}
+                            style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                            onClick={() => handleQuickToggle('favorite', favorite === 1 ? 0 : 1)}
+                            title={t(favorite === 1 ? 'inspector.unfavorite' : 'inspector.favorite')}
+                          >
+                            <Star size={16} fill={favorite === 1 ? '#facc15' : 'none'} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-icon-only"
+                            style={{ borderRadius: 'var(--radius-sm)', padding: '0.6rem' }}
+                            onClick={handleDelete}
+                            title={t('inspector.deleteCard')}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {/* STOCK UNDER THE ROW, not inside the button. */}
+                    {thisPrinting?.price_url && thisPrinting.price_available_qty > 0 && (
+                      <div style={{
+                        fontSize: '0.68rem', color: 'var(--text-muted)',
+                        textAlign: 'center', marginTop: '0.35rem',
+                      }}>
+                        {t('inspector.inStock', { count: thisPrinting.price_available_qty })}
+                      </div>
+                    )}
                   </div>
-                )}
+                ) : null}
 
                 {/* FROM A DECK, delete means REMOVE FROM THIS DECK. Zach: "The
                     delete when coming from deck view should delete the card

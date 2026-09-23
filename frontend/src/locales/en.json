@@ -789,6 +789,7 @@
   "inspector.allInDecks": "{count} in decks",
   "inspector.availability": "Availability",
   "inspector.availableOfOwned": "{available} of {owned} free",
+  "inspector.availableOfOwnedInDecks": "{available} of {owned} free ({committed} in decks)",
   "inspector.availableToUse": "Available to use",
   "inspector.buyOn": "Buy on {source}",
   "inspector.cardUpdated": "Card updated.",

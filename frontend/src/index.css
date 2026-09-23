@@ -1087,6 +1087,38 @@ button, input, select, textarea {
   -webkit-overflow-scrolling: touch;
 }
 
+/* OTHER PRINTINGS DISCLOSURE -- SHARED BY BOTH SURFACES, UNSCOPED.
+   The <details> renders in the phone modal AND the desktop pane. The scroll
+   cap below is desktop-only (the pane has a fixed height to protect; the modal
+   scrolls as one sheet), but the MARKER styling is shared design and belongs
+   out here.
+
+   Scoping shared design inside a media query is this codebase's most frequent
+   layout bug -- one side of the breakpoint silently gets browser defaults. Put
+   the common rule here; put only the genuine difference in the media query. */
+.ci-printings > summary::-webkit-details-marker,
+.ci-printings > summary::marker {
+  display: none;
+  content: '';
+}
+
+.ci-printings > summary::after {
+  content: '';
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+}
+
+.ci-printings[open] > summary::after {
+  transform: rotate(-135deg);
+}
+
 /* The header holds the art, the identity block and the tabs. It must not
    shrink, or a long rules text would squeeze the card image away. */
 .card-inspector .ci-head {
@@ -3701,6 +3733,31 @@ button, input, select, textarea {
     font-size: 0.84rem;
     padding: 0.5rem 0.8rem;
   }
+
+  /* OTHER PRINTINGS: THE ONLY THING THAT SCROLLS.
+     Zach: "other printings should be a dropdown I can toggle so I can hide the
+     other printings. It should default closed... Also that is the only thing
+     that should be scrollable."
+
+     WHY THIS IS SCOPED INSIDE THE INLINE PANE and the list itself is capped
+     rather than the pane made taller: the printings list is unbounded (some
+     cards have 20+ printings) while everything else on the tab is a fixed
+     handful of rows. Letting an unbounded list size the pane is what pushed
+     Edit Card off the bottom.
+
+     The cap is in vh so it shrinks on his short 731px-tall desktop rather than
+     assuming a tall window -- a fixed pixel cap measured on one screen is the
+     bug this app keeps rediscovering. */
+  .card-inspector-inline .ci-printings-list {
+    max-height: 28vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* The chevron itself is UNSCOPED (see .ci-printings near .card-inspector
+     .ci-scroll) because the phone modal renders the same disclosure. Only the
+     scroll cap above is desktop-only, and only because the pane has a fixed
+     height to protect. */
 
   /* DELETE DECK STAYS SMALL.
      It was width:100% under a single column, which was fine at 390px and

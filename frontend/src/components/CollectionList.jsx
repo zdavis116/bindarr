@@ -138,6 +138,24 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
   const [viewMode, setViewMode] = useState('gallery');
   const [inspectorCard, setInspectorCard] = useState(null);
 
+  // TAPPING THE OPEN CARD CLOSES THE PANE.
+  //
+  // Zach asked for both an X button and click-again, and the deck view has the
+  // same rule (selectDeckCard). Kept as a named function rather than inline at
+  // the two tap sites -- the grid tile and the list row -- because two copies
+  // of a toggle is how the grid and the list end up behaving differently.
+  //
+  // Compares the ENTRY id, not the card id: two rows of the same card are two
+  // different things to open, and collapsing them here would make tapping the
+  // second one close the pane instead of switching to it.
+  const openInspector = (card) => {
+    const id = card.entry_id || card.id;
+    setInspectorCard(prev => {
+      const openId = prev && (prev.entry_id || prev.id);
+      return String(openId) === String(id) ? null : card;
+    });
+  };
+
   // WHERE THE PANE STARTS, measured. The inline inspector sets its height from
   // --pane-top (index.css). Without it the fallback guess leaves the body row
   // ~23px tall and the card looks empty. Page offset, not viewport offset:
@@ -815,7 +833,7 @@ const cardTypesOf = (card) => {
                   toggleGroup(card, e?.shiftKey);
                   return;
                 }
-                setInspectorCard(card);
+                openInspector(card);
               }}
             />
           )}
@@ -838,7 +856,7 @@ const cardTypesOf = (card) => {
                   toggleGroup(card, e.shiftKey);
                   return;
                 }
-                setInspectorCard(card);
+                openInspector(card);
               }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.7rem', width: '100%',

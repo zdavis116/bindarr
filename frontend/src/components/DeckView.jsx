@@ -150,8 +150,37 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // The commander is the default subject. Falls back to the first card for a
   // deck with no command zone (a 60-card deck), and is null only for an empty
   // deck, which is the one case the pane does not render.
+  // DISMISSED, as distinct from "nothing selected".
+  //
+  // The pane falls back to the commander when nothing is selected, which is
+  // what makes it useful on load -- but it also means clearing the selection
+  // cannot close it. Without a separate flag, closing the pane would instantly
+  // reopen it on the commander.
+  //
+  // Zach: "being able to close the right panel... I would like to be hide it."
+  // So dismissal is its own state, and ANY new selection clears it -- tapping a
+  // card is the way back, exactly as it is on the collection screen.
+  const [detailDismissed, setDetailDismissed] = useState(false);
+
+  // SELECTING A CARD, from anywhere in the deck view.
+  //
+  // One function because "tap a card" must mean the same thing on every list
+  // in this screen, and because tapping the ALREADY-SELECTED card toggles the
+  // pane shut (Zach asked for both an X and click-again). Two call sites doing
+  // this inline is how they would drift.
+  const selectDeckCard = (id) => {
+    setDetailDismissed(prev => {
+      const sameCard = String(selectedCardId) === String(id);
+      // Re-tapping the open card closes it; any other tap opens that card.
+      if (sameCard && !prev) return true;
+      return false;
+    });
+    setSelectedCardId(id);
+  };
+
   const detailCard = useMemo(() => {
     if (!isDesktop) return null;
+    if (detailDismissed) return null;
     const pick = selectedCardId
       ? cards.find(c => String(c.id) === String(selectedCardId))
       : null;
@@ -163,7 +192,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     // pane cannot delete a collection row that happens to share an id -- the
     // exact confusion the modal's onRemoveFromDeck comment warns about.
     return { ...chosen, deckCardId: chosen.id };
-  }, [isDesktop, selectedCardId, cards]);
+  }, [isDesktop, selectedCardId, cards, detailDismissed]);
 
   // HOW FAR DOWN THE PAGE THE DETAIL PANE STARTS.
   //
@@ -1106,7 +1135,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           onSelectCard={(c) => {
             // Same routing as every other row on this screen: the pinned pane
             // on desktop, the modal on the phone.
-            if (isDesktop) setSelectedCardId(c.id);
+            if (isDesktop) selectDeckCard(c.id);
             else setInspecting(c);
           }}
           onOverrideRole={overrideRole}
@@ -1240,7 +1269,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                       opening a modal over the list you are working through. */}
                   <button
                     type="button"
-                    onClick={() => (isDesktop ? setSelectedCardId(card.id) : setInspecting(card))}
+                    onClick={() => (isDesktop ? selectDeckCard(card.id) : setInspecting(card))}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '0.6rem',
                       flex: 1, minWidth: 0, padding: 0, border: 0,
@@ -1366,7 +1395,17 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               deckId={deck?.id}
               deckCardId={detailCard.deckCardId ?? null}
               onRepointed={() => { onChanged && onChanged(); setRepointVersion(v => v + 1); }}
-              onClose={() => {}}
+              /* CLOSING THE PANE ACTUALLY CLOSES IT.
+                 This was `() => {}` -- a no-op -- so the deck view's pane could
+                 not be dismissed at all while the collection's could. Zach
+                 asked for one behaviour everywhere: "this pane setup and
+                 functionally should be the same for every pane including when
+                 in the deck view."
+
+                 Clearing the selection is what hides the pane, because the
+                 wrapper above renders on `detailCard`. The deck's own default
+                 (the commander) returns the next time a card is tapped. */
+              onClose={() => { setSelectedCardId(null); setDetailDismissed(true); }}
               showToast={showToast}
               onRemoveFromDeck={removeCard}
               deckName={deck?.name || null}
