@@ -12,6 +12,12 @@ const { authenticateToken, searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, resolvePricedCard, parseCardRow, recordPrice,
         marketplacePriceJoin, selectedShop, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
+// THE BASIC-LAND RULE, IMPORTED. This endpoint had its own per-printing
+// coverage arithmetic while deckIdentity pooled basics by name, and the two
+// disagreed on Zach's screen: three decks read "Not owned" beside an
+// availability panel saying 69 free. Importing the predicate means the two
+// cannot drift again -- the same reason the frontend has one basicLands.js.
+const { isBasicLandTypeLine } = require('../utils/deckIdentity');
 const { compartmentLabel, isBinderType, rebalanceCompartmentByScheme } = require('../utils/compartmentSort');
 const { checkedOutAllocation, inDeckQuantities, resolveCompartmentAndPosition, describePlacement } = require('../utils/collectionHelpers');
 const { splitPrice } = require('../utils/splitPrice');
@@ -275,9 +281,41 @@ router.get('/card/:cardId/decks', async (req, res) => {
         GROUP BY c.card_id, c.finish`,
       [card.oracle_id, req.user.id]
     );
-    const ownedByVariant = new Map(
-      ownedVariantRows.map(o => [`${o.card_id}|${o.finish}`, Number(o.n || 0)])
-    );
+    // BASIC LANDS POOL ACROSS EVERY PRINTING.
+    //
+    // Zach: "I have islands in all 4 of my decks and only one is showing owned
+    // which isn't right?" He owns 73 Islands across 25 printings and his decks
+    // want 24 -- every one of them covered. This tab said three were "Not
+    // owned" and reported "Reserved by decks: 4".
+    //
+    // The cause is that the pooling rule existed on the DECK side only
+    // (deckIdentity.ownedQuantity, which this endpoint does not call), so this
+    // screen kept its own per-printing answer. His decks want MSH #289, TRK
+    // #319 and J25 #86; he happens to hold 4 of MSH #289, so exactly the one
+    // deck whose exact printing he owned read "Covered" and the rest read as
+    // gaps -- while the AVAILABILITY panel directly below, computed from the
+    // oracle-wide total, said 69 free. Two numbers on ONE SCREEN contradicting
+    // each other, which is the worst version of this because there is no way
+    // for him to tell which one to trust.
+    //
+    // A basic is fungible: any Island fills an Island slot. So the key drops
+    // to the card NAME, which is the same field deckIdentity pools on -- not a
+    // second definition that could drift from it. Non-basics keep the exact
+    // printing, because for them the printing genuinely is a different object
+    // at a different price (the 2XM #58 / BRC #87 case above).
+    const isBasic = isBasicLandTypeLine(card.type_line);
+    const variantKey = (cardId, finish, name) =>
+      isBasic ? `basic|${name}` : `${cardId}|${finish}`;
+
+    const ownedByVariant = new Map();
+    for (const o of ownedVariantRows) {
+      // FINISH IS POOLED TOO for a basic. A foil Island still taps for blue
+      // and still fills the slot; his 2 foil Islands are as usable as the
+      // other 71. Keeping finish in the key would have left a deck short while
+      // he held a card that fills it -- the same bug in a smaller costume.
+      const key = variantKey(o.card_id, o.finish, card.name);
+      ownedByVariant.set(key, (ownedByVariant.get(key) || 0) + Number(o.n || 0));
+    }
 
     // Claims are still consumed in deck_cards.id order -- the id never changes,
     // so a physical card cannot silently move between decks -- but now within
@@ -287,7 +325,7 @@ router.get('/card/:cardId/decks', async (req, res) => {
         r.covered = null;   // a shopping note claims nothing
         continue;
       }
-      const key = `${r.desired_card_id}|${r.desired_finish}`;
+      const key = variantKey(r.desired_card_id, r.desired_finish, card.name);
       const have = ownedByVariant.get(key) || 0;
       const want = r.quantity || 0;
       r.covered = have >= want;
@@ -297,14 +335,26 @@ router.get('/card/:cardId/decks', async (req, res) => {
     // `reserved` must match: only copies claimed against a printing he owns.
     // Reporting a claim on a card he does not have makes "Free to use" lie in
     // the other direction.
-    const reservedOwned = ownedVariantRows.reduce((n, o) => {
-      const claimed = rows
-        .filter(r => r.board !== 'considering'
-                  && r.desired_card_id === o.card_id
-                  && r.desired_finish === o.finish)
-        .reduce((m, r) => m + (r.quantity || 0), 0);
-      return n + Math.min(Number(o.n || 0), claimed);
-    }, 0);
+    //
+    // POOLED FOR BASICS, for the same reason and with the same key. This read
+    // "Reserved by decks: 4" while 24 Islands were spoken for, because it
+    // credited only claims whose exact printing he held. The panel and the
+    // per-deck rows above are now the SAME arithmetic; when they disagreed,
+    // one of them was always lying and the screen gave no way to tell which.
+    const reservedOwned = isBasic
+      ? Math.min(
+          ownedVariantRows.reduce((n, o) => n + Number(o.n || 0), 0),
+          rows.filter(r => r.board !== 'considering')
+              .reduce((n, r) => n + (r.quantity || 0), 0)
+        )
+      : ownedVariantRows.reduce((n, o) => {
+          const claimed = rows
+            .filter(r => r.board !== 'considering'
+                      && r.desired_card_id === o.card_id
+                      && r.desired_finish === o.finish)
+            .reduce((m, r) => m + (r.quantity || 0), 0);
+          return n + Math.min(Number(o.n || 0), claimed);
+        }, 0);
 
     // YOUR COPIES OF THIS PRINTING.
     //
