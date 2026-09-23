@@ -1218,6 +1218,33 @@ function CardInspectorModal({
                               + (thisPrinting.price_condition
                                   ? ` ${thisPrinting.price_condition}`
                                   : '')
+                              // STOCK AND THE SHIPPING CAVEAT BELONG TO THE
+                              // PRICE, so they render ON the price row.
+                              //
+                              // Zach: "why is 152 in stock floating at the
+                              // bottom and the item price no shipping is
+                              // awkwardly floating there as well".
+                              //
+                              // Both were positioned against the full-width
+                              // Buy button that used to sit mid-tab. When that
+                              // moved into the anchored footer, "item price,
+                              // before shipping" kept a -0.5rem margin meant to
+                              // tuck under it and "152 in stock" was left
+                              // stranded below the action row -- two captions
+                              // with nothing left to caption.
+                              //
+                              // They are facts ABOUT THIS NUMBER: what the
+                              // price excludes, and whether anyone is actually
+                              // selling at it. Attached to the number, they
+                              // read as qualifiers; floating free, they read as
+                              // stray text.
+                              + (thisPrinting.price_available_qty > 0
+                                  ? ` · ${t('inspector.inStock', {
+                                      count: thisPrinting.price_available_qty })}`
+                                  : '')
+                              + (thisPrinting.price_source !== 'scryfall'
+                                  ? ` · ${t('inspector.itemPrice')}`
+                                  : '')
                             : '')
                       : null],
                     // AVAILABILITY OF *THIS* PRINTING, on the tab that claims
@@ -1304,15 +1331,11 @@ function CardInspectorModal({
                     what this number IS rather than imply it is what he will
                     pay. Delivered cost depends on the whole order and comes
                     from the optimizer. */}
-                {thisPrinting?.price_source && thisPrinting.price_source !== 'scryfall' && (
-                  <div style={{
-                    marginTop: '-0.5rem', marginBottom: '0.85rem',
-                    fontSize: '0.68rem', color: 'var(--text-tertiary)',
-                    textAlign: 'center',
-                  }}>
-                    {t('inspector.itemPrice')}
-                  </div>
-                )}
+                {/* The "item price, before shipping" caption and the stock
+                    count now render ON the Value row above -- see the comment
+                    there. They were standalone divs positioned against the
+                    old full-width Buy button, and were left floating when it
+                    moved into the anchored footer. */}
 
                 {/* OTHER PRINTINGS. The mockup's reason for existing: Zach
                     found four "identical" Tony Starks that were different
@@ -1636,15 +1659,6 @@ function CardInspectorModal({
                         </>
                       )}
                     </div>
-                    {/* STOCK UNDER THE ROW, not inside the button. */}
-                    {thisPrinting?.price_url && thisPrinting.price_available_qty > 0 && (
-                      <div style={{
-                        fontSize: '0.68rem', color: 'var(--text-muted)',
-                        textAlign: 'center', marginTop: '0.35rem',
-                      }}>
-                        {t('inspector.inStock', { count: thisPrinting.price_available_qty })}
-                      </div>
-                    )}
                   </div>
                 ) : null}
 

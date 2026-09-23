@@ -1087,6 +1087,42 @@ button, input, select, textarea {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ACTIONS ARE ANCHORED ON BOTH SURFACES, so this rule is UNSCOPED.
+   Zach: "the delete button should be anchored at the bottom and I shouldnt
+   have to scroll to that. So really the scroll should be between the top taps
+   and any buttons at the bottom." Then again on the PHONE: "Edit card doesn't
+   anchor to the bottom when I expand printings".
+
+   The second report was caused by the first fix. This rule lived inside
+   `@media (min-width: 1024px)` as `.card-inspector-inline .ci-footer-acts`, so
+   the desktop pane anchored and the phone modal -- which renders the same
+   markup -- got an ordinary div in the flow. Expanding Other printings pushed
+   Edit Card down the page, exactly as reported.
+
+   WIDTH-SCOPING A SHARED RULE WITH NOTHING ON THE OTHER SIDE is this
+   codebase's most frequent layout bug, and this is the same mistake again.
+   Shared behaviour goes here; only genuine per-breakpoint differences belong
+   in a media query.
+
+   Sticky rather than moved in the JSX: these buttons are rendered per-tab deep
+   inside the body, and hoisting them out would mean restructuring the
+   component for all three tabs. Sticky pins them to the bottom of the
+   scrolling box while leaving them where they are in the DOM, so tab order is
+   untouched.
+
+   The opaque background matters: content scrolls UNDER this, and a
+   see-through destructive button with rules text sliding behind it is how you
+   misread which card you are removing. */
+.ci-footer-acts {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0.85rem -0.25rem 0;
+  padding: 0.6rem 0.25rem 0.1rem;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-glass);
+}
+
 /* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
    These were inline styles on the element. Moved into a class so the desktop
    pane can override them; an inline style cannot be beaten by a stylesheet,
@@ -3733,16 +3769,10 @@ button, input, select, textarea {
 
      The opaque background matters: content scrolls UNDER this, and a
      see-through destructive button with rules text sliding behind it is how
-     you misread which card you are removing. */
-  .card-inspector-inline .ci-footer-acts {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    margin: 0.85rem -0.25rem 0;
-    padding: 0.6rem 0.25rem 0.1rem;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-glass);
-  }
+     you misread which card you are removing.
+
+     THE RULE ITSELF IS UNSCOPED -- see .ci-footer-acts next to
+     .card-inspector .ci-scroll. Only pane-specific tweaks belong here. */
 
   /* THE PANE READS SMALLER SO MORE OF IT FITS.
      Zach: "the UI looks weird here being cut off. Maybe the font needs to be
