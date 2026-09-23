@@ -469,8 +469,24 @@ test('CIP-TC24: the header counts THIS printing, not every printing', () => {
   // the per-printing one would be the lie.
   assert.match(impl, /isBasicLand \? deckUse\.owned : deckUse\.ownedThisPrinting/,
     'non-basics must use the per-printing count; basics use the pool');
-  assert.match(impl, /const isBasicLand = String\(card\?\.type_line \|\| ''\)\.startsWith\('Basic Land'\)/,
-    'and the basic-land test must be the type line, not the name');
+  // THE RULE MOVED HOUSE; IT DID NOT CHANGE. This used to assert the inline
+  // `String(card?.type_line || '').startsWith('Basic Land')` written in this
+  // file. That definition now lives in utils/basicLands.js because it was one
+  // of FOUR copies of the same question (here, scanStaging.js's name list, and
+  // two on the server), and copies drift.
+  //
+  // Asserting the old literal would have made a correct de-duplication look
+  // like a regression -- the exact trap CIP-TC26 below documents. So this
+  // asserts what actually matters: the decision is made by the SHARED rule,
+  // and is not quietly re-derived here from something weaker.
+  assert.match(impl, /import \{ isBasicLand as isBasicLandCard \} from '\.\.\/utils\/basicLands'/,
+    'the basic-land rule must be imported, not re-implemented');
+  assert.match(impl, /const isBasicLand = isBasicLandCard\(card\)/,
+    'and the sheet must decide with it');
+  // The NAME is the weaker test the shared rule exists to prevent: a name list
+  // silently answers "no" for any basic it was not told about.
+  assert.doesNotMatch(impl, /const isBasicLand = .*card\?\.name/,
+    'the basic-land test must be the type line, never the card name');
   assert.doesNotMatch(impl, /t\('inspector\.owned', \{ count: deckUse\.owned \?\? 0 \}\)/,
     'the oracle-wide total must not be rendered beside a set code');
 });
