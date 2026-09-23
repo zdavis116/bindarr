@@ -101,8 +101,24 @@ test('PANE-TC4: tapping the open card closes it, on BOTH screens', () => {
   const deckTaps = deckCode.match(/setSelectedCardId\(/g) || [];
   assert.equal(deckTaps.length, 2,
     'setSelectedCardId may only appear in useState and inside selectDeckCard/onClose');
-  assert.doesNotMatch(collCode, /onClick=\{[^}]*setInspectorCard\(card\)/,
-    'collection tap sites must call openInspector, not the raw setter');
+
+  // COUNT THE RAW SETTER, do not pattern-match the handler around it.
+  //
+  // My first version asserted /onClick=\{[^}]*setInspectorCard\(card\)/ and was
+  // VACUOUS -- the mutation harness caught it. The tap handler contains `}`
+  // characters (`if (selectMode) { ... }`) before ever reaching the call, so
+  // [^}]* could never span the distance and the assertion could not fail. It
+  // was testing nothing while reading like it tested everything.
+  //
+  // setInspectorCard is legitimately used three times: the useState
+  // declaration, inside openInspector, and the two onClose handlers. Any
+  // FOURTH use is a tap site that bypassed the toggle.
+  const collSets = collCode.match(/setInspectorCard\(/g) || [];
+  assert.equal(collSets.length, 4,
+    'setInspectorCard may only appear in useState, openInspector and the two '
+    + 'onClose handlers -- a further use is a tap site bypassing the toggle');
+  assert.match(collCode, /openInspector\(card\);/,
+    'and the tap sites must call openInspector');
 });
 
 test('PANE-TC5: the flip toggle is off the artwork', () => {
@@ -134,11 +150,21 @@ test('PANE-TC6: other printings is a disclosure, closed by default', () => {
 });
 
 test('PANE-TC7: only the printings list scrolls, and the cap is viewport-relative', () => {
-  assert.match(css, /\.card-inspector-inline \.ci-printings-list \{[^}]*overflow-y: auto/,
-    'the printings list must be the scroller');
-  assert.match(css, /\.card-inspector-inline \.ci-printings-list \{[^}]*max-height: \d+vh/,
+  // SLICE THE RULE OUT, then assert on it. The earlier version used
+  // /\.ci-printings-list \{[^}]*max-height: \d+vh/ and was VACUOUS: `[^}]*`
+  // cannot cross the `}` that ends the preceding declaration block, so the
+  // pattern matched whatever happened to sit nearby rather than the rule
+  // itself. Changing 28vh to 240px left it green.
+  const start = css.indexOf('.card-inspector-inline .ci-printings-list {');
+  assert.ok(start > 0, 'the printings list must have its own rule');
+  const block = css.slice(start, css.indexOf('}', start));
+
+  assert.match(block, /overflow-y: auto/, 'the printings list must be the scroller');
+  assert.match(block, /max-height:\s*\d+(\.\d+)?vh/,
     'the cap must be in vh -- a pixel cap measured on one screen is the bug '
     + 'this codebase keeps rediscovering (his desktop is only 731px tall)');
+  assert.doesNotMatch(block, /max-height:\s*\d+px/,
+    'and must NOT be a fixed pixel height');
 });
 
 test('PANE-TC8: Edit Card and Buy are anchored, not scrolled to', () => {

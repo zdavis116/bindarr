@@ -43,7 +43,14 @@ PY
   out=$(node --test $TESTS 2>&1)
   git checkout -- "$file"
 
-  if echo "$out" | grep -q "^not ok .*$expect"; then
+  # MATCH THE TEST NAME, NOT A LINE PREFIX.
+  #
+  # `grep "^not ok .*$expect"` looked right and mis-reported AV-TC4 as vacuous:
+  # with several files in one run the failing subtest is reported as a nested
+  # `    not ok N - AV-TC4...` (indented), so the `^` anchor missed it and a
+  # genuinely-failing test was recorded as still passing. A harness that lies
+  # about a PASS is worse than no harness -- it retires a real test.
+  if echo "$out" | grep -qE "not ok [0-9]+ - $expect(:|\b)"; then
     echo "PASS [$label]: $expect went red"
   else
     echo "VACUOUS [$label]: $expect stayed green with the rule broken" >&2
