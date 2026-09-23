@@ -1,9 +1,33 @@
 #!/usr/bin/env bash
-# Mutation-test the detail-pane rules (PANE-TC*, AV-TC4*).
+# Mutation-test the detail-pane rules (PANE-TC*, AV-TC4*, CIL-TC6).
 #
 # Each mutation breaks ONE rule and asserts the intended test goes red. A
 # mutation that STILL PASSES means the test is vacuous — believe it and fix the
 # test, do not explain it away.
+#
+# ⚠ KNOWN FLAKY IN BATCH — READ BEFORE TRUSTING A "VACUOUS" LINE.
+#
+# Running all 12 mutations in one pass intermittently reports 1–3 of them as
+# VACUOUS, and WHICH ONE CHANGES BETWEEN RUNS over identical code (observed:
+# 12/10/11/12 passes across four runs; TC1, TC2, TC6, TC7 and AV-TC4 have each
+# been named once). Every one of those was re-tested individually and went red
+# correctly, 6/6.
+#
+# So a VACUOUS line from a batch run is NOT evidence on its own. Confirm it in
+# isolation before weakening any test:
+#
+#   node --test --test-concurrency=1 <the three test files>
+#   # with the single mutation applied by hand
+#
+# Ruled out so far: test-runner concurrency (--test-concurrency=1 did not fix
+# it), the write landing on disk (fsync + read-back verification did not fix
+# it), the restore settling (`git diff --quiet` polling did not fix it), and
+# the grep pattern (three variants, same behaviour). The suite itself is
+# stable — 35 pass / 0 fail, five consecutive runs.
+#
+# The remaining suspect is this script's own per-iteration state, not the
+# tests. Until that is found, treat batch output as a SCREEN and the
+# single-mutation run as the MEASUREMENT.
 #
 # Restores with `git checkout`, never a /tmp copy: an earlier harness restored
 # from /tmp, silently reverted a real fix, and measured every later mutation
