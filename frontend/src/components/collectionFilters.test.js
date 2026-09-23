@@ -160,7 +160,7 @@ test('COLF-TC6: the component still uses AT-LEAST colour matching', () => {
 // The .js extension is REQUIRED here even though the components import the
 // same file without one: Vite resolves extensionless paths, `node --test` runs
 // real Node ESM and does not.
-import { collectionGroupKey } from '../utils/basicLands.js';
+import { collectionGroupKey, isBasicLandTypeLine } from '../utils/basicLands.js';
 
 function group(rows) {
   const out = new Map();
@@ -266,6 +266,26 @@ test('GRP-TC8: SNOW-COVERED basics do not pool with plain basics', () => {
     { card_id: 'snow-mh2', name: 'Snow-Covered Mountain', type_line: 'Basic Snow Land — Mountain', quantity: 5 },
   ];
   assert.equal(group(rows).length, 2);
+});
+
+test('GRP-TC8b: the PREFIX itself rejects a snow land', () => {
+  // TC8 ABOVE IS VACUOUS ON ITS OWN, and the mutation harness proved it:
+  // widening the prefix to accept snow lands leaves TC8 green, because the two
+  // rows keep their separate tiles via their different NAMES regardless.
+  //
+  // So TC8 verifies the OUTCOME through a path that does not depend on the
+  // rule, and only this case verifies the rule. The distinction matters
+  // because the prefix is also what the inspector and the tile read to decide
+  // whether to hide a printing -- and on THAT path a widened prefix would
+  // silently strip the set code from every snow land, which is real
+  // information about a card whose printing does matter.
+  assert.equal(isBasicLandTypeLine('Basic Land — Mountain'), true);
+  assert.equal(isBasicLandTypeLine('Basic Snow Land — Mountain'), false,
+    'a snow land must NOT satisfy the basic-land rule');
+  assert.equal(isBasicLandTypeLine('Land'), false, 'a nonbasic land is not a basic');
+  assert.equal(isBasicLandTypeLine('Basic Land — Wastes'), true,
+    'Wastes is a basic, and is caught by the type line without being named');
+  assert.equal(isBasicLandTypeLine(undefined), false, 'a missing type line is not a basic');
 });
 
 test('GRP-TC5: the component uses the SHARED key, not its own copy', () => {
