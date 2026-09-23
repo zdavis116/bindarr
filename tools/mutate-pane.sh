@@ -43,14 +43,20 @@ PY
   out=$(node --test $TESTS 2>&1)
   git checkout -- "$file"
 
-  # MATCH THE TEST NAME, NOT A LINE PREFIX.
+  # MATCH THE TEST NAME AS A PREFIX, with no clever boundary.
   #
-  # `grep "^not ok .*$expect"` looked right and mis-reported AV-TC4 as vacuous:
-  # with several files in one run the failing subtest is reported as a nested
-  # `    not ok N - AV-TC4...` (indented), so the `^` anchor missed it and a
-  # genuinely-failing test was recorded as still passing. A harness that lies
-  # about a PASS is worse than no harness -- it retires a real test.
-  if echo "$out" | grep -qE "not ok [0-9]+ - $expect(:|\b)"; then
+  # This check has now mis-reported TWICE, each time claiming a genuinely
+  # failing test still passed -- which is the dangerous direction, because it
+  # argues for retiring a test that works.
+  #
+  #   1. `^not ok` missed the INDENTED nested subtest lines of a multi-file run.
+  #   2. `$expect(:|\b)` failed on names followed by ':' -- \b after "TC2"
+  #      before ':' is not the boundary it looks like, and grep -E's handling
+  #      made the alternation unreliable.
+  #
+  # A plain fixed-string search for "not ok N - <name>" has no such edge: the
+  # name is unique and the prefix is exact.
+  if echo "$out" | grep -qE "not ok [0-9]+ - ${expect}[:[:space:]]"; then
     echo "PASS [$label]: $expect went red"
   else
     echo "VACUOUS [$label]: $expect stayed green with the rule broken" >&2
