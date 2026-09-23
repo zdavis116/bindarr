@@ -866,8 +866,27 @@ function CardInspectorModal({
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
-              {card.set_name}
-              {cardNumber ? ` • #${cardNumber}` : ''}{card.rarity ? ` • ${card.rarity}` : ''}
+              {/* NO SET, NO COLLECTOR NUMBER, FOR A BASIC LAND.
+                  Zach, with the header screenshotted and underlined: "I can
+                  still see the set here for basic lands can you remove it for
+                  only basic lands as well."
+
+                  THIS IS THE WORST PLACE IT SURVIVED, not merely the last.
+                  The owned count directly below it is the POOLED total across
+                  every printing (see isBasicLand just below), so the header
+                  read "The Lost Caverns of Ixalan • #395 • x3 owned" while
+                  those 3 Islands came from three different sets. The set code
+                  was not clutter next to that number, it was a false claim
+                  about which cards it counted -- the same "true number under
+                  the wrong label" shape as the deck-quantity and oracle-total
+                  bugs this very header was already fixed for twice.
+
+                  Rarity stays: it is a fact about the card, not about which
+                  printing this is, and it is what keeps the line from being
+                  empty. */}
+              {isBasicLand ? '' : card.set_name}
+              {!isBasicLand && cardNumber ? ` • #${cardNumber}` : ''}
+              {card.rarity ? `${isBasicLand ? '' : ' • '}${card.rarity}` : ''}
               {/* OWNED COUNT, FROM THE SERVER.
                   This read `card.quantity ?? 1` -- the CALLER's object. From a
                   deck that is how many the DECK WANTS, so a deck requirement

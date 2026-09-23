@@ -99,6 +99,29 @@ mutate "grid tile shows set" "$TILE" \
   "{false ? '' :" \
   "GRP-TC9"
 
+INSP=frontend/src/components/CardInspectorModal.jsx
+DECK=frontend/src/components/DeckView.jsx
+
+# 8. The inspector HEADER re-prints the set beside the pooled owned count --
+#    the surface Zach had to report a fourth time.
+mutate "inspector header shows set" "$INSP" \
+  "{isBasicLand ? '' : card.set_name}" \
+  "{card.set_name}" \
+  "GRP-TC9"
+
+# 9. ...and the collector number alone, which would leave "• #395 • Common".
+mutate "inspector header shows number" "$INSP" \
+  "{!isBasicLand && cardNumber ?" \
+  "{cardNumber ?" \
+  "GRP-TC10"
+
+# 10. The deck view regresses to its own inline copy of the rule -- the exact
+#     duplication that made this take four rounds.
+mutate "deck view inlines the rule" "$DECK" \
+  "{!isBasicLand(card) && (" \
+  "{!String(card.type_line || '').startsWith('Basic Land') && (" \
+  "GRP-TC9"
+
 # THE TREE MUST BE CLEAN AT THE END. If a restore failed, every number above is
 # suspect and the next run starts from a corrupted baseline.
 if ! git diff --quiet -- frontend/src; then

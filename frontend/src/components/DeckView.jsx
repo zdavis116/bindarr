@@ -29,6 +29,7 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 // function, so "organize it like the deck view" is enforced by construction
 // rather than by me matching it by eye.
 import { groupIntoSections } from './deckListSections.js';
+import { isBasicLand } from '../utils/basicLands';
 
 // The section order, the type PRIORITY (Land beats Creature beats Artifact) and
 // the type_line parsing all moved into deckListSections.js, which the compare
@@ -1263,8 +1264,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                           Zach: "it's confusing because I don't actually own 6
                           of the one msh set". The owned count comes from the
                           whole pool, so naming one printing beside it states
-                          something false. */}
-                      {!String(card.type_line || '').startsWith('Basic Land') && (
+                          something false.
+
+                          This was the FIRST place the rule was fixed, and it
+                          was written inline here. The same complaint then came
+                          back for the collection list, the grid tile and the
+                          inspector header -- three more rounds for one rule,
+                          because each surface owned its own copy of the
+                          answer. It now reads the shared one. */}
+                      {!isBasicLand(card) && (
                         <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                           {card.set_name}
                         </span>

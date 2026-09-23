@@ -310,13 +310,42 @@ test('GRP-TC5: the component uses the SHARED key, not its own copy', () => {
 test('GRP-TC9: no surface prints a set code for a basic land', () => {
   // THE UI BLIND SPOT: the grouping can be perfect while the tile still says
   // "MH2 #250" over a count of Mountains from nine sets -- which is not noise,
-  // it is a false statement. Both the list row and the grid tile render a
-  // set/number line, and fixing only the one that was reported would leave the
-  // other lying.
-  for (const file of ['CollectionList.jsx', 'CardTile.jsx']) {
+  // it is a false statement.
+  //
+  // FOUR ROUNDS FOR ONE RULE. Each surface was fixed only when Zach reported
+  // that specific screen: the deck view first ("I don't actually own 6 of the
+  // one msh set"), then the collection list and grid tile, then the inspector
+  // HEADER -- which was the worst of them, because it printed a set code
+  // directly beside the pooled owned count: "The Lost Caverns of Ixalan • #395
+  // • x3 owned" for three Islands from three different sets.
+  //
+  // So this case enumerates every surface rather than testing the one that was
+  // reported. Adding a new card-detail surface without handling basics should
+  // fail HERE, not in a fifth screenshot.
+  const surfaces = {
+    'CollectionList.jsx':     /isBasicLand\(card\)\s*\?\s*''/,
+    'CardTile.jsx':           /isBasicLand\(card\)\s*\?\s*''/,
+    'DeckView.jsx':           /!isBasicLand\(card\)\s*&&/,
+    'CardInspectorModal.jsx': /isBasicLand \? '' : card\.set_name/,
+  };
+  for (const [file, rule] of Object.entries(surfaces)) {
     const src = readFileSync(join(here, file), 'utf8');
-    assert.match(src, /isBasicLand\(card\)\s*\?\s*''/,
-      `${file} must suppress the printing line for basics`);
+    assert.match(src, rule, `${file} must suppress the printing line for basics`);
+    // AND MUST NOT CARRY ITS OWN COPY OF THE RULE. Five inline
+    // startsWith('Basic Land') checks are what made this take four rounds:
+    // fixing one left the others stating the opposite.
+    assert.doesNotMatch(src, /startsWith\('Basic Land'\)/,
+      `${file} must use the shared rule, not its own inline copy`);
   }
+});
+
+test('GRP-TC10: the inspector header drops the collector number too', () => {
+  // The set NAME and the collector NUMBER are two separate renders on that
+  // line. Removing only the name would leave "• #395 • Common" -- still a
+  // claim about one printing, just a more cryptic one. Zach's screenshot
+  // underlined both.
+  const src = readFileSync(join(here, 'CardInspectorModal.jsx'), 'utf8');
+  assert.match(src, /!isBasicLand && cardNumber \? ` • #\$\{cardNumber\}` : ''/,
+    'the collector number must be suppressed for basics as well');
 });
 
