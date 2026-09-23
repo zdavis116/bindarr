@@ -7,6 +7,7 @@ import CardEntryFields from './CardEntryFields';
 import AddToDeckSelect from './AddToDeckSelect';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useT } from '../utils/i18n';
+import { isBasicLand as isBasicLandCard } from '../utils/basicLands';
 
 // MTG color identity pip colors (WUBRG), approximating the printed mana colors.
 const MTG_COLOR_BG = {
@@ -64,7 +65,11 @@ function CardInspectorModal({
   // Basic lands are fungible across printings (see deckIdentity), so set,
   // number and finish are cosmetic for them -- and showing a set beside a
   // pooled count states something false.
-  const isBasicLand = String(card?.type_line || '').startsWith('Basic Land');
+  //
+  // The rule is imported, not re-implemented. It used to be an inline
+  // startsWith() here, a name list in scanStaging.js and a SQL LIKE on the
+  // server: three answers to one question, which is how they drift apart.
+  const isBasicLand = isBasicLandCard(card);
   const [mode, setMode] = useState('view');
   const [q, setQ] = useState(1);
   const [condition, setCondition] = useState('Near Mint');
@@ -1047,8 +1052,13 @@ function CardInspectorModal({
                   tab rather than adding a second source of truth.
 
                   Only offered when editing a real collection row -- a wishlist
-                  entry has no physical card whose printing could be wrong. */}
-              {listType !== 'wishlist' && (deckUse?.printings || []).length > 1 && (
+                  entry has no physical card whose printing could be wrong.
+
+                  AND NOT FOR BASIC LANDS. "Which printing is this Mountain"
+                  is not a question with consequences: the pooled ownership
+                  count is identical either way, so the control would be a
+                  decision that changes nothing. */}
+              {!isBasicLand && listType !== 'wishlist' && (deckUse?.printings || []).length > 1 && (
                 <div className="form-group">
                   <label>{t('inspector.editPrinting')}</label>
                   <select
@@ -1257,8 +1267,16 @@ function CardInspectorModal({
                     printings between $6.50 and $76.94. Telling them apart is
                     the difference between buying the right card and the wrong
                     one. Loaded with the Decks tab data, which already knows
-                    every printing of this oracle id. */}
-                {printings && printings.length > 1 && (
+                    every printing of this oracle id.
+
+                    NOT FOR BASIC LANDS. Zach: "I don't care about printings at
+                    all." The list exists to help choose between printings that
+                    differ in price and identity; for a Mountain there is
+                    nothing to choose, every copy fills the same slot, and the
+                    app already pools his ownership across all of them. Showing
+                    ~200 Mountain printings here would be the single largest
+                    list in the app and would not answer a question he has. */}
+                {!isBasicLand && printings && printings.length > 1 && (
                   <div style={{ marginBottom: '0.85rem' }}>
                     <div style={{
                       fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',

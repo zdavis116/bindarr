@@ -26,6 +26,7 @@ import {
   Search, X, LayoutGrid, List, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown, Package } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
+import { collectionGroupKey, isBasicLand } from '../utils/basicLands';
 import ProductImportModal from './ProductImportModal';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
@@ -393,9 +394,14 @@ const cardTypesOf = (card) => {
     // genuinely different -- exact printing, condition, finish -- so a foil or
     // a played copy stays separate rather than being silently merged into a
     // count that misreports what he owns.
+    //
+    // BASIC LANDS ARE THE EXCEPTION and group by NAME alone. The rule and the
+    // reasoning live in utils/basicLands.js; it is imported rather than
+    // repeated so the deck view, the inspector and this screen cannot drift
+    // into three different definitions of "basic".
     const groups = new Map();
     for (const card of out) {
-      const key = [card.card_id, card.condition || '', card.printing || ''].join('|');
+      const key = collectionGroupKey(card);
       const seen = groups.get(key);
       if (seen) {
         seen.quantity = (seen.quantity || 1) + (card.quantity || 1);
@@ -852,7 +858,15 @@ const cardTypesOf = (card) => {
                   {card.name}
                 </span>
                 <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  {(card.set_id || '').toUpperCase()}{card.number ? ` #${card.number}` : ''}
+                  {/* A BASIC LAND'S TILE STANDS FOR EVERY PRINTING HE OWNS, so
+                      naming one set beside the count would be a false
+                      statement, not merely noise: "MH2 #250" over a tile
+                      counting Mountains from nine sets. The type is the only
+                      thing that distinguishes one basic from another, and the
+                      name above already says it. */}
+                  {isBasicLand(card)
+                    ? ''
+                    : `${(card.set_id || '').toUpperCase()}${card.number ? ` #${card.number}` : ''}`}
                 </span>
               </span>
               {card.quantity > 1 && (
