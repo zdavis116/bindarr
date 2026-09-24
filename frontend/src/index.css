@@ -4708,33 +4708,39 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .coll-main { min-width: 0; }
 
   .coll-pane {
-    /* PINNED TO THE VIEWPORT, not to a page position.
-       `position: sticky` only takes effect once you scroll far enough for it
-       to engage. Before that the pane sits where the document puts it -- 223px
-       down, below the search bar and filter chips -- so a viewport-tall pane
-       ran to y=943 in a 736 window and was cut off until you scrolled. Sticky
-       cannot express "always at the top of the screen"; fixed can.
+    /* PINNED TO THE VIEWPORT, BELOW THE PAGE HEADER.
 
-       This is why the JS measurement existed at all: --pane-top was an attempt
-       to compensate for that 223px offset. Pinning the pane removes the offset
-       instead of chasing it, which is why the variable, the ResizeObserver and
-       the scroll listener could all be deleted. */
+       `position: sticky` was wrong here: it only engages once you scroll far
+       enough, so before that the pane sat wherever the document put it and a
+       viewport-tall pane ran off the bottom. `fixed` pins it from the start.
+
+       THE TOP IS NOT ZERO. Pinned at 0.5rem the pane covered the app header
+       and search bar -- Zach: "now the top is to high". It must start where
+       the CARD GRID starts, which is below the header, the search row and the
+       filter chips: measured at 223px on his 1473x736 desktop.
+
+       That offset is expressed as a variable with a literal fallback rather
+       than measured in JS. A JS measurement is exactly what caused the two
+       previous bugs here -- stale after pinning it made the pane grow, and
+       read as a page offset it collapsed the pane to 0px. A constant cannot
+       go stale. It is set once, from the layout above, not re-read on scroll. */
     position: fixed;
-    top: 0.5rem;
+    top: var(--coll-pane-top, 14rem);
     /* The fixed column matches the grid track (400px) and sits inside the
        page's right padding. */
     width: 400px;
     right: 1.5rem;
-    /* THE VIEWPORT, MINUS THE GAPS ABOVE AND BELOW. A constant: a fixed
-       element's top never changes, so neither does the space beneath it.
+    /* THE SPACE BELOW THAT OFFSET, so the pane ends one gap above the fold.
+       A constant: a fixed element's top never changes, so neither does the
+       height beneath it.
 
-       The old rule was `calc(100vh - var(--pane-top) - 1rem)`. That is only
-       correct BEFORE sticky engaged: scrolled down, the real top went 223px ->
-       0 while the variable kept its initial value, and the pane GREW.
-       Measured at 1473x736: 497px at rest, 704px scrolled. Read the other way
-       (as a PAGE offset) the same variable once hit 6152px and collapsed the
-       pane to 0px tall -- "the whole side panel or card modal disappears".
-       Two opposite bugs from one measurement.
+       The old rule was `calc(100vh - var(--pane-top) - 1rem)` with --pane-top
+       measured in JS. Only correct BEFORE the pane was pinned: scrolled down,
+       the real top went 223px -> 8px while the variable kept its initial
+       value, and the pane GREW. Measured at 1473x736: 497px at rest, 704px
+       scrolled. Read the other way (as a PAGE offset) the same variable once
+       hit 6152px and collapsed the pane to 0px tall -- "the whole side panel
+       or card modal disappears". Two opposite bugs from one measurement.
 
        Zach reported the growth twice ("it should stay the same size from the
        START") and both times I measured a pane standing still. The trigger is
@@ -4742,8 +4748,8 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
        dvh because mobile browser chrome changes the viewport; vh is the
        fallback for engines without dvh. */
-    height: calc(100vh - 1rem);
-    height: calc(100dvh - 1rem);
+    height: calc(100vh - var(--coll-pane-top, 14rem) - 1rem);
+    height: calc(100dvh - var(--coll-pane-top, 14rem) - 1rem);
     /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     /* This wrapper does NOT scroll -- the inspector owns the height and
