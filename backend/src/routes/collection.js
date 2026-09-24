@@ -12,6 +12,7 @@ const { authenticateToken, searchLimiter } = require('../middleware/auth');
 const { resolveCardPrice, resolvePricedCard, parseCardRow, recordPrice,
         marketplacePriceJoin, selectedShop, MARKETPLACE_PRICE_COLUMNS } = require('../utils/priceHelpers');
 const { parseSetList } = require('../utils/setQuery');
+const cardRulings = require('../cardRulings');
 // THE BASIC-LAND RULE, IMPORTED. This endpoint had its own per-printing
 // coverage arithmetic while deckIdentity pooled basics by name, and the two
 // disagreed on Zach's screen: three decks read "Not owned" beside an
@@ -416,10 +417,28 @@ router.get('/card/:cardId/decks', async (req, res) => {
       [req.user.id, req.user.id, card.oracle_id]
     );
 
+    // RULINGS for this card. Zach: "I would like to add to the card tab a
+    // ruling section so I can see all rulings made for that card."
+    //
+    // Served on THIS response rather than a second endpoint because the Card
+    // tab already has everything else it renders from here, and a separate
+    // fetch would mean the rules text and the rulings about that text arrive
+    // at different times -- the sheet would be briefly self-inconsistent.
+    //
+    // Keyed by oracle_id: a ruling applies to the CARD, not the printing.
+    const rulings = await cardRulings.rulingsFor(card.oracle_id).catch((error) => {
+      // A missing rulings table (fresh DB, import has never run) must not take
+      // the whole card sheet down with it. No rulings is a normal state --
+      // every basic land has none -- so an empty list is the honest answer.
+      console.warn(`collection: could not read rulings: ${error.message}`);
+      return [];
+    });
+
     res.json({
       card_id: card.id,
       oracle_id: card.oracle_id,
       name: card.name,
+      rulings,
       // Oracle-wide: every printing of this card. The header must NOT render
       // this beside a specific set code -- Zach owns 2XM #58 and the sheet
       // said "The List #CON-31 ... x1 owned". A true number under a label that

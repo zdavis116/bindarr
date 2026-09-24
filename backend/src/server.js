@@ -222,6 +222,22 @@ db.initDb()
           const cardRoles = require('./cardRoles');
           return cardRoles.refreshRoles({}).catch((err) => {
             console.error('Card role refresh failed:', err.message);
+          }).then(() => {
+            // RULINGS, chained for the same reason as roles.
+            //
+            // They key on oracle_id, so they are only meaningful against a
+            // catalogue that has finished swapping -- importing them beside a
+            // half-written card_cache would attach rulings to ids that are
+            // about to be replaced.
+            //
+            // Failures are logged and swallowed. A missing ruling makes the
+            // Card tab less useful; it must never take down the refresh that
+            // prices and legality depend on. The file is 5.1 MB, two orders of
+            // magnitude smaller than the catalogue, so this adds seconds.
+            const cardRulings = require('./cardRulings');
+            return cardRulings.refreshRulings({}).catch((err) => {
+              console.error('Card rulings refresh failed:', err.message);
+            });
           });
         }).catch((err) => {
           // A refresh already in flight is the GUARD WORKING, not a failure.

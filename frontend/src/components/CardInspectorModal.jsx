@@ -1071,6 +1071,65 @@ function CardInspectorModal({
                   </div>
                 )}
 
+                {/* RULINGS. Zach: "I would like to add to the card tab a ruling
+                    section so I can see all rulings made for that card."
+
+                    COLLAPSED BY DEFAULT, like Other printings. Library of Leng
+                    has 9 rulings and Doubling Season has 5; open by default
+                    they would push the rules text -- the thing you opened the
+                    card to read -- off the top of a 390px screen. The count on
+                    the closed row says whether opening it is worth it.
+
+                    Rendered only when there ARE rulings. Every basic land has
+                    none, and an empty "Rulings (0)" row is a control that
+                    teaches you to ignore it. */}
+                {Array.isArray(deckUse?.rulings) && deckUse.rulings.length > 0 && (
+                  <details className="ci-printings ci-rulings">
+                    <summary style={{
+                      fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em',
+                      textTransform: 'uppercase', color: 'var(--text-muted)',
+                      marginBottom: '0.4rem', cursor: 'pointer',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      gap: '0.5rem', listStyle: 'none',
+                    }}>
+                      <span>{t('inspector.rulings', { count: deckUse.rulings.length })}</span>
+                      <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>
+                        {t('inspector.rulingsHint')}
+                      </span>
+                    </summary>
+                    <div className="ci-printings-body">
+                      <div style={{
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-glass)',
+                        borderRadius: 'var(--radius-md)',
+                      }}>
+                        {deckUse.rulings.map((r, i) => (
+                          <div key={`${r.published_at}-${i}`} style={{
+                            padding: '0.6rem 0.75rem',
+                            borderTop: i ? '1px solid var(--border-glass)' : 0,
+                            fontSize: '0.78rem', lineHeight: 1.5,
+                            color: 'var(--text-primary)',
+                          }}>
+                            {/* THE DATE MATTERS. A 2024 ruling supersedes a 2006
+                                one -- Doubling Season's planeswalker rulings
+                                were rewritten when the rules changed. Undated
+                                advice would read as equally current. */}
+                            {r.published_at && (
+                              <div style={{
+                                fontSize: '0.66rem', fontWeight: 700,
+                                color: 'var(--text-muted)', marginBottom: '0.25rem',
+                              }}>
+                                {r.published_at}
+                              </div>
+                            )}
+                            {r.comment}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
+                )}
+
               </div>
             )}
           
