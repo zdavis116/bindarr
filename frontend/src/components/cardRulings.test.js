@@ -94,10 +94,14 @@ test('RUL-TC5: every ruling shows its date', () => {
   // rulings were rewritten in 2024 and its 2006 ones are history. Undated,
   // they would all read as equally current, which is worse than not showing
   // them: it is a confident wrong answer.
+  // ASSERT THE GATE, NOT THE MENTION. An earlier version matched
+  // /r\.published_at/ anywhere in the block, which stayed green when the whole
+  // date row was disabled with `{false && (` -- the reference survived inside
+  // the dead branch. The mutation harness caught it.
   const block = inspCode.slice(inspCode.indexOf('ci-rulings'),
                                inspCode.indexOf('ci-rulings') + 2000);
-  assert.match(block, /r\.published_at/,
-    'each ruling must render its published date');
+  assert.match(block, /\{r\.published_at && \(/,
+    'each ruling must render its published date, gated on the date existing');
 
   // Newest first, for the same reason.
   assert.match(importerCode, /ORDER BY published_at DESC/,
@@ -148,7 +152,12 @@ test('RUL-TC8: rulings are imported AFTER the catalogue, and cannot break it', (
 
   // AND MUST NOT TAKE THE REFRESH DOWN. A missing ruling makes the Card tab
   // less useful; prices and legality depend on the catalogue finishing.
-  const tail = chain.slice(rulingsAt);
-  assert.match(tail.slice(0, 300), /\.catch\(/,
-    'a rulings failure must be caught and logged, never thrown');
+  //
+  // ANCHORED TO THE CALL ITSELF. An earlier version searched the 300 chars
+  // after `refreshRulings` for `.catch(` and stayed green when that catch was
+  // turned into a `.then(` -- because the ROLES catch a few lines above was
+  // still inside the window. A guard that can be satisfied by a different
+  // line's error handling is not guarding anything.
+  assert.match(chain, /refreshRulings\(\{\}\)\.catch\(/,
+    'a rulings failure must be caught on the rulings call, not somewhere near it');
 });
