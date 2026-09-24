@@ -173,7 +173,13 @@ test('AV-TC4b: the "(x in decks)" parenthetical only appears when it is true', (
   // "{count} in decks" -- a different shape that never said how many he owns.
   // Zach saw it on a 1-owned card in the deck view and read it as the fix not
   // having shipped at all. One question, one sentence shape.
-  assert.doesNotMatch(code, /allInDecks/,
+  //
+  // SCOPED TO THE AVAILABLE-TO-USE ROW. A file-wide absence check condemned
+  // the per-printing rows in the Other printings list, where "all 1 in decks"
+  // sits directly under that printing's own "you own 1" and is exactly right.
+  // Two different surfaces answering two different questions.
+  const availAt = code.indexOf("t('inspector.availableToUse')");
+  assert.doesNotMatch(code.slice(availAt, availAt + 1200), /allInDecks/,
     'the zero-free case must use the same "x of y free (z in decks)" sentence');
 });
 
