@@ -4704,12 +4704,17 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .coll-main { min-width: 0; }
 
   .coll-pane {
+    /* STICK TO THE TOP OF THE VIEWPORT, so the pane's height and its position
+       agree. With `top: 1rem` the pane starts 223px down the page before it
+       sticks, so a viewport-height box ran to y=927 in a 736 viewport -- cut
+       off until you scrolled enough for sticky to engage. Sticking at 0 makes
+       the pane's top the same number its height is computed from. */
     position: sticky;
-    top: 1rem;
+    top: 0;
     /* A CONSTANT HEIGHT, because a sticky element has a CONSTANT viewport top.
-       Once this pane sticks it sits at `top: 1rem` forever, so the space
-       available to it is the viewport minus that 1rem and a 1rem gap at the
-       bottom -- a fixed number that no measurement can improve.
+       Once this pane sticks it sits at the sticky offset forever, so the space
+       available to it is the viewport minus a small bottom gap -- a fixed
+       number that no measurement can improve.
 
        It used to be `calc(100vh - var(--pane-top) - 1rem)`, with --pane-top
        measured in JS from getBoundingClientRect().top. That value is only
@@ -4725,8 +4730,8 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
        No JS, no variable, nothing to go stale. dvh because mobile browser
        chrome changes the viewport, with vh as the fallback for older engines. */
-    height: calc(100vh - 2rem);
-    height: calc(100dvh - 2rem);
+    height: calc(100vh - 1rem);
+    height: calc(100dvh - 1rem);
     /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     /* This wrapper does NOT scroll -- the inspector owns the height and
