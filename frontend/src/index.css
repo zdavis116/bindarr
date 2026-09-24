@@ -1142,20 +1142,26 @@ button, input, select, textarea {
    scrolled internally. Two scrollbars, both real, for one list.
 
    THE FIX IS TO STOP GUESSING. .ci-scroll becomes a flex column and the list
-   takes `flex: 1 1 auto; min-height: 0`, so it is exactly the leftover height
-   -- never more, so the parent has nothing to scroll to and its scrollbar
-   disappears; never less, so no space is wasted.
+   takes the leftover height with `flex: 1 1 0`.
 
-   `min-height: 0` is load-bearing: a flex item defaults to min-height:auto,
-   which REFUSES to shrink below its content, and the list would push past the
-   container exactly as it does now. This is the same default that bites the
-   grid rows elsewhere in this file.
+   THE BASIS MUST BE 0, NOT auto. `flex: 1 1 auto` sizes from the item's OWN
+   CONTENT and only then distributes free space -- with a 350px list in a 324px
+   box there is no free space, nothing shrinks, and the list EXPANDS its
+   parent. Measured exactly that: list 352px inside a 324px scroll box, ending
+   at y=912 against a container ending at 776, body scrollHeight 459 vs client
+   324. Two scrollbars and a grey panel past the screen edge.
+
+   `flex: 1 1 0` sizes from the CONTAINER instead: the item starts at zero and
+   receives what is left, so it can never be taller than the space available.
+
+   `min-height: 0` is the other half. A flex item defaults to min-height:auto,
+   which refuses to shrink below its content and would reinstate the overflow
+   no matter what the basis says.
 
    overflow-y is `auto`, not `scroll`, so a list that fits shows no scrollbar
-   (verified: a 3-printing card reads 181 = 181 and does not scroll; a
-   5-printing card reads 350 > 234 and does). */
+   (verified: a 3-printing card reads 181 = 181 and does not scroll). */
 .ci-printings-list {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1173,7 +1179,9 @@ button, input, select, textarea {
 }
 
 .ci-printings[open] {
-  flex: 1 1 auto;
+  /* Basis 0 for the same reason as the list: `auto` would size this from its
+     content and expand the scroll box instead of fitting inside it. */
+  flex: 1 1 0;
 }
 
 /* The wrapper Bindarr renders around the disclosure must pass the height
@@ -1183,7 +1191,9 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  flex: 1 1 auto;
+  /* Basis 0: sizes from the space left in .ci-scroll, not from the list's
+     content. With `auto` this link expanded and carried the overflow down. */
+  flex: 1 1 0;
   /* Was an inline style on the div; moved here so it is overridable. */
   margin-bottom: 0.85rem;
 }
