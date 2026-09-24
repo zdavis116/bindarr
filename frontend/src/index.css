@@ -1141,94 +1141,84 @@ button, input, select, textarea {
    the end of the screen -- AND the parent scrolled to reach it while the list
    scrolled internally. Two scrollbars, both real, for one list.
 
-   THE FIX IS A FLOOR AND A CEILING, not pure flex.
+   THE FIX IS TO HAVE ONE SCROLLER, AND IT IS THE BODY.
 
-   Three attempts, each measured, each wrong in a different direction:
+   Four capped-list attempts, each measured, each wrong in a different way:
 
-     max-height: 28vh      a guess. 236px in a box with only ~119px left, so
-                           the list overhung its container by 117px and BOTH
-                           it and the body scrolled -- the double scrollbar.
-     flex: 1 1 auto        sizes from the item's own CONTENT, so with 350px of
-                           rows in a 324px box nothing shrank and the list
-                           EXPANDED the body to 459px.
-     flex: 1 1 0           sizes from the container, but nothing forces a flex
-                           item to grow when its siblings already fill the
-                           box: the list collapsed to 2px tall.
+     max-height: 28vh      a guess: 236px in a box with ~119px free, so the
+                           list overhung by 117px and BOTH it and the body
+                           scrolled -- the double scrollbar.
+     flex: 1 1 auto        sizes from the item's own CONTENT, so 350px of rows
+                           in a 324px box expanded the body to 459px.
+     flex: 1 1 0           nothing forces a flex item to grow once its siblings
+                           fill the box: the list collapsed to 2px.
+     max-height: 100%      a percentage against an auto-height ancestor is
+                           ignored, so it did nothing at all.
 
-   What the list actually needs is: never taller than the space available, and
-   never shorter than a few rows. That is min-height + max-height, and it does
-   not depend on the flex chain resolving a particular way.
+   All four failed for one underlying reason: a <details> element does not
+   contain its children's height. Measured -- DETAILS height 58, scrollHeight
+   374, its child laid out OUTSIDE it. Every percentage and flex height below
+   that point resolved against a box that was not bounding anything.
 
-   `max-height: 100%` bounds it to the PARENT (.ci-printings-body, itself
-   bounded by the scroll box), so it can never overhang. The min-height keeps
-   it usable when space is tight -- better a short scrolling list than a 2px
-   sliver. Anything that does not fit scrolls INSIDE the list, so the body
-   never has to.
+   So the list does not scroll. It renders at its natural height inside
+   .ci-scroll, which is bounded by the panel and already scrolls -- ONE
+   scrollbar, the one that was always there. Nothing can overhang, because
+   .ci-scroll clips, which is what stops the grey panel running past the
+   screen edge.
 
-   overflow-y is `auto`, not `scroll`: a list that fits shows no scrollbar. */
+   Edit Card stays reachable regardless: .ci-footer-acts is `position: sticky`,
+   so it pins to the bottom of this scroller rather than being scrolled past.
+   That is why removing the inner scroller costs nothing here. */
 .ci-printings-list {
-  min-height: 7rem;
-  max-height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-/* THE PRINTINGS SECTION IS THE FLEX CHILD THAT GROWS.
-   The <details> sits between the info rows and the bottom of the scroll box,
-   so it -- not just the list inside it -- has to absorb the leftover height.
-
-   A <details> DOES NOT PASS ITS HEIGHT TO ITS CHILDREN. Measured: with
-   `display:flex; flex:1 1 0` on the element itself, the details box computed
-   to 58px (the summary alone) while its scrollHeight was 374px -- the list was
-   laid out OUTSIDE it and spilled down the page. That is the grey panel
-   running past the screen edge. The element participates in the parent's flex
-   layout, but its own children do not inherit a bounded height through it.
-
-   So the SIZING lives on `.ci-printings-body`, a plain div wrapped around the
-   list INSIDE the details. Details keeps only `min-height: 0` so it can shrink
-   in its parent; the body is the real flex column. */
-.ci-printings {
+  /* No max-height and no overflow: both belong to .ci-scroll. Setting either
+     here re-creates the second scrollbar. */
   min-height: 0;
 }
 
-.ci-printings[open] {
-  /* Basis 0 for the same reason as the list: `auto` would size this from its
-     content and expand the scroll box instead of fitting inside it. */
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 0;
+/* THE PRINTINGS SECTION IS THE FLEX CHILD THAT GROWS.
+
+   A <details> ELEMENT DOES NOT CONTAIN ITS CHILDREN'S HEIGHT, and that is the
+   single fact behind the double scrollbar and the grey panel running off the
+   screen. Measured with `display:flex; flex:1 1 0` on the element itself:
+
+     DETAILS.ci-printings     height 58   scrollHeight 374
+     DIV.ci-printings-body    height 352  (laid out OUTSIDE the 58px parent)
+
+   So every percentage or flex height below it resolved against a box that was
+   not actually bounding anything. Four different values on the list --
+   max-height:28vh, flex:1 1 auto, flex:1 1 0, max-height:100% -- each failed
+   for this same reason, in a different direction.
+
+   THE FIX IS TO SIZE AGAINST THE SCROLL BOX, NOT THROUGH THE DETAILS. The
+   list's ceiling is expressed in viewport units relative to the panel's own
+   height rather than as a percentage of an ancestor, so no link in the chain
+   has to cooperate. The panel is 82dvh and the rows above the list are a fixed
+   handful, which leaves roughly a third of the panel for printings.
+
+   `min-height` keeps it usable when space is tight -- better a short scrolling
+   list than the 2px sliver `flex: 1 1 0` produced. */
+.ci-printings {
+  min-height: 0;
 }
 
 .ci-printings-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* A DEFINITE HEIGHT FOR THE LIST'S `max-height: 100%` TO RESOLVE AGAINST.
-     A percentage max-height against a parent with an auto height is ignored by
-     the browser, so this wrapper has to be a bounded flex item -- `1 1 0`
-     inside the bounded .ci-printings, which is inside the bounded .ci-scroll.
-     Break any link and the list is unbounded again. */
-  flex: 1 1 0;
-  overflow: hidden;
 }
 
-/* The wrapper Bindarr renders around the disclosure must pass the height
-   through as well, or the chain breaks at exactly one link and the list is
-   unbounded again. */
+/* The wrapper around the disclosure. It no longer needs to pass a height
+   through -- see the note above about <details> not containing its children --
+   so it carries only the margin that used to be inline on it. */
 .ci-printings-section {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  /* Basis 0: sizes from the space left in .ci-scroll, not from the list's
-     content. With `auto` this link expanded and carried the overflow down. */
-  flex: 1 1 0;
-  /* Was an inline style on the div; moved here so it is overridable. */
+  /* Was an inline style on the div; moved here so it is overridable. The flex
+     rules that used to be here existed only to feed a height down to the list,
+     which never worked through the <details> -- see above. Plain block layout
+     is correct now that .ci-scroll is the only scroller. */
   margin-bottom: 0.85rem;
 }
 
-/* AND .ci-scroll MUST BE A COLUMN, or none of the above has an effect:
-   `flex: 1 1 auto` on a child of a non-flex parent is inert. This is the link
-   that makes "the list is whatever height is left" true rather than aspirational. */
+/* .ci-scroll IS A COLUMN so the sticky footer sits at its end. */
 .card-inspector .ci-scroll,
 .card-inspector-inline .ci-scroll {
   display: flex;
