@@ -1218,11 +1218,28 @@ button, input, select, textarea {
   margin-bottom: 0.85rem;
 }
 
-/* .ci-scroll IS A COLUMN so the sticky footer sits at its end. */
+/* .ci-scroll IS A COLUMN so the sticky footer sits at its end.
+
+   ITS CHILDREN MUST NOT SHRINK. A flex column shrinks its items to fit, and
+   the printings list is 572px of content in a 214px box -- so the browser
+   squashed the info rows to make room. Measured: the Finish / Condition /
+   Value / Available block computed to 2px TALL, which is why Zach could not
+   "scroll up to the value information". It had not scrolled away; it had been
+   crushed to nothing.
+
+   `flex-shrink: 0` on every direct child keeps each block at its natural
+   height and lets the container scroll instead, which is the behaviour a
+   scroll box should have had all along. The footer is excluded -- it is
+   sticky and sizes itself. */
 .card-inspector .ci-scroll,
 .card-inspector-inline .ci-scroll {
   display: flex;
   flex-direction: column;
+}
+
+.card-inspector .ci-scroll > *,
+.card-inspector-inline .ci-scroll > * {
+  flex-shrink: 0;
 }
 
 /* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
