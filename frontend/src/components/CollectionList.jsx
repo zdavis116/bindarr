@@ -156,11 +156,18 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
     });
   };
 
-  // WHERE THE PANE STARTS, measured. The inline inspector sets its height from
-  // --pane-top (index.css). Without it the fallback guess leaves the body row
-  // ~23px tall and the card looks empty. Page offset, not viewport offset:
-  // getBoundingClientRect().top alone changes as you scroll, which would
-  // resize the pane while scrolling.
+  // The pane is `position: sticky; top: 1rem`, so its height is a CONSTANT --
+  // `calc(100dvh - 2rem)` in index.css. There is nothing to measure.
+  //
+  // This used to set a --pane-top variable from getBoundingClientRect().top on
+  // mount and on resize. That value is only correct before the pane sticks:
+  // once you scroll, the real top drops to 16px while the variable keeps its
+  // original ~223px, and the pane GROWS. Measured at 1473x736: 497px at rest,
+  // 704px scrolled, ending at y=720 in a 736 viewport. Zach: "when I scroll
+  // down the collection with the right pane open it grows bigger to the point
+  // it gets cut off... it should stay the same size from the START."
+  //
+  // The ref stays because the pane element is still referenced for layout.
   const sidePaneRef = useRef(null);
 
   // IS THERE ROOM FOR A SECOND PANE? Measured, not assumed: the same 1024px
@@ -175,29 +182,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
-
-  useEffect(() => {
-    const el = sidePaneRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      // VIEWPORT offset, because the CSS subtracts this from 100vh. This read
-      // `rect.top + window.scrollY` -- a PAGE offset -- which is the same bug
-      // that made the DECK view's detail pane vanish entirely: scrolled far
-      // enough down, calc(100vh - <page offset>) clamps to zero and the pane
-      // is 0px tall. The pane is sticky, so its viewport top is stable and the
-      // scroll term was never needed. Clamped so no transient measurement can
-      // collapse it. See DeckView.jsx for the measured numbers.
-      const raw = el.getBoundingClientRect().top;
-      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
-      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
-    };
-    measure();
-    // Filter chips and the select bar can appear after a fetch and move the
-    // pane down, so re-measure when the page changes size.
-    const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
-    return () => ro.disconnect();
-  }, [isWide, inspectorCard]);
 
   const [searchFilter, setSearchFilter] = useState('');
   const [colorFilters, setColorFilters] = useState(() => new Set());

@@ -201,59 +201,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // the pane begins" -- and where it begins is not a constant: the deck title,
   // the drift banner and the progress block above it all vary.
   //
-  // MEASURED, not guessed. A hard-coded `100vh - 6rem` ran the pane 153px past
-  // the fold, so the anchored button sat below the screen -- pinned to the
-  // bottom of a box you could not see the bottom of. Zach reported that as the
-  // UI looking cut off.
+  // THE PANE HEIGHT IS A CONSTANT, so there is nothing to measure.
   //
-  // Written to a CSS custom property so the LAYOUT stays in CSS; this only
-  // supplies the one number CSS cannot measure for itself.
-  useEffect(() => {
-    if (!isDesktop) return undefined;
-    const el = sidePaneRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      // WHERE THE PANE STARTS IN THE VIEWPORT, because the CSS subtracts this
-      // from 100vh -- a viewport height. Mixing the two coordinate systems is
-      // what broke it.
-      //
-      // Zach: "if I click a card and scroll to the bottom and then click a
-      // land card the whole side panel or card modal disappears."
-      //
-      // This read `rect.top + window.scrollY`, a PAGE offset, on the theory
-      // that a viewport offset "changes as you scroll". It does -- but the
-      // pane is position:sticky, so its viewport top is stable at the sticky
-      // offset, while the page offset grows without bound as you scroll.
-      // Clicking a land near the bottom of a 100-card list calls
-      // scrollIntoView, the ResizeObserver fires mid-scroll, and --pane-top
-      // was measured at 6152px. calc(100vh - 6152px - 1rem) clamps to zero:
-      // the pane is still in the DOM, 472px wide and 0px tall, which on screen
-      // is simply gone. MEASURED on dev at 1855x731, 388px -> 6152px.
-      //
-      // Clamped to a sane range so a measurement taken mid-layout -- before
-      // sticky settles, or during a smooth scroll -- can never collapse the
-      // pane again. A slightly wrong height is a cosmetic problem; a zero
-      // height is an invisible feature.
-      const raw = el.getBoundingClientRect().top;
-      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
-      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
-    };
-    measure();
-    // The drift banner and progress block can render after a fetch and move
-    // the pane down, so re-measure when the page changes size.
-    const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
-    window.addEventListener('resize', measure);
-    // Re-measure after a scroll SETTLES. While sticky is engaged the viewport
-    // top does not move, so this is cheap; it exists so the first paint after
-    // a jump-to-card lands on a real number rather than a transient one.
-    window.addEventListener('scroll', measure, { passive: true });
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure);
-    };
-  }, [isDesktop, detailCard]);
+  // `.deck-panes-side` is `position: sticky; top: 1rem`, which means its
+  // viewport top IS 1rem once stuck. The height is `calc(100dvh - 2rem)` in
+  // index.css -- no JS, no custom property, nothing that can go stale.
+  //
+  // This effect used to measure getBoundingClientRect().top into --pane-top.
+  // That number is only correct BEFORE the pane sticks; scrolled down, the
+  // real top drops to the sticky offset while the variable keeps its initial
+  // value, and the pane GROWS. Measured on the collection pane at 1473x736:
+  // 497px at rest, 704px after scrolling, bottom at y=720 in a 736 viewport.
+  // Zach: "when I scroll down the collection with the right pane open it grows
+  // bigger to the point it gets cut off... it should stay the same size from
+  // the START."
+  //
+  // The same measurement previously caused the opposite failure -- read as a
+  // PAGE offset it hit 6152px and collapsed the pane to 0px tall ("the whole
+  // side panel or card modal disappears"). Two bugs in opposite directions
+  // from one variable that never needed to exist.
+  //
+  // The note about a hard-coded `100vh - 6rem` running 153px past the fold
+  // predates `position: sticky` on this element. A non-sticky column really
+  // did need its offset subtracted; a sticky one does not.
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:
   // "Move considering to the chips like owned and missing." They sit outside

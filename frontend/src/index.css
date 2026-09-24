@@ -3687,20 +3687,30 @@ button, input, select, textarea {
        definite box to resolve against, or it falls back to its content and
        the anchored footer drifts below the fold.
 
-       --pane-top is measured at runtime by DeckView (see useEffect there) and
-       is how far down the VIEWPORT this column starts -- ~249px, made of
-       the header, the deck title and the progress block. A pure `100vh - 2rem`
-       ignored that offset and ran the pane 153px past the fold, which is what
-       put the anchored Remove button off-screen. The fallback keeps it sane
-       before the first measurement lands.
+       CONSTANT, NOT MEASURED. This element is `position: sticky; top: 1rem`,
+       so once it sticks its viewport top IS 1rem, permanently. The available
+       space is therefore the viewport minus that 1rem and a 1rem bottom gap --
+       a fixed number.
+
+       The old rule subtracted a JS-measured --pane-top. That is only right
+       BEFORE the pane sticks; scrolled down, the real top drops to 16px while
+       the variable keeps its initial ~223px and the pane GROWS. Measured on
+       the collection pane at 1473x736: 497px at rest, 704px after scrolling,
+       ending at y=720 in a 736 viewport -- cut off, exactly as reported.
+
+       The note above about `100vh - 2rem` running 153px past the fold predates
+       `position: sticky` on this element: an absolutely-placed column really
+       did need the offset. A sticky one does not, and subtracting it is what
+       reintroduced the overflow from the other direction.
 
        min-height IS THE SAFETY NET, not decoration. --pane-top was once
        measured as a PAGE offset (6152px after scrolling a 100-card deck),
        which made this calc resolve to zero and the whole pane vanish -- Zach:
-       "the whole side panel or card modal disappears". The JS is fixed, but a
-       layout rule that CAN evaluate to zero will find a way to do it again;
-       this makes an invisible pane impossible from the CSS side too. */
-    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+       "the whole side panel or card modal disappears". Removing the variable
+       removes that failure mode entirely, but a layout rule that CAN evaluate
+       to zero will find a way; this keeps an invisible pane impossible. */
+    height: calc(100vh - 2rem);
+    height: calc(100dvh - 2rem);
     min-height: 18rem;
     overflow: hidden;
   }
@@ -4232,10 +4242,14 @@ button, input, select, textarea {
     position: sticky;
     top: 1rem;
     /* A definite height so the list scrolls INSIDE the pane rather than
-       running past the fold -- the same bug the detail pane had. */
-    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
-    /* Floor, so a bad --pane-top can never collapse this pane to nothing.
-       See .deck-panes-side for the measured failure. */
+       running past the fold -- the same bug the detail pane had.
+       CONSTANT, not measured: this is `position: sticky; top: 1rem`, so its
+       viewport top never changes once stuck. Subtracting a JS-measured
+       --pane-top made the collection pane GROW from 497px to 704px while
+       scrolling. See .coll-pane for the full note. */
+    height: calc(100vh - 2rem);
+    height: calc(100dvh - 2rem);
+    /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     display: flex;
     flex-direction: column;
@@ -4692,15 +4706,28 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .coll-pane {
     position: sticky;
     top: 1rem;
-    /* A REAL HEIGHT, from where the pane actually starts. --pane-top is
-       measured in JS (page offset, so it does not change while scrolling);
-       the fallback keeps it sane before the first measurement lands.
-       Without this the panel collapsed to its content and the body row under
-       the tabs was 23px tall -- the card looked empty. Same rule the deck
-       view uses on .deck-panes-side. */
-    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
-    /* Floor, so a bad --pane-top can never collapse this pane to nothing.
-       See .deck-panes-side for the measured failure. */
+    /* A CONSTANT HEIGHT, because a sticky element has a CONSTANT viewport top.
+       Once this pane sticks it sits at `top: 1rem` forever, so the space
+       available to it is the viewport minus that 1rem and a 1rem gap at the
+       bottom -- a fixed number that no measurement can improve.
+
+       It used to be `calc(100vh - var(--pane-top) - 1rem)`, with --pane-top
+       measured in JS from getBoundingClientRect().top. That value is only
+       correct BEFORE the pane sticks: scrolled down, the real top goes from
+       223px to 16px while the variable keeps its original value, and the pane
+       GROWS. Measured on his 1473x736 desktop: 497px at the top of the
+       collection, 704px once scrolled -- ending at y=720 against a 736
+       viewport, which is the cut-off edge he photographed.
+
+       Zach reported it twice ("it should stay the same size from the START")
+       and I twice measured a pane that was standing still. The trigger is
+       SCROLLING; tools/scroll-pane-probe.py now tests it.
+
+       No JS, no variable, nothing to go stale. dvh because mobile browser
+       chrome changes the viewport, with vh as the fallback for older engines. */
+    height: calc(100vh - 2rem);
+    height: calc(100dvh - 2rem);
+    /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     /* This wrapper does NOT scroll -- the inspector owns the height and
        scrolls its own body row, so art, name and tabs stay put. */
