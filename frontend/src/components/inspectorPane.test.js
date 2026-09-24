@@ -357,6 +357,19 @@ test('PANE-TC11: the pane height does not depend on a measured offset', () => {
     'the pane must be pinned to the viewport, not to a page position');
   assert.match(block, /min-height:/,
     'and keep a floor so it can never collapse to nothing');
+
+  // AND IT MUST CLEAR THE PAGE HEADER. Pinned at 0.5rem the pane covered the
+  // app header and search bar -- Zach: "now the top is to high". The card grid
+  // begins at 223px on his 1473x736 desktop (header + search row + filter
+  // chips), so the pane starts level with the first card.
+  //
+  // The SAME offset must appear in both the top and the height, or the pane
+  // ends up correctly placed and the wrong length -- which is how it ran off
+  // the bottom of the screen a moment earlier.
+  assert.match(block, /top:\s*var\(--coll-pane-top/,
+    'the pane must start below the page header, not at the top of the screen');
+  assert.match(block, /height:\s*calc\(100dvh\s*-\s*var\(--coll-pane-top/,
+    'and its height must subtract the SAME offset, or it overruns the fold');
 });
 
 test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scroll', () => {
