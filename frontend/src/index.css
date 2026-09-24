@@ -4695,7 +4695,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .coll-split.is-open {
     /* A FIXED right column, matching the deck view's 400px: card detail holds
        a card image with a fixed aspect ratio, so letting the column scale
-       makes the art jump size on every resize. The GRID takes the slack. */
+       makes the art jump size on every resize. The GRID takes the slack.
+
+       The track stays reserved even though .coll-pane is position:fixed and no
+       longer occupies it -- otherwise the card grid would flow underneath the
+       pane. The empty track IS the gutter. */
     grid-template-columns: minmax(0, 1fr) 400px;
     gap: 1.1rem;
     align-items: start;
@@ -4703,49 +4707,43 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
   .coll-main { min-width: 0; }
 
-  .coll-split {
-    /* THE PANE'S HEIGHT PROBLEM IS SOLVED ON THIS ROW, not on the pane.
-       Making the grid row stretch lets the pane be `height: 100%` -- the
-       browser works out "the space actually available" for itself, which is
-       the number JS kept measuring wrongly. */
-    align-items: stretch;
-  }
-
   .coll-pane {
-    /* STICK TO THE TOP OF THE VIEWPORT so the pane's position and its height
-       are derived from the same number. With `top: 1rem` the pane begins 223px
-       down the page before sticky engages, and a viewport-tall box ran to
-       y=943 in a 736 viewport -- cut off until you scrolled. */
-    position: sticky;
-    top: 0;
-    /* FILL THE VIEWPORT, and never exceed it.
+    /* PINNED TO THE VIEWPORT, not to a page position.
+       `position: sticky` only takes effect once you scroll far enough for it
+       to engage. Before that the pane sits where the document puts it -- 223px
+       down, below the search bar and filter chips -- so a viewport-tall pane
+       ran to y=943 in a 736 window and was cut off until you scrolled. Sticky
+       cannot express "always at the top of the screen"; fixed can.
 
-       `height: 100%` resolves against the stretched grid row (.coll-split sets
-       align-items: stretch), so the pane is as tall as the space it actually
-       has -- the number JS kept trying to measure. The max-height then caps it
-       at the viewport for the case where the row is taller than the screen.
+       This is why the JS measurement existed at all: --pane-top was an attempt
+       to compensate for that 223px offset. Pinning the pane removes the offset
+       instead of chasing it, which is why the variable, the ResizeObserver and
+       the scroll listener could all be deleted. */
+    position: fixed;
+    top: 0.5rem;
+    /* The fixed column matches the grid track (400px) and sits inside the
+       page's right padding. */
+    width: 400px;
+    right: 1.5rem;
+    /* THE VIEWPORT, MINUS THE GAPS ABOVE AND BELOW. A constant: a fixed
+       element's top never changes, so neither does the space beneath it.
 
-       max-height ALONE was not enough: without a height the pane shrank to its
-       content, and a sparse Card tab (a basic land) left a 356px pane with
-       dead space below it.
+       The old rule was `calc(100vh - var(--pane-top) - 1rem)`. That is only
+       correct BEFORE sticky engaged: scrolled down, the real top went 223px ->
+       0 while the variable kept its initial value, and the pane GREW.
+       Measured at 1473x736: 497px at rest, 704px scrolled. Read the other way
+       (as a PAGE offset) the same variable once hit 6152px and collapsed the
+       pane to 0px tall -- "the whole side panel or card modal disappears".
+       Two opposite bugs from one measurement.
 
-       The old rule was `calc(100vh - var(--pane-top) - 1rem)` with --pane-top
-       measured in JS. Only correct BEFORE the pane sticks: scrolled down, the
-       real top goes 223px -> 0 while the variable keeps its initial value and
-       the pane GROWS. Measured at 1473x736: 497px at rest, 704px scrolled,
-       bottom at y=943 -- the cut-off edge Zach photographed. Read the other
-       way (as a page offset) the same variable once hit 6152px and collapsed
-       the pane to 0px tall. Two opposite bugs from one measurement, now gone.
-
-       Zach reported this twice ("it should stay the same size from the
-       START"); both times I measured a pane standing still. The trigger is
+       Zach reported the growth twice ("it should stay the same size from the
+       START") and both times I measured a pane standing still. The trigger is
        SCROLLING -- tools/scroll-pane-probe.py now tests exactly that.
 
        dvh because mobile browser chrome changes the viewport; vh is the
        fallback for engines without dvh. */
-    height: 100%;
-    max-height: calc(100vh - 1rem);
-    max-height: calc(100dvh - 1rem);
+    height: calc(100vh - 1rem);
+    height: calc(100dvh - 1rem);
     /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     /* This wrapper does NOT scroll -- the inspector owns the height and
