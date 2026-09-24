@@ -1367,7 +1367,15 @@ function CardInspectorModal({
                     ~200 Mountain printings here would be the single largest
                     list in the app and would not answer a question he has. */}
                 {!isBasicLand && printings && printings.length > 1 && (
-                  <div style={{ marginBottom: '0.85rem' }}>
+                  /* THE WRAPPER CARRIES THE HEIGHT DOWN.
+                     It was an unclassed div with only an inline margin. The
+                     list sizes itself from the space left in .ci-scroll, and
+                     that chain is only as good as its weakest link -- an
+                     unclassed div in the middle sizes to its content and the
+                     list below it becomes unbounded again. Classed, and the
+                     margin moved into the class so a stylesheet can reach it
+                     (inline styles cannot be overridden). */
+                  <div className="ci-printings-section">
                     {/* COLLAPSIBLE, DEFAULT CLOSED.
                         Zach: "other printings should be a dropdown I can toggle
                         so I can hide the other printings. It should default

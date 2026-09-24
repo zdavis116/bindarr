@@ -1125,35 +1125,76 @@ button, input, select, textarea {
 
 /* OTHER PRINTINGS: THE ONLY THING THAT SCROLLS -- ON BOTH SURFACES.
    Zach: "other printings should be a dropdown I can toggle... that is the only
-   thing that should be scrollable", then from his phone: "why is the pane so
-   long that its hiding the edit button" and "when I expand the printings a
-   scroll bar always appears even if I dont need to scroll".
+   thing that should be scrollable", then "why is the pane so long that its
+   hiding the edit button", then "there is a double scroll which isnt right.
+   Also the gray pane is going past the end of the screen".
 
-   All three are one cause. This cap lived inside `@media (min-width:1024px)`
-   as `.card-inspector-inline .ci-printings-list`, so on the phone the list had
-   `max-height: none`. Measured on Waste Not at 390x844: the list ran from
-   y=695 to y=998 -- 154px past the viewport -- which forced .ci-scroll (the
-   whole tab body) to scroll instead, taking Edit Card with it and showing the
-   body's scrollbar.
+   A FIXED CAP WAS THE WRONG SHAPE, and 28vh was the third guess at it. The
+   question is not "how tall should this list be" -- it is "how much room is
+   LEFT after everything above it". Those differ per card: the rows above the
+   list (Finish, Condition, Value, Available) are constant, but the Card tab's
+   rules text is not, and the badge row can wrap.
 
-   Capping the LIST fixes all three at once: the body no longer overflows, so
-   its scrollbar goes away and the anchored footer stays put; and the list gets
-   its own scrollbar ONLY when its content exceeds the cap, because overflow-y
-   is `auto` rather than `scroll`.
+   Measured on Ancient Bronze Dragon at 390x844 with 28vh: the list was capped
+   at 236px and ran from y=657 to y=893 while its container .ci-scroll ended at
+   y=776. So the list overhung its own parent by 117px -- the grey panel past
+   the end of the screen -- AND the parent scrolled to reach it while the list
+   scrolled internally. Two scrollbars, both real, for one list.
 
-   WHY CAP THE LIST RATHER THAN GROW THE PANEL: the printings list is the one
-   unbounded thing here (some cards have 20+), while everything else on the tab
-   is a fixed handful of rows. An unbounded child must not size its parent.
+   THE FIX IS TO STOP GUESSING. .ci-scroll becomes a flex column and the list
+   takes `flex: 1 1 auto; min-height: 0`, so it is exactly the leftover height
+   -- never more, so the parent has nothing to scroll to and its scrollbar
+   disappears; never less, so no space is wasted.
 
-   The cap is in vh so it shrinks on a short window instead of assuming a tall
-   one -- a fixed pixel cap measured on one screen is the bug this codebase
-   keeps rediscovering. 28vh is ~236px on his phone, about four rows, so a
-   5-printing list scrolls by one row and a 3-printing list does not scroll at
-   all. */
+   `min-height: 0` is load-bearing: a flex item defaults to min-height:auto,
+   which REFUSES to shrink below its content, and the list would push past the
+   container exactly as it does now. This is the same default that bites the
+   grid rows elsewhere in this file.
+
+   overflow-y is `auto`, not `scroll`, so a list that fits shows no scrollbar
+   (verified: a 3-printing card reads 181 = 181 and does not scroll; a
+   5-printing card reads 350 > 234 and does). */
 .ci-printings-list {
-  max-height: 28vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* THE PRINTINGS SECTION IS THE FLEX CHILD THAT GROWS.
+   The <details> sits between the info rows and the bottom of the scroll box,
+   so it -- not just the list inside it -- has to be the element that absorbs
+   the leftover height. Without this the details element sizes to its content
+   and the list inside has no bounded parent to fill. */
+.ci-printings {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ci-printings[open] {
+  flex: 1 1 auto;
+}
+
+/* The wrapper Bindarr renders around the disclosure must pass the height
+   through as well, or the chain breaks at exactly one link and the list is
+   unbounded again. */
+.ci-printings-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  /* Was an inline style on the div; moved here so it is overridable. */
+  margin-bottom: 0.85rem;
+}
+
+/* AND .ci-scroll MUST BE A COLUMN, or none of the above has an effect:
+   `flex: 1 1 auto` on a child of a non-flex parent is inert. This is the link
+   that makes "the list is whatever height is left" true rather than aspirational. */
+.card-inspector .ci-scroll,
+.card-inspector-inline .ci-scroll {
+  display: flex;
+  flex-direction: column;
 }
 
 /* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
