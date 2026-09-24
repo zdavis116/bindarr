@@ -1141,28 +1141,34 @@ button, input, select, textarea {
    the end of the screen -- AND the parent scrolled to reach it while the list
    scrolled internally. Two scrollbars, both real, for one list.
 
-   THE FIX IS TO STOP GUESSING. .ci-scroll becomes a flex column and the list
-   takes the leftover height with `flex: 1 1 0`.
+   THE FIX IS A FLOOR AND A CEILING, not pure flex.
 
-   THE BASIS MUST BE 0, NOT auto. `flex: 1 1 auto` sizes from the item's OWN
-   CONTENT and only then distributes free space -- with a 350px list in a 324px
-   box there is no free space, nothing shrinks, and the list EXPANDS its
-   parent. Measured exactly that: list 352px inside a 324px scroll box, ending
-   at y=912 against a container ending at 776, body scrollHeight 459 vs client
-   324. Two scrollbars and a grey panel past the screen edge.
+   Three attempts, each measured, each wrong in a different direction:
 
-   `flex: 1 1 0` sizes from the CONTAINER instead: the item starts at zero and
-   receives what is left, so it can never be taller than the space available.
+     max-height: 28vh      a guess. 236px in a box with only ~119px left, so
+                           the list overhung its container by 117px and BOTH
+                           it and the body scrolled -- the double scrollbar.
+     flex: 1 1 auto        sizes from the item's own CONTENT, so with 350px of
+                           rows in a 324px box nothing shrank and the list
+                           EXPANDED the body to 459px.
+     flex: 1 1 0           sizes from the container, but nothing forces a flex
+                           item to grow when its siblings already fill the
+                           box: the list collapsed to 2px tall.
 
-   `min-height: 0` is the other half. A flex item defaults to min-height:auto,
-   which refuses to shrink below its content and would reinstate the overflow
-   no matter what the basis says.
+   What the list actually needs is: never taller than the space available, and
+   never shorter than a few rows. That is min-height + max-height, and it does
+   not depend on the flex chain resolving a particular way.
 
-   overflow-y is `auto`, not `scroll`, so a list that fits shows no scrollbar
-   (verified: a 3-printing card reads 181 = 181 and does not scroll). */
+   `max-height: 100%` bounds it to the PARENT (.ci-printings-body, itself
+   bounded by the scroll box), so it can never overhang. The min-height keeps
+   it usable when space is tight -- better a short scrolling list than a 2px
+   sliver. Anything that does not fit scrolls INSIDE the list, so the body
+   never has to.
+
+   overflow-y is `auto`, not `scroll`: a list that fits shows no scrollbar. */
 .ci-printings-list {
-  flex: 1 1 0;
-  min-height: 0;
+  min-height: 7rem;
+  max-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1197,7 +1203,13 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* A DEFINITE HEIGHT FOR THE LIST'S `max-height: 100%` TO RESOLVE AGAINST.
+     A percentage max-height against a parent with an auto height is ignored by
+     the browser, so this wrapper has to be a bounded flex item -- `1 1 0`
+     inside the bounded .ci-printings, which is inside the bounded .ci-scroll.
+     Break any link and the list is unbounded again. */
   flex: 1 1 0;
+  overflow: hidden;
 }
 
 /* The wrapper Bindarr renders around the disclosure must pass the height
