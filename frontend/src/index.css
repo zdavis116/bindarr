@@ -1242,6 +1242,14 @@ button, input, select, textarea {
   flex-shrink: 0;
 }
 
+/* RULINGS reuse the printings disclosure's chevron and spacing -- it is the
+   same control doing the same job, and a second lookalike would drift the
+   moment one side is restyled. This class exists so the section is findable
+   and can diverge later without touching .ci-printings. */
+.ci-rulings {
+  margin-top: 0.2rem;
+}
+
 /* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
    These were inline styles on the element. Moved into a class so the desktop
    pane can override them; an inline style cannot be beaten by a stylesheet,
