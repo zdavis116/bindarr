@@ -21,50 +21,75 @@ const sync = fs.readFileSync(
   path.join(repo, 'backend/src/utils/moxfieldSync.js'), 'utf8');
 
 // ---------------------------------------------------------------------------
-// DV-TC1: THE DETAIL PANE MUST NOT MEASURE A PAGE OFFSET.
+// DV-TC1: THE DETAIL PANE MUST NOT MEASURE ITS OWN POSITION AT ALL.
 //
 // Zach: "if I click a card and scroll to the bottom and then click a land card
 // the whole side panel or card modal disappears."
 //
-// --pane-top is subtracted from 100vh, a VIEWPORT height. Measuring it as
+// --pane-top was subtracted from 100vh, a VIEWPORT height. Measuring it as
 // `rect.top + window.scrollY` mixes coordinate systems: scrolled to the bottom
 // of a 100-card deck it read 6152px, so calc(100vh - 6152px - 1rem) clamped to
 // zero and the pane rendered 472px wide by 0px tall. Present in the DOM,
 // invisible on screen. MEASURED on dev at 1855x731.
+//
+// FIXING THE COORDINATE SYSTEM WAS NOT ENOUGH. With a correct viewport offset
+// the same variable failed the other way: it is captured before the pane is
+// pinned, so scrolled down the real top goes 223px -> 8px while the variable
+// keeps its initial value and the pane GROWS. Measured at 1473x736: 497px at
+// rest, 704px scrolled, bottom at y=943 in a 736 viewport. Zach, twice: "when
+// I scroll down the collection with the right pane open it grows bigger to the
+// point it gets cut off... it should stay the same size from the START."
+//
+// One variable, two opposite failures. So the measurement is GONE: both panes
+// are position:fixed with a constant height. This test now guards that absence
+// -- it used to require the measurement to exist, which would have blocked the
+// fix.
 // ---------------------------------------------------------------------------
 for (const [name, src] of [['DeckView', deckView], ['CollectionList', collection]]) {
-  const fn = src.slice(src.indexOf('const measure = () => {'));
-  const body = fn.slice(0, fn.indexOf('};'));
-  assert.doesNotMatch(body, /getBoundingClientRect\(\)\.top\s*\+\s*window\.scrollY/,
+  assert.doesNotMatch(src, /setProperty\(\s*'--pane-top'/,
+    `DV-TC1 ${name} must not measure --pane-top: stale in both directions`);
+  assert.doesNotMatch(src, /getBoundingClientRect\(\)\.top\s*\+\s*window\.scrollY/,
     `DV-TC1 ${name} must not add scrollY to a viewport offset`);
-  assert.match(body, /getBoundingClientRect\(\)\.top/,
-    `DV-TC1 ${name} must still measure where the pane starts`);
-  // And the value must be clamped, so no transient measurement can collapse it.
-  assert.match(body, /Math\.min\(/,
-    `DV-TC1 ${name} must clamp --pane-top`);
 }
 
 // ---------------------------------------------------------------------------
-// DV-TC2: THE CSS MUST NOT BE ABLE TO PRODUCE A ZERO-HEIGHT PANE.
+// DV-TC2: NO PANE MAY BE ABLE TO COLLAPSE TO ZERO HEIGHT.
 //
-// The JS is fixed, but a layout rule that CAN evaluate to zero will find a way
-// to do it again. Every pane using this calc needs a floor. Belt and braces on
-// purpose: an invisible pane is indistinguishable from a broken feature.
+// A layout rule that CAN evaluate to zero will find a way to do it again. An
+// invisible pane is indistinguishable from a broken feature.
+//
+// This used to COUNT rules matching `calc(100vh - var(--pane-top))` and demand
+// at least three. That was a proxy for the real rule and it broke the moment
+// the panes stopped measuring an offset -- the fix made the count zero and the
+// test failed while the danger it guarded was permanently gone. Counting call
+// sites is brittle: it fails on the correct change and says nothing about a
+// NEW pane that forgets its floor.
+//
+// So: every viewport-height pane, however it is spelled, needs a floor.
 // ---------------------------------------------------------------------------
 {
   // `height:` only, not `max-height:`. A max-height cannot collapse a pane --
   // it caps it. Matching both made this test demand a floor on
   // .cardsearch-stage, which was never part of the bug: a guard that forces
   // unrelated code to change to stay green is a guard I would start ignoring.
-  const calcs = [...css.matchAll(/(?<!max-)height:\s*calc\(100vh\s*-\s*var\(--pane-top[^)]*\)[^;]*;/g)];
-  assert.ok(calcs.length >= 3,
-    `DV-TC2 expected the pane-top height calc in at least 3 rules, found ${calcs.length}`);
-  for (const m of calcs) {
-    // The min-height must appear within the same rule block.
-    const after = css.slice(m.index, m.index + 400);
-    assert.match(after, /min-height:\s*\d/,
-      'DV-TC2 every pane-top height needs a min-height floor');
+  //
+  // PANES ONLY. The broadened pattern also matched .storage-workspace-grid,
+  // dead CSS for the Storage screen deleted in Sept 2026. Adding a floor to a
+  // removed feature to satisfy a test is exactly the tail-wagging this guard
+  // is supposed to prevent.
+  const PANES = ['.coll-pane', '.deck-panes-side', '.curve-listpanel'];
+  let checked = 0;
+  for (const sel of PANES) {
+    const i = css.indexOf(sel + ' {');
+    if (i < 0) continue;            // a pane may legitimately be removed
+    const rule = css.slice(i, css.indexOf('}', i));
+    if (!/(?<!max-)height:\s*calc\(100(?:d)?vh/.test(rule)) continue;
+    checked += 1;
+    assert.match(rule, /min-height:\s*\d/,
+      `DV-TC2 ${sel} sets a viewport height and needs a min-height floor`);
   }
+  assert.ok(checked >= 2,
+    `DV-TC2 expected at least 2 viewport-height panes to guard, saw ${checked}`);
 }
 
 // ---------------------------------------------------------------------------

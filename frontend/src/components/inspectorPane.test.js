@@ -307,6 +307,58 @@ test('PANE-TC8b: the Value row is the price, the condition, and a shop BADGE', (
     + 'price shown, so stating it per-row is noise');
 });
 
+test('PANE-TC11: the pane height does not depend on a measured offset', () => {
+  // Zach, twice: "when I scroll down the collection with the right pane open
+  // it grows bigger to the point it gets cut off... it should stay the same
+  // size from the START."
+  //
+  // The cause was `calc(100vh - var(--pane-top) - 1rem)` where --pane-top was
+  // measured in JS from getBoundingClientRect().top. That number is only valid
+  // before the pane is pinned: scrolled down the real top goes 223px -> 8px
+  // while the variable keeps its initial value, and the pane GROWS. Measured
+  // at 1473x736: 497px at rest, 704px scrolled, bottom at y=943 in a 736
+  // viewport.
+  //
+  // Read the OTHER way -- as a page offset -- the same variable once hit
+  // 6152px and collapsed the pane to 0px tall ("the whole side panel or card
+  // modal disappears"). Two opposite bugs from one measurement, so the
+  // measurement is gone rather than corrected again.
+  // SCOPED TO THE TWO PANES THAT TOOK A MEASURED VALUE.
+  //
+  // `.dashx` and the buylist summary also mention --pane-top, but nothing
+  // writes it any more, so they resolve to their literal fallback -- a
+  // constant, which is exactly what this test is asking for. Failing them
+  // would be punishing the right behaviour for using the wrong word.
+  const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const sel of ['.coll-pane {', '.deck-panes-side {']) {
+    const i = cssCode.indexOf(sel);
+    assert.ok(i > 0, `${sel} must exist`);
+    const rule = cssCode.slice(i, cssCode.indexOf('}', i));
+    assert.doesNotMatch(rule, /--pane-top/,
+      `${sel} height must not depend on a measured offset: it is stale the `
+      + 'moment the pane is pinned, in both directions');
+  }
+
+  // AND THE JS THAT SET IT MUST BE GONE, not merely unused -- a live
+  // ResizeObserver writing a stale variable is how this came back once.
+  for (const [name, code] of [['CollectionList', collCode], ['DeckView', deckCode]]) {
+    assert.doesNotMatch(code, /setProperty\(\s*'--pane-top'/,
+      `${name} must not measure --pane-top`);
+  }
+
+  // FIXED, NOT STICKY. Sticky cannot express "always at the top of the
+  // screen": before it engages the pane sits where the document puts it, 223px
+  // down, so a viewport-tall pane is cut off until you scroll. That offset is
+  // the whole reason the JS measurement existed.
+  const at = cssCode.indexOf('.coll-pane {');
+  assert.ok(at > 0, 'the collection pane must have a rule');
+  const block = cssCode.slice(at, cssCode.indexOf('}', at));
+  assert.match(block, /position:\s*fixed/,
+    'the pane must be pinned to the viewport, not to a page position');
+  assert.match(block, /min-height:/,
+    'and keep a floor so it can never collapse to nothing');
+});
+
 test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scroll', () => {
   // It was a full-width <a> with marginBottom, rendered mid-body.
   assert.doesNotMatch(inspCode, /gap: '0\.4rem', width: '100%', marginBottom: '0\.85rem'/,
