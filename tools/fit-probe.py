@@ -55,11 +55,18 @@ time.sleep(1)
 cdp.send('Page.navigate', url=URL)
 time.sleep(4)
 
-rule = ev("""(()=>{for(const s of document.styleSheets){try{
-  for(const r of s.cssRules){if(r.selectorText===' .ci-printings-list'.trim())
+# STALENESS CHECK, PINNED TO A STABLE MARKER.
+#
+# This used to look for `.ci-printings-list`, then aborted the moment that rule
+# was legitimately removed -- a freshness check must not depend on the thing
+# being changed. `.ci-printings-body` is the wrapper introduced with this work
+# and stays put, so its presence proves the new bundle without tracking the
+# rule under test.
+marker = ev("""(()=>{for(const s of document.styleSheets){try{
+  for(const r of s.cssRules){if(r.selectorText==='.ci-printings-body')
     return r.cssText;}}catch(e){}}return 'NOT FOUND';})()""")
-print('loaded rule:', rule)
-if 'NOT FOUND' in str(rule):
+print('freshness marker:', marker)
+if 'NOT FOUND' in str(marker):
     raise SystemExit('ABORT: stale bundle; measurements would describe old code.')
 
 until("!!document.querySelector('input[type=password]')||"
@@ -96,11 +103,20 @@ print(ev("""(()=>{
    return {top:Math.round(r.top),bottom:Math.round(r.bottom),h:Math.round(r.height)}};
  return JSON.stringify({
   scrollBox:R(sc), list:R(li), footer:f?R(f):null,
-  listInsideParent: li.getBoundingClientRect().bottom<=sc.getBoundingClientRect().bottom+1,
+  // ONE SCROLLER IS THE WHOLE TEST. Count the elements in the panel that
+  // actually scroll -- ["ci-scroll"] is correct, two entries is the double
+  // scrollbar Zach reported.
+  scrollersInPanel: [...document.querySelector('.card-inspector, .card-inspector-inline')
+    .querySelectorAll('*')].filter(e=>{const s=getComputedStyle(e);
+      return /auto|scroll/.test(s.overflowY) && e.scrollHeight>e.clientHeight+1;
+    }).map(e=>e.className.toString().slice(0,28)),
+  // NOTE: do NOT assert list.bottom <= scrollBox.bottom here.
+  // getBoundingClientRect() reports a child's UNCLIPPED position, so a list
+  // that scrolls correctly inside .ci-scroll still reads as "outside" it. That
+  // number sent me chasing a clip that would have made rows unreachable.
   bodyScrolls: sc.scrollHeight>sc.clientHeight+1,
   bodyScrollH:sc.scrollHeight, bodyClientH:sc.clientHeight,
   listScrolls: li.scrollHeight>li.clientHeight+1,
-  listScrollH:li.scrollHeight, listClientH:li.clientHeight,
   footerVisible: f?f.getBoundingClientRect().bottom<=window.innerHeight+1:null,
  },null,1);})()"""))
 

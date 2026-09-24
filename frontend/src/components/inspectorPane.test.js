@@ -154,42 +154,49 @@ test('PANE-TC6: other printings is a disclosure, closed by default', () => {
     'the list needs its own class so only it can be made scrollable');
 });
 
-test('PANE-TC7: only the printings list scrolls, and the cap is viewport-relative', () => {
-  // THE CAP MUST BE UNSCOPED. It lived in `@media (min-width:1024px)` as
-  // `.card-inspector-inline .ci-printings-list`, so the PHONE modal had
-  // `max-height: none`. Measured on Waste Not at 390x844: the list ran to
-  // y=998 against an 844 viewport, which forced the whole tab body to scroll
-  // and took Edit Card off the screen. Zach reported all three symptoms at
-  // once -- hidden Edit button, body scrollbar, over-long pane.
+test('PANE-TC7: the panel has exactly ONE scroller', () => {
+  // Zach: "there is a double scroll which isnt right. Also the gray pane is
+  // going past the end of the screen."
+  //
+  // Four attempts to CAP the printings list all failed, each differently:
+  // max-height:28vh overhung by 117px; flex:1 1 auto expanded the body to
+  // 459px; flex:1 1 0 collapsed the list to 2px; max-height:100% was ignored
+  // against an auto-height ancestor.
+  //
+  // One cause underneath: a <details> element does not contain its children's
+  // height. Measured -- DETAILS height 58, scrollHeight 374, its child laid
+  // out OUTSIDE it. Every height below that point resolved against a box that
+  // bounded nothing.
+  //
+  // So the list does not scroll at all. .ci-scroll is the single scroller, it
+  // is bounded by the panel, and the sticky footer keeps Edit Card reachable
+  // regardless of length. Verified: scrollersInPanel === ["ci-scroll"].
   const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.equal(cssCode.indexOf('.card-inspector-inline .ci-printings-list'), -1,
-    'the printings cap must NOT be desktop-scoped -- the phone modal renders '
-    + 'the same list and is where it overflowed');
 
   const at = cssCode.indexOf('\n.ci-printings-list {');
-  assert.ok(at > 0, 'there must be an unscoped .ci-printings-list rule');
+  assert.ok(at > 0, 'the printings list must still have a rule');
   const block = cssCode.slice(at, cssCode.indexOf('}', at));
 
-  assert.match(block, /max-height:\s*\d+(\.\d+)?vh/,
-    'the cap must be in vh -- a pixel cap measured on one screen is the bug '
-    + 'this codebase keeps rediscovering (his desktop is only 731px tall)');
-  assert.doesNotMatch(block, /max-height:\s*\d+px/,
-    'and must NOT be a fixed pixel height');
+  // A SECOND SCROLLER IS THE BUG. Either property re-creates it.
+  assert.doesNotMatch(block, /overflow-y:\s*(auto|scroll)/,
+    'the printings list must NOT scroll -- .ci-scroll is the only scroller, '
+    + 'and a second one is the double scrollbar he reported');
+  assert.doesNotMatch(block, /max-height/,
+    'and must NOT be capped: every cap either overhung the panel or collapsed '
+    + 'the list, because <details> does not bound its children');
 
-  // AUTO, NEVER SCROLL. Zach: "when I expand the printings a scroll bar always
-  // appears even if I dont need to scroll". `overflow-y: scroll` reserves a
-  // gutter unconditionally; `auto` shows one only when the content exceeds the
-  // cap. Verified on real data: a 3-printing card does not scroll (181 = 181),
-  // a 5-printing card does (302 > 234).
-  assert.match(block, /overflow-y:\s*auto/,
-    'the list must use overflow-y:auto so the scrollbar appears only when needed');
-  assert.doesNotMatch(block, /overflow-y:\s*scroll/,
-    'overflow-y:scroll would show a scrollbar on a list that fits');
+  // The body wrapper must not clip either: the list is longer than the panel
+  // BY DESIGN and scrolls with the body. Clipping it here hides rows the body
+  // can no longer reach.
+  const bodyAt = cssCode.indexOf('\n.ci-printings-body {');
+  assert.ok(bodyAt > 0, 'the body wrapper must exist');
+  const bodyBlock = cssCode.slice(bodyAt, cssCode.indexOf('}', bodyAt));
+  assert.doesNotMatch(bodyBlock, /overflow:\s*hidden/,
+    'clipping the body makes printings unreachable');
 
-  // AND NO INLINE overflow ON THE ELEMENT. An inline style CANNOT be
+  // AND NO INLINE overflow ON THE ELEMENT. An inline style cannot be
   // overridden by a stylesheet: `overflow: 'hidden'` in the style prop beat
-  // this rule outright, computed style read `hidden` in every measurement, and
-  // the list could never scroll or be capped no matter what the CSS said.
+  // the rule outright and the list could never be sized at all.
   const listTag = inspCode.slice(inspCode.indexOf('className="ci-printings-list"'),
                                  inspCode.indexOf('className="ci-printings-list"') + 260);
   assert.doesNotMatch(listTag, /overflow:/,
