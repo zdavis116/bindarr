@@ -3680,7 +3680,7 @@ button, input, select, textarea {
   .deck-panes-main { min-width: 0; }
 
   .deck-panes-side {
-    /* PINNED TO THE VIEWPORT, BELOW THE DECK HEADER.
+    /* PINNED TO THE VIEWPORT.
 
        `position: sticky` was wrong here for the same reason it was wrong on
        .coll-pane: it only engages once you have scrolled far enough, so before
@@ -3693,23 +3693,36 @@ button, input, select, textarea {
        pane is expanding when I scroll here as well." Correct on both counts --
        the collection fix was never applied to this rule.
 
-       THE OFFSET IS DEEPER THAN THE COLLECTION'S. Measured: the deck content
-       starts at y=388 (app header + deck title + progress block) against the
-       collection's 223. Same shape, different number, so it gets its own
-       variable rather than sharing one that would be wrong on both screens.
+       PINNED NEAR THE TOP, NOT AT THE DECK HEADER'S OFFSET. The deck content
+       starts 388px down (app header + deck title + progress block), and
+       starting the pane there left it 336px tall -- too short to reach its own
+       footer buttons, and stranded beside blank space once the deck list
+       scrolled past. The collection pane can sit at its content offset because
+       223px still leaves a usable 496px; 388px does not.
+
+       So the pane clears the app header only and uses the height that buys.
+       A card sheet is a fixed thing -- art, tabs, a scrolling body, a footer --
+       and it needs room, not alignment with a row it no longer sits beside.
 
        A CSS constant with a literal fallback, never a JS measurement. That
-       measurement is what caused the two previous bugs here: stale after
-       pinning it made the pane grow, and read as a page offset it hit 6152px
-       and collapsed the pane to 0px tall ("the whole side panel or card modal
-       disappears"). A constant can be wrong if the header is restructured, but
+       measurement caused the two previous bugs here: stale after pinning it
+       made the pane grow, and read as a page offset it hit 6152px and
+       collapsed the pane to 0px ("the whole side panel or card modal
+       disappears"). A constant can be wrong if the chrome is restructured, but
        it cannot go STALE, which is the failure that actually bit. */
     position: fixed;
-    top: var(--deck-pane-top, 24rem);
-    /* Matches the grid track so the deck list keeps its own column. The track
-       stays reserved even though this pane no longer occupies it -- otherwise
-       the list would flow underneath. */
-    width: 400px;
+    top: var(--deck-pane-top, 4.5rem);
+    /* MATCHES THE GRID TRACK, WHICH IS NOT 400px.
+       Two rules set .deck-panes columns: the one at ~3675 says 400px, and a
+       LATER one says `clamp(440px, 30%, 560px)`. A plain rule lower in the
+       file wins at equal specificity, so the real track is the clamp --
+       measured 440px at 1473 wide. Hardcoding 400 would misalign the pane at
+       every viewport, so this repeats the clamp rather than a number read off
+       one screenshot.
+
+       The track stays reserved even though the pane is position:fixed and no
+       longer occupies it -- otherwise the deck list would flow underneath. */
+    width: clamp(440px, 30%, 560px);
     right: 1.5rem;
     /* THIS WRAPPER DOES NOT SCROLL. It used to be overflow-y:auto, which is
        what made the WHOLE pane scrollable -- art, name and tabs slid away
