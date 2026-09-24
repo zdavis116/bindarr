@@ -1404,13 +1404,22 @@ function CardInspectorModal({
                       const owned = deckUse?.owned ?? ownedCopies;
                       const inDecks = deckUse?.reservedOwned ?? thisPrintingCommitted;
                       const free = deckUse?.free ?? Math.max(0, owned - inDecks);
-                      if (inDecks <= 0) {
-                        return t('inspector.availableOfOwned', { available: free, owned });
-                      }
-                      return free > 0
+                      // ONE SENTENCE SHAPE, ALWAYS. The row answers "how many
+                      // can I use, out of how many do I have" -- and that
+                      // question has the same shape whether the answer is 2,
+                      // 1 or 0.
+                      //
+                      // The zero-free case used to drop to a bare
+                      // "{count} in decks", which never said how many he owns
+                      // and read as a different kind of fact. Zach, seeing it
+                      // in the deck view: "Uh did you not update the app???"
+                      // -- the fix HAD shipped; that branch simply had its own
+                      // wording. Same pane, same sentence, unless he asks
+                      // otherwise.
+                      return inDecks > 0
                         ? t('inspector.availableOfOwnedInDecks', {
                             available: free, owned, committed: inDecks })
-                        : t('inspector.allInDecks', { count: inDecks });
+                        : t('inspector.availableOfOwned', { available: free, owned });
                     })()],
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{

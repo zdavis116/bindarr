@@ -166,8 +166,15 @@ test('AV-TC4b: the "(x in decks)" parenthetical only appears when it is true', (
   // 3". The rule is that a card with nothing in a deck must not render the
   // parenthetical; which variable carries the count is an implementation
   // detail this test has no business freezing.
-  assert.match(code, /inDecks <= 0[\s\S]{0,200}availableOfOwned'/,
+  assert.match(code, /inDecks > 0[\s\S]{0,200}availableOfOwnedInDecks'/,
     'the component must branch on whether anything is committed');
+
+  // AND THE ZERO-FREE CASE USES THE SAME SENTENCE. It used to drop to a bare
+  // "{count} in decks" -- a different shape that never said how many he owns.
+  // Zach saw it on a 1-owned card in the deck view and read it as the fix not
+  // having shipped at all. One question, one sentence shape.
+  assert.doesNotMatch(code, /allInDecks/,
+    'the zero-free case must use the same "x of y free (z in decks)" sentence');
 });
 
 test('AV-TC5: availability is the SERVER\'s number, not a second calculation', () => {
