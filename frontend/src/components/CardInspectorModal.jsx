@@ -1422,6 +1422,13 @@ function CardInspectorModal({
                             : t('inspector.ownNoneOfThese')}
                         </span>
                       </summary>
+                    {/* THE BODY WRAPPER EXISTS FOR LAYOUT, not decoration.
+                        A <details> element does not pass a bounded height to
+                        its children -- measured at 58px tall with a 374px
+                        scrollHeight, the list spilling out below it. This
+                        plain div inside the details is the flex column that
+                        actually constrains the list. */}
+                    <div className="ci-printings-body">
                     {/* INLINE STYLES HERE CANNOT BE OVERRIDDEN BY THE
                         STYLESHEET, so only the decoration lives inline and the
                         SIZING lives in .ci-printings-list.
@@ -1598,6 +1605,7 @@ function CardInspectorModal({
                             </button>
                           );
                         })}
+                    </div>
                     </div>
                     </details>
                   </div>

@@ -1169,18 +1169,34 @@ button, input, select, textarea {
 
 /* THE PRINTINGS SECTION IS THE FLEX CHILD THAT GROWS.
    The <details> sits between the info rows and the bottom of the scroll box,
-   so it -- not just the list inside it -- has to be the element that absorbs
-   the leftover height. Without this the details element sizes to its content
-   and the list inside has no bounded parent to fill. */
+   so it -- not just the list inside it -- has to absorb the leftover height.
+
+   A <details> DOES NOT PASS ITS HEIGHT TO ITS CHILDREN. Measured: with
+   `display:flex; flex:1 1 0` on the element itself, the details box computed
+   to 58px (the summary alone) while its scrollHeight was 374px -- the list was
+   laid out OUTSIDE it and spilled down the page. That is the grey panel
+   running past the screen edge. The element participates in the parent's flex
+   layout, but its own children do not inherit a bounded height through it.
+
+   So the SIZING lives on `.ci-printings-body`, a plain div wrapped around the
+   list INSIDE the details. Details keeps only `min-height: 0` so it can shrink
+   in its parent; the body is the real flex column. */
 .ci-printings {
-  display: flex;
-  flex-direction: column;
   min-height: 0;
 }
 
 .ci-printings[open] {
   /* Basis 0 for the same reason as the list: `auto` would size this from its
      content and expand the scroll box instead of fitting inside it. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+}
+
+.ci-printings-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   flex: 1 1 0;
 }
 
