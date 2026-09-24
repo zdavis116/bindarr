@@ -194,6 +194,24 @@ test('PANE-TC7: the panel has exactly ONE scroller', () => {
   assert.doesNotMatch(bodyBlock, /overflow:\s*hidden/,
     'clipping the body makes printings unreachable');
 
+  // A FLEX COLUMN SHRINKS ITS CHILDREN, AND THAT DESTROYED THE INFO ROWS.
+  //
+  // Zach: "when I expand the printings I cant scroll up to the value
+  // information." They had not scrolled away -- the browser had SQUASHED them.
+  // Measured with a 572px list in a 214px box: the Finish / Condition / Value
+  // / Available block computed to 2px tall.
+  //
+  // This is the nastiest shape of bug in this file because every other metric
+  // reads clean: the panel height is perfectly stable, nothing overflows, one
+  // scroller. The content inside is simply gone. Only rendering it showed it.
+  const shrinkAt = cssCode.indexOf('.ci-scroll > *');
+  assert.ok(shrinkAt > 0,
+    'the scroll box children must be pinned with flex-shrink:0, or a long '
+    + 'printings list crushes the rows above it to nothing');
+  const shrinkBlock = cssCode.slice(shrinkAt, cssCode.indexOf('}', shrinkAt));
+  assert.match(shrinkBlock, /flex-shrink:\s*0/,
+    'children of the scroll box must not shrink');
+
   // AND NO INLINE overflow ON THE ELEMENT. An inline style cannot be
   // overridden by a stylesheet: `overflow: 'hidden'` in the style prop beat
   // the rule outright and the list could never be sized at all.

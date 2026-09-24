@@ -60,6 +60,17 @@ MEASURE = """(()=>{
   scrollers: [...m.querySelectorAll('*')].filter(e=>{const s=getComputedStyle(e);
     return /auto|scroll/.test(s.overflowY)&&e.scrollHeight>e.clientHeight+1;
   }).map(e=>e.className.toString().slice(0,24)),
+  // CRUSHED SIBLINGS. The metric that mattered and that I did not have:
+  // a flex column SHRINKS its items to fit, so a long printings list squashed
+  // the Finish/Condition/Value/Available block to 2px tall. Panel height stays
+  // perfectly stable while the content inside it is destroyed -- every other
+  // number here read "clean" and the screenshot showed the bug.
+  // Zach: "I cant scroll up to the value information."
+  valueRowVisible: /Value/.test(m.textContent) && (()=>{
+    const rows=[...m.querySelectorAll('div')].filter(d=>/^Value/.test(d.textContent||''));
+    return rows.some(d=>d.getBoundingClientRect().height>8);
+  })(),
+  shortestRow: Math.min(...[...sc.children].map(c=>Math.round(c.getBoundingClientRect().height))),
  };})()"""
 
 cdp.send('Page.navigate', url=URL)
@@ -113,6 +124,10 @@ for (W, H) in SIZES:
           + ("" if opened['footerVisible'] else "   <-- BUG"))
     print(f"  scrollers open: {opened['scrollers']}"
           + ("   <-- BUG (double scroll)" if len(opened['scrollers']) > 1 else ""))
+    print(f"  Value row visible when open: {opened['valueRowVisible']}"
+          + ("" if opened['valueRowVisible'] else "   <-- BUG (crushed)"))
+    print(f"  shortest child row: {opened['shortestRow']}px"
+          + ("   <-- BUG (squashed to nothing)" if opened['shortestRow'] < 8 else ""))
 
     shot = cdp.send('Page.captureScreenshot', format='png')
     p = f'/tmp/panel_{W}x{H}.png'
