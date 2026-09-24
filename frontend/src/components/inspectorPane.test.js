@@ -372,6 +372,52 @@ test('PANE-TC11: the pane height does not depend on a measured offset', () => {
     'and its height must subtract the SAME offset, or it overruns the fold');
 });
 
+test('PANE-TC12: the deck pane is pinned too, and its top and height agree', () => {
+  // Zach: "Seems you solved the collection but not the deck view... also the
+  // pane is expanding when I scroll here as well."
+  //
+  // The collection fix was never applied to .deck-panes-side. Measured at
+  // 1473x736 on a 100-card deck: at the top of the page the pane ran from
+  // y=388 to y=1092 -- 356px past a 736 viewport -- and scrolled to the end
+  // its top went NEGATIVE (-174), sliding off the screen entirely.
+  const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const at = cssCode.indexOf('.deck-panes-side {');
+  assert.ok(at > 0, 'the deck pane must have a rule');
+  const block = cssCode.slice(at, cssCode.indexOf('}', at));
+
+  assert.match(block, /position:\s*fixed/,
+    'the deck pane must be pinned to the viewport, like the collection pane');
+  assert.doesNotMatch(block, /--pane-top/,
+    'and must not resurrect the measured offset that grew it');
+  assert.match(block, /min-height:\s*\d/,
+    'with a floor, so it can never collapse to nothing');
+
+  // THE TOP AND THE HEIGHT MUST USE THE SAME OFFSET.
+  //
+  // This is the bug this test exists for. I changed `top` from 24rem to
+  // 4.5rem and left BOTH height calcs on the old fallback, so the pane was
+  // correctly placed and 336px tall instead of 664 -- too short to reach its
+  // own footer buttons. Every number looked plausible in isolation; only the
+  // pairing was wrong.
+  for (const [name, rule] of [['.deck-panes-side', block],
+                              ['.coll-pane', (() => {
+                                const i = cssCode.indexOf('.coll-pane {');
+                                return cssCode.slice(i, cssCode.indexOf('}', i));
+                              })()]]) {
+    const tops = [...rule.matchAll(/top:\s*var\((--[a-z-]+),\s*([\d.]+rem)\)/g)];
+    const heights = [...rule.matchAll(/height:\s*calc\([^)]*var\((--[a-z-]+),\s*([\d.]+rem)\)/g)];
+    assert.ok(tops.length, `${name} must offset its top from a variable`);
+    assert.ok(heights.length, `${name} must subtract that offset from its height`);
+    for (const h of heights) {
+      assert.equal(h[1], tops[0][1],
+        `${name}: height must subtract the SAME variable as top`);
+      assert.equal(h[2], tops[0][2],
+        `${name}: height fallback ${h[2]} != top fallback ${tops[0][2]} -- `
+        + 'the pane would be placed correctly and sized wrongly');
+    }
+  }
+});
+
 test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scroll', () => {
   // It was a full-width <a> with marginBottom, rendered mid-body.
   assert.doesNotMatch(inspCode, /gap: '0\.4rem', width: '100%', marginBottom: '0\.85rem'/,
@@ -381,7 +427,13 @@ test('PANE-TC9: Buy on Mana Pool sits beside Edit Card, not full-width mid-scrol
     'the buy link must render inside the anchored footer');
   // A dead buy button is worse than none: the URL must come from the
   // marketplace, never be constructed from set code and number.
-  assert.match(inspCode, /\{thisPrinting\?\.price_url && \(/,
+  //
+  // MATCHES THE GATE, NOT THE WHOLE LINE. This asserted the exact literal
+  // `{thisPrinting?.price_url && (` and broke when a second condition was
+  // appended -- hiding the button for cards a deck already has. The URL check
+  // was still there; only the punctuation after it changed. A guard that fails
+  // on a correct edit trains you to edit the guard.
+  assert.match(inspCode, /\{thisPrinting\?\.price_url &&/,
     'and only when the marketplace actually returned a URL');
 });
 

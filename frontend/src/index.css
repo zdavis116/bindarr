@@ -3742,8 +3742,8 @@ button, input, select, textarea {
        min-height IS THE SAFETY NET, not decoration. A layout rule that CAN
        evaluate to zero will find a way; this keeps an invisible pane
        impossible even if the offset is ever set badly. */
-    height: calc(100vh - var(--deck-pane-top, 24rem) - 1rem);
-    height: calc(100dvh - var(--deck-pane-top, 24rem) - 1rem);
+    height: calc(100vh - var(--deck-pane-top, 4.5rem) - 1rem);
+    height: calc(100dvh - var(--deck-pane-top, 4.5rem) - 1rem);
     min-height: 18rem;
     overflow: hidden;
   }
