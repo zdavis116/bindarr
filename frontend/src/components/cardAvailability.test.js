@@ -74,6 +74,41 @@ test('AV-TC3: a printing with nothing committed stays quiet', () => {
     'the unencumbered case must return the plain label');
 });
 
+test('AV-TC6: Available to use is oracle-wide, never mixed scopes', () => {
+  // Zach, on a Commander 2019 Rogue's Passage he owns NONE of: "Why is
+  // available to use still showing that. It should say 2 of 3."
+  //
+  // The row read "1 in decks" because `available` and `committed` came from
+  // THIS PRINTING (c19 #270: 0 owned, 0 committed) while `owned` beside them
+  // was oracle-wide (3). One sentence, two scopes -- so it described a
+  // printing he does not own using a count borrowed from one he does.
+  //
+  // The backend already computes all three consistently: owned, reservedOwned
+  // and free. The fix is to read them, not to recompute a fourth answer.
+  // `code` is the comment-stripped source, prepared at the top of this file.
+  // Stripping matters: the explanation above names the very values it forbids,
+  // and an absence assertion that reads comments fails on its own prose.
+  const at = code.indexOf("t('inspector.availableToUse')");
+  assert.ok(at > 0, 'the Available to use row must exist');
+  const row = code.slice(at, at + 1200);
+
+  // THE PER-PRINTING FIGURES MUST NOT DRIVE THIS ROW. They are the exact
+  // values that produced the wrong sentence.
+  assert.doesNotMatch(row, /available:\s*thisPrinting/,
+    'the available count must be oracle-wide, not per printing');
+  assert.doesNotMatch(row, /committed:\s*thisPrintingCommitted[,\s)]/,
+    'the in-decks count must be oracle-wide, not per printing');
+
+  // AND IT MUST READ THE BACKEND'S NUMBERS. Recomputing "how many are free"
+  // in the component is how the panel and the per-deck rows disagreed before:
+  // when two surfaces answer the same question separately, one of them is
+  // always lying and the screen gives no way to tell which.
+  assert.match(row, /deckUse\?\.owned\b/, 'owned must come from the endpoint');
+  assert.match(row, /deckUse\?\.reservedOwned\b/,
+    'the in-decks count must come from the endpoint');
+  assert.match(row, /deckUse\?\.free\b/, 'free must come from the endpoint');
+});
+
 test('AV-TC4: the tab is also honest about the printing it is OPEN on', () => {
   // Otherwise the small row for a printing would be more truthful than the
   // panel describing it. Verified deployed on a deck card: "Available to use /
@@ -124,8 +159,14 @@ test('AV-TC4b: the "(x in decks)" parenthetical only appears when it is true', (
   // The plain string must NOT mention decks: it is the one used when none are.
   assert.doesNotMatch(en['inspector.availableOfOwned'], /decks/,
     'the uncommitted string must not claim anything about decks');
-  // And the component must actually choose between them on the committed count.
-  assert.match(code, /thisPrintingCommitted > 0\s*\n?\s*\?/,
+  // And the component must actually choose between them on the committed
+  // count. ASSERTS THE BRANCH, NOT THE VARIABLE NAME: this pinned the literal
+  // `thisPrintingCommitted > 0` and went red when that per-printing figure was
+  // replaced by the oracle-wide one -- the fix for Zach's "it should say 2 of
+  // 3". The rule is that a card with nothing in a deck must not render the
+  // parenthetical; which variable carries the count is an implementation
+  // detail this test has no business freezing.
+  assert.match(code, /inDecks <= 0[\s\S]{0,200}availableOfOwned'/,
     'the component must branch on whether anything is committed');
 });
 

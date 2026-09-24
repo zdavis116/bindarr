@@ -1376,16 +1376,42 @@ function CardInspectorModal({
                     // So an uncommitted card reads "4 of 4" and a committed one
                     // reads "1 of 4 (3 in decks)" -- never "(0 in decks)",
                     // which is noise dressed as information.
-                    [t('inspector.availableToUse'),
-                      thisPrintingCommitted > 0
-                        ? (thisPrintingAvailable > 0
-                            ? t('inspector.availableOfOwnedInDecks', {
-                                available: thisPrintingAvailable,
-                                owned: ownedCopies,
-                                committed: thisPrintingCommitted })
-                            : t('inspector.allInDecks', { count: thisPrintingCommitted }))
-                        : t('inspector.availableOfOwned', {
-                            available: thisPrintingAvailable, owned: ownedCopies })],
+                    // AVAILABLE TO USE IS AN ORACLE-WIDE ANSWER.
+                    //
+                    // Zach, on a Commander 2019 Rogue's Passage he owns none
+                    // of: "Why is available to use still showing that. It
+                    // should say 2 of 3."
+                    //
+                    // It read "1 in decks" because the numbers came from THIS
+                    // PRINTING (c19 #270: 0 owned, 0 free) while the label
+                    // beside them, "owned", was oracle-wide (3). His three
+                    // copies are SOC #400, FDN #264 and LCC #349; one is in a
+                    // deck. Mixing the two scopes in one sentence produced a
+                    // row that described a printing he does not own using a
+                    // count borrowed from one he does.
+                    //
+                    // All three numbers now come from the SAME scope, computed
+                    // once by the backend: `owned` (3), `reservedOwned` (1)
+                    // and `free` (2). The question "can I use this card" is
+                    // about the CARD, not about which printing you happen to
+                    // have open -- the same reasoning that makes basic lands
+                    // pool by name rather than by printing.
+                    //
+                    // Falls back to the per-printing figures only when the
+                    // endpoint did not supply the oracle-wide ones, so an old
+                    // response cannot blank the row.
+                    [t('inspector.availableToUse'), (() => {
+                      const owned = deckUse?.owned ?? ownedCopies;
+                      const inDecks = deckUse?.reservedOwned ?? thisPrintingCommitted;
+                      const free = deckUse?.free ?? Math.max(0, owned - inDecks);
+                      if (inDecks <= 0) {
+                        return t('inspector.availableOfOwned', { available: free, owned });
+                      }
+                      return free > 0
+                        ? t('inspector.availableOfOwnedInDecks', {
+                            available: free, owned, committed: inDecks })
+                        : t('inspector.allInDecks', { count: inDecks });
+                    })()],
                   ].filter(([, v]) => v).map(([k, v], i) => (
                     <div key={k} style={{
                       display: 'flex', justifyContent: 'space-between', gap: '0.75rem',
