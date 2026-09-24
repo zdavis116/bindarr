@@ -261,6 +261,25 @@ function CardInspectorModal({
   const thisPrintingAvailable = thisPrinting?.quantity_available
     ?? Math.max(0, ownedCopies - thisPrintingCommitted);
 
+  // IS THIS DECK'S SLOT ALREADY FILLED?
+  //
+  // Zach: "buy on mana pool should only show for cards that are missing when
+  // in deck view because why would I want to buy a card I already own for a
+  // deck."
+  //
+  // Read off the SAME per-deck `covered` flag the Decks tab renders, matched
+  // by deck name, so the buy button and the row above it cannot disagree about
+  // whether he is short. Computing "do I need this" a second way here is the
+  // duplicate-answer failure this codebase keeps rediscovering.
+  //
+  // Defaults to FALSE when the deck is not in the list: an unknown state must
+  // show the buy link rather than hide it. Hiding it wrongly removes an action
+  // silently; showing it wrongly costs a glance.
+  const deckCovered = Boolean(
+    deckName
+    && (deckUse?.decks || []).some(d => d.deck_name === deckName && d.covered)
+  );
+
   useEffect(() => {
   }, []);
 
@@ -1696,7 +1715,7 @@ function CardInspectorModal({
                     Edit Card FLEXES and the rest are fixed-width icons: the
                     primary action should absorb the spare room, and "a little
                     button" is exactly an icon-sized one. */}
-                {(ownedEntry && !readOnly) || thisPrinting?.price_url ? (
+                {(ownedEntry && !readOnly) || thisPrinting?.price_url || onRemoveFromDeck ? (
                   <div className="ci-footer-acts">
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       {ownedEntry && !readOnly && (
@@ -1708,12 +1727,43 @@ function CardInspectorModal({
                           {t('inspector.editCard')}
                         </button>
                       )}
-                      {/* BUY, ONLY WITH A REAL URL. A link built from set code
-                          and number would 404 on anything the marketplace does
-                          not carry, and a dead buy button is worse than none.
-                          Kept as an <a> so middle-click and "open in new tab"
-                          behave the way a link should. */}
-                      {thisPrinting?.price_url && (
+                      {/* REMOVE FROM DECK TAKES EDIT'S PLACE in the deck view.
+                          Zach: "Remove from deck should be like the edit
+                          button." `readOnly` hides Edit there, so this is the
+                          primary action: it flexes, and Buy sits beside it as
+                          the small secondary -- the same pairing as the
+                          collection, rather than a second full-width bar. */}
+                      {onRemoveFromDeck && (
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          style={{
+                            flex: 1,
+                            display: 'inline-flex', alignItems: 'center',
+                            justifyContent: 'center', gap: '0.35rem',
+                          }}
+                          onClick={handleRemoveFromDeck}
+                        >
+                          <Trash2 size={16} />
+                          {t('inspector.removeFromDeck')}
+                        </button>
+                      )}
+                {/* BUY, ONLY WITH A REAL URL AND ONLY IF HE NEEDS THE CARD.
+                          A link built from set code and number would 404 on
+                          anything the marketplace does not carry, and a dead
+                          buy button is worse than none. Kept as an <a> so
+                          middle-click and "open in new tab" behave properly.
+
+                          IN A DECK, HIDDEN WHEN THE SLOT IS ALREADY FILLED.
+                          Zach: "buy on mana pool should only show for cards
+                          that are missing when in deck view because why would
+                          I want to buy a card I already own for a deck."
+                          `deckUse.covered` is the same field the deck list
+                          uses to decide whether a row reads "Not owned", so
+                          the button and the row cannot disagree. Outside a
+                          deck (the collection) there is no slot to fill, so
+                          the buy link always shows. */}
+                      {thisPrinting?.price_url && !(onRemoveFromDeck && deckCovered) && (
                         <a
                           href={thisPrinting.price_url}
                           target="_blank"
@@ -1724,9 +1774,10 @@ function CardInspectorModal({
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                             // Grows to a labelled button when it is the ONLY
-                            // action (a card he does not own has no Edit), and
-                            // stays small beside Edit when both are present.
-                            flex: ownedEntry && !readOnly ? '0 0 auto' : 1,
+                            // action, and stays small beside whichever primary
+                            // is present -- Edit Card in the collection, Remove
+                            // from deck in the deck view.
+                            flex: ((ownedEntry && !readOnly) || onRemoveFromDeck) ? '0 0 auto' : 1,
                             justifyContent: 'center',
                             color: 'var(--accent-blue, #0a84ff)',
                             textDecoration: 'none',
@@ -1763,24 +1814,11 @@ function CardInspectorModal({
                   </div>
                 ) : null}
 
-                {/* FROM A DECK, delete means REMOVE FROM THIS DECK. Zach: "The
-                    delete when coming from deck view should delete the card
-                    from the deck not the collection otherwise seems weird."
-                    The wording says where the copy goes, because a delete that
-                    might destroy a record is not one to guess at. */}
-                {onRemoveFromDeck && (
-                  <div className="ci-footer-acts">
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    style={{ width: '100%' }}
-                    onClick={handleRemoveFromDeck}
-                  >
-                    <Trash2 size={16} />
-                    {t('inspector.removeFromDeck')}
-                  </button>
-                  </div>
-                )}
+                {/* Remove from deck lives in the footer action row above,
+                    beside Buy -- see the comment there. It used to render
+                    again here as a separate full-width bar, which is what Zach
+                    photographed: two stacked footers competing for the same
+                    job. One surface, one button. */}
 
               </>)}
 

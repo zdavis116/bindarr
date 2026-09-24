@@ -3680,10 +3680,37 @@ button, input, select, textarea {
   .deck-panes-main { min-width: 0; }
 
   .deck-panes-side {
-    position: sticky;
-    /* 1rem below the top of the scroll container. The rail is its own
-       scroller, so this only has to clear the page padding. */
-    top: 1rem;
+    /* PINNED TO THE VIEWPORT, BELOW THE DECK HEADER.
+
+       `position: sticky` was wrong here for the same reason it was wrong on
+       .coll-pane: it only engages once you have scrolled far enough, so before
+       that the pane sits where the document puts it. Measured at 1473x736 on
+       Doctor Doom: at the top of the page the pane started at y=388 and ran to
+       y=1092 -- 356px off the bottom of a 736 viewport. Scrolled to the end of
+       a 100-card deck its top went NEGATIVE (-174), sliding off the top.
+
+       Zach: "Seems you solved the collection but not the deck view... also the
+       pane is expanding when I scroll here as well." Correct on both counts --
+       the collection fix was never applied to this rule.
+
+       THE OFFSET IS DEEPER THAN THE COLLECTION'S. Measured: the deck content
+       starts at y=388 (app header + deck title + progress block) against the
+       collection's 223. Same shape, different number, so it gets its own
+       variable rather than sharing one that would be wrong on both screens.
+
+       A CSS constant with a literal fallback, never a JS measurement. That
+       measurement is what caused the two previous bugs here: stale after
+       pinning it made the pane grow, and read as a page offset it hit 6152px
+       and collapsed the pane to 0px tall ("the whole side panel or card modal
+       disappears"). A constant can be wrong if the header is restructured, but
+       it cannot go STALE, which is the failure that actually bit. */
+    position: fixed;
+    top: var(--deck-pane-top, 24rem);
+    /* Matches the grid track so the deck list keeps its own column. The track
+       stays reserved even though this pane no longer occupies it -- otherwise
+       the list would flow underneath. */
+    width: 400px;
+    right: 1.5rem;
     /* THIS WRAPPER DOES NOT SCROLL. It used to be overflow-y:auto, which is
        what made the WHOLE pane scrollable -- art, name and tabs slid away
        together. Zach: "should not fully be scrollable just the bottom portion
@@ -3695,30 +3722,15 @@ button, input, select, textarea {
        definite box to resolve against, or it falls back to its content and
        the anchored footer drifts below the fold.
 
-       CONSTANT, NOT MEASURED. This element is `position: sticky; top: 1rem`,
-       so once it sticks its viewport top IS 1rem, permanently. The available
-       space is therefore the viewport minus that 1rem and a 1rem bottom gap --
-       a fixed number.
+       The SAME offset appears in the top and the height. Subtracting a
+       different number would place the pane correctly and size it wrongly,
+       which is how it ran past the fold a moment ago.
 
-       The old rule subtracted a JS-measured --pane-top. That is only right
-       BEFORE the pane sticks; scrolled down, the real top drops to 16px while
-       the variable keeps its initial ~223px and the pane GROWS. Measured on
-       the collection pane at 1473x736: 497px at rest, 704px after scrolling,
-       ending at y=720 in a 736 viewport -- cut off, exactly as reported.
-
-       The note above about `100vh - 2rem` running 153px past the fold predates
-       `position: sticky` on this element: an absolutely-placed column really
-       did need the offset. A sticky one does not, and subtracting it is what
-       reintroduced the overflow from the other direction.
-
-       min-height IS THE SAFETY NET, not decoration. --pane-top was once
-       measured as a PAGE offset (6152px after scrolling a 100-card deck),
-       which made this calc resolve to zero and the whole pane vanish -- Zach:
-       "the whole side panel or card modal disappears". Removing the variable
-       removes that failure mode entirely, but a layout rule that CAN evaluate
-       to zero will find a way; this keeps an invisible pane impossible. */
-    height: calc(100vh - 2rem);
-    height: calc(100dvh - 2rem);
+       min-height IS THE SAFETY NET, not decoration. A layout rule that CAN
+       evaluate to zero will find a way; this keeps an invisible pane
+       impossible even if the offset is ever set badly. */
+    height: calc(100vh - var(--deck-pane-top, 24rem) - 1rem);
+    height: calc(100dvh - var(--deck-pane-top, 24rem) - 1rem);
     min-height: 18rem;
     overflow: hidden;
   }
