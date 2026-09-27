@@ -894,11 +894,33 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // behind a detector hunting for the card the scan had already found. Zach:
   // "His scans worked way quicker than ours" -- this contention was the
   // largest single reason.
+  // (106-119) THE LOADER MUST RECORD ITS RESULT. loadClientScan() resolves
+  // {ok} -- and `ok` is the ONLY thing that turns the on-device reader on.
+  //
+  // THE BUG THIS FIXES, and it is mine: this effect called loadClientScan()
+  // and threw the answer away. onDeviceRef stayed false for ever, so the loop
+  // skipped the reader entirely and sent EVERY frame to the server -- the
+  // exact opposite of the port's purpose. The symptom was "stuck on hold
+  // steady", because the server path alone could not resolve the card fast
+  // enough to stage it, and nothing else ever cleared the hint.
+  //
+  // Retried while the camera stays on, as upstream does: a flaky network or a
+  // restarting server should not leave the reader off until the tab is
+  // reopened. loadClientScan itself spaces attempts 30s apart.
   useEffect(() => {
     if (!cameraActive) return undefined;
-    loadClientScan();
+    let live = true, timer;
+    const attempt = () => loadClientScan().then(r => {
+      if (!live) return;
+      onDeviceRef.current = !!r.ok;
+      if (!r.ok) {
+        console.info('[scan] on-device reader unavailable:', r.error);
+        if (r.error !== 'unsupported browser') timer = setTimeout(attempt, 31000);
+      }
+    }).catch(() => {});
+    attempt();
     resetOnDevice();
-    return undefined;
+    return () => { live = false; clearTimeout(timer); };
   }, [cameraActive]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {
