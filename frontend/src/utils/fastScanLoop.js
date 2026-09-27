@@ -43,12 +43,6 @@ export const AUTO_BUSY_MS = 1000;
 // (304) How long one card.id stays "already scanned".
 export const SEEN_CARD_MS = 4000;
 
-// (29-31) JSON body or a readable error, never a SyntaxError from a proxy's
-// HTML page.
-async function readJson(r) {
-  try { return await r.json(); } catch { return { ok: false, error: `HTTP ${r.status}` }; }
-}
-
 // (33-45) Encode the frame for the server path. Only reached when the phone
 // could not prove the card.
 async function grabJpeg(source, sw, sh, canvasRef) {
