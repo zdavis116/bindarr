@@ -161,20 +161,28 @@ for (const row of rows) {
   }
 }
 
-// EXCLUSIONS: titles that must never resolve from a title read alone.
+// EXCLUSIONS: titles the reader must never even TRY to match.
 //
-// These are not "bad" cards -- they are cards whose printed title is a common
-// English word or a shared label, where a garbled OCR read of a DIFFERENT card
-// can plausibly fuzzy-match them. The reader's job is to be certain or to
-// refuse; letting "Forest" absorb a misread is how a wrong card gets filed.
-// The footer path still resolves these normally: exclusion blocks the
-// name-only shortcut, not the card.
-const AMBIGUOUS = new Set([
-  'plains', 'island', 'swamp', 'mountain', 'forest', 'wastes',
-  'snow covered plains', 'snow covered island', 'snow covered swamp',
-  'snow covered mountain', 'snow covered forest',
-]);
-const excluded = [...AMBIGUOUS].filter(n => nameIx.has(n));
+// EMPTY, DELIBERATELY, AND THIS WAS MEASURED.
+//
+// The first version of this file excluded the basic lands, reasoning that
+// "Forest" is a common word a garbled read might fuzzy-match. Verification
+// against 400 random printings failed 22 of them -- every basic land in the
+// sample -- because `excluded` is checked at the TOP of findCardByOcr and
+// returns null immediately. It does not weaken a match; it deletes the card
+// from the scanner's vocabulary entirely, footer and all. Zach's own corpus is
+// 147 `msh` frames including basics, so this would have made a whole class of
+// his cards unscannable while every shape assertion still passed.
+//
+// The protection I was reaching for already exists and is better: a title read
+// resolves on its own ONLY when it maps to exactly one printing
+// (uniqueTitlePrinting). "Forest" maps to 774, so it can never shortcut -- it
+// must be proven by its footer, which is exactly the desired behaviour.
+// Ambiguity is handled by the resolver, not by blinding it.
+//
+// Keep this empty unless a title is proven to cause a MISIDENTIFICATION on
+// real frames. It is not a tidiness list.
+const excluded = [];
 
 const uniqueAlias = {};
 for (const [canonNorm, m] of aliasHits) {
