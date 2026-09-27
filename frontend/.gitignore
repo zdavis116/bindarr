@@ -1,0 +1,3 @@
+
+# onnxruntime wasm, staged from node_modules by scripts/copy-ort.mjs
+public/ort/

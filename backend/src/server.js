@@ -11,6 +11,7 @@ const scryfallApi = require('./scryfallApi');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const collectionRoutes = require('./routes/collection');
+const cardscanRoutes = require('./routes/cardscan');
 const statsRoutes = require('./routes/stats');
 const importExportRoutes = require('./routes/importExport');
 const setsRoutes = require('./routes/sets');
@@ -618,6 +619,8 @@ app.use('/api/products', productsRoutes);
 // Paths inside are /moxfield/..., so this mounts at bare /api like collection.
 app.use('/api', moxfieldRoutes);
 app.use('/api/settings', settingsRoutes);
+// On-device scanner support: maps ids the phone PROVED to catalogue rows.
+app.use('/api/cardscan', cardscanRoutes);
 
 // PHASE 4a SPIKE — throwaway detector benchmark, dev only.
 //
@@ -630,6 +633,31 @@ if (process.env.SPIKE_PHASE4A) {
   app.use('/spike/phase4a', express.static(spikeDir));
   console.log('Phase 4a spike served at /spike/phase4a/');
 }
+
+// ON-DEVICE SCANNER ASSETS: the OCR recognizer, its charset, the corner model
+// and the compact title/printing index. Built by
+// backend/scripts/{fetch-scan-models,build-scan-index}.mjs.
+//
+// MOUNTED BEFORE THE SPA CATCH-ALL, DELIBERATELY. Express matches in
+// declaration order, and the catch-all below answers ANY unmatched path with
+// index.html -- a 200 of HTML. The worker would hand that HTML to
+// InferenceSession.create and fail with a protobuf error that names neither
+// the file nor the route. `fallthrough: false` makes a missing asset a real
+// 404 for the same reason.
+//
+// The index filename is content-hashed and served immutable; manifest.json is
+// the one file that must revalidate, so a rebuilt index is picked up without
+// the phone re-downloading 25 MB of models. A missing directory just 404s and
+// the scanner falls back to the server path.
+const clientScanDir = process.env.CLIENT_SCAN_DIR
+  || path.join(process.env.CV_MODEL_DIR || path.join(__dirname, '..', 'data', 'models'), 'client-scan');
+app.use('/scan-assets', express.static(clientScanDir, {
+  index: false, dotfiles: 'deny', fallthrough: false,
+  setHeaders(res, file) {
+    res.setHeader('Cache-Control', file.endsWith('manifest.json')
+      ? 'no-cache' : 'public, max-age=31536000, immutable');
+  },
+}));
 
 // Serve production static assets from Frontend
 const frontendBuildPath = path.join(__dirname, '../../frontend/dist');

@@ -51,8 +51,30 @@ ENV SETS_DIR=/app/database/sets
 # multi-GB output survives redeploys instead of being rebuilt each time.
 ENV INDEX_DATA_DIR=/app/database/index
 
+# ON-DEVICE SCANNER ASSETS AND MODELS.
+#
+# Both live on the persisted volume, for the same two reasons INDEX_DATA_DIR
+# does: the build writes them as the non-root `node` user, and re-downloading
+# ~85 MB of models on every redeploy is waste.
+#
+# CV_MODEL_DIR    cornelius + milo + the milo catalogue, used by the SERVER
+#                 fallback (backend/src/cvScan.js).
+# CLIENT_SCAN_DIR the hashed bundle the BROWSER downloads once and caches:
+#                 the OCR recognizer, its charset, the corner model and the
+#                 title/printing index built from this instance's own
+#                 card_cache.
+#
+# THESE ARE NOT OPTIONAL. server.js serves /scan-assets/ from CLIENT_SCAN_DIR;
+# with the variable unset it resolves to a path that does not exist and every
+# asset request returns HTTP 500, so the scanner loads no models and silently
+# falls back to the server for every frame. That exact failure cost a full
+# debugging round on dev, where the variables had been set by hand and never
+# committed.
+ENV CV_MODEL_DIR=/app/database/models
+ENV CLIENT_SCAN_DIR=/app/database/models/client-scan
+
 # Create database volume mount target directory (+ the global-index subdir)
-RUN mkdir -p /app/database/index
+RUN mkdir -p /app/database/index /app/database/models/client-scan
 
 # Copy backend configuration
 COPY backend/package*.json ./backend/
