@@ -127,8 +127,30 @@ function App() {
 
   // Detect public share route on load
 
+  // A TOAST MUST BE ABLE TO REPEAT ITSELF.
+  //
+  // THE BUG (Zach): "some cards when scanned and added to add review list
+  // wouldn't notify they were scanned. It was mainly the ones that scanned
+  // super fast. They were correctly added but no notification."
+  //
+  // Two causes, both from storing the MESSAGE as the state:
+  //
+  //   1. setToast('Staged Forest') while 'Staged Forest' is already showing is
+  //      a no-op -- React bails out on an identical value, the dismiss timer is
+  //      never re-armed, and the second scan appears to do nothing. Scanning
+  //      two copies of a card, or the same card twice, is exactly when this
+  //      fires.
+  //
+  //   2. Even with different names, the 2.5s timer belonged to the PREVIOUS
+  //      toast. At the new scan rate (60ms loop, ~330ms a card) a fast scan
+  //      inherits whatever was left of it and can flash by in milliseconds.
+  //
+  // Keyed by a counter instead, so every call is a distinct state value: the
+  // message re-shows, and the timer always restarts from full.
+  const toastSeq = useRef(0);
   const showToast = (message) => {
-    setToast(message);
+    toastSeq.current += 1;
+    setToast({ message, key: toastSeq.current });
   };
 
   useEffect(() => {
@@ -362,8 +384,11 @@ function App() {
 
       {/* Toast Notification */}
       {toast && (
-        <div className="toast">
-          {toast}
+        // KEYED so an identical message re-mounts and re-animates. Without the
+        // key React reuses the node and a repeat scan of the same card looks
+        // like nothing happened.
+        <div className="toast" key={toast.key}>
+          {toast.message}
         </div>
       )}
 

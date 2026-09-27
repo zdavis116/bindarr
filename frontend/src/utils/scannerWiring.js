@@ -15,6 +15,7 @@
 // Two engines, one card, staged twice, a second apart. Upstream has one path,
 // so it cannot happen there. This is the one path.
 import { createScanLoop } from './fastScanLoop';
+import { lastCardCrop } from './clientScan';
 
 /**
  * Wire the transcribed loop to this app's staging queue.
@@ -58,7 +59,12 @@ export function createScanner(refs, deps) {
         // validates it against the catalogue.
         printingHint: { set: card.set_id, number: card.number },
         stage: true,
-        crop: null,
+        // THE PHOTO OF THE ACTUAL CARDBOARD. Without it the review list is
+        // forty names and forty empty grey boxes, with no way to tell which
+        // physical card each row was -- which is the one thing the crop is
+        // for when a printing looks wrong. Returns null harmlessly if the
+        // frame or the card outline is unavailable.
+        crop: lastCardCrop(),
         quantity: 1,
       });
       if (isStale()) return;

@@ -399,6 +399,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const onDeviceRef = useRef(false);    // did the reader load
   const firstSeenRef = useRef(null);    // when the card in view was first seen
   const frameCanvasRef = useRef(null);  // reused JPEG encode canvas
+  // The status line holds its last hint rather than tracking every 60ms pass.
+  // Long enough that a single disagreeing pass cannot blink it, short enough
+  // that it never misreports the current state for a noticeable time.
+  const HINT_CLEAR_MS = 900;
+  const hintHeldRef = useRef('');
+  const hintClearRef = useRef(null);
   // The identity a TAP has already forced past the queue dedupe guard. Lets the
   // first tap through and refuses a second one on the same card, so a double tap
   // cannot stage two rows for one piece of cardboard. Cleared alongside
@@ -1279,8 +1285,19 @@ function CameraScanner({ onAddSuccess, showToast }) {
         quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
         staged: true,
       }, ...prev].slice(0, 10));
-      // No flag variant any more -- the advisory flags are gone.
-      showToast(t('scan.stagedToast', { name: outcome.card?.name || identified }));
+      // NAME, SET AND COLLECTOR NUMBER -- Zach: "I would like to see name and
+      // set when notifying it was added to add review list".
+      //
+      // The set and number are the whole point of this scanner: it proves an
+      // exact PRINTING from the collector footer, not just a card name. A
+      // toast that says only "Forest" hides the one fact worth checking --
+      // that it picked the right Forest out of 774. Uppercased because
+      // set_id is stored lowercase ('fra') and printed uppercase on the card.
+      showToast(t('scan.stagedToast', {
+        name: outcome.card?.name || identified,
+        set: (outcome.card?.set_id || '?').toUpperCase(),
+        number: outcome.card?.number || '?',
+      }));
       signal('success');
     } else if (outcome.action === 'added') {
       lastAddedIdRef.current = outcome.card?.id;
@@ -1385,8 +1402,21 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // message before one: an early return cannot clear that, and a 60ms loop
       // would leave it on screen for ever. That was the "stuck on Initializing
       // scanner" bug.
+      // THE HINT IS HELD, NOT REPAINTED EVERY PASS.
+      //
+      // THE BUG (Zach): "when scanning if there is no card it starts flashing
+      // waiting for card but it's flashing instead of just steady saying
+      // waiting for card."
+      //
+      // The loop reports an outcome every ~60ms, and consecutive passes
+      // legitimately disagree -- a hand moving over the mat gives noCard,
+      // hold, noCard, '' in a fifth of a second. Writing each one straight to
+      // the status line turns honest per-frame reporting into a strobe.
+      //
+      // So a hint must persist until something REPLACES it, and a clear must
+      // survive a full quiet period before it blanks the line. The scanner is
+      // no less responsive; the text just stops chasing every frame.
       hint: (key, vars) => {
-        if (!key) return setScanStatus('');
         const map = {
           noCard: t('scan.waitingForCard'),
           hold: t('scan.holdSteady'),
@@ -1394,7 +1424,20 @@ function CameraScanner({ onAddSuccess, showToast }) {
           adjust: vars?.reason ? `Adjust the card (${vars.reason})` : t('scan.holdSteady'),
           working: '',
         };
-        return setScanStatus(map[key] ?? '');
+        const next = key ? (map[key] ?? '') : '';
+        clearTimeout(hintClearRef.current);
+        if (next) {
+          hintHeldRef.current = next;
+          setScanStatus(next);
+          return undefined;
+        }
+        // Clearing is DEFERRED. A single successful pass between two "no card"
+        // passes should not blink the line off and on again.
+        hintClearRef.current = setTimeout(() => {
+          hintHeldRef.current = '';
+          setScanStatus('');
+        }, HINT_CLEAR_MS);
+        return undefined;
       },
       onError: (msg) => {
         if (msg) console.warn('[scan]', msg);
@@ -1730,7 +1773,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
               />
             )}
 
-            {fullscreenScan && (scanStatus || loading || autoScanWaitReason) && (
+            {fullscreenScan && (scanStatus || autoScanWaitReason) && (
               <div
                 style={{
                   position: 'absolute',
@@ -1756,18 +1799,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 {/* A moving indicator distinguishes "working" from "idle and
                     stuck". A static string cannot: an auto-scan that has quietly
                     stopped and one mid-lookup look identical without it. */}
-                {loading && (
-                  <span
-                    style={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      border: '2px solid rgba(255,255,255,0.35)',
-                      borderTopColor: 'var(--accent-red)',
-                      animation: 'scan-status-spin 0.8s linear infinite',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-                <span>{scanStatus || autoScanWaitReason || t('scan.working')}</span>
+                {/* NO SPINNER. It used to prove "working, not wedged" when a
+                    scan was a ~1.5s server round trip. The loop now ticks every
+                    60ms, so `loading` strobes rather than spins -- Zach: "it
+                    starts flashing waiting for card but it's flashing instead
+                    of just steady". The hint text itself is the status now. */}
+                <span>{scanStatus || autoScanWaitReason}</span>
               </div>
             )}
 
@@ -1864,7 +1901,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   animation: scanFlash === 'capture' ? 'border-flash-capture 0.4s ease-in-out' : scanFlash === 'error' ? 'border-flash-error 1.5s ease-in-out' : 'none'
                 }}
               >
-                {loading && <div className="scan-line"></div>}
+                {/* The sweeping scan line is removed, not re-gated. Zach:
+                    "the scan bar is also flashing but I would just like for
+                    that to be removed." At a 60ms cadence it strobed; at any
+                    cadence it decorated work the user can already see. */}
               </div>
               {(guideOffset.x !== 0 || guideOffset.y !== 0 || guideAngle !== 0 || guideScale !== 1) && (
                 <button
