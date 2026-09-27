@@ -169,6 +169,22 @@ mutate M12 "stop maintaining the fail streak" "FAST-TC12" "
   const after = before.replace(re, 'const _unused = nextFailStreakDisabled = (');
 "
 
+# M13: restore the settle pause, which delays seeing the NEXT card while doing
+# nothing about re-reading the last one.
+mutate M13 "pause 400ms after a successful scan" "FAST-TC13" "
+  const re = /const SCAN_RETRY_SETTLE_MS = 60;/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'const SCAN_RETRY_SETTLE_MS = 400;');
+"
+
+# M14: go back to the name-keyed latch, which nothing clears now that the live
+# detector is gone -- a second copy dropped on the first is silently refused.
+mutate M14 "restore the name-keyed duplicate latch" "FAST-TC14" "
+  const re = /const isRepeat = lastSeen != null && now - lastSeen < SEEN_CARD_MS;/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'const isRepeat = identified === lastQueuedNameRef.current;');
+"
+
 printf '\n'
 if ! git diff --quiet -- "$TARGET" "$TEST"; then
   echo "TREE NOT CLEAN after the run - restore failed. Check git status."

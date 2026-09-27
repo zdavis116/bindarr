@@ -77,17 +77,31 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 // ERROR (the scan threw). Back off further: hammering a failing server makes
 // it worse, and the failure is unlikely to clear within one tick.
 //
-// RETUNED FOR THE ON-DEVICE READER. These were sized for a ~1.5s server round
-// trip, where an extra 350ms was noise. A local read is ~330ms, so the same
-// gaps were more than doubling the time between attempts. The upstream app
-// this pipeline came from ticks its auto loop at 60ms for exactly this reason
-// -- Zach: "His scans worked way quicker than ours."
+// AUTO LOOP GAPS, upstream's values (FastScanner.jsx:21-23).
 //
-// SETTLE stays generous: it paces a HUMAN swapping a physical card, which did
-// not get faster. Only the machine-bound gaps move.
-const SCAN_RETRY_REJECTED_MS = 60;
-const SCAN_RETRY_SETTLE_MS = 400;
-const SCAN_RETRY_ERROR_MS = 2500;
+// 60ms between passes, ALWAYS -- including straight after a successful scan.
+// There is no "settle" pause, and that absence is the design, not an omission.
+//
+// A pause cannot distinguish "the same card is still lying there" from "a new
+// card just landed on top". Upstream keeps reading at full rate and answers
+// the duplicate question with evidence instead: a per-card-id dedupe window
+// (SEEN_CARD_MS below). So the loop never has to guess.
+//
+// Zach: "it's just continually scanning like I don't even have time to put a
+// new card down... by the time the card lands on top it already captured the
+// previous card." The 400ms settle made that WORSE: it delayed the pass that
+// would have seen the NEW card, while doing nothing to stop the OLD one being
+// read again -- because what re-read the old card was never the timing.
+const SCAN_RETRY_REJECTED_MS = 60;    // AUTO_GAP_MS
+const SCAN_RETRY_SETTLE_MS = 60;      // upstream does not pause after a hit
+const SCAN_RETRY_ERROR_MS = 1000;     // AUTO_BUSY_MS: the server asked for room
+
+// How long one Scryfall id stays "already scanned" (FastScanner.jsx:304).
+//
+// Keyed by ID and expiring on a clock, so: the card still on the table is
+// quiet, a genuinely different card is NEVER blocked, and a real second copy
+// becomes scannable again after 4s without having to leave the frame.
+const SEEN_CARD_MS = 4000;
 
 // ---------------------------------------------------------------------------
 // STABILITY GATING — capture when the detection HOLDS STILL, never on a timer.
@@ -383,7 +397,14 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // resolvedDupIdRef: that one holds card IDs everywhere else, and storing two
   // different kinds of value in one ref would make a future "why doesn't this
   // match?" bug very hard to see.
-  const lastQueuedNameRef = useRef(null);
+  // UPSTREAM'S PER-CARD DEDUPE WINDOW (FastScanner.jsx seenIdsRef).
+  //
+  // Scryfall id -> when it was last staged. Replaces a name-keyed latch that
+  // was cleared by the card LEAVING THE FRAME -- an event reported by the live
+  // detector, which no longer exists, so nothing cleared it. A Map keyed by id
+  // and expired by the clock needs no such event, and cannot block a card the
+  // user has not actually just scanned.
+  const seenIdsRef = useRef(new Map());
   // The identity a TAP has already forced past the queue dedupe guard. Lets the
   // first tap through and refuses a second one on the same card, so a double tap
   // cannot stage two rows for one piece of cardboard. Cleared alongside
@@ -1298,7 +1319,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // make the app quietly ignore that card until Zach noticed it
     // never appeared, and a card silently missing from a scanned
     // stack is exactly the failure this app cannot afford.
-    if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
     setScanMatches([]);
   };
 
@@ -1574,21 +1594,43 @@ function CameraScanner({ onAddSuccess, showToast }) {
         inliers: 100, score: 1, verified: true, card: deviceCard,
       }]);
       const identified = deviceCard.name;
-      // THE DUPLICATE GUARD, SAME THREE RULES AS THE SERVER PATH. A second
-      // physical copy is legitimate, so a MANUAL tap overrides -- but only once
-      // per card, which is what manualForcedNameRef tracks.
-      const repeatIdentity = identified === lastQueuedNameRef.current;
-      if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
-        setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+      // THE DUPLICATE GUARD, TRANSCRIBED FROM UPSTREAM (FastScanner.jsx:301-306).
+      //
+      // Keyed by SCRYFALL ID with a 4s expiry, not by name with a latch.
+      //
+      // WHAT WAS HERE AND WHY IT BROKE STACK SCANNING: `identified ===
+      // lastQueuedNameRef.current`, a sticky latch cleared only when the card
+      // LEFT THE FRAME -- an event the deleted live detector used to report.
+      // With that detector gone, nothing ever cleared it. And Zach's actual
+      // workflow is "I just drop cards on top", so the previous card never
+      // leaves the frame at all. Drop a second Forest on a first and the
+      // scanner silently refuses it.
+      //
+      // A time window needs no leave event: the card on the table stays quiet
+      // for 4s, a DIFFERENT card is never blocked for even one pass, and a
+      // genuine second copy is scannable again by the clock.
+      const now = Date.now();
+      const lastSeen = seenIdsRef.current.get(deviceCard.id);
+      const isRepeat = lastSeen != null && now - lastSeen < SEEN_CARD_MS;
+      // A manual tap is a deliberate request and overrides the window -- once
+      // per card, so a double tap cannot stage two rows for one piece of
+      // cardboard.
+      if (isRepeat && isManual && deviceCard.id === manualForcedNameRef.current) {
+        setScanStatus('Already scanned this card — tap again in a moment to add another copy.');
         setLoading(false);
         return;
       }
-      if (repeatIdentity && !isManual) {
-        setScanStatus(t('scan.sameCardAgain'));
+      if (isRepeat && !isManual) {
+        // Refresh the window so a card left on the table stays quiet rather
+        // than re-firing every 4s, and say nothing: upstream shows no message
+        // for a card it is deliberately ignoring.
+        seenIdsRef.current.set(deviceCard.id, now);
+        lastTickOutcomeRef.current = 'settle';
         setLoading(false);
         return;
       }
-      if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
+      if (isRepeat && isManual) manualForcedNameRef.current = deviceCard.id;
+      seenIdsRef.current.set(deviceCard.id, now);
       setScanStatus('');
       try {
         // THE SAME SUBMIT AND THE SAME HANDLER AS A SERVER SCAN.
@@ -1897,18 +1939,27 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // lift and re-present the card, which clears the guard
                   // legitimately. That costs a tap in the rare case and prevents
                   // a recount in the likely one.
-                  const repeatIdentity = identified === lastQueuedNameRef.current;
+                  // SAME WINDOW AS THE ON-DEVICE PATH. The server path has no
+                  // Scryfall id yet (that is what submitScan resolves), so it
+                  // keys the window on the identity it does have. The MECHANISM
+                  // must match though -- a time window, not a latch cleared by
+                  // the card leaving the frame, because nothing reports that
+                  // event any more and Zach drops cards on top of each other.
+                  const nowSrv = Date.now();
+                  const lastSeenSrv = seenIdsRef.current.get(identified);
+                  const repeatIdentity = lastSeenSrv != null && nowSrv - lastSeenSrv < SEEN_CARD_MS;
                   if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
-                    setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+                    setScanStatus('Already scanned this card — tap again in a moment to add another copy.');
                     return;
                   }
                   if (repeatIdentity && !isManual) {
-                    setScanStatus(t('scan.sameCardAgain'));
+                    seenIdsRef.current.set(identified, nowSrv);
                     return;
                   }
                   // Claim the override BEFORE the await, so a second tap that
                   // arrives while this submit is in flight sees it.
                   if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
+                  seenIdsRef.current.set(identified, nowSrv);
                   setScanStatus('');
                   // DO NOT WRITE ON BEHALF OF A SUPERSEDED SCAN. This check used
                   // to sit only AFTER submitScan returned, which is too late --
@@ -2076,15 +2127,19 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   // share one empty key and silently skip every card after the
                   // first.
                   const identified = clipName || titleText || ocrText;
-                  const repeatIdentity = identified === lastQueuedNameRef.current;
+                  // Same time window as the other two paths.
+                  const nowUnid = Date.now();
+                  const lastSeenUnid = seenIdsRef.current.get(identified);
+                  const repeatIdentity = lastSeenUnid != null && nowUnid - lastSeenUnid < SEEN_CARD_MS;
                   if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
-                    setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+                    setScanStatus('Already scanned this card — tap again in a moment to add another copy.');
                     return;
                   }
                   if (repeatIdentity && !isManual) {
-                    setScanStatus(t('scan.sameCardAgain'));
+                    seenIdsRef.current.set(identified, nowUnid);
                     return;
                   }
+                  seenIdsRef.current.set(identified, nowUnid);
                   if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
                   if (scanId !== currentScanId.current) return;
                   const outcome = await reviewQueue.submitScan({
@@ -2096,8 +2151,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                     quantity: 1,
                   });
                   if (scanId !== currentScanId.current) return;
-                  if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
-                  // Never show raw OCR text as if it were a card name -- when
+                                // Never show raw OCR text as if it were a card name -- when
                   // nothing was identified, say so plainly.
                   const label = clipName || titleText || 'Unidentified card';
                   if (outcome.action === 'staged_unresolved') staging.noteStaged(true);
@@ -2131,7 +2185,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // genuine SECOND physical copy of it must be scannable again. Without
       // this, scanning two real copies of the same card in one stack would
       // silently record only the first.
-      lastQueuedNameRef.current = null;
       manualForcedNameRef.current = null;
       signal('error');
     } catch (err) {

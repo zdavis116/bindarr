@@ -98,12 +98,15 @@ mutate M3 "fire onAddSuccess from the staged branch too" "SO-TC3" "
     '      staging.noteStaged(false); if (onAddSuccess) onAddSuccess();');
 "
 
-# M4: arm the duplicate guard on an error, so a dropped request makes the app
-# ignore that card for the rest of the session.
-mutate M4 "arm the duplicate guard unconditionally" "SO-TC4" "
-  const after = before.replace(
-    \"    if (outcome.action !== 'error') lastQueuedNameRef.current = identified;\",
-    '    lastQueuedNameRef.current = identified;');
+# M4: record into the dedupe window from the outcome handler, so a card whose
+# scan ERRORED is treated as already seen and silently skipped. (Re-anchored:
+# this used to target the name-keyed latch, now deleted in favour of upstream's
+# per-card-id time window.)
+mutate M4 "arm the dedupe window from the outcome handler" "SO-TC4" "
+  const re = /if \(outcome\.action === 'staged'\) \{/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re,
+    \"seenIdsRef.current.set(identified, Date.now());\\n    if (outcome.action === 'staged') {\");
 "
 
 # M5: route the unidentified path through the identified handler -- the merge

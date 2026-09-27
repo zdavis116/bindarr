@@ -97,13 +97,26 @@ const body = code.slice(fnStart, fnEnd);
   pass('SO-TC3', 'the collection is only touched when the SERVER says added');
 }
 
-// SO-TC4: a failed scan stays retryable. Setting the duplicate guard on an
-// error makes the app ignore that card until the user notices it never
-// appeared -- a card silently missing from a scanned stack.
+// SO-TC4: a failed scan stays retryable.
+//
+// REWRITTEN with the mechanism it guards. The rule is unchanged -- a card
+// whose scan ERRORED must not be marked "already seen", or the app ignores it
+// until the user notices it never appeared -- but the duplicate guard is no
+// longer a name-keyed latch written here. It is a per-card-id time window
+// (seenIdsRef/SEEN_CARD_MS, upstream's FastScanner.jsx:301-306), recorded by
+// each scan path BEFORE submit and never by this outcome handler.
+//
+// So the property to assert flipped: applyScanOutcome must NOT touch the
+// dedupe window at all. A handler that recorded on error would re-introduce
+// exactly the silent-skip bug this case has always been about.
 {
   start('SO-TC4');
-  assert.match(body, /if \(outcome\.action !== 'error'\) lastQueuedNameRef\.current = identified;/,
-    'the duplicate guard must be set only on a DECIDED outcome');
+  assert.ok(!/lastQueuedNameRef/.test(body),
+    'the name-keyed latch is back in the outcome handler; duplicates are now '
+    + 'judged by the seenIdsRef time window, recorded per scan path');
+  assert.ok(!/seenIdsRef/.test(body),
+    'applyScanOutcome must not record into the dedupe window -- an errored '
+    + 'scan would then be treated as already seen and silently skipped');
   pass('SO-TC4', 'an errored scan does not arm the duplicate guard');
 }
 

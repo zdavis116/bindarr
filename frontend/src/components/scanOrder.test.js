@@ -308,4 +308,55 @@ const code = src
   pass('FAST-TC12', 'the backoff is both set and cleared');
 }
 
+// FAST-TC13: the auto loop never pauses after a hit.
+//
+// THE BUG: "it's just continually scanning like I don't even have time to put
+// a new card down... by the time the card lands on top it already captured the
+// previous card."
+//
+// The instinct is to slow the loop down. That is backwards, and upstream shows
+// why: it runs every pass at 60ms with NO settle pause (AUTO_GAP_MS), because
+// a pause cannot tell "the same card is still there" from "a new card just
+// landed". Our 400ms settle DELAYED the pass that would have caught the new
+// card while doing nothing about re-reading the old one.
+{
+  start('FAST-TC13');
+  const gap = /const SCAN_RETRY_REJECTED_MS = (\d+)/.exec(code);
+  const settle = /const SCAN_RETRY_SETTLE_MS = (\d+)/.exec(code);
+  assert.ok(gap && settle, 'both auto-loop gaps must be declared');
+  assert.strictEqual(Number(gap[1]), 60, 'the retry gap is upstream AUTO_GAP_MS');
+  assert.strictEqual(Number(settle[1]), 60,
+    `settle is ${settle[1]}ms; upstream does not pause after a hit -- a pause `
+    + 'delays seeing the NEXT card and cannot stop re-reading the last one');
+  pass('FAST-TC13', 'the loop runs at a constant 60ms, upstream-style');
+}
+
+// FAST-TC14: duplicates are suppressed by a TIME WINDOW, not a latch.
+//
+// The other half of the same bug, and the more serious one. The old guard was
+// `identified === lastQueuedNameRef.current`, a sticky latch cleared only when
+// the card LEFT THE FRAME -- an event the live detector used to report. That
+// detector is deleted, so nothing ever cleared it. Combined with Zach's actual
+// workflow ("I just drop cards on top"), dropping a second copy on the first
+// meant the scanner silently refused it.
+//
+// A window keyed by id and expired by a clock needs no leave event and cannot
+// block a card the user has not just scanned.
+{
+  start('FAST-TC14');
+  assert.ok(!/lastQueuedNameRef\.current/.test(code),
+    'the name-keyed latch is back; it is cleared by an event (the card leaving '
+    + 'the frame) that nothing reports any more, so it never clears');
+  assert.match(code, /const SEEN_CARD_MS = 4000/,
+    'the dedupe window must be upstream\'s 4s');
+  assert.match(code, /seenIdsRef\.current\.get\(/,
+    'duplicates must be judged by the per-card window');
+  // Every path that stages a card must consult the SAME window.
+  const uses = (code.match(/seenIdsRef\.current\.set\(/g) || []).length;
+  assert.ok(uses >= 3,
+    `only ${uses} paths record into the dedupe window; the on-device, server `
+    + 'and unidentified paths must all use it or they will disagree');
+  pass('FAST-TC14', 'one time-based dedupe window, shared by every scan path');
+}
+
 console.log(`\nscanOrder.test.js: ${passed} cases passed`);
