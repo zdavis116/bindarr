@@ -6,24 +6,45 @@
 // /scan-assets/ and kept in the Cache API, so a returning phone starts reading
 // without touching the network.
 //
-// ORT IS LOADED FROM /models/, NOT FROM npm, and that is a deliberate
-// difference from upstream. This repo vendors onnxruntime there, pinned to the
-// 1.20.x build measured on Zach's phone, and server.js sets a CSP allowing
-// 'self' only -- so a CDN import is blocked outright. Adding onnxruntime-web as
-// a bundled dependency would put a SECOND copy of a ~13.5 MB wasm binary in the
-// build and leave two ORT versions free to drift apart.
+// ORT IS A BUNDLED IMPORT, EXACTLY AS UPSTREAM DOES IT.
+//
+// I originally deviated here: this repo already vendored an onnxruntime build
+// at /models/ for the old card detector, so reusing it looked like the tidy
+// choice -- one runtime, no new dependency, no second 13.5 MB wasm.
+//
+// It did not work. `await import('/models/ort.webgpu.min.mjs')` inside a
+// module worker fails with "Failed to resolve module specifier", because a
+// worker resolves bare/absolute specifiers against its own module scope, not
+// the page. The reader therefore never loaded, every scan fell through to the
+// server, and the symptom Zach saw was "always says no confident match" and
+// then "stuck on scanner is still loading".
+//
+// Zach: "If scrybox's scanning works why isn't ours because we should be using
+// identical code. How many times do I have to say it?" -- and he is right. The
+// one place I chose not to copy them is the one place that broke. A static
+// import is resolved by the bundler at build time, so there is no runtime
+// specifier to fail.
+//
+// scripts/copy-ort.mjs stages the wasm into public/ort (prebuild + predev) and
+// the vite `onnxruntime-web-use-extern-wasm` condition keeps a single copy of
+// it in the build.
+import * as ort from 'onnxruntime-web/wasm';
 import { createReader } from '../../../shared/clientScan/pipeline.mjs';
 import { buildCharset, loadIndex } from '../../../shared/clientScan/text.mjs';
+
+ort.env.wasm.wasmPaths = '/ort/';
+// One thread: there is no COOP/COEP on a self-hosted tailnet origin, so
+// SharedArrayBuffer is unavailable and asking for threads fails confusingly
+// rather than obviously.
+ort.env.wasm.numThreads = 1;
 
 // Set from the load message: '' on the web (same origin), the user's server URL
 // in the native app, where relative paths would resolve inside the app bundle.
 let ORIGIN = '';
 const BASE = '/scan-assets/';
-const MODELS = '/models/';
 const CACHE = 'bindarr-scan-assets';
 let readerPromise = null;
 let pendingReset = false;
-let ort = null;
 
 async function cachedBytes(cache, url) {
   let res = cache ? await cache.match(url) : null;
@@ -49,15 +70,6 @@ async function gunzip(bytes) {
 
 async function load() {
   const t0 = performance.now();
-  // Vendored; same pin the card detector used before it was removed.
-  ort = await import(/* @vite-ignore */ `${ORIGIN}${MODELS}ort.webgpu.min.mjs`);
-  ort.env.wasm.wasmPaths = `${ORIGIN}${MODELS}`;
-  // Threads off: no COOP/COEP on a self-hosted tailnet origin, so
-  // SharedArrayBuffer is unavailable and asking for threads fails confusingly
-  // rather than obviously.
-  ort.env.wasm.numThreads = 1;
-  ort.env.wasm.simd = true;
-
   // Revalidated, not refetched: a returning phone gets a 304 on the manifest
   // and then reads every hashed asset straight out of the Cache API.
   const manifest = await (await fetch(`${ORIGIN}${BASE}manifest.json`, { cache: 'no-cache' })).json();

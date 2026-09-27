@@ -12,6 +12,16 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // onnxruntime-web ships each entry point twice: a "bundle" build that hands its
+  // wasm to the bundler as an asset, and an extern build that fetches the wasm at
+  // runtime. The default is the bundle one, which emits a second copy of the
+  // 13.5 MB binary into dist/assets -- never fetched, because the scan worker
+  // points ort.env.wasm.wasmPaths at /ort/, where scripts/copy-ort.mjs stages the
+  // file the server actually serves. This condition selects the extern build so
+  // there is one copy of the wasm in a build instead of two.
+  resolve: {
+    conditions: ['onnxruntime-web-use-extern-wasm', 'module', 'browser', 'development|production'],
+  },
   // Demo build is served from https://<user>.github.io/bindarr/, so assets need
   // that sub-path prefix. Every other build (web/mobile) stays root-relative.
   base: process.env.VITE_DEMO ? '/bindarr/' : '/',
