@@ -11,6 +11,7 @@ const scryfallApi = require('./scryfallApi');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const collectionRoutes = require('./routes/collection');
+const cardscanRoutes = require('./routes/cardscan');
 const statsRoutes = require('./routes/stats');
 const importExportRoutes = require('./routes/importExport');
 const setsRoutes = require('./routes/sets');
@@ -618,6 +619,8 @@ app.use('/api/products', productsRoutes);
 // Paths inside are /moxfield/..., so this mounts at bare /api like collection.
 app.use('/api', moxfieldRoutes);
 app.use('/api/settings', settingsRoutes);
+// On-device scanner support: maps ids the phone PROVED to catalogue rows.
+app.use('/api/cardscan', cardscanRoutes);
 
 // PHASE 4a SPIKE — throwaway detector benchmark, dev only.
 //
