@@ -36,7 +36,16 @@ const MODEL_DIR = process.env.CV_MODEL_DIR;
 const DB_PATH = process.env.DB_PATH;
 const CONCURRENCY = Number(process.env.CATALOG_CONCURRENCY || 6);
 const FLUSH_EVERY = 500;
-const EMBED_SIZE = 224;
+// MILO'S INPUT SIZE AND NORMALISATION, COPIED FROM cvScan.js RATHER THAN
+// GUESSED. I first wrote 224 with a plain /255 and the model rejected it
+// outright ("index: 3 Got: 224 Expected: 448") -- which was lucky. The
+// NORMALISATION would not have thrown: MEAN/STD are ImageNet's, and omitting
+// them produces embeddings that are the right shape and completely wrong, so
+// every scan would have compared against a subtly broken catalogue and simply
+// matched worse. A silent wrong answer is the expensive kind.
+const EMBED_SIZE = 448;
+const MEAN = [0.485, 0.456, 0.406];
+const STD = [0.229, 0.224, 0.225];
 const DIM = 128;
 
 if (!MODEL_DIR) { console.error('CV_MODEL_DIR must be set'); process.exit(2); }
@@ -150,14 +159,16 @@ async function embedOne(row) {
   const { data } = await sharp(buf)
     .resize(EMBED_SIZE, EMBED_SIZE, { fit: 'fill' })
     .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  // HWC uint8 -> CHW float32, same normalisation cvScan uses at scan time. A
-  // mismatch here would not throw; it would just make every comparison wrong.
+  // HWC uint8 -> CHW float32 with ImageNet normalisation -- byte-for-byte the
+  // same transform cvScan.toTensor() applies at scan time. If these two ever
+  // disagree, nothing throws: the catalogue is simply built in a different
+  // space from the queries, and every match quietly gets worse.
   const x = new Float32Array(3 * EMBED_SIZE * EMBED_SIZE);
   const plane = EMBED_SIZE * EMBED_SIZE;
-  for (let i = 0; i < plane; i++) {
-    x[i] = data[i * 3] / 255;
-    x[plane + i] = data[i * 3 + 1] / 255;
-    x[2 * plane + i] = data[i * 3 + 2] / 255;
+  for (let p = 0; p < plane; p++) {
+    x[p] = (data[p * 3] / 255 - MEAN[0]) / STD[0];
+    x[plane + p] = (data[p * 3 + 1] / 255 - MEAN[1]) / STD[1];
+    x[2 * plane + p] = (data[p * 3 + 2] / 255 - MEAN[2]) / STD[2];
   }
   const t = new ort.Tensor('float32', x, [1, 3, EMBED_SIZE, EMBED_SIZE]);
   const out = await session.run({ [session.inputNames[0]]: t });
