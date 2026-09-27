@@ -143,13 +143,28 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 // steadied instantly still waited out the full penalty. Retry fast; the gate
 // is cheap and rejecting again costs almost nothing.
 //
+// REJECTED (the gate held the frame back). Nothing was captured and no read
+// ran, so there is nothing to pace -- retry almost immediately. The on-device
+// reader's own stillness gate is what decides a frame is worth reading, and it
+// costs ~15ms to say no, so a long pause here just makes a card that steadied
+// instantly sit out for no reason.
+//
 // SETTLE (a scan ran and resolved). A real pause belongs here, because Zach is
 // physically swapping the next card in and re-firing immediately would just
-// re-scan the one still in frame. But 3s is longer than that takes.
+// re-scan the one still in frame.
 //
 // ERROR (the scan threw). Back off further: hammering a failing server makes
 // it worse, and the failure is unlikely to clear within one tick.
-const SCAN_RETRY_REJECTED_MS = 350;
+//
+// RETUNED FOR THE ON-DEVICE READER. These were sized for a ~1.5s server round
+// trip, where an extra 350ms was noise. A local read is ~330ms, so the same
+// gaps were more than doubling the time between attempts. The upstream app
+// this pipeline came from ticks its auto loop at 60ms for exactly this reason
+// -- Zach: "His scans worked way quicker than ours."
+//
+// SETTLE stays generous: it paces a HUMAN swapping a physical card, which did
+// not get faster. Only the machine-bound gaps move.
+const SCAN_RETRY_REJECTED_MS = 60;
 const SCAN_RETRY_SETTLE_MS = 400;
 const SCAN_RETRY_ERROR_MS = 2500;
 
@@ -2163,8 +2178,113 @@ function CameraScanner({ onAddSuccess, showToast }) {
       setGateLog(gateLogRef.current);
     }
 
-    // THE GATE HAS PASSED (or this is a manual tap). Only now pay for the real
-    // shutter.
+    // ASK THE PHONE FIRST, OFF THE LIVE PREVIEW, BEFORE PAYING FOR ANYTHING.
+    //
+    // THIS ORDER IS THE WHOLE POINT. Everything below this block -- the
+    // ImageCapture still, the 2000px downscale, the main-thread JPEG encode --
+    // exists to produce an UPLOAD. When the phone can read the card itself,
+    // none of it is needed, and doing it first is pure latency on every scan.
+    //
+    // Zach, comparing against the app this pipeline came from: "His scans
+    // worked way quicker than ours." He was right, and this was why: the
+    // reader was identical, but it had been wired INSIDE the old server-scan
+    // preamble, so every scan paid the full cost of both pipelines. That app
+    // reads straight off the <video> element and only encodes a JPEG if the
+    // local read fails. So does this now.
+    //
+    // The frame is the preview crop, which is what the corpus replay measured
+    // (92.6% identified, zero wrong cards on 271 real frames) -- those were
+    // saved preview frames, not ImageCapture stills. The high-quality still is
+    // still taken for the SERVER path below, where the extra pixels reach the
+    // collector-number strip and actually matter.
+    let deviceCard = null;
+    let deviceTitle = null;
+    if (framedCanvas) {
+      try {
+        const dev = await readOnDevice(framedCanvas, framedCanvas.width, framedCanvas.height,
+          { requireStill: !isManual });
+        if (scanId !== currentScanId.current) return;
+        // needsServer is unit-tested (fastScan.test.js): a proven card never
+        // goes up; an unproven one always does; an auto pass with no card at
+        // all does NOT -- that is the stillness gate working, and the next
+        // pass retries rather than uploading an empty desk.
+        if (!needsServer(dev, { autoPass: !isManual })) {
+          const hydratedResults = await hydrateResults(dev.results || []);
+          if (scanId !== currentScanId.current) return;
+          const hit = hydratedResults.find(r => r.ok && r.card);
+          if (hit) { deviceCard = hit.card; deviceTitle = hit.title || null; }
+        } else if (dev?.error) {
+          console.warn('[scan] on-device read failed, using server:', dev.error);
+        }
+      } catch (e) {
+        // Every failure path falls through to the server, exactly as before
+        // this block existed.
+        console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
+      }
+    }
+
+    if (deviceCard) {
+      lastTickOutcomeRef.current = 'settle';
+      signal('capture');
+      setCaptureSource('video');
+      console.log('Scan candidates: on-device', deviceCard.name, deviceCard.set_id, deviceCard.number);
+      setDebugScoped(false);
+      setDebugCandidates([{
+        name: deviceCard.name, set: deviceCard.set_id, number: deviceCard.number,
+        inliers: 100, score: 1, verified: true, card: deviceCard,
+      }]);
+      const identified = deviceCard.name;
+      // THE DUPLICATE GUARD, SAME THREE RULES AS THE SERVER PATH. A second
+      // physical copy is legitimate, so a MANUAL tap overrides -- but only once
+      // per card, which is what manualForcedNameRef tracks.
+      const repeatIdentity = identified === lastQueuedNameRef.current;
+      if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
+        setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
+        setLoading(false);
+        return;
+      }
+      if (repeatIdentity && !isManual) {
+        setScanStatus(t('scan.sameCardAgain'));
+        setLoading(false);
+        return;
+      }
+      if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
+      setScanStatus('');
+      try {
+        // THE SAME SUBMIT AND THE SAME HANDLER AS A SERVER SCAN.
+        //
+        // printingHint carries the printing the phone PROVED by reading the
+        // footer, so set + number are evidence rather than a guess. The server
+        // still validates it against the catalogue and ignores it unless it
+        // resolves to exactly one real printing -- nothing is added on the
+        // client's say-so.
+        //
+        // stage: true because Zach chose staging for on-device reads: nothing
+        // enters the collection until he presses Add All.
+        const outcome = await reviewQueue.submitScan({
+          matchInliers: 100,
+          match_inliers: 100,
+          name: identified,
+          titleText: deviceTitle || identified,
+          ocrText: '',
+          printingHint: { set: deviceCard.set_id, number: deviceCard.number },
+          stage: true,
+          crop: null,
+          quantity: 1,
+        });
+        if (scanId !== currentScanId.current) return;
+        applyScanOutcome(outcome, identified);
+      } catch (err) {
+        console.error('on-device submit failed:', err);
+        lastTickOutcomeRef.current = 'error';
+        if (scanId === currentScanId.current) setScanStatus('Scan failed. Please search manually.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // THE PHONE COULD NOT PROVE IT. Only now pay for the real shutter.
     //
     // ImageCapture.takePhoto() routes through AVCapturePhotoOutput — Apple's
     // still pipeline, with the multi-frame processing the native Camera app
@@ -2230,110 +2350,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
           });
           setDebugHashImg(imageData);
           try {
-            // ON-DEVICE FIRST, SERVER AS THE FALLBACK.
-            //
-            // The phone reads the card itself: cornelius finds the corners,
-            // PP-OCRv6 reads the title and the collector footer, and the answer
-            // is a printing proven by TEXT or nothing at all. Measured on
-            // Zach's 271 labelled frames: 92.6% identified, ZERO wrong cards,
-            // p50 328 ms against the server path's p50 1527 ms.
-            //
-            // WHY FIRST RATHER THAN AS A SPEEDUP LAYER. The server pipeline
-            // identifies by ARTWORK, and artwork is the fragile signal under a
-            // highlight -- Zach's torch-lit Fated Firepower matched as noise
-            // (9 inliers, wrong card) while its title and collector number were
-            // both plainly legible in the same photo. Printed text survives a
-            // glare that destroys an embedding, so the text reader is the
-            // better first question, not merely the cheaper one.
-            //
-            // EVERY FAILURE PATH FALLS THROUGH TO THE SERVER. A worker that
-            // never loaded, a crash, a timeout, an unproven card: all of them
-            // leave deviceCard null and the request below runs exactly as it
-            // did before this block existed.
-            let deviceCard = null;
-            let deviceTitle = null;
-            try {
-              const dev = await readOnDevice(framedCanvas, framedCanvas.width, framedCanvas.height,
-                { requireStill: !isManual });
-              if (scanId !== currentScanId.current) return;
-              // needsServer is unit-tested (fastScan.test.js): a proven card
-              // never goes up; an unproven one always does; an auto pass with
-              // no card at all does NOT, because that is the stillness gate
-              // working and the next pass retries.
-              if (!needsServer(dev, { autoPass: !isManual })) {
-                // hydrateResults turns the proven Scryfall id into a card_cache
-                // row so the tray and the Send flow see what a server scan
-                // returns. It THROWS rather than returning an empty result when
-                // a card cannot be hydrated -- which lands in the catch below
-                // and takes the server path, the correct outcome.
-                const hydratedResults = await hydrateResults(dev.results || []);
-                if (scanId !== currentScanId.current) return;
-                const hit = hydratedResults.find(r => r.ok && r.card);
-                if (hit) { deviceCard = hit.card; deviceTitle = hit.title || null; }
-              } else if (dev?.error) {
-                console.warn('[scan] on-device read failed, using server:', dev.error);
-              }
-            } catch (e) {
-              console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
-            }
-
-            if (deviceCard) {
-              console.log('Scan candidates: on-device', deviceCard.name, deviceCard.set_id, deviceCard.number);
-              setDebugScoped(false);
-              setDebugCandidates([{
-                name: deviceCard.name, set: deviceCard.set_id, number: deviceCard.number,
-                inliers: 100, score: 1, verified: true, card: deviceCard,
-              }]);
-              const identified = deviceCard.name;
-              // THE DUPLICATE GUARD, SAME THREE RULES AS THE SERVER PATH.
-              //
-              // Written out rather than called: the server path computes this
-              // inline too, and the three branches differ by what they say, not
-              // by what they decide. Extracting a shared helper for one boolean
-              // and three messages would hide the rule rather than clarify it.
-              //
-              // A second physical copy of the same card is legitimate, so a
-              // MANUAL tap overrides -- but only once per card, which is what
-              // manualForcedNameRef tracks.
-              const repeatIdentity = identified === lastQueuedNameRef.current;
-              if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
-                setScanStatus('Already scanned this card — lift it and place it again to add another copy.');
-                return;
-              }
-              if (repeatIdentity && !isManual) {
-                setScanStatus(t('scan.sameCardAgain'));
-                return;
-              }
-              // Claim the override BEFORE the await, so a second tap arriving
-              // while this submit is in flight sees it.
-              if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
-              setScanStatus('');
-              if (scanId !== currentScanId.current) return;
-              // THE SAME SUBMIT AND THE SAME HANDLER AS A SERVER SCAN.
-              //
-              // printingHint carries the printing the phone PROVED by reading
-              // the footer, so set + number are evidence rather than a guess.
-              // The server still validates it against the catalogue and ignores
-              // it unless it resolves to exactly one real printing -- nothing is
-              // added on the client's say-so.
-              //
-              // stage: true because Zach chose staging for on-device reads:
-              // nothing enters the collection until he presses Add All.
-              const outcome = await reviewQueue.submitScan({
-                matchInliers: 100,
-                match_inliers: 100,
-                name: identified,
-                titleText: deviceTitle || identified,
-                ocrText: '',
-                printingHint: { set: deviceCard.set_id, number: deviceCard.number },
-                stage: true,
-                crop: null,
-                quantity: 1,
-              });
-              if (scanId !== currentScanId.current) return;
-              applyScanOutcome(outcome, identified);
-              return;
-            }
 
             const resp = await fetch('/api/scan-match', {
               method: 'POST',
