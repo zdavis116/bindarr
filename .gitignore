@@ -105,3 +105,4 @@ yolo11n-obb.pt
 # is large and regenerable. The harness itself IS tracked -- it renders the
 # real component, so it is how the screen gets reviewed without a desktop.
 /frontend/preview/payload.json
+__pycache__/

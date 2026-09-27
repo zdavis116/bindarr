@@ -953,6 +953,7 @@ module.exports = {
   DeckIdentityError,
   isFinish,
   isBoard,
+  isBasicLandTypeLine,
   entryReserves,
   oracleIdentityForCard,
   ownedQuantity,

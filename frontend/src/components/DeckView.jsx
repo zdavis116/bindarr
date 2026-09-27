@@ -29,6 +29,7 @@ import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 // function, so "organize it like the deck view" is enforced by construction
 // rather than by me matching it by eye.
 import { groupIntoSections } from './deckListSections.js';
+import { isBasicLand } from '../utils/basicLands';
 
 // The section order, the type PRIORITY (Land beats Creature beats Artifact) and
 // the type_line parsing all moved into deckListSections.js, which the compare
@@ -149,8 +150,37 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // The commander is the default subject. Falls back to the first card for a
   // deck with no command zone (a 60-card deck), and is null only for an empty
   // deck, which is the one case the pane does not render.
+  // DISMISSED, as distinct from "nothing selected".
+  //
+  // The pane falls back to the commander when nothing is selected, which is
+  // what makes it useful on load -- but it also means clearing the selection
+  // cannot close it. Without a separate flag, closing the pane would instantly
+  // reopen it on the commander.
+  //
+  // Zach: "being able to close the right panel... I would like to be hide it."
+  // So dismissal is its own state, and ANY new selection clears it -- tapping a
+  // card is the way back, exactly as it is on the collection screen.
+  const [detailDismissed, setDetailDismissed] = useState(false);
+
+  // SELECTING A CARD, from anywhere in the deck view.
+  //
+  // One function because "tap a card" must mean the same thing on every list
+  // in this screen, and because tapping the ALREADY-SELECTED card toggles the
+  // pane shut (Zach asked for both an X and click-again). Two call sites doing
+  // this inline is how they would drift.
+  const selectDeckCard = (id) => {
+    setDetailDismissed(prev => {
+      const sameCard = String(selectedCardId) === String(id);
+      // Re-tapping the open card closes it; any other tap opens that card.
+      if (sameCard && !prev) return true;
+      return false;
+    });
+    setSelectedCardId(id);
+  };
+
   const detailCard = useMemo(() => {
     if (!isDesktop) return null;
+    if (detailDismissed) return null;
     const pick = selectedCardId
       ? cards.find(c => String(c.id) === String(selectedCardId))
       : null;
@@ -162,7 +192,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     // pane cannot delete a collection row that happens to share an id -- the
     // exact confusion the modal's onRemoveFromDeck comment warns about.
     return { ...chosen, deckCardId: chosen.id };
-  }, [isDesktop, selectedCardId, cards]);
+  }, [isDesktop, selectedCardId, cards, detailDismissed]);
 
   // HOW FAR DOWN THE PAGE THE DETAIL PANE STARTS.
   //
@@ -171,59 +201,29 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   // the pane begins" -- and where it begins is not a constant: the deck title,
   // the drift banner and the progress block above it all vary.
   //
-  // MEASURED, not guessed. A hard-coded `100vh - 6rem` ran the pane 153px past
-  // the fold, so the anchored button sat below the screen -- pinned to the
-  // bottom of a box you could not see the bottom of. Zach reported that as the
-  // UI looking cut off.
+  // THE PANE HEIGHT IS A CONSTANT, so there is nothing to measure.
   //
-  // Written to a CSS custom property so the LAYOUT stays in CSS; this only
-  // supplies the one number CSS cannot measure for itself.
-  useEffect(() => {
-    if (!isDesktop) return undefined;
-    const el = sidePaneRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      // WHERE THE PANE STARTS IN THE VIEWPORT, because the CSS subtracts this
-      // from 100vh -- a viewport height. Mixing the two coordinate systems is
-      // what broke it.
-      //
-      // Zach: "if I click a card and scroll to the bottom and then click a
-      // land card the whole side panel or card modal disappears."
-      //
-      // This read `rect.top + window.scrollY`, a PAGE offset, on the theory
-      // that a viewport offset "changes as you scroll". It does -- but the
-      // pane is position:sticky, so its viewport top is stable at the sticky
-      // offset, while the page offset grows without bound as you scroll.
-      // Clicking a land near the bottom of a 100-card list calls
-      // scrollIntoView, the ResizeObserver fires mid-scroll, and --pane-top
-      // was measured at 6152px. calc(100vh - 6152px - 1rem) clamps to zero:
-      // the pane is still in the DOM, 472px wide and 0px tall, which on screen
-      // is simply gone. MEASURED on dev at 1855x731, 388px -> 6152px.
-      //
-      // Clamped to a sane range so a measurement taken mid-layout -- before
-      // sticky settles, or during a smooth scroll -- can never collapse the
-      // pane again. A slightly wrong height is a cosmetic problem; a zero
-      // height is an invisible feature.
-      const raw = el.getBoundingClientRect().top;
-      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
-      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
-    };
-    measure();
-    // The drift banner and progress block can render after a fetch and move
-    // the pane down, so re-measure when the page changes size.
-    const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
-    window.addEventListener('resize', measure);
-    // Re-measure after a scroll SETTLES. While sticky is engaged the viewport
-    // top does not move, so this is cheap; it exists so the first paint after
-    // a jump-to-card lands on a real number rather than a transient one.
-    window.addEventListener('scroll', measure, { passive: true });
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure);
-    };
-  }, [isDesktop, detailCard]);
+  // `.deck-panes-side` is `position: sticky; top: 1rem`, which means its
+  // viewport top IS 1rem once stuck. The height is `calc(100dvh - 2rem)` in
+  // index.css -- no JS, no custom property, nothing that can go stale.
+  //
+  // This effect used to measure getBoundingClientRect().top into --pane-top.
+  // That number is only correct BEFORE the pane sticks; scrolled down, the
+  // real top drops to the sticky offset while the variable keeps its initial
+  // value, and the pane GROWS. Measured on the collection pane at 1473x736:
+  // 497px at rest, 704px after scrolling, bottom at y=720 in a 736 viewport.
+  // Zach: "when I scroll down the collection with the right pane open it grows
+  // bigger to the point it gets cut off... it should stay the same size from
+  // the START."
+  //
+  // The same measurement previously caused the opposite failure -- read as a
+  // PAGE offset it hit 6152px and collapsed the pane to 0px tall ("the whole
+  // side panel or card modal disappears"). Two bugs in opposite directions
+  // from one variable that never needed to exist.
+  //
+  // The note about a hard-coded `100vh - 6rem` running 153px past the fold
+  // predates `position: sticky` on this element. A non-sticky column really
+  // did need its offset subtracted; a sticky one does not.
 
   // Considering is a different SET of cards, not a filter of the deck. Zach:
   // "Move considering to the chips like owned and missing." They sit outside
@@ -1105,7 +1105,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           onSelectCard={(c) => {
             // Same routing as every other row on this screen: the pinned pane
             // on desktop, the modal on the phone.
-            if (isDesktop) setSelectedCardId(c.id);
+            if (isDesktop) selectDeckCard(c.id);
             else setInspecting(c);
           }}
           onOverrideRole={overrideRole}
@@ -1239,7 +1239,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                       opening a modal over the list you are working through. */}
                   <button
                     type="button"
-                    onClick={() => (isDesktop ? setSelectedCardId(card.id) : setInspecting(card))}
+                    onClick={() => (isDesktop ? selectDeckCard(card.id) : setInspecting(card))}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '0.6rem',
                       flex: 1, minWidth: 0, padding: 0, border: 0,
@@ -1263,8 +1263,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                           Zach: "it's confusing because I don't actually own 6
                           of the one msh set". The owned count comes from the
                           whole pool, so naming one printing beside it states
-                          something false. */}
-                      {!String(card.type_line || '').startsWith('Basic Land') && (
+                          something false.
+
+                          This was the FIRST place the rule was fixed, and it
+                          was written inline here. The same complaint then came
+                          back for the collection list, the grid tile and the
+                          inspector header -- three more rounds for one rule,
+                          because each surface owned its own copy of the
+                          answer. It now reads the shared one. */}
+                      {!isBasicLand(card) && (
                         <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                           {card.set_name}
                         </span>
@@ -1358,7 +1365,17 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               deckId={deck?.id}
               deckCardId={detailCard.deckCardId ?? null}
               onRepointed={() => { onChanged && onChanged(); setRepointVersion(v => v + 1); }}
-              onClose={() => {}}
+              /* CLOSING THE PANE ACTUALLY CLOSES IT.
+                 This was `() => {}` -- a no-op -- so the deck view's pane could
+                 not be dismissed at all while the collection's could. Zach
+                 asked for one behaviour everywhere: "this pane setup and
+                 functionally should be the same for every pane including when
+                 in the deck view."
+
+                 Clearing the selection is what hides the pane, because the
+                 wrapper above renders on `detailCard`. The deck's own default
+                 (the commander) returns the next time a card is tapped. */
+              onClose={() => { setSelectedCardId(null); setDetailDismissed(true); }}
               showToast={showToast}
               onRemoveFromDeck={removeCard}
               deckName={deck?.name || null}

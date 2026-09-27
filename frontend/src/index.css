@@ -1087,6 +1087,221 @@ button, input, select, textarea {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ACTIONS ARE ANCHORED ON BOTH SURFACES, so this rule is UNSCOPED.
+   Zach: "the delete button should be anchored at the bottom and I shouldnt
+   have to scroll to that. So really the scroll should be between the top taps
+   and any buttons at the bottom." Then again on the PHONE: "Edit card doesn't
+   anchor to the bottom when I expand printings".
+
+   The second report was caused by the first fix. This rule lived inside
+   `@media (min-width: 1024px)` as `.card-inspector-inline .ci-footer-acts`, so
+   the desktop pane anchored and the phone modal -- which renders the same
+   markup -- got an ordinary div in the flow. Expanding Other printings pushed
+   Edit Card down the page, exactly as reported.
+
+   WIDTH-SCOPING A SHARED RULE WITH NOTHING ON THE OTHER SIDE is this
+   codebase's most frequent layout bug, and this is the same mistake again.
+   Shared behaviour goes here; only genuine per-breakpoint differences belong
+   in a media query.
+
+   Sticky rather than moved in the JSX: these buttons are rendered per-tab deep
+   inside the body, and hoisting them out would mean restructuring the
+   component for all three tabs. Sticky pins them to the bottom of the
+   scrolling box while leaving them where they are in the DOM, so tab order is
+   untouched.
+
+   The opaque background matters: content scrolls UNDER this, and a
+   see-through destructive button with rules text sliding behind it is how you
+   misread which card you are removing. */
+.ci-footer-acts {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0.85rem -0.25rem 0;
+  padding: 0.6rem 0.25rem 0.1rem;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-glass);
+}
+
+/* OTHER PRINTINGS: THE ONLY THING THAT SCROLLS -- ON BOTH SURFACES.
+   Zach: "other printings should be a dropdown I can toggle... that is the only
+   thing that should be scrollable", then "why is the pane so long that its
+   hiding the edit button", then "there is a double scroll which isnt right.
+   Also the gray pane is going past the end of the screen".
+
+   A FIXED CAP WAS THE WRONG SHAPE, and 28vh was the third guess at it. The
+   question is not "how tall should this list be" -- it is "how much room is
+   LEFT after everything above it". Those differ per card: the rows above the
+   list (Finish, Condition, Value, Available) are constant, but the Card tab's
+   rules text is not, and the badge row can wrap.
+
+   Measured on Ancient Bronze Dragon at 390x844 with 28vh: the list was capped
+   at 236px and ran from y=657 to y=893 while its container .ci-scroll ended at
+   y=776. So the list overhung its own parent by 117px -- the grey panel past
+   the end of the screen -- AND the parent scrolled to reach it while the list
+   scrolled internally. Two scrollbars, both real, for one list.
+
+   THE FIX IS TO HAVE ONE SCROLLER, AND IT IS THE BODY.
+
+   Four capped-list attempts, each measured, each wrong in a different way:
+
+     max-height: 28vh      a guess: 236px in a box with ~119px free, so the
+                           list overhung by 117px and BOTH it and the body
+                           scrolled -- the double scrollbar.
+     flex: 1 1 auto        sizes from the item's own CONTENT, so 350px of rows
+                           in a 324px box expanded the body to 459px.
+     flex: 1 1 0           nothing forces a flex item to grow once its siblings
+                           fill the box: the list collapsed to 2px.
+     max-height: 100%      a percentage against an auto-height ancestor is
+                           ignored, so it did nothing at all.
+
+   All four failed for one underlying reason: a <details> element does not
+   contain its children's height. Measured -- DETAILS height 58, scrollHeight
+   374, its child laid out OUTSIDE it. Every percentage and flex height below
+   that point resolved against a box that was not bounding anything.
+
+   So the list does not scroll. It renders at its natural height inside
+   .ci-scroll, which is bounded by the panel and already scrolls -- ONE
+   scrollbar, the one that was always there. Nothing can overhang, because
+   .ci-scroll clips, which is what stops the grey panel running past the
+   screen edge.
+
+   Edit Card stays reachable regardless: .ci-footer-acts is `position: sticky`,
+   so it pins to the bottom of this scroller rather than being scrolled past.
+   That is why removing the inner scroller costs nothing here. */
+.ci-printings-list {
+  /* No max-height and no overflow: both belong to .ci-scroll. Setting either
+     here re-creates the second scrollbar. */
+  min-height: 0;
+}
+
+/* THE PRINTINGS SECTION IS THE FLEX CHILD THAT GROWS.
+
+   A <details> ELEMENT DOES NOT CONTAIN ITS CHILDREN'S HEIGHT, and that is the
+   single fact behind the double scrollbar and the grey panel running off the
+   screen. Measured with `display:flex; flex:1 1 0` on the element itself:
+
+     DETAILS.ci-printings     height 58   scrollHeight 374
+     DIV.ci-printings-body    height 352  (laid out OUTSIDE the 58px parent)
+
+   So every percentage or flex height below it resolved against a box that was
+   not actually bounding anything. Four different values on the list --
+   max-height:28vh, flex:1 1 auto, flex:1 1 0, max-height:100% -- each failed
+   for this same reason, in a different direction.
+
+   THE FIX IS TO SIZE AGAINST THE SCROLL BOX, NOT THROUGH THE DETAILS. The
+   list's ceiling is expressed in viewport units relative to the panel's own
+   height rather than as a percentage of an ancestor, so no link in the chain
+   has to cooperate. The panel is 82dvh and the rows above the list are a fixed
+   handful, which leaves roughly a third of the panel for printings.
+
+   `min-height` keeps it usable when space is tight -- better a short scrolling
+   list than the 2px sliver `flex: 1 1 0` produced. */
+.ci-printings {
+  min-height: 0;
+}
+
+.ci-printings-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The wrapper around the disclosure. It no longer needs to pass a height
+   through -- see the note above about <details> not containing its children --
+   so it carries only the margin that used to be inline on it. */
+.ci-printings-section {
+  /* Was an inline style on the div; moved here so it is overridable. The flex
+     rules that used to be here existed only to feed a height down to the list,
+     which never worked through the <details> -- see above. Plain block layout
+     is correct now that .ci-scroll is the only scroller. */
+  margin-bottom: 0.85rem;
+}
+
+/* .ci-scroll IS A COLUMN so the sticky footer sits at its end.
+
+   ITS CHILDREN MUST NOT SHRINK. A flex column shrinks its items to fit, and
+   the printings list is 572px of content in a 214px box -- so the browser
+   squashed the info rows to make room. Measured: the Finish / Condition /
+   Value / Available block computed to 2px TALL, which is why Zach could not
+   "scroll up to the value information". It had not scrolled away; it had been
+   crushed to nothing.
+
+   `flex-shrink: 0` on every direct child keeps each block at its natural
+   height and lets the container scroll instead, which is the behaviour a
+   scroll box should have had all along. The footer is excluded -- it is
+   sticky and sizes itself. */
+.card-inspector .ci-scroll,
+.card-inspector-inline .ci-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.card-inspector .ci-scroll > *,
+.card-inspector-inline .ci-scroll > * {
+  flex-shrink: 0;
+}
+
+/* RULINGS reuse the printings disclosure's chevron and spacing -- it is the
+   same control doing the same job, and a second lookalike would drift the
+   moment one side is restyled. This class exists so the section is findable
+   and can diverge later without touching .ci-printings. */
+.ci-rulings {
+  margin-top: 0.2rem;
+}
+
+/* THE CLOSE ROW -- MODAL RULES, UNSCOPED.
+   These were inline styles on the element. Moved into a class so the desktop
+   pane can override them; an inline style cannot be beaten by a stylesheet,
+   which is why the pane had no way to place this button differently.
+
+   Unscoped, because the phone modal is the other side of the breakpoint and
+   width-scoping shared design with nothing on the other side is this
+   codebase's most frequent layout bug. */
+.ci-close-row {
+  order: -1;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  /* Pulled tight: this row exists only to place the button, so its height is
+     pure slack above the card. Zach: "feels like maybe there is to much white
+     space". */
+  margin-bottom: -1.75rem;
+}
+
+/* OTHER PRINTINGS DISCLOSURE -- SHARED BY BOTH SURFACES, UNSCOPED.
+   The <details> renders in the phone modal AND the desktop pane. The scroll
+   cap below is desktop-only (the pane has a fixed height to protect; the modal
+   scrolls as one sheet), but the MARKER styling is shared design and belongs
+   out here.
+
+   Scoping shared design inside a media query is this codebase's most frequent
+   layout bug -- one side of the breakpoint silently gets browser defaults. Put
+   the common rule here; put only the genuine difference in the media query. */
+.ci-printings > summary::-webkit-details-marker,
+.ci-printings > summary::marker {
+  display: none;
+  content: '';
+}
+
+.ci-printings > summary::after {
+  content: '';
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+}
+
+.ci-printings[open] > summary::after {
+  transform: rotate(-135deg);
+}
+
 /* The header holds the art, the identity block and the tabs. It must not
    shrink, or a long rules text would squeeze the card image away. */
 .card-inspector .ci-head {
@@ -3465,10 +3680,50 @@ button, input, select, textarea {
   .deck-panes-main { min-width: 0; }
 
   .deck-panes-side {
-    position: sticky;
-    /* 1rem below the top of the scroll container. The rail is its own
-       scroller, so this only has to clear the page padding. */
-    top: 1rem;
+    /* PINNED TO THE VIEWPORT.
+
+       `position: sticky` was wrong here for the same reason it was wrong on
+       .coll-pane: it only engages once you have scrolled far enough, so before
+       that the pane sits where the document puts it. Measured at 1473x736 on
+       Doctor Doom: at the top of the page the pane started at y=388 and ran to
+       y=1092 -- 356px off the bottom of a 736 viewport. Scrolled to the end of
+       a 100-card deck its top went NEGATIVE (-174), sliding off the top.
+
+       Zach: "Seems you solved the collection but not the deck view... also the
+       pane is expanding when I scroll here as well." Correct on both counts --
+       the collection fix was never applied to this rule.
+
+       PINNED NEAR THE TOP, NOT AT THE DECK HEADER'S OFFSET. The deck content
+       starts 388px down (app header + deck title + progress block), and
+       starting the pane there left it 336px tall -- too short to reach its own
+       footer buttons, and stranded beside blank space once the deck list
+       scrolled past. The collection pane can sit at its content offset because
+       223px still leaves a usable 496px; 388px does not.
+
+       So the pane clears the app header only and uses the height that buys.
+       A card sheet is a fixed thing -- art, tabs, a scrolling body, a footer --
+       and it needs room, not alignment with a row it no longer sits beside.
+
+       A CSS constant with a literal fallback, never a JS measurement. That
+       measurement caused the two previous bugs here: stale after pinning it
+       made the pane grow, and read as a page offset it hit 6152px and
+       collapsed the pane to 0px ("the whole side panel or card modal
+       disappears"). A constant can be wrong if the chrome is restructured, but
+       it cannot go STALE, which is the failure that actually bit. */
+    position: fixed;
+    top: var(--deck-pane-top, 4.5rem);
+    /* MATCHES THE GRID TRACK, WHICH IS NOT 400px.
+       Two rules set .deck-panes columns: the one at ~3675 says 400px, and a
+       LATER one says `clamp(440px, 30%, 560px)`. A plain rule lower in the
+       file wins at equal specificity, so the real track is the clamp --
+       measured 440px at 1473 wide. Hardcoding 400 would misalign the pane at
+       every viewport, so this repeats the clamp rather than a number read off
+       one screenshot.
+
+       The track stays reserved even though the pane is position:fixed and no
+       longer occupies it -- otherwise the deck list would flow underneath. */
+    width: clamp(440px, 30%, 560px);
+    right: 1.5rem;
     /* THIS WRAPPER DOES NOT SCROLL. It used to be overflow-y:auto, which is
        what made the WHOLE pane scrollable -- art, name and tabs slid away
        together. Zach: "should not fully be scrollable just the bottom portion
@@ -3480,20 +3735,15 @@ button, input, select, textarea {
        definite box to resolve against, or it falls back to its content and
        the anchored footer drifts below the fold.
 
-       --pane-top is measured at runtime by DeckView (see useEffect there) and
-       is how far down the VIEWPORT this column starts -- ~249px, made of
-       the header, the deck title and the progress block. A pure `100vh - 2rem`
-       ignored that offset and ran the pane 153px past the fold, which is what
-       put the anchored Remove button off-screen. The fallback keeps it sane
-       before the first measurement lands.
+       The SAME offset appears in the top and the height. Subtracting a
+       different number would place the pane correctly and size it wrongly,
+       which is how it ran past the fold a moment ago.
 
-       min-height IS THE SAFETY NET, not decoration. --pane-top was once
-       measured as a PAGE offset (6152px after scrolling a 100-card deck),
-       which made this calc resolve to zero and the whole pane vanish -- Zach:
-       "the whole side panel or card modal disappears". The JS is fixed, but a
-       layout rule that CAN evaluate to zero will find a way to do it again;
-       this makes an invisible pane impossible from the CSS side too. */
-    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
+       min-height IS THE SAFETY NET, not decoration. A layout rule that CAN
+       evaluate to zero will find a way; this keeps an invisible pane
+       impossible even if the offset is ever set badly. */
+    height: calc(100vh - var(--deck-pane-top, 4.5rem) - 1rem);
+    height: calc(100dvh - var(--deck-pane-top, 4.5rem) - 1rem);
     min-height: 18rem;
     overflow: hidden;
   }
@@ -3553,6 +3803,10 @@ button, input, select, textarea {
      component's JSX and breaking the modal that shares it. */
   .card-inspector-inline {
     display: grid;
+    /* THE POSITIONING CONTEXT for .ci-close-row, which is absolute. Without
+       this the close button would resolve against the viewport and sit in the
+       page's top-right corner rather than the pane's. */
+    position: relative;
     grid-template-columns: 120px minmax(0, 1fr);
     /* THREE ROWS: [art | identity], tabs, then the body.
        The body row is minmax(0, 1fr) so it takes the leftover height and can
@@ -3677,16 +3931,10 @@ button, input, select, textarea {
 
      The opaque background matters: content scrolls UNDER this, and a
      see-through destructive button with rules text sliding behind it is how
-     you misread which card you are removing. */
-  .card-inspector-inline .ci-footer-acts {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    margin: 0.85rem -0.25rem 0;
-    padding: 0.6rem 0.25rem 0.1rem;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-glass);
-  }
+     you misread which card you are removing.
+
+     THE RULE ITSELF IS UNSCOPED -- see .ci-footer-acts next to
+     .card-inspector .ci-scroll. Only pane-specific tweaks belong here. */
 
   /* THE PANE READS SMALLER SO MORE OF IT FITS.
      Zach: "the UI looks weird here being cut off. Maybe the font needs to be
@@ -3697,10 +3945,46 @@ button, input, select, textarea {
     font-size: 0.86rem;
   }
 
+  /* THE CLOSE BUTTON IS PLACED, NOT LEFT TO THE FLOW.
+     The close row was written for the MODAL, where the panel is a flex column
+     and `order: -1` + a negative margin lifts it above the art. The pane is a
+     GRID -- so an unplaced item simply took the next free cell and the button
+     landed in the middle of the pane at y=416, floating under the artwork
+     instead of sitting in a corner. Measured, not eyeballed: art bottom 407,
+     button top 416.
+
+     Pinned to the pane's top-right corner instead. Absolute against the pane,
+     which is position:relative, so it leaves the grid entirely and cannot
+     claim a cell or add a row -- the header layout is untouched.
+
+     Targeted by CLASS, not `:has(> button[aria-label])`. The structural
+     selector worked but was a guess about shape; a class says what the element
+     IS and survives someone adding a second aria-labelled button. */
+  .card-inspector-inline .ci-close-row {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    width: auto;
+    margin: 0;
+    z-index: 3;
+  }
+
   .card-inspector-inline .ci-scroll .btn {
     font-size: 0.84rem;
     padding: 0.5rem 0.8rem;
   }
+
+  /* OTHER PRINTINGS: the cap itself is UNSCOPED (see .ci-printings-list near
+     .card-inspector .ci-scroll). This block is intentionally empty of the
+     height rule now -- scoping it to the pane meant the PHONE modal had
+     `max-height: none`, the list ran 154px past the viewport, and Edit Card
+     went with it. Measured on Waste Not: list bottom 998 against an 844
+     viewport. */
+
+  /* The chevron itself is UNSCOPED (see .ci-printings near .card-inspector
+     .ci-scroll) because the phone modal renders the same disclosure. Only the
+     scroll cap above is desktop-only, and only because the pane has a fixed
+     height to protect. */
 
   /* DELETE DECK STAYS SMALL.
      It was width:100% under a single column, which was fine at 390px and
@@ -3991,10 +4275,14 @@ button, input, select, textarea {
     position: sticky;
     top: 1rem;
     /* A definite height so the list scrolls INSIDE the pane rather than
-       running past the fold -- the same bug the detail pane had. */
-    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
-    /* Floor, so a bad --pane-top can never collapse this pane to nothing.
-       See .deck-panes-side for the measured failure. */
+       running past the fold -- the same bug the detail pane had.
+       CONSTANT, not measured: this is `position: sticky; top: 1rem`, so its
+       viewport top never changes once stuck. Subtracting a JS-measured
+       --pane-top made the collection pane GROW from 497px to 704px while
+       scrolling. See .coll-pane for the full note. */
+    height: calc(100vh - 2rem);
+    height: calc(100dvh - 2rem);
+    /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     display: flex;
     flex-direction: column;
@@ -4440,7 +4728,11 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .coll-split.is-open {
     /* A FIXED right column, matching the deck view's 400px: card detail holds
        a card image with a fixed aspect ratio, so letting the column scale
-       makes the art jump size on every resize. The GRID takes the slack. */
+       makes the art jump size on every resize. The GRID takes the slack.
+
+       The track stays reserved even though .coll-pane is position:fixed and no
+       longer occupies it -- otherwise the card grid would flow underneath the
+       pane. The empty track IS the gutter. */
     grid-template-columns: minmax(0, 1fr) 400px;
     gap: 1.1rem;
     align-items: start;
@@ -4449,17 +4741,49 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   .coll-main { min-width: 0; }
 
   .coll-pane {
-    position: sticky;
-    top: 1rem;
-    /* A REAL HEIGHT, from where the pane actually starts. --pane-top is
-       measured in JS (page offset, so it does not change while scrolling);
-       the fallback keeps it sane before the first measurement lands.
-       Without this the panel collapsed to its content and the body row under
-       the tabs was 23px tall -- the card looked empty. Same rule the deck
-       view uses on .deck-panes-side. */
-    height: calc(100vh - var(--pane-top, 17rem) - 1rem);
-    /* Floor, so a bad --pane-top can never collapse this pane to nothing.
-       See .deck-panes-side for the measured failure. */
+    /* PINNED TO THE VIEWPORT, BELOW THE PAGE HEADER.
+
+       `position: sticky` was wrong here: it only engages once you scroll far
+       enough, so before that the pane sat wherever the document put it and a
+       viewport-tall pane ran off the bottom. `fixed` pins it from the start.
+
+       THE TOP IS NOT ZERO. Pinned at 0.5rem the pane covered the app header
+       and search bar -- Zach: "now the top is to high". It must start where
+       the CARD GRID starts, which is below the header, the search row and the
+       filter chips: measured at 223px on his 1473x736 desktop.
+
+       That offset is expressed as a variable with a literal fallback rather
+       than measured in JS. A JS measurement is exactly what caused the two
+       previous bugs here -- stale after pinning it made the pane grow, and
+       read as a page offset it collapsed the pane to 0px. A constant cannot
+       go stale. It is set once, from the layout above, not re-read on scroll. */
+    position: fixed;
+    top: var(--coll-pane-top, 14rem);
+    /* The fixed column matches the grid track (400px) and sits inside the
+       page's right padding. */
+    width: 400px;
+    right: 1.5rem;
+    /* THE SPACE BELOW THAT OFFSET, so the pane ends one gap above the fold.
+       A constant: a fixed element's top never changes, so neither does the
+       height beneath it.
+
+       The old rule was `calc(100vh - var(--pane-top) - 1rem)` with --pane-top
+       measured in JS. Only correct BEFORE the pane was pinned: scrolled down,
+       the real top went 223px -> 8px while the variable kept its initial
+       value, and the pane GREW. Measured at 1473x736: 497px at rest, 704px
+       scrolled. Read the other way (as a PAGE offset) the same variable once
+       hit 6152px and collapsed the pane to 0px tall -- "the whole side panel
+       or card modal disappears". Two opposite bugs from one measurement.
+
+       Zach reported the growth twice ("it should stay the same size from the
+       START") and both times I measured a pane standing still. The trigger is
+       SCROLLING -- tools/scroll-pane-probe.py now tests exactly that.
+
+       dvh because mobile browser chrome changes the viewport; vh is the
+       fallback for engines without dvh. */
+    height: calc(100vh - var(--coll-pane-top, 14rem) - 1rem);
+    height: calc(100dvh - var(--coll-pane-top, 14rem) - 1rem);
+    /* Floor, so a short window can never collapse this pane to nothing. */
     min-height: 18rem;
     /* This wrapper does NOT scroll -- the inspector owns the height and
        scrolls its own body row, so art, name and tabs stay put. */

@@ -26,6 +26,7 @@ import {
   Search, X, LayoutGrid, List, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown, Package } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
+import { collectionGroupKey, isBasicLand } from '../utils/basicLands';
 import ProductImportModal from './ProductImportModal';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
@@ -137,11 +138,36 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
   const [viewMode, setViewMode] = useState('gallery');
   const [inspectorCard, setInspectorCard] = useState(null);
 
-  // WHERE THE PANE STARTS, measured. The inline inspector sets its height from
-  // --pane-top (index.css). Without it the fallback guess leaves the body row
-  // ~23px tall and the card looks empty. Page offset, not viewport offset:
-  // getBoundingClientRect().top alone changes as you scroll, which would
-  // resize the pane while scrolling.
+  // TAPPING THE OPEN CARD CLOSES THE PANE.
+  //
+  // Zach asked for both an X button and click-again, and the deck view has the
+  // same rule (selectDeckCard). Kept as a named function rather than inline at
+  // the two tap sites -- the grid tile and the list row -- because two copies
+  // of a toggle is how the grid and the list end up behaving differently.
+  //
+  // Compares the ENTRY id, not the card id: two rows of the same card are two
+  // different things to open, and collapsing them here would make tapping the
+  // second one close the pane instead of switching to it.
+  const openInspector = (card) => {
+    const id = card.entry_id || card.id;
+    setInspectorCard(prev => {
+      const openId = prev && (prev.entry_id || prev.id);
+      return String(openId) === String(id) ? null : card;
+    });
+  };
+
+  // The pane is `position: sticky; top: 1rem`, so its height is a CONSTANT --
+  // `calc(100dvh - 2rem)` in index.css. There is nothing to measure.
+  //
+  // This used to set a --pane-top variable from getBoundingClientRect().top on
+  // mount and on resize. That value is only correct before the pane sticks:
+  // once you scroll, the real top drops to 16px while the variable keeps its
+  // original ~223px, and the pane GROWS. Measured at 1473x736: 497px at rest,
+  // 704px scrolled, ending at y=720 in a 736 viewport. Zach: "when I scroll
+  // down the collection with the right pane open it grows bigger to the point
+  // it gets cut off... it should stay the same size from the START."
+  //
+  // The ref stays because the pane element is still referenced for layout.
   const sidePaneRef = useRef(null);
 
   // IS THERE ROOM FOR A SECOND PANE? Measured, not assumed: the same 1024px
@@ -156,29 +182,6 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
-
-  useEffect(() => {
-    const el = sidePaneRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      // VIEWPORT offset, because the CSS subtracts this from 100vh. This read
-      // `rect.top + window.scrollY` -- a PAGE offset -- which is the same bug
-      // that made the DECK view's detail pane vanish entirely: scrolled far
-      // enough down, calc(100vh - <page offset>) clamps to zero and the pane
-      // is 0px tall. The pane is sticky, so its viewport top is stable and the
-      // scroll term was never needed. Clamped so no transient measurement can
-      // collapse it. See DeckView.jsx for the measured numbers.
-      const raw = el.getBoundingClientRect().top;
-      const top = Math.min(Math.max(raw, 0), window.innerHeight * 0.6);
-      el.style.setProperty('--pane-top', `${Math.round(top)}px`);
-    };
-    measure();
-    // Filter chips and the select bar can appear after a fetch and move the
-    // pane down, so re-measure when the page changes size.
-    const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
-    return () => ro.disconnect();
-  }, [isWide, inspectorCard]);
 
   const [searchFilter, setSearchFilter] = useState('');
   const [colorFilters, setColorFilters] = useState(() => new Set());
@@ -393,9 +396,14 @@ const cardTypesOf = (card) => {
     // genuinely different -- exact printing, condition, finish -- so a foil or
     // a played copy stays separate rather than being silently merged into a
     // count that misreports what he owns.
+    //
+    // BASIC LANDS ARE THE EXCEPTION and group by NAME alone. The rule and the
+    // reasoning live in utils/basicLands.js; it is imported rather than
+    // repeated so the deck view, the inspector and this screen cannot drift
+    // into three different definitions of "basic".
     const groups = new Map();
     for (const card of out) {
-      const key = [card.card_id, card.condition || '', card.printing || ''].join('|');
+      const key = collectionGroupKey(card);
       const seen = groups.get(key);
       if (seen) {
         seen.quantity = (seen.quantity || 1) + (card.quantity || 1);
@@ -809,7 +817,7 @@ const cardTypesOf = (card) => {
                   toggleGroup(card, e?.shiftKey);
                   return;
                 }
-                setInspectorCard(card);
+                openInspector(card);
               }}
             />
           )}
@@ -832,7 +840,7 @@ const cardTypesOf = (card) => {
                   toggleGroup(card, e.shiftKey);
                   return;
                 }
-                setInspectorCard(card);
+                openInspector(card);
               }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.7rem', width: '100%',
@@ -852,7 +860,15 @@ const cardTypesOf = (card) => {
                   {card.name}
                 </span>
                 <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  {(card.set_id || '').toUpperCase()}{card.number ? ` #${card.number}` : ''}
+                  {/* A BASIC LAND'S TILE STANDS FOR EVERY PRINTING HE OWNS, so
+                      naming one set beside the count would be a false
+                      statement, not merely noise: "MH2 #250" over a tile
+                      counting Mountains from nine sets. The type is the only
+                      thing that distinguishes one basic from another, and the
+                      name above already says it. */}
+                  {isBasicLand(card)
+                    ? ''
+                    : `${(card.set_id || '').toUpperCase()}${card.number ? ` #${card.number}` : ''}`}
                 </span>
               </span>
               {card.quantity > 1 && (

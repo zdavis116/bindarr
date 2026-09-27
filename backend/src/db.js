@@ -956,6 +956,44 @@ async function initDb() {
   if (!appSettingsCols.some(c => c.name === 'card_catalogue_refresh_owner')) {
     await run(`ALTER TABLE app_settings ADD COLUMN card_catalogue_refresh_owner TEXT`);
   }
+
+  // RULINGS. Zach: "I would like to add to the card tab a ruling section so I
+  // can see all rulings made for that card."
+  //
+  // Keyed by ORACLE ID, which is how Scryfall publishes them and what a ruling
+  // actually applies to: a ruling about Seedborn Muse is true of all 14
+  // printings, so storing them per printing would duplicate every row ~3x (the
+  // catalogue holds ~105,800 printings for ~34,700 oracle ids) and let two
+  // printings of one card disagree.
+  //
+  // A TABLE, not a JSON column on card_cache. The catalogue is rebuilt from
+  // Scryfall's default_cards file on every refresh, so anything stored on that
+  // row is destroyed and re-imported nightly; rulings come from a DIFFERENT
+  // bulk file with its own build timestamp. Separate lifecycles, separate
+  // tables -- and a card with no rulings (every basic land) simply has no rows
+  // rather than a NULL column on 34,700 cards.
+  await run(`
+    CREATE TABLE IF NOT EXISTS card_rulings (
+      oracle_id TEXT NOT NULL,
+      published_at TEXT,
+      source TEXT,
+      comment TEXT NOT NULL
+    )
+  `);
+  // The only query this table serves is "rulings for this card, newest first".
+  await run(`CREATE INDEX IF NOT EXISTS idx_card_rulings_oracle
+             ON card_rulings (oracle_id, published_at DESC)`);
+
+  // Scryfall's build timestamp for the rulings file, so a refresh can skip the
+  // download when nothing has changed -- the same few-kilobyte index check the
+  // catalogue uses. Its own column because the two files are rebuilt on
+  // different schedules.
+  if (!appSettingsCols.some(c => c.name === 'card_rulings_updated_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_rulings_updated_at TEXT`);
+  }
+  if (!appSettingsCols.some(c => c.name === 'card_rulings_refreshed_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN card_rulings_refreshed_at DATETIME`);
+  }
   // The price-source priority order. An existing database has no such column,
   // and CREATE TABLE IF NOT EXISTS will not add one -- without this migration
   // every read of price_source_order throws on Zach's actual database while

@@ -98,7 +98,11 @@ test('MP-TC5: printings carry a buy URL that came FROM the source', () => {
 });
 
 test('MP-TC6: the buy button only renders when a URL actually exists', () => {
-  assert.match(inspectorCode, /thisPrinting\?\.price_url && \(/,
+  // MATCHES THE GATE, NOT THE PUNCTUATION AFTER IT. This asserted the literal
+  // `thisPrinting?.price_url && (` and went red when a second condition was
+  // appended to hide the button for cards a deck already owns -- a correct
+  // change. The URL requirement, which is what this test is about, never moved.
+  assert.match(inspectorCode, /thisPrinting\?\.price_url &&/,
     'a buy button with no destination is worse than no button');
   assert.match(inspectorCode, /rel="noopener noreferrer"/,
     'an external link opened in a new tab needs noopener');

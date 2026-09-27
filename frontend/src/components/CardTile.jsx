@@ -29,6 +29,7 @@ import {
 import { getCardRarityBorder, getRarityBadgeLabel, getRarityBadgeStyle } from '../utils/cardRarity';
 import { displayName, secondaryName } from '../utils/cardName';
 import { formatPrice } from '../utils/formatPrice';
+import { isBasicLand } from '../utils/basicLands';
 
 // The yellow FOIL badge, exactly as the Collection screen draws it.
 //
@@ -170,7 +171,15 @@ function CardTile({
           </div>
         )}
         <div className="tcg-card-meta">
-          <span style={{ fontSize: '0.7rem' }}>{card.set_name} • #{card.number}</span>
+          {/* Basic lands carry no printing anywhere in the app (see
+              utils/basicLands.js). The grid tile is the second surface that
+              showed one; leaving it here would mean the list view and the grid
+              view of the SAME collection disagreed about whether a Mountain
+              has a set. The span is kept, empty, so the price stays pushed to
+              its end of the row rather than sliding left only for basics. */}
+          <span style={{ fontSize: '0.7rem' }}>
+            {isBasicLand(card) ? '' : `${card.set_name} • #${card.number}`}
+          </span>
           {meta === undefined
             ? <span className="tcg-card-price">${formatPrice(card.price_trend)}</span>
             : meta}

@@ -153,13 +153,19 @@ test('COLF-TC6: the component still uses AT-LEAST colour matching', () => {
 // less than a Near Mint one. Collapsing those into one count would misreport
 // what he owns, which is the "wrong record" failure that matters most here.
 
-// Mirrors the grouping key in CollectionList.jsx.
-const groupKey = (c) => [c.card_id, c.condition || '', c.printing || ''].join('|');
+// THE REAL KEY, imported. This used to be a hand-written mirror of the key in
+// CollectionList.jsx, and a mirror is a second implementation: it can stay
+// green while the app does something else entirely. Importing the shipped
+// function means these cases test the code that runs.
+// The .js extension is REQUIRED here even though the components import the
+// same file without one: Vite resolves extensionless paths, `node --test` runs
+// real Node ESM and does not.
+import { collectionGroupKey, isBasicLandTypeLine } from '../utils/basicLands.js';
 
 function group(rows) {
   const out = new Map();
   for (const c of rows) {
-    const k = groupKey(c);
+    const k = collectionGroupKey(c);
     const seen = out.get(k);
     if (seen) seen.quantity += (c.quantity || 1);
     else out.set(k, { ...c, quantity: c.quantity || 1 });
@@ -197,21 +203,149 @@ test('GRP-TC3: a different CONDITION is not merged', () => {
   assert.equal(group(rows).length, 2, 'Near Mint and Played are different copies');
 });
 
-test('GRP-TC4: different PRINTINGS of the same card stay separate', () => {
-  // Two Forests from different sets are different cards to a collector, and
-  // card_id is the exact printing.
+test('GRP-TC4: different PRINTINGS of a NON-BASIC card stay separate', () => {
+  // Two printings of a real card are two different objects at two different
+  // prices, and card_id is the exact printing.
+  //
+  // This case used to use two Forests, which became exactly wrong when basics
+  // started pooling (2026-09-23). The example was changed rather than the
+  // rule: the rule is still right, the illustration had just picked the one
+  // card type it does not apply to.
   const rows = [
-    { card_id: 'forest-msh', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
-    { card_id: 'forest-lci', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'solring-c21', type_line: 'Artifact', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
+    { card_id: 'solring-cmm', type_line: 'Artifact', condition: 'Near Mint', printing: 'Normal', quantity: 1 },
   ];
   assert.equal(group(rows).length, 2);
 });
 
-test('GRP-TC5: the component still groups on printing AND condition AND finish', () => {
-  // Guards the mirror above. If the key is narrowed to card_id alone, foils and
-  // damaged copies would silently merge and these cases would keep passing
-  // against logic the app no longer runs.
-  const src = readFileSync(join(here, 'CollectionList.jsx'), 'utf8');
-  assert.match(src, /card\.card_id, card\.condition[^\n]*card\.printing/,
-    'the grouping key must include condition and printing, not just card_id');
+// --- BASIC LANDS IGNORE PRINTING ENTIRELY --------------------------------
+//
+// Zach: "For basic lands I want to remove anything about printing from them.
+// Like right now basic lands are grouped by set and number in collection...
+// I want that all to go away and basic lands to be grouped by type like
+// mountain or island and that's it. I don't care about printings at all."
+//
+// The server already believed this -- ownedQuantity pools basics by name
+// (backend/test/basic_land_pool.test.js) -- so before this change the
+// COLLECTION SCREEN and the DECK AVAILABILITY figure disagreed about what a
+// Mountain was. These cases pin the display side to the side that was already
+// right.
+
+test('GRP-TC6: basics from different sets are ONE tile', () => {
+  const rows = [
+    { card_id: 'mtn-mh2', name: 'Mountain', type_line: 'Basic Land — Mountain', condition: 'Near Mint', printing: 'Normal', quantity: 4 },
+    { card_id: 'mtn-lci', name: 'Mountain', type_line: 'Basic Land — Mountain', condition: 'Near Mint', printing: 'Normal', quantity: 7 },
+    { card_id: 'mtn-znr', name: 'Mountain', type_line: 'Basic Land — Mountain', condition: 'Played',    printing: 'Foil',   quantity: 2 },
+  ];
+  const out = group(rows);
+  assert.equal(out.length, 1, 'every Mountain is one Mountain');
+  // The COUNT is the load-bearing half. A grouping that merged the rows but
+  // dropped their quantities would look right on screen and understate what he
+  // owns -- the failure he could not see.
+  assert.equal(out[0].quantity, 13, 'all 13 copies must survive the merge');
 });
+
+test('GRP-TC7: a Mountain and an Island are still two tiles', () => {
+  // "Grouped by type like mountain or island" -- pooling by name must not
+  // collapse into pooling ALL basics, which would report one meaningless
+  // "lands" count.
+  const rows = [
+    { card_id: 'mtn-mh2', name: 'Mountain', type_line: 'Basic Land — Mountain', quantity: 5 },
+    { card_id: 'isl-mh2', name: 'Island',   type_line: 'Basic Land — Island',   quantity: 5 },
+  ];
+  assert.equal(group(rows).length, 2);
+});
+
+test('GRP-TC8: SNOW-COVERED basics do not pool with plain basics', () => {
+  // A Snow-Covered Mountain turns on snow permanents a plain Mountain does
+  // not, so it is a different card and cannot be substituted for one. The
+  // backend draws the line in the same place (BLP-TC4); if these two ever
+  // disagree the deck builder will promise a card the collection cannot fill.
+  const rows = [
+    { card_id: 'mtn-mh2',  name: 'Mountain',              type_line: 'Basic Land — Mountain',      quantity: 5 },
+    { card_id: 'snow-mh2', name: 'Snow-Covered Mountain', type_line: 'Basic Snow Land — Mountain', quantity: 5 },
+  ];
+  assert.equal(group(rows).length, 2);
+});
+
+test('GRP-TC8b: the PREFIX itself rejects a snow land', () => {
+  // TC8 ABOVE IS VACUOUS ON ITS OWN, and the mutation harness proved it:
+  // widening the prefix to accept snow lands leaves TC8 green, because the two
+  // rows keep their separate tiles via their different NAMES regardless.
+  //
+  // So TC8 verifies the OUTCOME through a path that does not depend on the
+  // rule, and only this case verifies the rule. The distinction matters
+  // because the prefix is also what the inspector and the tile read to decide
+  // whether to hide a printing -- and on THAT path a widened prefix would
+  // silently strip the set code from every snow land, which is real
+  // information about a card whose printing does matter.
+  assert.equal(isBasicLandTypeLine('Basic Land — Mountain'), true);
+  assert.equal(isBasicLandTypeLine('Basic Snow Land — Mountain'), false,
+    'a snow land must NOT satisfy the basic-land rule');
+  assert.equal(isBasicLandTypeLine('Land'), false, 'a nonbasic land is not a basic');
+  assert.equal(isBasicLandTypeLine('Basic Land — Wastes'), true,
+    'Wastes is a basic, and is caught by the type line without being named');
+  assert.equal(isBasicLandTypeLine(undefined), false, 'a missing type line is not a basic');
+});
+
+test('GRP-TC5: the component uses the SHARED key, not its own copy', () => {
+  // Guards the mirror above. The key used to be written inline here and in
+  // CollectionList.jsx; it now lives in utils/basicLands.js so that the
+  // collection list, the grid tile and the inspector cannot drift into three
+  // different definitions of "basic land".
+  //
+  // Asserts the IMPORT and the CALL, not the key's contents: the contents are
+  // tested directly above, and grepping for them here is what made the old
+  // version of this case a copy that could pass while the app did something
+  // else.
+  const src = readFileSync(join(here, 'CollectionList.jsx'), 'utf8');
+  assert.match(src, /import\s*\{[^}]*collectionGroupKey[^}]*\}\s*from\s*'\.\.\/utils\/basicLands'/,
+    'CollectionList must import the shared grouping key');
+  assert.match(src, /const key = collectionGroupKey\(card\)/,
+    'and must build its groups with it, not with an inline key');
+  assert.doesNotMatch(src, /const key = \[card\.card_id/,
+    'the old inline key must be GONE, not merely unused');
+});
+
+test('GRP-TC9: no surface prints a set code for a basic land', () => {
+  // THE UI BLIND SPOT: the grouping can be perfect while the tile still says
+  // "MH2 #250" over a count of Mountains from nine sets -- which is not noise,
+  // it is a false statement.
+  //
+  // FOUR ROUNDS FOR ONE RULE. Each surface was fixed only when Zach reported
+  // that specific screen: the deck view first ("I don't actually own 6 of the
+  // one msh set"), then the collection list and grid tile, then the inspector
+  // HEADER -- which was the worst of them, because it printed a set code
+  // directly beside the pooled owned count: "The Lost Caverns of Ixalan • #395
+  // • x3 owned" for three Islands from three different sets.
+  //
+  // So this case enumerates every surface rather than testing the one that was
+  // reported. Adding a new card-detail surface without handling basics should
+  // fail HERE, not in a fifth screenshot.
+  const surfaces = {
+    'CollectionList.jsx':     /isBasicLand\(card\)\s*\?\s*''/,
+    'CardTile.jsx':           /isBasicLand\(card\)\s*\?\s*''/,
+    'DeckView.jsx':           /!isBasicLand\(card\)\s*&&/,
+    'CardInspectorModal.jsx': /isBasicLand \? '' : card\.set_name/,
+  };
+  for (const [file, rule] of Object.entries(surfaces)) {
+    const src = readFileSync(join(here, file), 'utf8');
+    assert.match(src, rule, `${file} must suppress the printing line for basics`);
+    // AND MUST NOT CARRY ITS OWN COPY OF THE RULE. Five inline
+    // startsWith('Basic Land') checks are what made this take four rounds:
+    // fixing one left the others stating the opposite.
+    assert.doesNotMatch(src, /startsWith\('Basic Land'\)/,
+      `${file} must use the shared rule, not its own inline copy`);
+  }
+});
+
+test('GRP-TC10: the inspector header drops the collector number too', () => {
+  // The set NAME and the collector NUMBER are two separate renders on that
+  // line. Removing only the name would leave "• #395 • Common" -- still a
+  // claim about one printing, just a more cryptic one. Zach's screenshot
+  // underlined both.
+  const src = readFileSync(join(here, 'CardInspectorModal.jsx'), 'utf8');
+  assert.match(src, /!isBasicLand && cardNumber \? ` • #\$\{cardNumber\}` : ''/,
+    'the collector number must be suppressed for basics as well');
+});
+
