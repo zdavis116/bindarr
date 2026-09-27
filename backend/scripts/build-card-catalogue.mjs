@@ -94,7 +94,15 @@ const rows = await all(
   `SELECT id, image_url FROM card_cache
     WHERE image_url IS NOT NULL AND image_url != ''
     ORDER BY id`);
-const todo = rows.filter(r => !done.has(r.id));
+let todo = rows.filter(r => !done.has(r.id));
+// A smoke-test escape hatch. Embedding 106k cards takes hours; proving the
+// pipeline works end to end should take a minute. Writes to whatever
+// CV_MODEL_DIR points at, so point it somewhere disposable when using this.
+const LIMIT = Number(process.env.CATALOG_LIMIT || 0);
+if (LIMIT > 0) {
+  todo = todo.slice(0, LIMIT);
+  console.log(`CATALOG_LIMIT=${LIMIT}: embedding a sample only, NOT a full catalogue`);
+}
 console.log(`card_cache: ${rows.length} printings with artwork`);
 console.log(`to embed   : ${todo.length}`);
 if (!todo.length) { console.log('nothing to do'); db.close(); process.exit(0); }
@@ -125,7 +133,18 @@ const flush = () => {
 };
 
 async function embedOne(row) {
-  const resp = await fetch(row.image_url, { signal: AbortSignal.timeout(20000) });
+  // A USER-AGENT AND ACCEPT ARE REQUIRED, not politeness.
+  //
+  // Scryfall's image CDN returns HTTP 400 for Node's default fetch UA
+  // ("node"). Isolated on the dev box: bare fetch -> 400, fetch with
+  // UA+Accept -> 200, curl -> 200. Their API docs ask every client to identify
+  // itself, and the CDN enforces it. Without this the build "runs" and skips
+  // all 106,439 cards, producing an empty catalogue that looks like a
+  // successful run.
+  const resp = await fetch(row.image_url, {
+    signal: AbortSignal.timeout(20000),
+    headers: { 'User-Agent': 'Bindarr/1.0 (self-hosted MTG collection manager)', Accept: 'image/*' },
+  });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const buf = Buffer.from(await resp.arrayBuffer());
   const { data } = await sharp(buf)
