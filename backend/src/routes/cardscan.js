@@ -44,7 +44,16 @@ async function hydrate(result) {
   };
   const sid = result.ok && result.card?.id;
   if (sid) {
-    const card = await scryfallApi.getCardById(`mtg-${sid}`).catch(() => null);
+    // NO `mtg-` PREFIX. Upstream passes `mtg-${sid}` because ITS card_cache is
+    // keyed that way (it stores multiple games). Ours stores bare Scryfall
+    // uuids -- `0000419b-0bba-...` -- and getCardById() queries the cache with
+    // the string it was GIVEN while only stripping the prefix for the API
+    // fallback. So `mtg-<uuid>` would miss the cache on every single lookup
+    // and hit the Scryfall API instead: slow, rate-limited, and offline-broken.
+    //
+    // Verified against the live dev database rather than assumed: 106,443 rows,
+    // sample id `0000419b-0bba-4488-8f7a-6194544ce91e`.
+    const card = await scryfallApi.getCardById(sid).catch(() => null);
     if (card) out.card = card;
     // A printing the reader proved but the catalogue does not know about is
     // not an answer the tray can use. Saying so lets the client fall back to
