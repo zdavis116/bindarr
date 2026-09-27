@@ -1737,6 +1737,86 @@ function CameraScanner({ onAddSuccess, showToast }) {
     return canvas;
   };
 
+  // WHAT HAPPENS AFTER submitScan SAYS WHAT IT DID, for an IDENTIFIED card.
+  //
+  // Extracted so the on-device reader can be a second CALLER rather than a
+  // second COPY. Both paths reach the same place -- a proven card that should
+  // land in the Scanned list -- and the rule for what the badge, the toast and
+  // the recent-scans list do is one rule.
+  //
+  // DELIBERATELY NOT SHARED WITH THE UNIDENTIFIED PATH. That caller (the one
+  // below that submits with no name) looks similar and is a different
+  // question: it has nothing to name, so its only outcome is "needs a printing
+  // chosen" and it says 'Unidentified card' instead of echoing raw OCR text.
+  // Merging the two would force a path through branches that cannot apply to
+  // it. Two questions, two answers -- the resemblance is not duplication.
+  //
+  // `identified` is what to call the card when the server's own row has no
+  // name to offer.
+  const applyScanOutcome = (outcome, identified) => {
+    if (outcome.action === 'staged') {
+      // RESOLVED, BUT NOT OWNED. It waits in the session until he
+      // presses Add All. The badge moves; the collection does not.
+      //
+      // No countdown and no cancel modal on this path: staging is
+      // already the undo. Interrupting every scan to confirm a
+      // reversible action would be the slowness he asked me to fix.
+      // THE BADGE MOVES WITHOUT RE-READING THE LIST.
+      //
+      // This used to call staging.refresh(), which pulled EVERY
+      // staged row and its thumbnail back over Tailscale after
+      // every single scan — a second round trip that grows with
+      // the stack, so scan sixty was slower than scan two. The
+      // list itself is only looked at when the review screen
+      // opens, and it re-reads on mount.
+      //
+      // noteStaged bumps the counter from what the server already
+      // told us in THIS response, so the badge stays honest for
+      // free. It is not a local guess: the row exists because the
+      // server said 'staged'.
+      staging.noteStaged(false);   // resolved: a printing was chosen
+      setRecentScans(prev => [{
+        ...outcome.card, card_id: outcome.card?.id, entry_id: null,
+        quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
+        staged: true,
+      }, ...prev].slice(0, 10));
+      // No flag variant any more -- the advisory flags are gone.
+      showToast(t('scan.stagedToast', { name: outcome.card?.name || identified }));
+      signal('success');
+    } else if (outcome.action === 'added') {
+      lastAddedIdRef.current = outcome.card?.id;
+      setRecentScans(prev => [{
+        ...outcome.card, card_id: outcome.card?.id, entry_id: outcome.entry_id,
+        quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
+      }, ...prev].slice(0, 10));
+      showToast(t('scan.autoAdded', {
+        qty: '', name: outcome.card?.name || identified, set: outcome.card?.set_name || '',
+      }));
+      signal('success');
+      if (onAddSuccess) onAddSuccess();
+    } else if (outcome.action === 'staged_unresolved') {
+      // SCANNED AND HELD, but we could not tell which printing.
+      // It sits in the SAME Scanned list as everything else,
+      // outlined and sorted to the top, and Add All refuses until
+      // he picks. Nothing is owned, so no modal interrupts the
+      // stack -- he resolves them when he is done scanning.
+      staging.noteStaged(true);
+      setScanStatus(`${identified} — needs a printing chosen`);
+      showToast(`${identified} — pick a printing in Scanned`);
+      signal('capture');
+    } else {
+      setScanStatus(outcome.error || t('scan.unknownError'));
+      signal('error');
+    }
+    // Guard only on a DECIDED outcome. An error (a dropped request
+    // mid-stack) must stay retryable: setting the guard here would
+    // make the app quietly ignore that card until Zach noticed it
+    // never appeared, and a card silently missing from a scanned
+    // stack is exactly the failure this app cannot afford.
+    if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
+    setScanMatches([]);
+  };
+
   // Present the image-match results: show the picker, and on a single result
   // take the fast path (auto-add / quick-
   // add per mode). autoSingle lets the caller allow the fast path for a single MTG
@@ -2377,67 +2457,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   });
                   if (scanId !== currentScanId.current) return;
 
-                  if (outcome.action === 'staged') {
-                    // RESOLVED, BUT NOT OWNED. It waits in the session until he
-                    // presses Add All. The badge moves; the collection does not.
-                    //
-                    // No countdown and no cancel modal on this path: staging is
-                    // already the undo. Interrupting every scan to confirm a
-                    // reversible action would be the slowness he asked me to fix.
-                    // THE BADGE MOVES WITHOUT RE-READING THE LIST.
-                    //
-                    // This used to call staging.refresh(), which pulled EVERY
-                    // staged row and its thumbnail back over Tailscale after
-                    // every single scan — a second round trip that grows with
-                    // the stack, so scan sixty was slower than scan two. The
-                    // list itself is only looked at when the review screen
-                    // opens, and it re-reads on mount.
-                    //
-                    // noteStaged bumps the counter from what the server already
-                    // told us in THIS response, so the badge stays honest for
-                    // free. It is not a local guess: the row exists because the
-                    // server said 'staged'.
-                    staging.noteStaged(false);   // resolved: a printing was chosen
-                    setRecentScans(prev => [{
-                      ...outcome.card, card_id: outcome.card?.id, entry_id: null,
-                      quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
-                      staged: true,
-                    }, ...prev].slice(0, 10));
-                    // No flag variant any more -- the advisory flags are gone.
-                    showToast(t('scan.stagedToast', { name: outcome.card?.name || identified }));
-                    signal('success');
-                  } else if (outcome.action === 'added') {
-                    lastAddedIdRef.current = outcome.card?.id;
-                    setRecentScans(prev => [{
-                      ...outcome.card, card_id: outcome.card?.id, entry_id: outcome.entry_id,
-                      quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
-                    }, ...prev].slice(0, 10));
-                    showToast(t('scan.autoAdded', {
-                      qty: '', name: outcome.card?.name || identified, set: outcome.card?.set_name || '',
-                    }));
-                    signal('success');
-                    if (onAddSuccess) onAddSuccess();
-                  } else if (outcome.action === 'staged_unresolved') {
-                    // SCANNED AND HELD, but we could not tell which printing.
-                    // It sits in the SAME Scanned list as everything else,
-                    // outlined and sorted to the top, and Add All refuses until
-                    // he picks. Nothing is owned, so no modal interrupts the
-                    // stack -- he resolves them when he is done scanning.
-                    staging.noteStaged(true);
-                    setScanStatus(`${identified} — needs a printing chosen`);
-                    showToast(`${identified} — pick a printing in Scanned`);
-                    signal('capture');
-                  } else {
-                    setScanStatus(outcome.error || t('scan.unknownError'));
-                    signal('error');
-                  }
-                  // Guard only on a DECIDED outcome. An error (a dropped request
-                  // mid-stack) must stay retryable: setting the guard here would
-                  // make the app quietly ignore that card until Zach noticed it
-                  // never appeared, and a card silently missing from a scanned
-                  // stack is exactly the failure this app cannot afford.
-                  if (outcome.action !== 'error') lastQueuedNameRef.current = identified;
-                  setScanMatches([]);
+                  applyScanOutcome(outcome, identified);
                   return;
                 }
 
