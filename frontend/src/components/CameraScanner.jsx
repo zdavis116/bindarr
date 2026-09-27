@@ -1483,25 +1483,55 @@ function CameraScanner({ onAddSuccess, showToast }) {
     let deviceCard = null;
     let deviceTitle = null;
     {
+      let dev = null;
       try {
-        const dev = await readOnDevice(video, sw, sh, { requireStill: !isManual });
+        dev = await readOnDevice(video, sw, sh, { requireStill: !isManual });
         if (scanId !== currentScanId.current) return;
-        // needsServer is unit-tested (fastScan.test.js): a proven card never
-        // goes up; an unproven one always does; an auto pass with no card at
-        // all does NOT -- that is the stillness gate working, and the next
-        // pass retries rather than uploading an empty desk.
-        if (!needsServer(dev, { autoPass: !isManual })) {
-          const hydratedResults = await hydrateResults(dev.results || []);
+      } catch (e) {
+        // A reader failure must never fail the scan: fall through to the
+        // server, which is the behaviour that existed before this block.
+        console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
+      }
+
+      const goServer = needsServer(dev, { autoPass: !isManual });
+
+      // needsServer RETURNS FALSE FOR TWO DIFFERENT REASONS, and conflating
+      // them is the bug Zach hit as "it scans right away and always says no
+      // confident match":
+      //
+      //   1. the phone PROVED a card    -> nothing to send, we have the answer
+      //   2. an auto pass saw NO CARD   -> nothing to send, and nothing to
+      //                                    report either; the pass simply ends
+      //                                    and the loop retries
+      //
+      // The first version only handled (1) and let (2) fall through to the
+      // upload. So an empty mat -- most passes of a 60ms loop -- was JPEG'd,
+      // uploaded, matched against 106k printings, and answered "No confident
+      // match", instantly and for ever. The gate was doing its job; its answer
+      // was being thrown away.
+      if (!goServer) {
+        try {
+          const hydratedResults = await hydrateResults(dev?.results || []);
           if (scanId !== currentScanId.current) return;
           const hit = hydratedResults.find(r => r.ok && r.card);
           if (hit) { deviceCard = hit.card; deviceTitle = hit.title || null; }
-        } else if (dev?.error) {
-          console.warn('[scan] on-device read failed, using server:', dev.error);
+        } catch (e) {
+          // A card the phone proved but the backend could not turn into a row
+          // is not an answer the tray can use -- take the server path.
+          console.warn('[scan] hydrate failed, using server:', e?.message || e);
+          deviceCard = null;
         }
-      } catch (e) {
-        // Every failure path falls through to the server, exactly as before
-        // this block existed.
-        console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
+
+        // CASE 2: no card in frame on an auto pass. End the pass silently.
+        // 'rejected' is the cheap retry gap (60ms), because nothing was
+        // captured, nothing was read and there is nothing to pace.
+        if (!deviceCard) {
+          lastTickOutcomeRef.current = 'rejected';
+          setLoading(false);
+          return;
+        }
+      } else if (dev?.error) {
+        console.warn('[scan] on-device read failed, using server:', dev.error);
       }
     }
 
@@ -1603,13 +1633,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
           // exact pixels cornelius and the recognizer just looked at. No second
           // capture, no third canvas, and the server is answering about the
           // same frame that failed rather than a fresh one.
-          //
-          // This replaces a downscale + toDataURL on the MAIN THREAD, which
-          // blocked the UI on every scan including the ~93% that never upload.
-          // convertToBlob on an OffscreenCanvas does the encode off-thread
-          // where the browser supports it.
           const blob = await lastFrameJpeg();
-          if (!blob) { setScanStatus('No confident match. Try again or search manually.'); signal('error'); return; }
+          if (!blob) {
+            // NO FRAME MEANS THE READER NEVER RAN, NOT "NO MATCH".
+            //
+            // This used to say "No confident match", which is a claim about a
+            // CARD. When the reader fails to load, no card was ever examined --
+            // and that wrong message is what made a broken loader look like a
+            // scanner that simply could not recognise anything. Say what
+            // actually happened so the next failure is diagnosable from the
+            // screen instead of from a CDP probe.
+            console.warn('[scan] no frame to send: the on-device reader did not run');
+            setScanStatus('Scanner is still loading — try again in a moment.');
+            lastTickOutcomeRef.current = 'error';
+            signal('error');
+            return;
+          }
           const imageData = await new Promise((res, rej) => {
             const fr = new FileReader();
             fr.onload = () => res(fr.result);

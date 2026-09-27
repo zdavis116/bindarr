@@ -166,4 +166,46 @@ const code = src
   pass('FAST-TC6', 'no second detector, no second sharpness gate');
 }
 
+// FAST-TC7: an auto pass with NO CARD must END, not upload.
+//
+// THE BUG ZACH HIT: "it scans right away and always says no confident match."
+//
+// needsServer() returns false for TWO different reasons -- the phone proved a
+// card, OR an auto pass saw no card at all. The first version only handled the
+// proven case and let "no card" fall through to the server upload. So an empty
+// mat (most passes of a 60ms loop) was JPEG'd, uploaded, matched against 106k
+// printings and answered "No confident match", instantly and for ever.
+//
+// The gate was working. Its answer was being discarded. This pins the early
+// return so the second meaning cannot be dropped again.
+{
+  start('FAST-TC7');
+  const read = code.indexOf('await readOnDevice(');
+  const fetchIdx = code.indexOf("fetch('/api/scan-match'");
+  const between = code.slice(read, fetchIdx);
+  assert.match(between, /const goServer = needsServer\(/,
+    'the scanner must capture needsServer() as a named decision');
+  assert.match(between, /if \(!deviceCard\) \{[\s\S]{0,400}?return;/,
+    'when needsServer() says "do not send" and no card was proven, the pass '
+    + 'must RETURN -- otherwise an empty frame is uploaded every tick');
+  pass('FAST-TC7', 'no card on an auto pass ends the pass instead of uploading');
+}
+
+// FAST-TC8: a missing frame must not be reported as "no match".
+//
+// When the reader never loads, lastFrameJpeg() returns null -- no card was
+// ever examined. Saying "No confident match" there is a claim about a CARD,
+// and it is what made a broken loader look like a scanner that simply could
+// not recognise anything. It cost a full debugging round.
+{
+  start('FAST-TC8');
+  const i = code.indexOf('const blob = await lastFrameJpeg();');
+  assert.ok(i > 0, 'the server path must reuse lastFrameJpeg()');
+  const branch = code.slice(i, i + 600);
+  assert.ok(!/No confident match/.test(branch),
+    'a missing frame means the READER did not run; it must not be reported as '
+    + 'a failed match against a card');
+  pass('FAST-TC8', 'a reader that never ran says so, instead of blaming the card');
+}
+
 console.log(`\nscanOrder.test.js: ${passed} cases passed`);

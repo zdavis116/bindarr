@@ -93,10 +93,10 @@ mutate M3 "let a proven card fall through to the upload" "FAST-TC3" "
 # M4: crop before the read again -- cornelius then sees a picture of a crop,
 # and three canvas draws per tick come back.
 mutate M4 "crop the frame before handing it to the reader" "FAST-TC4" "
-  const anchor = 'const dev = await readOnDevice(video, sw, sh,';
+  const anchor = 'dev = await readOnDevice(video, sw, sh,';
   if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(anchor,
-    'const framedCanvas = cropGuideRegion(video);\n        const dev = await readOnDevice(framedCanvas, sw, sh,');
+    'const framedCanvas = cropGuideRegion(video);\n        dev = await readOnDevice(framedCanvas, sw, sh,');
 "
 
 # M5: restore the server-era retry gap.
@@ -110,6 +110,27 @@ mutate M6 "reinstate the YOLO detector loop" "FAST-TC6" "
   const anchor = '    loadClientScan();';
   if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(anchor, '    initCardDetector();\n' + anchor);
+"
+
+# M7: THE BUG ZACH HIT. Drop the early return, so "no card on an auto pass"
+# falls through to the upload -- an empty mat JPEG'd and sent every 60ms,
+# answered "No confident match" instantly and for ever.
+mutate M7 "let a no-card auto pass fall through to the upload" "FAST-TC7" "
+  const anchor = '        if (!deviceCard) {';
+  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
+  const i = before.indexOf(anchor);
+  const j = before.indexOf('\n        }', i);
+  if (j < 0) { console.error('block end missing'); process.exit(3); }
+  const after = before.slice(0, i) + '        if (false) {' + before.slice(i + anchor.length);
+"
+
+# M8: report a reader that never ran as a failed card match -- the message that
+# disguised a broken loader as a scanner that could not recognise anything.
+mutate M8 "blame the card when the reader never ran" "FAST-TC8" "
+  const anchor = \"setScanStatus('Scanner is still loading — try again in a moment.');\";
+  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(anchor,
+    \"setScanStatus('No confident match. Try again or search manually.');\");
 "
 
 printf '\n'
