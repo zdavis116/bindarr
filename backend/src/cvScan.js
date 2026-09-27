@@ -309,7 +309,11 @@ async function detectAndDewarp(session, imageBuffer) {
   }
   return {
     rgb: warpRgb(rgb, info.width, info.height, M, EMBED_SIZE),
+    // frameSize travels WITH the corners: they are in this frame's pixel
+    // space, and a consumer that has one without the other cannot normalise
+    // them into anything comparable.
     detected: true, sharpness, corners: src,
+    frameSize: { width: info.width, height: info.height },
   };
 }
 
@@ -484,6 +488,17 @@ async function match(imageBuffer, game = 'mtg', topK = 8, opts = {}) {
     lang: 'en',
     catalogs: cats.map(c => c.lang),
     detected: det.detected,
+    // THE CARD'S CORNERS AND THE FRAME'S SIZE, surfaced so a caller can tell
+    // WHERE the card was, not just that one was found.
+    //
+    // These were computed and thrown away. The scan loop's backoff
+    // (serverAllowed) decides "is this the same card in the same place" by
+    // comparing box centres against the frame diagonal -- with no box and no
+    // frame it silently compares nothing and the backoff never engages. A
+    // field that is absent rather than wrong is the kind of bug that looks
+    // like "the scanner is a bit slow" for weeks.
+    corners: det.corners || null,
+    frameSize: det.frameSize || null,
     sharpness: det.sharpness,
     margin,
     gap,
