@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # MUTATION TEST for scanOrder.test.js.
 #
-# This file guards an ORDERING, which is the easiest kind of rule to assert
-# vacuously: every positional check is two indexOf calls, and an indexOf that
-# misses returns -1, which is happily "less than" everything. A guard that
-# cannot fail would report a fast scanner while the slow order was back.
+# This file guards DELETIONS, which is the easiest kind of rule to assert
+# vacuously: every check is a `!regex.test(code)`, and a regex with a typo
+# never matches anything, so the guard passes for ever while the thing it
+# forbids sits in the file. Each mutation puts the forbidden thing back and
+# proves the intended case notices.
 #
 # Same three rules as tools/mutate-scanoutcome.sh: restore with git checkout,
 # abort on a failed anchor, assert a clean tree at the end.
@@ -57,32 +58,29 @@ mutate() {
     echo "  caught by $expect (the intended case)"
   else
     echo "  failed, but via ${last:-<none>} rather than $expect:"
-    echo "$out" | grep -E 'AssertionError|must ' | head -2 | sed 's/^/    /'
+    echo "$out" | grep -E 'AssertionError|must |is back' | head -2 | sed 's/^/    /'
     fail=1
   fi
 }
 
-# M1: THE REGRESSION. Move the still back in front of the read -- the exact
-# shape this branch started with, and the one Zach noticed as "way slower".
-mutate M1 "take the ImageCapture still before the on-device read" "FAST-TC1" "
-  const still = 'const still = await takeStillPhoto(video);';
-  const anchor = '    let deviceCard = null;';
-  if (!before.includes(still) || !before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(still, '').replace(anchor, still + '\n' + anchor);
+# M1: bring back the ImageCapture shutter -- a full still (~0.3-1s on iOS) on
+# every scan, which is the single biggest thing that made this feel slow.
+mutate M1 "reinstate takeStillPhoto" "FAST-TC1" "
+  const anchor = '    setCaptureSource(\'video\');';
+  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(anchor, '    const still = await takeStillPhoto(video);\n' + anchor);
 "
 
-# M2: encode the upload JPEG up front again. Blocks the main thread on every
-# scan, including the ~93% that never upload.
-mutate M2 "hoist the main-thread JPEG encode above the read" "FAST-TC2" "
-  const enc = \"const imageData = up.toDataURL('image/jpeg', SCAN_UPLOAD_Q);\";
-  const anchor = '    let deviceCard = null;';
-  if (!before.includes(enc) || !before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(enc, \"const imageData = '';\")
-    .replace(anchor, \"    const _x = up_unused;\" + enc.replace('up.', 'up_unused.') + '\n' + anchor);
+# M2: re-encode the frame on the main thread instead of reusing the one the
+# reader already drew. Blocks the UI on every scan that falls back.
+mutate M2 "re-encode the upload with toDataURL" "FAST-TC2" "
+  const anchor = 'const blob = await lastFrameJpeg();';
+  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(anchor,
+    \"const _c = document.createElement('canvas');\n          const _d = _c.toDataURL('image/jpeg', 0.9);\n          \" + anchor);
 "
 
-# M3: drop the early return, so a proven card falls through and uploads anyway.
-# The scan then costs MORE than before this feature existed.
+# M3: drop the early return so a proven card falls through and uploads anyway.
 mutate M3 "let a proven card fall through to the upload" "FAST-TC3" "
   const anchor = '      applyScanOutcome(outcome, identified);';
   if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
@@ -92,20 +90,26 @@ mutate M3 "let a proven card fall through to the upload" "FAST-TC3" "
   const after = before.slice(0, j) + '\n    }' + before.slice(j + '\n      return;\n    }'.length);
 "
 
-# M4: feed the reader a still-derived canvas instead of the live preview.
-# Looks more correct (better pixels!), and silently restores the slow order
-# while every ordering assertion stays green -- which is exactly why FAST-TC4
-# checks the ARGUMENT NAME rather than a position.
-mutate M4 "feed readOnDevice a still-derived canvas" "FAST-TC4" "
-  const read = 'const dev = await readOnDevice(framedCanvas, framedCanvas.width, framedCanvas.height,';
-  if (!before.includes(read)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(read,
-    'const stillCanvas = framedCanvas;\n        const dev = await readOnDevice(stillCanvas, stillCanvas.width, stillCanvas.height,');
+# M4: crop before the read again -- cornelius then sees a picture of a crop,
+# and three canvas draws per tick come back.
+mutate M4 "crop the frame before handing it to the reader" "FAST-TC4" "
+  const anchor = 'const dev = await readOnDevice(video, sw, sh,';
+  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(anchor,
+    'const framedCanvas = cropGuideRegion(video);\n        const dev = await readOnDevice(framedCanvas, sw, sh,');
 "
 
 # M5: restore the server-era retry gap.
 mutate M5 "restore the 350ms rejected-frame gap" "FAST-TC5" "
   const after = before.replace('const SCAN_RETRY_REJECTED_MS = 60;', 'const SCAN_RETRY_REJECTED_MS = 350;');
+"
+
+# M6: THE EXPENSIVE ONE. Put the second ONNX detector back, competing with the
+# scan's own models for the single wasm thread.
+mutate M6 "reinstate the YOLO detector loop" "FAST-TC6" "
+  const anchor = '    loadClientScan();';
+  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(anchor, '    initCardDetector();\n' + anchor);
 "
 
 printf '\n'

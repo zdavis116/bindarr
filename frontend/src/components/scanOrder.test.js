@@ -40,30 +40,47 @@ const code = src
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
 
-// FAST-TC1: the on-device read happens before the ImageCapture still.
+// FAST-TC1: the ImageCapture still is GONE ENTIRELY.
+//
+// This assertion INVERTED. It used to require takeStillPhoto to exist and run
+// after the read; now it must not exist at all. Zach: "remove anything scrybox
+// isn't using... This should function EXACTLY like scrybox" -- and upstream
+// never calls ImageCapture. It cost a real shutter (~0.3-1s on iOS) that the
+// reader does not need, since it proves the card from preview pixels.
+//
+// A test whose meaning reverses is worth flagging loudly rather than quietly
+// editing: the OLD version passing would now mean the slow path came back.
 {
   start('FAST-TC1');
+  assert.ok(!/takeStillPhoto/.test(code),
+    'takeStillPhoto/ImageCapture must be gone -- it is a full shutter on every '
+    + 'scan and upstream never calls it');
+  assert.ok(!/ImageCapture/.test(code),
+    'no ImageCapture references should remain in the scanner');
   const read = code.indexOf('await readOnDevice(');
-  const still = code.indexOf('await takeStillPhoto(');
   assert.ok(read > 0, 'the scanner must call readOnDevice');
-  assert.ok(still > 0, 'the scanner must still have a takeStillPhoto fallback');
-  assert.ok(read < still,
-    'readOnDevice must run BEFORE takeStillPhoto -- otherwise every scan pays '
-    + 'for a full-resolution still it only needs when the local read fails');
-  pass('FAST-TC1', 'the phone is asked before the expensive shutter');
+  pass('FAST-TC1', 'no ImageCapture shutter: the reader works off the preview');
 }
 
-// FAST-TC2: the JPEG encode is downstream of the read too. toDataURL blocks
-// the main thread on a multi-megapixel frame; doing it before the local read
-// stalls the UI on every scan, including the ~93% that never upload.
+// FAST-TC2: the frame is never re-encoded on the main thread.
+//
+// ALSO INVERTED. The old rule was "toDataURL must come after the read". The
+// toDataURL is now gone entirely: the server fallback calls lastFrameJpeg(),
+// which encodes the canvas clientScan ALREADY drew -- off-thread via
+// convertToBlob where the browser supports it. So the server sees exactly the
+// pixels the phone looked at, and no scan pays a main-thread encode.
 {
   start('FAST-TC2');
+  assert.ok(!/\.toDataURL\(/.test(code),
+    'the scanner must not re-encode a frame on the main thread; the server '
+    + 'fallback reuses lastFrameJpeg()');
+  assert.ok(/lastFrameJpeg\(\)/.test(code),
+    'the server fallback must reuse the frame the reader already drew');
   const read = code.indexOf('await readOnDevice(');
-  const encode = code.indexOf(".toDataURL('image/jpeg'");
-  assert.ok(encode > 0, 'the server path still encodes a JPEG');
-  assert.ok(read < encode,
-    'the main-thread JPEG encode must come AFTER the on-device read');
-  pass('FAST-TC2', 'the frame is only encoded when the server is actually needed');
+  const reuse = code.indexOf('await lastFrameJpeg()');
+  assert.ok(reuse > read,
+    'lastFrameJpeg must be reached only after the on-device read has failed');
+  pass('FAST-TC2', 'the server reuses the read frame; no main-thread encode');
 }
 
 // FAST-TC3: a proven card returns without falling through to the upload. The
@@ -89,26 +106,23 @@ const code = src
   pass('FAST-TC3', 'a proven card never reaches the server path');
 }
 
-// FAST-TC4: the reader is fed framedCanvas — the preview crop — by name.
+// FAST-TC4: the reader is handed the VIDEO ELEMENT.
 //
-// NOT A POSITIONAL CHECK, AND THAT IS THE POINT. The first version asserted
-// `read < reassign` (the read happens before framedCanvas is replaced by the
-// still). A mutation run showed that cannot fail on its own: reassignment sits
-// two lines below the takeStillPhoto call, so anything that breaks it breaks
-// FAST-TC1 first. It was a second spelling of TC1 wearing a different name,
-// and a redundant guard inflates the count without adding safety.
-//
-// What is genuinely distinct is WHICH SOURCE the reader is handed. Passing a
-// still-derived canvas would be the slow order restored with the ordering
-// assertions still green.
+// Was `framedCanvas` (the guide crop). That crop is gone with the rest of the
+// pre-read work: cornelius predicts corners from the FULL frame, so cropping
+// first fed it a picture of a crop and cost three canvas draws per tick.
+// clientScan draws the two canvases it needs straight off the video, at one
+// instant, so corners and pixels cannot come from different moments.
 {
   start('FAST-TC4');
   const call = /await readOnDevice\(\s*([A-Za-z_$][\w$]*)\s*,/.exec(code);
   assert.ok(call, 'readOnDevice must be called with a named frame source');
-  assert.strictEqual(call[1], 'framedCanvas',
-    `readOnDevice is fed \`${call[1]}\`; it must read framedCanvas, the live `
-    + 'preview crop, not a canvas derived from the ImageCapture still');
-  pass('FAST-TC4', 'the reader is fed the live preview frame by name');
+  assert.strictEqual(call[1], 'video',
+    `readOnDevice is fed \`${call[1]}\`; it must read the video element directly `
+    + '-- any intermediate canvas is pre-read work upstream does not do');
+  assert.ok(!/cropGuideRegion/.test(code),
+    'the guide-box crop must be gone: cornelius reads the full frame');
+  pass('FAST-TC4', 'the reader reads the video element directly');
 }
 
 // FAST-TC5: the rejected-frame gap stays small. It was 350ms, sized for a
@@ -122,6 +136,34 @@ const code = src
     `SCAN_RETRY_REJECTED_MS is ${m[1]}ms; a rejected frame captured nothing and `
     + 'read nothing, so there is nothing to pace (upstream uses 60ms)');
   pass('FAST-TC5', 'a held-back frame retries promptly');
+}
+
+// FAST-TC6: the duplicated pre-read subsystems stay deleted.
+//
+// Each of these asked a question the reader already answers, and each cost
+// real time per tick. The YOLO detector is the expensive one: a second ONNX
+// model on its own 140ms loop, competing with the scan's own models for the
+// single wasm thread the browser gives us (no COOP/COEP means no
+// SharedArrayBuffer means no threads). Every scan queued behind a detector
+// hunting for the card the scan had already found.
+//
+// Listed by SYMBOL rather than by file so re-importing any of them fails here,
+// not just re-creating the module.
+{
+  start('FAST-TC6');
+  const banned = [
+    ['detectCardOnDevice', 'the YOLO detector: cornelius already returns the corners'],
+    ['initCardDetector', 'the YOLO detector loader'],
+    ['detectCardInFrame', 'the edge detector it fell back to'],
+    ['laplacianVarianceScore', "the sharpness gate: the pipeline has its own, on the strip that must be legible"],
+    ['decideCapture', 'the sharpness gate decision'],
+    ['liveDetectRef', 'the detector-driven capture latch'],
+  ];
+  for (const [sym, why] of banned) {
+    assert.ok(!new RegExp(`\\b${sym}\\b`).test(code),
+      `${sym} is back (${why}) -- it duplicates work the reader does`);
+  }
+  pass('FAST-TC6', 'no second detector, no second sharpness gate');
 }
 
 console.log(`\nscanOrder.test.js: ${passed} cases passed`);

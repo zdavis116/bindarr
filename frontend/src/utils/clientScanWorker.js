@@ -7,12 +7,11 @@
 // without touching the network.
 //
 // ORT IS LOADED FROM /models/, NOT FROM npm, and that is a deliberate
-// difference from upstream. This repo already vendors onnxruntime there for
-// onDeviceCardDetect.js, pinned to the 1.20.x build measured on Zach's phone,
-// and server.js sets a CSP allowing 'self' only -- so a CDN import is blocked
-// outright. Adding onnxruntime-web as a bundled dependency would put a SECOND
-// copy of a ~13.5 MB wasm binary in the build and leave two ORT versions that
-// can drift apart. One vendored runtime, two consumers.
+// difference from upstream. This repo vendors onnxruntime there, pinned to the
+// 1.20.x build measured on Zach's phone, and server.js sets a CSP allowing
+// 'self' only -- so a CDN import is blocked outright. Adding onnxruntime-web as
+// a bundled dependency would put a SECOND copy of a ~13.5 MB wasm binary in the
+// build and leave two ORT versions free to drift apart.
 import { createReader } from '../../../shared/clientScan/pipeline.mjs';
 import { buildCharset, loadIndex } from '../../../shared/clientScan/text.mjs';
 
@@ -50,7 +49,7 @@ async function gunzip(bytes) {
 
 async function load() {
   const t0 = performance.now();
-  // Vendored, same path and same pin as onDeviceCardDetect.
+  // Vendored; same pin the card detector used before it was removed.
   ort = await import(/* @vite-ignore */ `${ORIGIN}${MODELS}ort.webgpu.min.mjs`);
   ort.env.wasm.wasmPaths = `${ORIGIN}${MODELS}`;
   // Threads off: no COOP/COEP on a self-hosted tailnet origin, so

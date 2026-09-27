@@ -4,9 +4,8 @@ import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
-import { detectCardInFrame, isLocked } from '../utils/liveCardDetect';
-import { initCardDetector, detectCardOnDevice, detectorReady } from '../utils/onDeviceCardDetect';
-import { readOnDevice, needsServer, hydrateResults, loadClientScan, resetOnDevice } from '../utils/clientScan';
+import { readOnDevice, needsServer, hydrateResults, loadClientScan, resetOnDevice, lastFrameJpeg } from '../utils/clientScan';
+import { FRAME_MAX } from '../utils/fastScan';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { createScanReviewQueue } from './scanReviewQueue';
@@ -14,9 +13,7 @@ import ScanStagingReview from './ScanStagingReview';
 import { createScanStaging } from './scanStaging';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
-import { laplacianVarianceScore, decideCapture, newGateState, SHARPNESS_WINDOW } from '../utils/frameSharpness';
 
-import { isNative } from '../apiBase';
 import { useT } from '../utils/i18n';
 // Centered card-shaped guide box, styled in CSS (.scan-card-guide): card ratio
 // with margin, centered by the overlay's flex. The crop maps the box's on-screen
@@ -26,82 +23,6 @@ import { useT } from '../utils/i18n';
 // Below the gate the scan shows the candidates for manual selection.
 const SCAN_MATCH_MIN_SCORE = 0.55;
 const SCAN_MATCH_MIN_INLIERS = 12;
-// ONE capture profile. The scan-detail slider is gone, and this is why.
-//
-// The slider bundled uploadW + cooldown + countdown + recallK + orb behind a
-// single "quick <-> accurate" axis. MEASURED, that axis did not exist:
-//
-//   recallK 250 / 100 / 50 / 25 / 10  -> 8/8 card identity at EVERY value.
-//   Only latency moved: 4952ms -> 587ms. RECALL_K's server default is now 50.
-//
-// So the slider's headline promise — drag right to be more accurate — was
-// false. Card identity was already 100%, and dragging right only bought a
-// slower scan. A control whose axis measurably does nothing is worse than no
-// control: it invites Zach to blame (or "fix") it for problems it cannot cause,
-// and it is another thing to get wrong on a phone mid-stack.
-//
-// uploadW DOES matter, but not the way the labels implied. Card identity was
-// 10/10 at every width including 400px — so width buys nothing for identifying
-// the CARD. It matters only for the COLLECTOR NUMBER, which needs enough
-// resolution to be legible at all, and which is now the thing that decides the
-// exact printing. 1280 is therefore chosen for the OCR strip, the only consumer
-// that can tell the difference. Zach: "it may be worth removing the slider and
-// just having uploadW be the 1280."
-//
-// --- PR 12: RAISED 1280 -> 2000, AND WHY THAT EXACT NUMBER -------------------
-//
-// THIS CAP AND THE getUserMedia RESOLUTION BELOW MUST MOVE TOGETHER OR NEITHER
-// DOES ANYTHING. At the old geometry (720x1280 stream, guide box 72% of a small
-// boxed preview) the guide-box crop was ~660px wide, so `Math.min(1, 1280/660)`
-// clamped to 1 and this cap was a NO-OP. The moment the sensor request and the
-// fullscreen preview raise that crop past 1280px, this line becomes the BINDING
-// constraint and throws away exactly the pixels the other two changes bought.
-// Raising only the camera request would have been a pure no-op with extra
-// battery cost; that is the whole reason this constant is touched here.
-//
-// MEASURED, through the REAL /api/scan-match route (express + real DB + real
-// tesseract OCR), on staged photos of 4 real cards taken as a full-res
-// guide-box crop 2281px wide, softened with a 1.6px blur to stand in for lens
-// MTF that a composite scene does not have:
-//
-//   cap    q     avg KB   number   fabricated   median ms
-//   660    0.85     99     4/4         0          544
-//   1280   0.85    274     4/4         0          846
-//   1600   0.85    375     4/4         0          841
-//   2000   0.85    514     4/4         0          838
-//   2600   0.85    560     4/4         0          881
-//   1280   0.80    234     4/4         0          796
-//   2000   0.80    437     4/4         0          829
-//
-// TWO HONEST READINGS OF THAT TABLE, and the second is the one that decides it.
-//
-// 1. On THIS fixture accuracy is already 4/4 everywhere, so the sweep does NOT
-//    show a cap that "fixes" OCR. A composite has no sensor noise, and the
-//    production failure is precisely a noise-plus-resolution one. Nobody should
-//    later cite this table as proof of an accuracy win. It is not.
-// 2. What it DOES decide is the PRICE. Latency is essentially FLAT from 1280 to
-//    2600 (846 -> 881ms median, ~4%), so "a bigger upload will make the already
-//    slow scanner slower" does not survive contact with the numbers — the cost
-//    here is BYTES, not seconds, and bytes over Tailscale are the real budget.
-//
-// So the choice is the KNEE OF THE BYTE CURVE, not the peak. 2000 keeps ~3x the
-// linear detail of 1280 on the collector-number strip (the only consumer that
-// can tell the difference) while 2600 costs another ~9% of payload for pixels
-// the server cannot use: it rectifies to 750x1050, and the strip is ~5% of card
-// height, so past ~2000px of card width the warp is already downsampling.
-// An UNBOUNDED upload was rejected outright — a modern iPhone would send
-// ~4000px and trade a resolution complaint for a data-and-latency one.
-const SCAN_UPLOAD_W = 2000;
-// JPEG quality, deliberately LOWERED from 0.85 to 0.80 as the width went up.
-//
-// Measured above: at 2000px, q=0.80 is 437KB against q=0.85's 514KB — 15% fewer
-// bytes — with the SAME 4/4 read and zero fabrications. More pixels at slightly
-// lower per-pixel fidelity beats fewer pixels at higher fidelity for small
-// printed text, because the sampling already records the digit strokes
-// redundantly. 0.80 is treated as the FLOOR and not lowered further: below it
-// JPEG ringing starts landing on the thin strokes the OCR reads, and this
-// pipeline's one unforgivable outcome is a confident WRONG number, not a miss.
-const SCAN_UPLOAD_Q = 0.80;
 // What we ASK the camera for. Deliberately `ideal`, never `exact`.
 //
 // `exact` on an unsupported resolution makes getUserMedia REJECT with
@@ -202,94 +123,14 @@ const SCAN_RETRY_ERROR_MS = 2500;
 // the correct direction: a duplicate is visible and one tap to remove, while a
 // skipped card is only findable by recounting physical cardboard.
 
-// Overlap between two axis-aligned boxes, 0..1. The standard IoU that
-// Dynamsoft's stabilizer uses: it is scale-invariant, so it behaves the same
-// whether the card fills the frame or sits far away.
-function boxIoU(a, b) {
-  if (!a || !b) return 0;
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w);
-  const y2 = Math.min(a.y + a.h, b.y + b.h);
-  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-  if (inter <= 0) return 0;
-  const union = a.w * a.h + b.w * b.h - inter;
-  return union > 0 ? inter / union : 0;
-}
-
 // Is this detection in the same place as the previous one?
 //
 // Both tests must pass. IoU alone accepts a box creeping steadily across the
 // frame if each step is small; the area check catches a card being moved
 // toward or away from the camera, which IoU is relatively insensitive to.
-const STABLE_IOU = 0.85;          // Dynamsoft's published default
-const STABLE_AREA_DELTA = 0.15;   // fractional area change allowed
-function detectionsAgree(a, b) {
-  if (!a || !b) return false;
-  if (boxIoU(a, b) < STABLE_IOU) return false;
-  const areaA = a.w * a.h, areaB = b.w * b.h;
-  if (areaA <= 0 || areaB <= 0) return false;
-  return Math.abs(areaA - areaB) / Math.max(areaA, areaB) <= STABLE_AREA_DELTA;
-}
 
-// How many consecutive agreeing frames before the card counts as presented.
-//
-// The live loop runs at ~7 fps (140ms), so 3 frames is ~420ms of stillness.
-// Long enough that a hand moving through the frame cannot trigger it, short
-// enough to feel immediate. Dynamsoft ships 3 at comparable frame rates.
-//
-// NOT A TIMER. Zach: "Nothing should be measured on time." This counts EVENTS
-// from the detector -- if the camera stalls, the count stalls with it, which is
-// the correct behaviour and is exactly what a wall-clock would get wrong.
-const STABLE_FRAMES_REQUIRED = 3;
 
-// EXTRA SETTLING FRAMES BEFORE THE SHUTTER, on top of stability.
-//
-// Zach: "scanning seems to be getting worse at one point it was doing really
-// good". Four of seven queues came back with the collector-number line MISSING
-// from the OCR text entirely -- 'MSH *EN Wo DOMIN' with no 'L 0295' above it,
-// and one completely blank. The text was never in the image, so this is a
-// CAPTURE QUALITY problem, not a parsing one.
-//
-// WHAT I CHANGED THAT CAUSED IT. Stability gating fires the shutter the moment
-// the detection has agreed for STABLE_FRAMES_REQUIRED frames. That is the
-// EARLIEST instant the card is arguably still -- the hand may only just have
-// left, the card may still be rocking, and the lens has had no time to refocus
-// on the new depth. The old timer-based path happened to wait longer, which is
-// the "really good" behaviour he remembers.
-//
-// The sharpness gate does not save us here, and it is worth understanding why:
-// it compares each frame to a MEDIAN OF RECENT FRAMES. During a card swap those
-// recent frames are all motion-blurred, so the baseline sinks and a merely
-// less-blurred frame clears it. The gate is relative by design (it adapts to
-// each device), and that same property makes it blind right after motion.
-//
-// So: hold a few more frames of agreement past the point of stability. The
-// collector number is ~3mm of text and the first thing to dissolve in blur,
-// which is exactly the symptom.
-//
-// Counted detector frames, not milliseconds -- Zach's rule. A stalled camera
-// stalls the count.
-const SETTLE_FRAMES_BEFORE_CAPTURE = 3;
 
-// HOW MANY CONSECUTIVE DISTURBED FRAMES COUNT AS A NEW PLACEMENT.
-//
-// Zach: "evil thrall scanned twice even though I never tapped or anything after
-// it scanned the first time."
-//
-// The one-scan-per-stable-period latch used to clear on ANY single frame whose
-// detection disagreed with the last. The trained detector regresses a fresh box
-// every frame, so its output jitters by a pixel or two even on a motionless
-// card -- and one frame drifting past the IoU threshold re-armed capture, so
-// the same card scanned again with nothing having happened.
-//
-// A genuine placement disturbs the view for SEVERAL consecutive frames: the
-// hand enters, the card falls, the box moves and resizes. Detector jitter does
-// not. 2 frames (~280ms at this loop rate) is comfortably longer than a
-// single-frame wobble and far shorter than any real hand movement.
-//
-// Still no clock: these are counted detector EVENTS, per Zach's rule.
-const DISTURBED_FRAMES_TO_REARM = 2;
 
 // THE LOAD-BEARING ASSUMPTION, STATED EXPLICITLY BECAUSE IT WAS MEASURED.
 //
@@ -588,10 +429,8 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // It is a REF and not state on purpose: updating it must NOT re-render the
   // scanner. It changes on every auto tick, and a re-render per tick would
   // restart the capture effect below and disturb the very cadence it gates.
-  const sharpnessRef = useRef(newGateState());
   // Scratch canvas for scoring settled preview frames. Reused rather than
   // allocated per frame: this runs several times a second on a phone.
-  const sharpProbeRef = useRef(null);
 
   // The last few gate decisions, kept ONLY so Zach can read the numbers.
   //
@@ -611,8 +450,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // very cadence the gate is measuring. But the panel can only show what is in
   // state. So the ref is written every tick, and the state is synced only when
   // a scan actually proceeds — at which point a render is happening anyway.
-  const gateLogRef = useRef([]);
-  const [gateLog, setGateLog] = useState([]);
 
   // THE NEGOTIATED CAMERA MODE, and the size of the last upload.
   //
@@ -639,13 +476,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
   //
   // State rather than a ref because the outline must RE-RENDER as the card
   // moves — that motion is the entire feature.
-  const [liveDetect, setLiveDetect] = useState(null);
-  const detectCanvasRef = useRef(null);
   // MIRRORED INTO A REF for the capture path. handleCapture is invoked from a
   // timer closure, so reading the state variable there can see a stale value
   // from a previous render — and cropping to a stale detection would frame the
   // card's PREVIOUS position. The ref always holds the latest.
-  const liveDetectRef = useRef(null);
   // STABILITY GATING. `stableCountRef` counts consecutive frames whose
   // detection agrees with the previous one; `prevDetRef` is that previous
   // detection. Refs, not state: the live loop writes these ~7x/second and
@@ -658,15 +492,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const stablePeriodConsumedRef = useRef(false);
   // Consecutive frames whose detection disagreed with the previous one. Used to
   // tell a real placement from detector jitter -- see DISTURBED_FRAMES_TO_REARM.
-  const disturbedRunRef = useRef(0);
   // Card-in-view is STATE as well, because the UI tells Zach why it is waiting.
   // A scanner that has silently decided not to scan is indistinguishable from a
   // broken one.
-  const [cardPresent, setCardPresent] = useState(false);
   // Has the detection held still long enough to count as a deliberate
   // presentation? Drives both the capture trigger and the on-screen status, so
   // what Zach sees and what the scanner decides cannot disagree.
-  const [steady, setSteady] = useState(false);
 
   // FULLSCREEN SCAN MODE. Default ON for touch devices, because the whole point
   // of the change is that a phone preview must fill the screen: the guide box is
@@ -962,57 +793,46 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // reaching the collection, and the symptom is a card that was scanned,
     // never arrived, and left no trace. Pausing capture while the list is open
     // closes that window at its source -- the only thing that inserts is off.
+    // AUTO-SCAN IS A PLAIN LOOP NOW, LIKE UPSTREAM'S.
+    //
+    // Tick, read the frame, schedule the next tick. That is the whole thing.
+    //
+    // WHAT USED TO GATE THIS, AND WHY IT IS GONE. Capture waited on
+    // `liveDetectRef` (a card is in view), `stableCountRef` (it held still for
+    // N frames) and `stablePeriodConsumedRef` (this stable period has not
+    // already scanned) -- all three fed by the separate YOLO detector loop that
+    // no longer exists. Every one of those questions is now answered INSIDE
+    // the reader, on the same frame it is about:
+    //
+    //   is a card in view      -> cornelius returns no quad; the pass ends in
+    //                             ~15ms having read nothing.
+    //   has it held still      -> requireStill on an auto pass: the pipeline
+    //                             compares corner drift between passes and
+    //                             refuses a moving card itself.
+    //   is it the same card    -> the reader TRACKS identity by art signature,
+    //                             and the duplicate guard below
+    //                             (lastQueuedNameRef) refuses a repeat by name.
+    //
+    // Keeping the old gates would have been three more questions asked of a
+    // detector that is not running -- `liveDetectRef.current` is now always
+    // null, so `if (!liveDetectRef.current) return;` would have silently
+    // disabled auto-scan completely while every test still passed.
     if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard && !showStaging) {
       const outcome = lastTickOutcomeRef.current;
       const delay = outcome === 'rejected' ? SCAN_RETRY_REJECTED_MS
         : outcome === 'error' ? SCAN_RETRY_ERROR_MS
         : SCAN_RETRY_SETTLE_MS;
       timerId = setTimeout(() => {
-        // TWO GATES BEFORE CAPTURING, both from Zach's rule: "We shouldn't
-        // capture a card until we know there is a card in view and if a new
-        // card doesn't come in view we shouldn't just keep scanning the same
-        // card."
-        //
-        // 1. IS A CARD ACTUALLY IN VIEW? Previously auto-scan fired on a timer
-        //    regardless, so an empty mat or a hand was uploaded and matched
-        //    against 57,000 cards. `liveDetectRef` is what draws the outline he
-        //    already sees, so the gate agrees with the UI by construction.
-        //
-        // 2. IS IT A DIFFERENT CARD FROM THE ONE JUST SCANNED? Being slow to
-        //    swap cards previously scanned the same card twice, which for
-        //    software tracking physical objects reports owning two of something
-        //    he owns one of.
-        //
-        // The effect re-runs on every state change in the dep list, so this
-        // re-checks continuously rather than deciding once. Failing a gate here
-        // is NOT an error and must not back off: the moment he swaps cards the
-        // signature changes and the next tick fires normally.
-        // CAPTURE ON STABILITY. The detection must have held still for
-        // STABLE_FRAMES_REQUIRED consecutive frames, and this stable period
-        // must not have already produced a scan.
-        //
-        // This replaces three failed attempts to infer "is this a different
-        // card?" from a preview frame. That question is unanswerable; this one
-        // is not. See SCANNER_CAPTURE_REDESIGN.md and the constants above.
-        //
-        // The timer that still schedules this callback is a POLL, not a
-        // deadline: it decides how often the condition is re-checked, never
-        // whether to capture. Nothing here is measured on elapsed time.
-        if (!liveDetectRef.current) return;
-        if (stableCountRef.current < STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE) return;
-        if (stablePeriodConsumedRef.current) return;
-        // One capture per stable period. Cleared when the detection is disturbed
-        stablePeriodConsumedRef.current = true;
-        handleCaptureRef.current?.(true);   // auto: subject to the sharpness gate
+        handleCaptureRef.current?.(true);   // auto: the reader gates the frame
       }, delay);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
     };
-  // `cardPresent` and `steady` are in the dep list so the effect re-evaluates
-  // the moment a card enters or leaves the frame, or the moment the detection
-  // settles -- rather than waiting for an unrelated state change to wake it.
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, cardPresent, steady, showStaging]);
+  // cardPresent/steady are gone from the deps with the detector that set them:
+  // a dep that never changes cannot wake an effect, and leaving them in would
+  // have implied a liveness this loop no longer has.
+  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, showStaging]);
 
   // WHY AUTO-SCAN IS WAITING, in Zach's words rather than the code's.
   //
@@ -1047,296 +867,39 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // rounds of guessing. If the trained detector failed to load, the preview
     // is running on the edge detector -- which finds 9/33 -- and Zach needs to
     // see that on screen rather than have me infer it later.
-    if (!cardPresent) {
-      return detectorReady() ? t('scan.waitingForCard') : 'Waiting for a card (basic detector)';
-    }
-    if (!steady) return t('scan.holdSteady');
-    return '';
+    // No detector loop any more, so there is no continuous "is a card there"
+    // signal to render. The reader answers that per pass and setScanStatus
+    // reports it, so this returns the idle prompt rather than inventing state.
+    return t('scan.waitingForCard');
   })();
 
-  // THE LIVE DETECTION LOOP — the outline Zach sees.
+  // THE READER'S DOWNLOAD STARTS WHEN THE CAMERA OPENS.
   //
-  // Runs on an interval rather than requestAnimationFrame: this competes with
-  // the video pipeline for main-thread time, and the outline only has to feel
-  // live, not hit 60fps. ~7/sec tracks a hand-held card smoothly at a fraction
-  // of the cost.
+  // The first open is when a user is willing to wait, not the first card they
+  // hold up. ~28 MB on a first run, then served from the Cache API for ever.
   //
-  // Detection happens on a SMALL greyscale copy (160px wide). The card's edges
-  // and its interior texture both survive that downscale, and it keeps a whole
-  // pass well under a frame budget on a phone.
+  // Fire-and-forget: loadClientScan resolves {ok:false} rather than throwing,
+  // and every scan checks readiness itself, so a device that cannot load it
+  // falls back to the server path.
+  //
+  // resetOnDevice clears the tracked card and the pooled cross-frame footer
+  // evidence, so a new camera session cannot inherit the last one's half-read
+  // card.
+  //
+  // WHAT USED TO BE HERE: a second ONNX detector (a 10.7 MB YOLO card
+  // detector) on its own 140ms loop, drawing the live outline. It is gone.
+  // cornelius -- inside the reader -- already predicts the card's four corners
+  // and carries a sharpness head, so the two models were asking the SAME
+  // QUESTION and competing for the one wasm thread the browser gives us (no
+  // COOP/COEP, so no SharedArrayBuffer, so no threads). Every scan queued
+  // behind a detector hunting for the card the scan had already found. Zach:
+  // "His scans worked way quicker than ours" -- this contention was the
+  // largest single reason.
   useEffect(() => {
-    if (!cameraActive) { liveDetectRef.current = null; setLiveDetect(null); return undefined; }
-    let cancelled = false;
-    // Start loading the detector when the camera opens. Fire-and-forget: the
-    // loop runs on the edge detector until the model is ready, and for ever if
-    // it never loads.
-    initCardDetector();
-    // Start the on-device READER's download at the same moment, for the same
-    // reason: the first camera open is when the user is willing to wait, not
-    // the first card they hold up.
-    //
-    // ~28 MB on a first run, then served from the Cache API for ever. Also
-    // fire-and-forget -- loadClientScan resolves {ok:false} rather than
-    // throwing, and every scan checks readiness itself, so a phone that cannot
-    // load it simply keeps using the server scanner.
-    //
-    // resetOnDevice clears the tracked card and the pooled footer evidence, so
-    // a new camera session cannot inherit the last one's half-read card.
+    if (!cameraActive) return undefined;
     loadClientScan();
     resetOnDevice();
-
-    const tick = async () => {
-      if (cancelled) return;
-      const video = videoRef.current;
-      if (!video || !video.videoWidth) return;
-      try {
-        const DW = 160;
-        const DH = Math.max(1, Math.round(DW * (video.videoHeight / video.videoWidth)));
-        let c = detectCanvasRef.current;
-        if (!c) { c = document.createElement('canvas'); detectCanvasRef.current = c; }
-        if (c.width !== DW || c.height !== DH) { c.width = DW; c.height = DH; }
-        const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(video, 0, 0, DW, DH);
-        const { data } = ctx.getImageData(0, 0, DW, DH);
-
-        // Luma, not a channel average: it weights green the way the eye does,
-        // which keeps card art and text separable from a pale surface.
-        const gray = new Uint8ClampedArray(DW * DH);
-        for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
-          gray[i] = (data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114) | 0;
-        }
-
-        // THE TRAINED DETECTOR LEADS; THE EDGE DETECTOR FALLS BACK.
-        //
-        // Zach: "yeah I said this earlier about using the yolo detector for
-        // measuring this please build it."
-        //
-        // Measured on his 33 real scans: the edge detector finds a card in
-        // 9/33, and 21 of the 24 misses fail the ASPECT test -- it latches onto
-        // the strongest edges, which on a STACK OF CARDS are not the card's
-        // outline. The trained detector finds 31/33 of the same photos, and
-        // Phase 4a measured it at 142ms on his iPhone over 2,195 inferences.
-        //
-        // YOLO needs COLOUR, so it gets the RGBA buffer; the edge detector
-        // keeps the greyscale copy it was written for. Both return the same
-        // { x, y, w, h, confidence } shape in detection-pixel space, so the
-        // outline mapping and stability logic below are untouched.
-        //
-        // detectCardOnDevice returns null for "no card" AND for every failure,
-        // including "model never loaded" -- so this degrades to exactly today's
-        // behaviour rather than to a frozen preview.
-        let det = null;
-        if (detectorReady()) det = await detectCardOnDevice(data, DW, DH);
-        if (!det) det = detectCardInFrame(gray, DW, DH);
-        if (cancelled) return;
-        if (!det) {
-          liveDetectRef.current = null;
-          setLiveDetect(null);
-          // No card: the run of stable frames is over. Resetting here is also
-          // what re-arms capture after a card is lifted away.
-          prevDetRef.current = null;
-          stableCountRef.current = 0;
-          disturbedRunRef.current = 0;
-          stablePeriodConsumedRef.current = false;
-          setCardPresent(false);
-          setSteady(false);
-          return;
-        }
-        setCardPresent(true);
-
-
-        // Map from detection pixels to the PREVIEW ELEMENT's box. The video is
-        // object-fit: cover, so it is centre-cropped: the scale is the LARGER
-        // of the two ratios and the overflow is split evenly. Getting this wrong
-        // draws the outline offset from the card, which would be worse than no
-        // outline at all — it would look like the app is locked onto thin air.
-        const rect = video.getBoundingClientRect();
-        const scale = Math.max(rect.width / DW, rect.height / DH);
-        const offX = (rect.width - DW * scale) / 2;
-        const offY = (rect.height - DH * scale) / 2;
-        const mapped = {
-          x: det.x * scale + offX,
-          y: det.y * scale + offY,
-          w: det.w * scale,
-          h: det.h * scale,
-          confidence: det.confidence,
-        };
-        // COUNT CONSECUTIVE AGREEING FRAMES. Movement resets the run and, with
-        // it, the "already captured" latch -- so dropping the next card on the
-        // stack disturbs the quad and re-arms capture without Zach having to
-        // clear the frame. That is his stated workflow: "I just drop cards on
-        // top."
-        if (detectionsAgree(mapped, prevDetRef.current)) {
-          stableCountRef.current += 1;
-          disturbedRunRef.current = 0;
-        } else {
-          stableCountRef.current = 1;
-          // RE-ARM ONLY AFTER A SUSTAINED DISTURBANCE, NOT A SINGLE ODD FRAME.
-          //
-          // Zach: "evil thrall scanned twice even though I never tapped or
-          // anything after it scanned the first time."
-          //
-          // This used to clear the latch on ANY disagreeing frame. The trained
-          // detector regresses a box per frame, so its output naturally jitters
-          // by a pixel or two even on a motionless card; one frame drifting past
-          // the IoU threshold re-armed capture and the same card scanned again.
-          //
-          // A real placement disturbs the view for SEVERAL consecutive frames --
-          // the hand enters, the card falls, the box moves and resizes. Jitter
-          // does not. Requiring a run of disturbed frames separates them without
-          // needing to know anything about what the card looks like, and without
-          // a clock.
-          disturbedRunRef.current += 1;
-          if (disturbedRunRef.current >= DISTURBED_FRAMES_TO_REARM) {
-            stablePeriodConsumedRef.current = false;
-          }
-        }
-        prevDetRef.current = mapped;
-
-        // RE-ARM WHEN THE CARD ITSELF CHANGES, NOT ONLY WHEN THE BOX MOVES.
-        //
-        // Zach: "I put down 3 forest in a row and it only scanned the 1st
-        // because it thought the next 2 were the same card."
-        //
-        // Re-arming depended ENTIRELY on the detected box disagreeing for
-        // DISTURBED_FRAMES_TO_REARM consecutive frames. That works when the new
-        // card lands askew and fails completely when it does not: a Forest
-        // dropped squarely onto a stack of Forests produces an IDENTICAL box, so
-        // nothing ever re-armed.
-        //
-        // It is also why he kept seeing "waiting for steady frame" and had to
-        // tap every card. The latch clears only on box movement, so a card that
-        // settles cleanly leaves it stuck. Both of his complaints are this one
-        // bug -- and it explains his own observation that after tapping, the
-        // card "always chose the right card": the frame WAS steady, the latch
-        // just never reopened.
-        //
-        // NO ARTWORK RE-ARM. MEASURED AGAINST ZACH'S CORPUS AND REMOVED.
-        //
-        // A fingerprint of the artwork was used here to answer "is this a
-        // DIFFERENT card in the same spot?", to fix his "3 forests in a row and
-        // it only scanned the 1st". It is gone because it cannot work, and the
-        // numbers are worth keeping so nobody rebuilds it:
-        //
-        //   consecutive REAL captures, SAME card  min 9.0   p50 18.6  max 28.6
-        //   consecutive REAL captures, DIFF card  min 19.0  p50 39.0  max 67.8
-        //
-        // Measured over 140 labelled scans in /var/lib/bindarr-dev/scandump via
-        // tools/measure-artprint-corpus.cjs. THE TWO RANGES OVERLAP, so no
-        // threshold separates them. At 10 it called the same card "different"
-        // in 7 of 9 cases -- which is Zach's report exactly: "the scanner just
-        // keeps scanning, doesn't wait for a new card to be put down."
-        //
-        // WHY THE ORIGINAL MEASUREMENT SAID 1.3-2.4 WITH AN EIGHT-FOLD GAP: it
-        // compared SYNTHETIC consecutive frames, where only sensor noise
-        // differs. Real captures also differ by autofocus breathing, exposure
-        // drift, hand shadow and shifting glare -- an order of magnitude more.
-        // The same mistake, in the same file, that the deleted comment itself
-        // warned about. Synthetic frames cannot validate a threshold that has
-        // to survive a phone camera.
-        //
-        // So re-arming stays on box movement alone, and the TAP is the reliable
-        // way to force a scan the detector will not volunteer. Per Zach:
-        // "Let's make tap reliable for now."
-
-
-        // TEACH THE SHARPNESS BASELINE FROM SETTLED FRAMES ONLY.
-        //
-        // Zach: "scanning seems to be getting worse at one point it was doing
-        // really good". Four of seven queues had NO collector-number line in
-        // the OCR text -- the capture was blurred, so the text was never in the
-        // image.
-        //
-        // The sharpness gate is RELATIVE: it rejects a frame scoring below 0.6x
-        // the median of recent frames. Its window was sized for the old ~3s
-        // cadence, where most observed frames were of a settled card. Stability
-        // gating changed that: captures now cluster around card swaps, so the
-        // window filled with post-motion frames, the median sank to the blur
-        // level, and blurred frames read as "sharp".
-        //
-        // Driving the real decideCapture with a realistic swap/settle sequence
-        // accepted 8 of 12 BLURRED frames -- the gate was blind exactly when he
-        // was scanning fast.
-        //
-        // The fix is to feed it the frames it was always meant to judge
-        // against: those observed while the detection is STABLE. Then the
-        // baseline describes a settled card on this device, and a frame grabbed
-        // mid-swap is measured against that rather than against other blur.
-        if (stableCountRef.current >= STABLE_FRAMES_REQUIRED) {
-          try {
-            const gw = 160, gh = Math.max(3, Math.round(DH * (gw / DW)));
-            const gc = sharpProbeRef.current || (sharpProbeRef.current = document.createElement('canvas'));
-            if (gc.width !== gw || gc.height !== gh) { gc.width = gw; gc.height = gh; }
-            const gctx = gc.getContext('2d', { willReadFrequently: true });
-            gctx.drawImage(video, 0, 0, gw, gh);
-            const gp = gctx.getImageData(0, 0, gw, gh);
-            const sc = laplacianVarianceScore(gp.data, gw, gh);
-            // OBSERVE ONLY. This records what a settled frame scores; it does
-            // NOT decide anything and must never trigger a capture.
-            sharpnessRef.current = {
-              ...sharpnessRef.current,
-              recent: [...(sharpnessRef.current.recent || []), sc].slice(-SHARPNESS_WINDOW),
-            };
-          } catch {
-            // A tainted canvas must not break the preview. The gate keeps
-            // whatever baseline it already had.
-          }
-        }
-        // `steady` MUST MEAN "CAPTURE-READY", NOT MERELY "STABLE".
-        //
-        // Zach: "it wasn't auto scanning I had to tap on the screen to initiate
-        // every scan."
-        //
-        // THIS WAS A DEADLOCK, and it is worth understanding because it is the
-        // second time a React dep list has silently stopped the scanner.
-        //
-        // The capture effect only re-runs when something in its dep list
-        // changes, and `steady` is what wakes it. `steady` used to flip true at
-        // STABLE_FRAMES_REQUIRED (3 frames) -- but after adding settling, the
-        // capture gate needs STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE
-        // (6). So the effect woke at frame 3, found 3 < 6, returned... and
-        // nothing ever woke it again, because `steady` was already true and no
-        // other dependency changed. The count kept climbing in a ref, which
-        // React does not watch.
-        //
-        // Auto-scan was therefore dead on every card, and tapping was the only
-        // way through -- exactly what he experienced.
-        //
-        // Tying `steady` to the SAME threshold the capture gate uses makes that
-        // class of bug unrepresentable: the signal that wakes the effect and the
-        // condition the effect tests are now one value.
-        const isSteady = stableCountRef.current >= STABLE_FRAMES_REQUIRED + SETTLE_FRAMES_BEFORE_CAPTURE
-          && !stablePeriodConsumedRef.current;
-        setSteady(isSteady);
-
-        liveDetectRef.current = mapped;
-        setLiveDetect(mapped);
-      } catch {
-        // A detection failure must never break the preview.
-        if (!cancelled) { liveDetectRef.current = null; setLiveDetect(null); }
-      }
-    };
-
-    // SELF-SCHEDULING, NOT setInterval.
-    //
-    // The tick is now async: on-device inference measured ~142ms on Zach's
-    // iPhone, against a 140ms interval. setInterval does not wait, so ticks
-    // would overlap and pile up -- each one holding a frame buffer, on a phone,
-    // in a loop that runs for as long as he is scanning.
-    //
-    // Chaining the next tick from the end of the previous one makes the loop
-    // self-limiting: it runs as fast as inference allows and no faster, and it
-    // cannot queue work behind itself. The 140ms is a floor on the gap, not a
-    // deadline for the work.
-    let timer = null;
-    const pump = async () => {
-      if (cancelled) return;
-      await tick();
-      if (cancelled) return;
-      timer = setTimeout(pump, 140);
-    };
-    pump();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return undefined;
   }, [cameraActive]);
 
   const updateAdvancedConstraints = (track, newAdvancedProps) => {
@@ -1650,121 +1213,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
     }
   };
 
-  // Resolves the landscape-to-portrait camera stream rotation bug on mobile devices.
-  // It creates a canvas matching the visual orientation on the user's screen.
-  // Pass maxW to downscale the output (cheap enough to run every frame for the
-  // live detection loop); omit it for a full-resolution capture.
-  // THE STILL-PHOTO PATH. ImageCapture.takePhoto() (Safari 18.4+) routes through
-  // AVCapturePhotoOutput — Apple's real still pipeline, with the multi-frame
-  // processing the native Camera app uses — instead of grabbing a frame off the
-  // realtime video preview, which iOS deliberately keeps cheap (no Smart HDR, no
-  // Deep Fusion). That difference is exactly what Zach reported: on an identical
-  // setup ManaBox looks clear and our preview looks soft, because a native app
-  // previews the processed feed and a web page does not.
-  //
-  // Returns an ImageBitmap on success, or null to use the video frame. Null is a
-  // normal outcome, not an error: iOS < 18.4 has no ImageCapture at all.
-  //
-  // GEOMETRY IS THE RISK, NOT QUALITY. The guide-box crop maps preview CSS pixels
-  // onto the captured frame assuming the frame has the SAME ASPECT RATIO as the
-  // video track. A photo can legitimately come back at a different aspect (a 4:3
-  // still from a 16:9 video mode), and using it blind would silently crop the
-  // WRONG REGION — no card, or half a card, which is worse than a soft image
-  // because it fails without looking like a failure. So the photo must prove it
-  // is geometrically compatible before it is used; anything else falls back.
-  const takeStillPhoto = async (video) => {
-    const track = stream?.getVideoTracks?.()[0];
-    if (!track || typeof window === 'undefined' || typeof window.ImageCapture !== 'function') return null;
-    if (track.readyState !== 'live') return null;
-    try {
-      const cap = new window.ImageCapture(track);
-      // Ask for more than any sensor has: WebKit clamps to the largest supported
-      // photo size. getPhotoCapabilities() is NOT consulted because WebKit fills
-      // its imageWidth/imageHeight from the TRACK capabilities, which under-report
-      // what takePhoto can actually deliver — so it would cap us at video
-      // resolution, defeating the entire point.
-      const blob = await cap.takePhoto({ imageWidth: 9999, imageHeight: 9999 });
-      if (!blob || blob.size < 1024) return null;
-      const bmp = await createImageBitmap(blob);
 
-      // Compare aspect ratios ORIENTATION-INDEPENDENTLY: the still and the video
-      // track can disagree about portrait/landscape while describing the same
-      // framing, so both are normalised to long/short before comparing.
-      const norm = (w, h) => (w >= h ? w / h : h / w);
-      const photoAR = norm(bmp.width, bmp.height);
-      const videoAR = norm(video.videoWidth || 1, video.videoHeight || 1);
-      // 2% tolerance absorbs rounding between preset dimensions; a genuine
-      // aspect change (4:3 vs 16:9 is 33%) is nowhere near this.
-      if (!Number.isFinite(photoAR) || !Number.isFinite(videoAR)
-          || Math.abs(photoAR - videoAR) / videoAR > 0.02) {
-        bmp.close?.();
-        return null;
-      }
-      // A still SMALLER than the video frame carries no more detail and costs a
-      // shutter round-trip, so there is nothing to gain by using it.
-      if (bmp.width * bmp.height <= (video.videoWidth || 0) * (video.videoHeight || 0)) {
-        bmp.close?.();
-        return null;
-      }
-      return bmp;
-    } catch {
-      // takePhoto rejects on an unready device, a concurrent capture, or a
-      // watchdog timeout. All of these must degrade to the video frame — a
-      // slightly soft scan is fine, a scanner that stops scanning is not.
-      return null;
-    }
-  };
-
-  const getOrientedVideoCanvas = (video, maxW = 0, source = null) => {
-    // ORIENTATION IS DECIDED BY THE VIDEO, PIXELS COME FROM `source`.
-    //
-    // `source` is an optional higher-resolution still of the SAME SCENE (see
-    // takeStillPhoto, which refuses anything with a different aspect ratio).
-    // The rotation decision below must stay keyed to the VIDEO track, because it
-    // compares the stream's shape against how the preview is laid out on screen
-    // — that is a fact about the preview, not about the still. Using the still's
-    // own dimensions here would re-derive the same answer on a compatible photo
-    // and a WRONG one on any photo that slipped through, so the video stays
-    // authoritative and the still only supplies pixels.
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
-    // Draw dimensions come from whichever image is actually being sampled.
-    const src = source || video;
-    const srcW = source ? source.width : videoWidth;
-    const srcH = source ? source.height : videoHeight;
-    const canvas = document.createElement('canvas');
-
-    const videoRect = video.getBoundingClientRect();
-    const streamRatio = videoWidth / videoHeight;
-    const visualRatio = videoRect.width / videoRect.height;
-
-    // Stream orientation rotation applies to mobile devices (iOS/Android)
-    // where physical camera sensors deliver landscape raw frames while displayed in portrait.
-    // Desktop webcams deliver unrotated frames matching the screen layout.
-    const isMobile = isNative || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-    const isRotated = isMobile && ((streamRatio > 1.0 && visualRatio < 1.0) || (streamRatio < 1.0 && visualRatio > 1.0));
-
-    // Oriented output dimensions, then an optional uniform downscale.
-    // Driven by the SOURCE size so a high-resolution still produces a
-    // correspondingly larger canvas — that extra detail is the entire point.
-    const outW = isRotated ? srcH : srcW;
-    const outH = isRotated ? srcW : srcH;
-    const scale = (maxW && outW > maxW) ? maxW / outW : 1;
-    canvas.width = Math.max(1, Math.round(outW * scale));
-    canvas.height = Math.max(1, Math.round(outH * scale));
-    const ctx = canvas.getContext('2d');
-    ctx.scale(scale, scale); // subsequent coords are in unscaled (oriented) space
-
-    if (isRotated) {
-      ctx.translate(outW / 2, outH / 2);
-      ctx.rotate(90 * Math.PI / 180);
-      ctx.drawImage(src, -srcW / 2, -srcH / 2, srcW, srcH);
-    } else {
-      ctx.drawImage(src, 0, 0, srcW, srcH);
-    }
-
-    return canvas;
-  };
 
   // WHAT HAPPENS AFTER submitScan SAYS WHAT IT DID, for an IDENTIFIED card.
   //
@@ -1981,202 +1430,35 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // turning a fast reject into a slow one and making the scanner feel worse
     // than before precisely when conditions are poor. Gating first means the
     // expensive capture happens only for frames that were going to be uploaded.
-    const previewCanvas = getOrientedVideoCanvas(video);
-
-    // Map the dashed guide box's rendered rect into oriented-canvas pixels through
-    // the preview's object-fit:cover transform, then pad it: the box is an aim
-    // hint, but a card can overhang it, so crop wider so a frame-filling card
-    // isn't clipped. Server auto-detects/deskews the card inside this region.
+    // ONE FRAME, STRAIGHT OFF THE PREVIEW. Nothing else.
     //
-    // Factored into a helper because it now runs TWICE: once on the preview
-    // frame to score sharpness, then again on the still. `k` derives from
-    // oc.width/oc.height, so a larger source canvas rescales the mapping
-    // automatically and BOTH calls crop the same region of the scene.
-    // MARGIN AROUND THE CARD IS NOT COSMETIC — THE DETECTOR NEEDS IT.
+    // Zach: "I want the scanner to match scrybox exactly so remove anything
+    // scrybox isn't using." Everything that used to sit between here and the
+    // read has been deleted, because the reader already does its job:
     //
-    // Zach: "mana box auto outlines the card I think we need something like that
-    // so we get the whole card including the border." Exactly right, and it is
-    // the mechanism: detectCard finds the card by locating its BORDER against
-    // the surface behind it. If the crop starts at the card's edge there is no
-    // border in the image, so there is nothing to detect.
+    //   getOrientedVideoCanvas + cropGuideRegion + the locked-detection crop
+    //     -> cornelius predicts the card's four corners from the FULL frame.
+    //        Cropping first fed it a picture of a crop and cost three canvas
+    //        draws per tick to do it.
     //
-    // MEASURED through the real /api/scan-match route, on real card art,
-    // varying ONLY the margin around the card:
+    //   the laplacian sharpness gate (frameSharpness.js)
+    //     -> the pipeline has its own blur gate, measured on 506 real frames:
+    //        every card it ever proved scored >= 2161 on the title band and
+    //        nothing below 500 ever read. It gates the strip that has to be
+    //        legible, not the whole frame.
     //
-    //   margin  0%   1/8 collector numbers   (one card failed to detect at all)
-    //   margin  4%   2/8                     (three failed to detect)
-    //   margin  6%   8/8                     <- clean
-    //   margin 10%   8/8
+    //   the separate YOLO live detector on its own 140ms loop
+    //     -> the SAME QUESTION cornelius answers, asked twice, by two ONNX
+    //        models competing for one wasm thread. That contention is most of
+    //        why this felt slow: the scan's own model queued behind a detector
+    //        looking for the card it had already found.
     //
-    // No code change in that sweep. The detector was never short — it was being
-    // handed images with no visible card edge, and it did the only sensible
-    // thing. Three earlier attempts to "correct" the quad were fixing a bug that
-    // did not exist.
-    //
-    // WHY THIS GOT WORSE RECENTLY. The old value was 0.05, but it padded the
-    // GUIDE BOX, not the card — and the guide box is an aim hint the card sits
-    // inside, so margin was incidental. Every capture improvement that got the
-    // card filling more of the frame (fullscreen preview, full-resolution
-    // request, ImageCapture stills) squeezed that accidental margin toward zero.
-    // Better photographs, worse detection.
-    //
-    // 0.14 is deliberately past the 6% knee. The guide box is card-shaped and
-    // the card can OVERHANG it, so the pad must cover both the detector's need
-    // and the overhang; and the sweep is flat from 6% to 10%, so overshooting
-    // costs a little background while undershooting costs the whole scan.
-    const CROP_PAD = 0.14;
-    const videoRect = video.getBoundingClientRect();
-    const guideRect = guideElement.getBoundingClientRect();
-    const cropGuideRegion = (oc) => {
-      // Cover-transform mapping from displayed video px to oriented-canvas px
-      // (matches object-fit:cover on the preview; overflow crop offsets handled below).
-      const k = Math.max(videoRect.width / oc.width, videoRect.height / oc.height);
-      const offX = (videoRect.width - oc.width * k) / 2;
-      const offY = (videoRect.height - oc.height * k) / 2;
-      // Box center (rotation is about the element center, so the rotated AABB
-      // center from getBoundingClientRect is still the true center) and unrotated
-      // size (offsetWidth/Height ignore the CSS transform).
-      const cx = ((guideRect.left + guideRect.width / 2) - videoRect.left - offX) / k;
-      const cy = ((guideRect.top + guideRect.height / 2) - videoRect.top - offY) / k;
-      // offsetWidth/Height are the unscaled layout size; the CSS scale transform
-      // doesn't change them, so fold guideScale in here.
-      const destW = Math.max(1, Math.round((guideElement.offsetWidth * guideScale / k) * (1 + 2 * CROP_PAD)));
-      const destH = Math.max(1, Math.round((guideElement.offsetHeight * guideScale / k) * (1 + 2 * CROP_PAD)));
-      const rad = (guideAngle * Math.PI) / 180;
-      const out = document.createElement('canvas');
-      out.width = destW;
-      out.height = destH;
-      const c = out.getContext('2d');
-      // Sample the (possibly rotated, off-center) box region upright: dest center
-      // maps to the box center, undo the box rotation, draw the frame. Pixels past
-      // the box (pad / frame overhang) come through black; server auto-detects the card.
-      c.translate(destW / 2, destH / 2);
-      c.rotate(-rad);
-      c.translate(-cx, -cy);
-      c.drawImage(oc, 0, 0);
-      return out;
-    };
-    let framedCanvas = cropGuideRegion(previewCanvas);
-
-    // CROP TO THE DETECTED CARD WHEN WE HAVE ONE.
-    //
-    // This is the fix for Zach's white box. Cropping to the static guide box
-    // hands the server a frame that is ~72% container — box corners, walls and
-    // shadowed interior — and the server's own detectCard then picks the BOX,
-    // because the box interior is a bigger, equally rectangular, equally centred
-    // candidate than the card. His four failed basic lands came back with
-    // matched_name = '': never identified at all.
-    //
-    // The live detector has already found the card by SHAPE and INTERIOR DETAIL,
-    // which a flat container floor fails. Cropping to that detection (plus a
-    // margin, so the card's own border is still visible for the server to
-    // deskew against) removes the container from the picture entirely.
-    //
-    // ONLY WHEN LOCKED. A low-confidence detection is a guess, and cropping to a
-    // guess would throw away a card that the guide-box path would have caught.
-    // Unlocked falls through to the existing behaviour — strictly no worse than
-    // today.
-    if (isLocked(liveDetectRef.current)) {
-      const d = liveDetectRef.current;
-      const vw = previewCanvas.width, vh = previewCanvas.height;
-      // The detection is in preview-element pixels; convert back to canvas
-      // pixels using the same object-fit: cover mapping the overlay used.
-      const vr = video.getBoundingClientRect();
-      const s = Math.max(vr.width / vw, vr.height / vh);
-      const ox = (vr.width - vw * s) / 2;
-      const oy = (vr.height - vh * s) / 2;
-      // Margin around the CARD (not the guide box) so the border survives —
-      // this is what CROP_PAD was always trying to achieve.
-      const pad = 0.10;
-      const cw = (d.w / s) * (1 + 2 * pad);
-      const ch = (d.h / s) * (1 + 2 * pad);
-      const cxd = (d.x - ox) / s - (d.w / s) * pad;
-      const cyd = (d.y - oy) / s - (d.h / s) * pad;
-      // Clamp inside the frame: a card near the edge would otherwise sample
-      // outside the canvas and come through black.
-      const sx = Math.max(0, Math.min(vw - 1, Math.round(cxd)));
-      const sy = Math.max(0, Math.min(vh - 1, Math.round(cyd)));
-      const sw = Math.max(1, Math.min(vw - sx, Math.round(cw)));
-      const sh = Math.max(1, Math.min(vh - sy, Math.round(ch)));
-      const out = document.createElement('canvas');
-      out.width = sw; out.height = sh;
-      out.getContext('2d').drawImage(previewCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-      framedCanvas = out;
-    }
-
-    // --- BUG 2: THE SHARPNESS GATE ------------------------------------------
-    //
-    // AUTO-CAPTURE ONLY. A manual tap is Zach explicitly asking for a scan, and
-    // the app must never answer that with silence — `auto` is false on that
-    // path, so the whole block is skipped and a button press ALWAYS captures.
-    //
-    // Placed HERE, on the cropped frame, not the full video frame. The crop is
-    // the region that actually gets uploaded and OCR'd, so it is the region
-    // whose sharpness decides whether the collector number is readable. Scoring
-    // the whole frame would let a sharp background rescue a blurred card.
-    //
-    // Scored on a small downscaled copy (~160px wide): the metric is a ratio of
-    // edge energy, so it does not need full resolution, and the downscale keeps
-    // the check at a fraction of a millisecond.
-    if (auto) {
-      let decision = { capture: true, reason: 'unmeasured', score: null, baseline: null };
-      try {
-        const gate = document.createElement('canvas');
-        const gs = Math.min(1, 160 / framedCanvas.width);
-        gate.width = Math.max(3, Math.round(framedCanvas.width * gs));
-        gate.height = Math.max(3, Math.round(framedCanvas.height * gs));
-        const gctx = gate.getContext('2d', { willReadFrequently: true });
-        gctx.drawImage(framedCanvas, 0, 0, gate.width, gate.height);
-        const px = gctx.getImageData(0, 0, gate.width, gate.height);
-        const score = laplacianVarianceScore(px.data, gate.width, gate.height);
-        decision = decideCapture(score, sharpnessRef.current);
-        sharpnessRef.current = decision.state;
-      } catch {
-        // getImageData can throw on a tainted canvas, and a browser that
-        // refuses to give us pixels must not disable scanning. FAIL OPEN: an
-        // ungated capture is the old behaviour, which is merely imperfect; a
-        // gate that swallows every frame would silently stop auto-scan, and a
-        // card missing from a scanned stack is the failure this app cannot
-        // afford.
-        decision = { capture: true, reason: 'gate-unavailable', score: null, baseline: null };
-      }
-
-      // RECORD THE OBSERVED NUMBERS. See gateLogRef: BUG 2 was an unvalidated
-      // threshold that only a real phone could disprove, and it cost a release
-      // to find. Whatever happens next, the numbers are visible.
-      gateLogRef.current = [
-        ...gateLogRef.current,
-        {
-          t: Date.now(),
-          score: decision.score == null ? null : Math.round(decision.score * 100) / 100,
-          baseline: decision.baseline == null ? null : Math.round(decision.baseline * 100) / 100,
-          reason: decision.reason,
-          captured: decision.capture,
-        },
-      ].slice(-12);
-
-      if (!decision.capture) {
-        // Skip WITHOUT signalling. No click, no flash, no vibrate: from Zach's
-        // side nothing happened, the card is still in frame, and the next tick
-        // comes around quickly. Dropping `loading` back to false is what
-        // reschedules it — the capture effect keys on `loading`.
-        //
-        // Marked 'rejected' so the scheduler retries in SCAN_RETRY_REJECTED_MS
-        // rather than the full settle pause: nothing was captured and no server
-        // call was made, so there is nothing to pace. Waiting the long cooldown
-        // here meant a card that steadied instantly still sat out three seconds.
-        lastTickOutcomeRef.current = 'rejected';
-        setScanStatus(t('scan.holdSteady'));
-        setLoading(false);
-        return;
-      }
-      // Clear a lingering "hold steady" so the status line reflects the scan
-      // that is actually now running.
-      setScanStatus('');
-      // Sync the display mirror. Only on a capture: a render is happening here
-      // regardless, so this adds no extra re-render to the tick loop.
-      setGateLog(gateLogRef.current);
-    }
+    // The reader takes the video element directly; clientScan draws the two
+    // canvases it needs (full frame at FRAME_MAX, plus a 384x384 copy for
+    // cornelius) from the same instant, so corners and pixels can never come
+    // from different moments.
+    const sw = video.videoWidth, sh = video.videoHeight;
+    if (!sw || !sh) { setLoading(false); return; }
 
     // ASK THE PHONE FIRST, OFF THE LIVE PREVIEW, BEFORE PAYING FOR ANYTHING.
     //
@@ -2192,17 +1474,17 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // reads straight off the <video> element and only encodes a JPEG if the
     // local read fails. So does this now.
     //
-    // The frame is the preview crop, which is what the corpus replay measured
-    // (92.6% identified, zero wrong cards on 271 real frames) -- those were
-    // saved preview frames, not ImageCapture stills. The high-quality still is
-    // still taken for the SERVER path below, where the extra pixels reach the
-    // collector-number strip and actually matter.
+    // The reader is handed the VIDEO ELEMENT, exactly as upstream does it.
+    // clientScan draws both canvases it needs from that one source at one
+    // instant. The corpus replay that measured this pipeline (92.6%
+    // identified, zero wrong cards on 271 of Zach's frames) ran on saved
+    // PREVIEW frames, not ImageCapture stills -- so this is the input it was
+    // validated against, not a downgrade from it.
     let deviceCard = null;
     let deviceTitle = null;
-    if (framedCanvas) {
+    {
       try {
-        const dev = await readOnDevice(framedCanvas, framedCanvas.width, framedCanvas.height,
-          { requireStill: !isManual });
+        const dev = await readOnDevice(video, sw, sh, { requireStill: !isManual });
         if (scanId !== currentScanId.current) return;
         // needsServer is unit-tested (fastScan.test.js): a proven card never
         // goes up; an unproven one always does; an auto pass with no card at
@@ -2284,28 +1566,20 @@ function CameraScanner({ onAddSuccess, showToast }) {
       return;
     }
 
-    // THE PHONE COULD NOT PROVE IT. Only now pay for the real shutter.
+    // THE PHONE COULD NOT PROVE IT -- the server gets the same frame.
     //
-    // ImageCapture.takePhoto() routes through AVCapturePhotoOutput — Apple's
-    // still pipeline, with the multi-frame processing the native Camera app
-    // uses — rather than a frame off the realtime preview, which iOS
-    // deliberately keeps cheap (no Smart HDR, no Deep Fusion). That is the gap
-    // Zach measured: identical setup, ManaBox clear, ours soft, because a
-    // native app previews the processed feed and a web page cannot.
+    // lastFrameJpeg() encodes the canvas clientScan ALREADY drew for the read,
+    // so the server sees exactly the pixels the phone looked at and no second
+    // capture happens. That is upstream's behaviour and it is also the honest
+    // one: a server answer about a different frame is not a fallback, it is a
+    // second opinion on a different question.
     //
-    // takeStillPhoto returns null for every unsuitable case — no ImageCapture
-    // (iOS < 18.4), a rejected or timed-out shutter, or a photo whose aspect
-    // ratio does not match the preview. Null keeps the already-computed preview
-    // crop, which is exactly the pre-existing behaviour, so this can only add
-    // quality and never remove the ability to scan.
-    const still = await takeStillPhoto(video);
-    if (still) {
-      framedCanvas = cropGuideRegion(getOrientedVideoCanvas(video, 0, still));
-      // ImageBitmaps hold decoded pixels outside the JS heap; on a bulk scan
-      // these add up fast, so release it as soon as it has been drawn.
-      still.close?.();
-    }
-    setCaptureSource(still ? 'photo' : 'video');
+    // takeStillPhoto / ImageCapture is GONE. It cost a real shutter
+    // (~0.3-1s on iOS) on every scan, and upstream never calls it -- the
+    // reader proves the card from preview pixels, and the ~7% it cannot prove
+    // are cards a sharper still would not have rescued either (no readable
+    // title, or a footer the catalogue cannot narrow to one printing).
+    setCaptureSource('video');
 
     // Past the gate: a real scan is now running. Default the tick outcome to
     // 'settle' so the scheduler paces the next attempt for a physical card
@@ -2323,30 +1597,32 @@ function CameraScanner({ onAddSuccess, showToast }) {
       {
         setScanStatus('Matching card image...');
         {
-          // Downscale the frame for upload; server auto-crops the card. Keep it
-          // fairly high-res so a far/small card still has enough pixels to match.
+          // REUSE THE FRAME THE READER ALREADY DREW.
           //
-          // SCAN_UPLOAD_W is 2000 and this is the line that makes it matter. It
-          // was a no-op at the old ~660px crop; with the fullscreen preview and
-          // the full-resolution capture request the crop is larger than the cap,
-          // so this is now a REAL downscale and the constant above is the thing
-          // deciding how many pixels reach the collector-number strip.
-          const up = document.createElement('canvas');
-          const s = Math.min(1, SCAN_UPLOAD_W / framedCanvas.width);
-          up.width = Math.round(framedCanvas.width * s);
-          up.height = Math.round(framedCanvas.height * s);
-          up.getContext('2d').drawImage(framedCanvas, 0, 0, up.width, up.height);
-          const imageData = up.toDataURL('image/jpeg', SCAN_UPLOAD_Q);
-          // WHAT WE ACTUALLY SENT, for the diagnostics panel. The crop width
-          // before the cap is the number that says whether the resolution work
-          // reached this point at all: if it reads ~660 on his phone, the camera
-          // request or the fullscreen layout did not take effect and the upload
-          // cap is irrelevant. KB is the Tailscale cost, measured rather than
-          // predicted. Base64 is ~4/3 of the bytes, so that factor is removed.
+          // lastFrameJpeg() encodes clientScan's own full-frame canvas -- the
+          // exact pixels cornelius and the recognizer just looked at. No second
+          // capture, no third canvas, and the server is answering about the
+          // same frame that failed rather than a fresh one.
+          //
+          // This replaces a downscale + toDataURL on the MAIN THREAD, which
+          // blocked the UI on every scan including the ~93% that never upload.
+          // convertToBlob on an OffscreenCanvas does the encode off-thread
+          // where the browser supports it.
+          const blob = await lastFrameJpeg();
+          if (!blob) { setScanStatus('No confident match. Try again or search manually.'); signal('error'); return; }
+          const imageData = await new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => res(fr.result);
+            fr.onerror = () => rej(fr.error);
+            fr.readAsDataURL(blob);
+          });
+          // WHAT WE ACTUALLY SENT, for the diagnostics panel. KB is the
+          // Tailscale cost, measured rather than predicted; base64 is ~4/3 of
+          // the bytes, so that factor is removed.
           setUploadInfo({
-            cropW: framedCanvas.width,
-            sentW: up.width,
-            kb: Math.round((imageData.length - imageData.indexOf(',') - 1) * 0.75 / 1024),
+            cropW: sw,
+            sentW: Math.min(sw, FRAME_MAX),
+            kb: Math.round(blob.size / 1024),
           });
           setDebugHashImg(imageData);
           try {
@@ -3241,40 +2517,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   to { transform: rotate(360deg); }
                 }
               `}</style>
-              {/* THE LIVE CARD OUTLINE — drawn where the card WAS FOUND.
-                  Zach: "mana box ... just draws a line around the entire and it
-                  auto detects that", "I want live drawing going green when it
-                  has it."
-
-                  This is the inversion that matters: the old dashed box was an
-                  INPUT (aim here) and the app then had to guess which rectangle
-                  inside it was the card — which is why a card in a white box
-                  failed, the box being the bigger, better-centred rectangle.
-                  This outline is OUTPUT: it shows what the app has actually
-                  locked onto, so "green" is a promise backed by a detection
-                  rather than a hint that something might be there. */}
-              {liveDetect && (
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: 'absolute',
-                    left: `${liveDetect.x}px`,
-                    top: `${liveDetect.y}px`,
-                    width: `${liveDetect.w}px`,
-                    height: `${liveDetect.h}px`,
-                    border: `3px solid ${isLocked(liveDetect) ? 'var(--type-grass)' : 'rgba(255,255,255,0.55)'}`,
-                    boxShadow: isLocked(liveDetect)
-                      ? '0 0 18px rgba(74, 222, 128, 0.55)'
-                      : 'none',
-                    borderRadius: '10px',
-                    pointerEvents: 'none',
-                    // Snappy enough to feel attached to the card, slow enough
-                    // that per-frame jitter does not read as a shaking box.
-                    transition: 'left 90ms linear, top 90ms linear, width 90ms linear, height 90ms linear, border-color 120ms linear',
-                    zIndex: 3,
-                  }}
-                />
-              )}
 
               <div
                 className="scan-card-guide"
@@ -3580,29 +2822,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 </div>
               )}
 
-              {/* BUG 2: THE FOCUS GATE'S OBSERVED NUMBERS.
-                  The previous threshold was a guess tuned against synthetic
-                  blur, and the only way it got disproved was Zach scanning a
-                  stack and reporting that "hold steady" showed on every card.
-                  Showing the real scores here means the next adjustment is
-                  measured rather than guessed. Rendered inside the EXISTING
-                  diagnostics panel, in its existing type scale — no new screen
-                  and no new layout. */}
-              {gateLog.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)' }}>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                    {t('scan.focusGateDebug')}
-                  </span>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {gateLog.slice(-6).map((g, i) => (
-                      <span key={i} style={{ marginRight: '0.5rem', color: g.captured ? 'var(--type-grass)' : 'var(--accent-red)' }}>
-                        {g.score == null ? '—' : g.score}
-                        {g.baseline == null ? '' : `/${g.baseline}`}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
