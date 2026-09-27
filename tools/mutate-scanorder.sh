@@ -133,6 +133,27 @@ mutate M8 "blame the card when the reader never ran" "FAST-TC8" "
     \"setScanStatus('No confident match. Try again or search manually.');\");
 "
 
+# M9: THE BUG. Announce 'Initializing scanner...' on every pass including auto,
+# where the no-card early return leaves it on screen for ever.
+#
+# Anchored with a REGEX rather than a quoted literal: the mutation body is bash
+# inside a JS string, so a literal containing both quote kinds needs three
+# levels of escaping and silently produced a syntax error the first time -- the
+# harness correctly ABORTED rather than testing an unmutated file.
+mutate M9 "set the progress message on auto passes too" "FAST-TC9" "
+  const re = /if \(isManual\) (setScanStatus\('Initializing scanner)/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '\$1');
+"
+
+# M10: let the no-card path return without reporting anything, so whatever the
+# previous pass wrote stays on screen.
+mutate M10 "no-card path returns without a status" "FAST-TC10" "
+  const re = /\n\s*setScanStatus\(t\('scan\.waitingForCard'\)\);/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '');
+"
+
 printf '\n'
 if ! git diff --quiet -- "$TARGET" "$TEST"; then
   echo "TREE NOT CLEAN after the run - restore failed. Check git status."

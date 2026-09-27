@@ -1408,7 +1408,22 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setLoading(true);
     const scanId = ++currentScanId.current;
     setScanMatches([]);
-    setScanStatus('Initializing scanner...');
+    // NO STATUS ON AN AUTO PASS.
+    //
+    // This used to set 'Initializing scanner...' unconditionally, which was
+    // harmless when a scan meant a server round trip -- the next line of the
+    // flow always overwrote it. It is not harmless now: an auto pass with no
+    // card in frame returns EARLY (the whole point of the 60ms loop), so the
+    // text was written every 60ms and never cleared. Zach saw it as "stuck in
+    // initialize scanner like it's stuck in an infinite loop", which is
+    // exactly what it looked like.
+    //
+    // Upstream never does this. Its auto loop sets a HINT from the OUTCOME
+    // ("no card", "hold steady", "move closer") after a pass completes, never
+    // a "working on it" message before one starts. A message that appears
+    // before the work and is cleared by the work cannot survive an early
+    // return; a message derived from the result can.
+    if (isManual) setScanStatus('Initializing scanner...');
 
     const video = videoRef.current;
     
@@ -1525,8 +1540,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
         // CASE 2: no card in frame on an auto pass. End the pass silently.
         // 'rejected' is the cheap retry gap (60ms), because nothing was
         // captured, nothing was read and there is nothing to pace.
+        //
+        // The status is set FROM THE OUTCOME here, the way upstream does it --
+        // "point the camera at a card" is true and stable, and it replaces
+        // whatever the last pass left on screen rather than accumulating.
         if (!deviceCard) {
           lastTickOutcomeRef.current = 'rejected';
+          setScanStatus(t('scan.waitingForCard'));
           setLoading(false);
           return;
         }

@@ -208,4 +208,46 @@ const code = src
   pass('FAST-TC8', 'a reader that never ran says so, instead of blaming the card');
 }
 
+// FAST-TC9: no "working on it" message on an auto pass.
+//
+// THE BUG: "stuck in initialize scanner like it's stuck in an infinite loop."
+//
+// handleCapture set 'Initializing scanner...' unconditionally. That was
+// harmless when every scan meant a server round trip, because the next step
+// always overwrote it. It is not harmless with a 60ms loop whose most common
+// outcome is an EARLY RETURN (no card in frame): the text was written every
+// 60ms and never cleared, so the scanner looked wedged while working
+// perfectly.
+//
+// Upstream sets a hint from the OUTCOME after a pass, never a progress message
+// before one. A message written before the work cannot survive an early
+// return; a message derived from the result always can.
+{
+  start('FAST-TC9');
+  const i = code.indexOf("setScanStatus('Initializing scanner...')");
+  assert.ok(i > 0, 'the manual path may still announce itself');
+  const line = code.slice(code.lastIndexOf('\n', i) + 1, i + 60);
+  assert.match(line, /if \(isManual\)/,
+    "'Initializing scanner...' must be gated on isManual -- on an auto pass it "
+    + 'is written every 60ms and an early return leaves it on screen for ever');
+  pass('FAST-TC9', 'auto passes do not paint a progress message they cannot clear');
+}
+
+// FAST-TC10: every early return out of an auto pass leaves an HONEST status.
+//
+// The generalisation of TC9. Each of these paths ends a pass without a result,
+// and each must either say what the frame showed or say nothing -- never leave
+// a stale "working" message behind.
+{
+  start('FAST-TC10');
+  const i = code.indexOf('if (!deviceCard) {');
+  assert.ok(i > 0, 'the no-card early return must exist');
+  const block = code.slice(i, i + 400);
+  assert.match(block, /setScanStatus\(/,
+    'the no-card path must set a status from the outcome, not inherit one');
+  assert.match(block, /setLoading\(false\)/,
+    'the no-card path must clear loading, or the scanner wedges');
+  pass('FAST-TC10', 'the no-card path reports the frame and clears loading');
+}
+
 console.log(`\nscanOrder.test.js: ${passed} cases passed`);
