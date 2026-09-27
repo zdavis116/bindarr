@@ -5,7 +5,7 @@ import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
 import { readOnDevice, needsServer, hydrateResults, loadClientScan, resetOnDevice, lastFrameJpeg } from '../utils/clientScan';
-import { FRAME_MAX } from '../utils/fastScan';
+import { FRAME_MAX, serverAllowed, nextFailStreak } from '../utils/fastScan';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { createScanReviewQueue } from './scanReviewQueue';
@@ -369,6 +369,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // mid-tick and the scheduler reads it on the next run, so it must not trigger
   // a re-render or race with one.
   const lastTickOutcomeRef = useRef('settle');
+  // UPSTREAM'S FAIL STREAK (fastScan.js nextFailStreak/serverAllowed).
+  //
+  // Folds each server outcome into "same unresolved card, same place, N times
+  // running" and backs off 0/1/2/3s. It is deliberately evidence-based rather
+  // than a timer: serverAllowed() is handed the CURRENT on-device read, so a
+  // NEW card never inherits the previous card's backoff.
+  const failStreakRef = useRef(null);
   const resolvedDupIdRef = useRef(null);
   // PR 9: the auto-scan queue path guards on the matched card NAME, because
   // that path never resolves a printing itself — the server does — so it has no
@@ -1495,64 +1502,65 @@ function CameraScanner({ onAddSuccess, showToast }) {
     // identified, zero wrong cards on 271 of Zach's frames) ran on saved
     // PREVIEW frames, not ImageCapture stills -- so this is the input it was
     // validated against, not a downgrade from it.
+    // THE SCAN DECISION, TRANSCRIBED FROM UPSTREAM'S scan() (FastScanner.jsx
+    // lines 255-277). Same order, same branches, same meanings. I have broken
+    // this three times by paraphrasing it, so it is written here as a direct
+    // transcription with their line numbers, not as my own arrangement.
+    //
+    //   local = await readOnDevice(source, sw, sh, { requireStill: autoPass })
+    //   track why, and RESET the fail streak when there is no card         (259)
+    //   if (!needsServer(local, {autoPass})) out = hydrate(local)          (264)
+    //   if (out) abort()                       -> proven on the phone: done (269)
+    //   else if (autoPass && !serverAllowed()) -> hold, hint, return        (271)
+    //   else out = await serverRead(...)       -> EVERYTHING ELSE UPLOADS   (277)
+    //
+    // WHAT I GOT WRONG, AND WHY IT LOOKED "STUCK ON WAITING FOR A CARD":
+    // I replaced line 277 with an unconditional `return` whenever the phone
+    // had not proven a card. Upstream only holds when serverAllowed() says the
+    // CURRENT frame shows the same unresolved card in the same place as the
+    // last few passes -- a backoff that deliberately cannot hold back a new
+    // card. With my return, an unproven card never reached the server at all,
+    // so the only thing the UI could ever say was "waiting for a card".
     let deviceCard = null;
     let deviceTitle = null;
-    {
-      let dev = null;
+    let local = null;
+    try {
+      local = await readOnDevice(video, sw, sh, { requireStill: !isManual });
+      if (scanId !== currentScanId.current) return;
+      // (258-259) A failed read is not a streak, and neither is an empty
+      // frame: clearing the streak here is what lets the NEXT card through
+      // immediately instead of inheriting the previous card's backoff.
+      if (local?.error) console.warn('[scan] on-device read failed:', local.error);
+      else if (!local?.candidates?.length) failStreakRef.current = null;
+    } catch (e) {
+      console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
+    }
+
+    // (264-267) Proven on the phone -- or an auto pass the stillness gate held
+    // back -- means no upload. hydrateResults turns a proven Scryfall id into
+    // a real card row.
+    if (!needsServer(local, { autoPass: !isManual })) {
       try {
-        dev = await readOnDevice(video, sw, sh, { requireStill: !isManual });
+        const hydrated = await hydrateResults(local?.results || []);
         if (scanId !== currentScanId.current) return;
+        const hit = hydrated.find(r => r.ok && r.card);
+        if (hit) { deviceCard = hit.card; deviceTitle = hit.title || null; }
       } catch (e) {
-        // A reader failure must never fail the scan: fall through to the
-        // server, which is the behaviour that existed before this block.
-        console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
+        console.warn('[scan] hydrate failed, using server:', e?.message || e);
+        deviceCard = null;
       }
+    }
 
-      const goServer = needsServer(dev, { autoPass: !isManual });
-
-      // needsServer RETURNS FALSE FOR TWO DIFFERENT REASONS, and conflating
-      // them is the bug Zach hit as "it scans right away and always says no
-      // confident match":
-      //
-      //   1. the phone PROVED a card    -> nothing to send, we have the answer
-      //   2. an auto pass saw NO CARD   -> nothing to send, and nothing to
-      //                                    report either; the pass simply ends
-      //                                    and the loop retries
-      //
-      // The first version only handled (1) and let (2) fall through to the
-      // upload. So an empty mat -- most passes of a 60ms loop -- was JPEG'd,
-      // uploaded, matched against 106k printings, and answered "No confident
-      // match", instantly and for ever. The gate was doing its job; its answer
-      // was being thrown away.
-      if (!goServer) {
-        try {
-          const hydratedResults = await hydrateResults(dev?.results || []);
-          if (scanId !== currentScanId.current) return;
-          const hit = hydratedResults.find(r => r.ok && r.card);
-          if (hit) { deviceCard = hit.card; deviceTitle = hit.title || null; }
-        } catch (e) {
-          // A card the phone proved but the backend could not turn into a row
-          // is not an answer the tray can use -- take the server path.
-          console.warn('[scan] hydrate failed, using server:', e?.message || e);
-          deviceCard = null;
-        }
-
-        // CASE 2: no card in frame on an auto pass. End the pass silently.
-        // 'rejected' is the cheap retry gap (60ms), because nothing was
-        // captured, nothing was read and there is nothing to pace.
-        //
-        // The status is set FROM THE OUTCOME here, the way upstream does it --
-        // "point the camera at a card" is true and stable, and it replaces
-        // whatever the last pass left on screen rather than accumulating.
-        if (!deviceCard) {
-          lastTickOutcomeRef.current = 'rejected';
-          setScanStatus(t('scan.waitingForCard'));
-          setLoading(false);
-          return;
-        }
-      } else if (dev?.error) {
-        console.warn('[scan] on-device read failed, using server:', dev.error);
-      }
+    // (271-276) THE ONLY CASE THAT ENDS A PASS WITHOUT AN ANSWER. Not "the
+    // phone did not prove it" -- specifically "this frame shows the same
+    // unresolved card, in the same place, as the last few passes, and the
+    // backoff window has not expired". serverAllowed() is given the CURRENT
+    // local read precisely so a new card is never held.
+    if (!deviceCard && !isManual && !serverAllowed(failStreakRef.current, Date.now(), local)) {
+      lastTickOutcomeRef.current = 'rejected';
+      setScanStatus(t('scan.holdSteady'));
+      setLoading(false);
+      return;
     }
 
     if (deviceCard) {
@@ -1700,6 +1708,23 @@ function CameraScanner({ onAddSuccess, showToast }) {
             if (scanId !== currentScanId.current) return;
             if (resp.ok) {
               const { game: matchGame, verified, candidates, crop, scoped, englishOnly, ocr } = await resp.json();
+
+              // (281-282) FOLD THIS SERVER ANSWER INTO THE FAIL STREAK.
+              //
+              // The other half of serverAllowed(): without this the streak is
+              // never built, the backoff never engages, and a card the server
+              // also cannot resolve is re-uploaded every 60ms for ever. The
+              // shape given to nextFailStreak matches upstream's -- an
+              // unresolved result carrying a title, plus where it sat in the
+              // frame -- so "same card, same place" means the same thing here
+              // as it does there.
+              failStreakRef.current = nextFailStreak(failStreakRef.current, {
+                results: ocr?.title
+                  ? [{ ok: false, title: ocr.title, number: ocr.number ?? null, box: ocr.box || null }]
+                  : [],
+                candidates: (candidates || []).map(c => ({ number: c.number ?? null, box: c.box || null })),
+                frame: { width: Math.min(sw, FRAME_MAX), height: Math.min(sh, FRAME_MAX) },
+              }, Date.now());
 
               console.log('Scan candidates:', matchGame, scoped ? `(set-scoped ${scanSetParam})` : '(GLOBAL)', verified ? 'ORB' : 'CLIP', candidates);
               if (crop) setDebugHashImg(crop); // show the server's auto-cropped card

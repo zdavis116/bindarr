@@ -166,29 +166,23 @@ const code = src
   pass('FAST-TC6', 'no second detector, no second sharpness gate');
 }
 
-// FAST-TC7: an auto pass with NO CARD must END, not upload.
+// FAST-TC7: needsServer() decides whether the phone's answer is used.
 //
-// THE BUG ZACH HIT: "it scans right away and always says no confident match."
-//
-// needsServer() returns false for TWO different reasons -- the phone proved a
-// card, OR an auto pass saw no card at all. The first version only handled the
-// proven case and let "no card" fall through to the server upload. So an empty
-// mat (most passes of a 60ms loop) was JPEG'd, uploaded, matched against 106k
-// printings and answered "No confident match", instantly and for ever.
-//
-// The gate was working. Its answer was being discarded. This pins the early
-// return so the second meaning cannot be dropped again.
+// SUPERSEDED IN SHAPE BY FAST-TC11. This originally pinned a `goServer` local
+// and an early return on "no card", which was my paraphrase of upstream and
+// the cause of the "stuck waiting for a card" bug. The code now transcribes
+// FastScanner.jsx:264 directly, so this pins what upstream actually does:
+// needsServer() guards the hydrate, and nothing else.
 {
   start('FAST-TC7');
   const read = code.indexOf('await readOnDevice(');
   const fetchIdx = code.indexOf("fetch('/api/scan-match'");
   const between = code.slice(read, fetchIdx);
-  assert.match(between, /const goServer = needsServer\(/,
-    'the scanner must capture needsServer() as a named decision');
-  assert.match(between, /if \(!deviceCard\) \{[\s\S]{0,400}?return;/,
-    'when needsServer() says "do not send" and no card was proven, the pass '
-    + 'must RETURN -- otherwise an empty frame is uploaded every tick');
-  pass('FAST-TC7', 'no card on an auto pass ends the pass instead of uploading');
+  assert.match(between, /if \(!needsServer\(local, \{ autoPass: !isManual \}\)\) \{/,
+    'needsServer() must gate the hydrate exactly as upstream does at line 264');
+  assert.match(between, /hydrateResults\(/,
+    'a proven card must be hydrated into a real row');
+  pass('FAST-TC7', 'needsServer gates the hydrate, upstream-style');
 }
 
 // FAST-TC8: a missing frame must not be reported as "no match".
@@ -233,21 +227,85 @@ const code = src
   pass('FAST-TC9', 'auto passes do not paint a progress message they cannot clear');
 }
 
-// FAST-TC10: every early return out of an auto pass leaves an HONEST status.
+// FAST-TC11: an unproven card MUST still reach the server.
 //
-// The generalisation of TC9. Each of these paths ends a pass without a result,
-// and each must either say what the frame showed or say nothing -- never leave
-// a stale "working" message behind.
+// THE BUG: "Now it's stuck with waiting for a card."
+//
+// Upstream's scan() ends a pass without an answer in exactly ONE case
+// (FastScanner.jsx:271): an auto pass where serverAllowed() says this frame
+// shows the SAME unresolved card, in the SAME place, as the last few passes
+// and the backoff window is still open. Everything else -- unproven card, no
+// card on a shutter press, a reader error -- falls through to serverRead()
+// at line 277.
+//
+// I replaced that with `if (!deviceCard) return;`. So a card the phone could
+// not prove never reached the server at all, and the UI could only ever say
+// "waiting for a card". Three separate bugs now have the same root: I
+// paraphrased upstream's control flow instead of transcribing it.
+{
+  start('FAST-TC11');
+  const read = code.indexOf('await readOnDevice(');
+  const fetchIdx = code.indexOf("fetch('/api/scan-match'");
+  const between = code.slice(read, fetchIdx);
+
+  // The hold must be conditioned on serverAllowed(), not on "no card".
+  assert.match(between, /if \(!deviceCard && !isManual && !serverAllowed\(/,
+    'the only early return before the upload must be upstream\'s backoff '
+    + '(serverAllowed), never a bare "the phone did not prove it"');
+
+  // And no other early return may END THE PASS in the DECISION REGION -- the
+  // span between the read and the `if (deviceCard)` success branch, where a
+  // frame's fate is decided. Returns inside the success branch are a proven
+  // card being staged (upstream's scan() returns once it has an answer too).
+  //
+  // Staleness guards are excluded by MATCHING THEM ON THE SAME LINE rather
+  // than subtracting two counts: `if (scanId !== ...) return;` is one line, so
+  // the bare-return pattern never saw it, and subtracting produced -1. A guard
+  // that can go negative is arithmetic, not a measurement.
+  const decisionEnd = between.indexOf('if (deviceCard) {');
+  assert.ok(decisionEnd > 0, 'the success branch must follow the decision');
+  const decision = between.slice(0, decisionEnd);
+  const decisionReturns = (decision.match(/\n\s*return;/g) || []).length;
+  assert.strictEqual(decisionReturns, 1,
+    `${decisionReturns} decision returns before the success branch; upstream `
+    + 'has exactly one (the backoff hold)');
+  pass('FAST-TC11', 'only the backoff can stop a frame reaching the server');
+}
+
+// FAST-TC10: the backoff hold leaves an honest status.
+//
+// ORDERED AFTER TC11 DELIBERATELY. When both were present and TC10 ran first,
+// a mutation that deleted the hold entirely (M11) tripped TC10's "the backoff
+// hold must exist" before TC11 could judge it -- so TC11 was never proven to
+// catch anything. Existence is TC11's question; this one only asks what the
+// hold SAYS once TC11 has established it is there.
 {
   start('FAST-TC10');
-  const i = code.indexOf('if (!deviceCard) {');
-  assert.ok(i > 0, 'the no-card early return must exist');
+  const i = code.indexOf('!serverAllowed(');
+  assert.ok(i > 0, 'the backoff hold must exist (see FAST-TC11)');
   const block = code.slice(i, i + 400);
   assert.match(block, /setScanStatus\(/,
-    'the no-card path must set a status from the outcome, not inherit one');
+    'the hold path must set a status from the outcome, not inherit one');
   assert.match(block, /setLoading\(false\)/,
-    'the no-card path must clear loading, or the scanner wedges');
-  pass('FAST-TC10', 'the no-card path reports the frame and clears loading');
+    'the hold path must clear loading, or the scanner wedges');
+  pass('FAST-TC10', 'the backoff hold reports the frame and clears loading');
+}
+
+// FAST-TC12: the fail streak is actually MAINTAINED.
+//
+// serverAllowed() without nextFailStreak() is a gate wired to a sensor that is
+// never read: the streak stays null, the backoff never engages, and a card the
+// server also cannot resolve is re-uploaded every 60ms for ever. The two are
+// one mechanism and must both be present.
+{
+  start('FAST-TC12');
+  assert.match(code, /failStreakRef\.current = nextFailStreak\(/,
+    'the server answer must be folded into the fail streak, or the backoff '
+    + 'never engages');
+  assert.match(code, /failStreakRef\.current = null/,
+    'an empty frame must CLEAR the streak, or a new card inherits the '
+    + "previous card's backoff");
+  pass('FAST-TC12', 'the backoff is both set and cleared');
 }
 
 console.log(`\nscanOrder.test.js: ${passed} cases passed`);

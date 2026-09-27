@@ -93,10 +93,10 @@ mutate M3 "let a proven card fall through to the upload" "FAST-TC3" "
 # M4: crop before the read again -- cornelius then sees a picture of a crop,
 # and three canvas draws per tick come back.
 mutate M4 "crop the frame before handing it to the reader" "FAST-TC4" "
-  const anchor = 'dev = await readOnDevice(video, sw, sh,';
+  const anchor = 'local = await readOnDevice(video, sw, sh,';
   if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(anchor,
-    'const framedCanvas = cropGuideRegion(video);\n        dev = await readOnDevice(framedCanvas, sw, sh,');
+    'const framedCanvas = cropGuideRegion(video);\n      local = await readOnDevice(framedCanvas, sw, sh,');
 "
 
 # M5: restore the server-era retry gap.
@@ -112,16 +112,13 @@ mutate M6 "reinstate the YOLO detector loop" "FAST-TC6" "
   const after = before.replace(anchor, '    initCardDetector();\n' + anchor);
 "
 
-# M7: THE BUG ZACH HIT. Drop the early return, so "no card on an auto pass"
-# falls through to the upload -- an empty mat JPEG'd and sent every 60ms,
-# answered "No confident match" instantly and for ever.
-mutate M7 "let a no-card auto pass fall through to the upload" "FAST-TC7" "
-  const anchor = '        if (!deviceCard) {';
-  if (!before.includes(anchor)) { console.error('anchor missing'); process.exit(3); }
-  const i = before.indexOf(anchor);
-  const j = before.indexOf('\n        }', i);
-  if (j < 0) { console.error('block end missing'); process.exit(3); }
-  const after = before.slice(0, i) + '        if (false) {' + before.slice(i + anchor.length);
+# M7: drop needsServer's guard, so a proven card is never hydrated and every
+# frame -- proven or not -- goes to the server. (Re-anchored: this used to
+# target the no-card early return, which FAST-TC11 has since removed.)
+mutate M7 "stop letting needsServer gate the hydrate" "FAST-TC7" "
+  const re = /if \(!needsServer\(local, \{ autoPass: !isManual \}\)\) \{/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'if (false) {');
 "
 
 # M8: report a reader that never ran as a failed card match -- the message that
@@ -146,12 +143,30 @@ mutate M9 "set the progress message on auto passes too" "FAST-TC9" "
   const after = before.replace(re, '\$1');
 "
 
-# M10: let the no-card path return without reporting anything, so whatever the
-# previous pass wrote stays on screen.
-mutate M10 "no-card path returns without a status" "FAST-TC10" "
-  const re = /\n\s*setScanStatus\(t\('scan\.waitingForCard'\)\);/;
+# M10: let the hold path return without reporting anything, so whatever the
+# previous pass wrote stays on screen. (Re-anchored: this used to target the
+# no-card return, which FAST-TC11 has since removed entirely.)
+mutate M10 "hold path returns without a status" "FAST-TC10" "
+  const re = /\n\s*setScanStatus\(t\('scan\.holdSteady'\)\);/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(re, '');
+"
+
+# M11: THE BUG. Replace upstream's backoff hold with a bare "the phone did not
+# prove it" return, so an unproven card never reaches the server and the UI can
+# only ever say "waiting for a card".
+mutate M11 "return whenever the phone did not prove a card" "FAST-TC11" "
+  const re = /if \(!deviceCard && !isManual && !serverAllowed\(failStreakRef\.current, Date\.now\(\), local\)\) \{/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'if (!deviceCard) {');
+"
+
+# M12: keep the gate, remove the sensor. serverAllowed() with a streak that is
+# never built always returns true -- the backoff silently never engages.
+mutate M12 "stop maintaining the fail streak" "FAST-TC12" "
+  const re = /failStreakRef\.current = nextFailStreak\(/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'const _unused = nextFailStreakDisabled = (');
 "
 
 printf '\n'
