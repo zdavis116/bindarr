@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Camera, RefreshCw, AlertTriangle, X, Zap, ZapOff, Settings } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { formatPrice } from '../utils/formatPrice';
 import { resolveCardPrice } from '../utils/resolveCardPrice';
 import { CONDITIONS, getPrintings } from '../utils/cardOptions';
-import { readOnDevice, needsServer, hydrateResults, loadClientScan, resetOnDevice, lastFrameJpeg } from '../utils/clientScan';
-import { FRAME_MAX, serverAllowed, nextFailStreak } from '../utils/fastScan';
+import { loadClientScan, resetOnDevice } from '../utils/clientScan';
+import { createScanner } from '../utils/scannerWiring';
 import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { createScanReviewQueue } from './scanReviewQueue';
@@ -77,31 +77,7 @@ const SCAN_CAPTURE_IDEAL_H = 3024;
 // ERROR (the scan threw). Back off further: hammering a failing server makes
 // it worse, and the failure is unlikely to clear within one tick.
 //
-// AUTO LOOP GAPS, upstream's values (FastScanner.jsx:21-23).
-//
-// 60ms between passes, ALWAYS -- including straight after a successful scan.
-// There is no "settle" pause, and that absence is the design, not an omission.
-//
-// A pause cannot distinguish "the same card is still lying there" from "a new
-// card just landed on top". Upstream keeps reading at full rate and answers
-// the duplicate question with evidence instead: a per-card-id dedupe window
-// (SEEN_CARD_MS below). So the loop never has to guess.
-//
-// Zach: "it's just continually scanning like I don't even have time to put a
-// new card down... by the time the card lands on top it already captured the
-// previous card." The 400ms settle made that WORSE: it delayed the pass that
-// would have seen the NEW card, while doing nothing to stop the OLD one being
-// read again -- because what re-read the old card was never the timing.
-const SCAN_RETRY_REJECTED_MS = 60;    // AUTO_GAP_MS
-const SCAN_RETRY_SETTLE_MS = 60;      // upstream does not pause after a hit
-const SCAN_RETRY_ERROR_MS = 1000;     // AUTO_BUSY_MS: the server asked for room
 
-// How long one Scryfall id stays "already scanned" (FastScanner.jsx:304).
-//
-// Keyed by ID and expiring on a clock, so: the card still on the table is
-// quiet, a genuinely different card is NEVER blocked, and a real second copy
-// becomes scannable again after 4s without having to leave the frame.
-const SEEN_CARD_MS = 4000;
 
 // ---------------------------------------------------------------------------
 // STABILITY GATING — capture when the detection HOLDS STILL, never on a timer.
@@ -236,11 +212,8 @@ const SCAN_ZOOM = 1.5;
 // and Zach's standing rule is that silent state changes are unacceptable for
 // software tracking physical objects. One second still shows the card name and
 // still accepts a tap to cancel.
-const SCAN_COUNTDOWN = 1;
-const SCAN_ORB = 500;
 // Server-side default after PR 22's latency work; sent explicitly so the value
 // in play is visible here rather than implied.
-const SCAN_RECALL_K = 50;
 
 function CameraScanner({ onAddSuccess, showToast }) {
   const { t } = useT();
@@ -298,7 +271,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
     reviewQueueRef.current = createScanReviewQueue({
     });
   }
-  const reviewQueue = reviewQueueRef.current;
   // Reconcile against the server on mount, so a queue left over from a previous
   // session (or a reload mid-stack) shows its real size immediately rather than
   // appearing empty until something new is queued.
@@ -341,7 +313,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const [setBuildProgress, setSetBuildProgress] = useState(null);
   // Why a set index could not be built, when setPrep === 'error'.
   const [setBuildError, setSetBuildError] = useState(null);
-  const scanGame = 'mtg';
   // Set-scoped scanning across one or more MTG sets.
   const [scanSetCodes, setScanSetCodesState] = useState([]);
   const persistSets = (arr) => { setScanSetCodesState(arr); localStorage.setItem('scanner_set_mtg', arr.join(',')); };
@@ -405,12 +376,34 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // and expired by the clock needs no such event, and cannot block a card the
   // user has not actually just scanned.
   const seenIdsRef = useRef(new Map());
+
+  // THE LOOP'S REFS (FastScanner.jsx:56-67), added with UPSTREAM'S semantics
+  // rather than mapped onto ours.
+  //
+  // Our scanner tracked this state differently: a `loading` state variable, a
+  // `currentScanId` counter, and a React effect that re-armed a timer. Those
+  // are not equivalents. `runRef` in particular is a GENERATION counter -- a
+  // pass still awaiting its scan when the user stops (and maybe restarts) sees
+  // a different number and exits, instead of scheduling a second loop beside
+  // the new one. `currentScanId` cannot do that job: it identifies a SCAN, not
+  // a RUN, so a restarted loop would inherit a live timer.
+  //
+  // Mapping these onto our existing state is exactly the paraphrase that has
+  // broken this port four times. They are added as upstream declares them.
+  const busyRef = useRef(false);        // one pass at a time
+  const autoRef = useRef(false);        // is the auto loop meant to be running
+  const aliveRef = useRef(true);        // false after unmount: late results must not touch state
+  const runRef = useRef(0);             // auto-loop generation
+  const loopTimerRef = useRef(null);    // the next scheduled tick
+  const scanAbortRef = useRef(null);    // in-flight server read
+  const onDeviceRef = useRef(false);    // did the reader load
+  const firstSeenRef = useRef(null);    // when the card in view was first seen
+  const frameCanvasRef = useRef(null);  // reused JPEG encode canvas
   // The identity a TAP has already forced past the queue dedupe guard. Lets the
   // first tap through and refuses a second one on the same card, so a double tap
   // cannot stage two rows for one piece of cardboard. Cleared alongside
   // lastQueuedNameRef when the card leaves the frame, because at that point a
   // genuine second copy must be scannable again.
-  const manualForcedNameRef = useRef(null);
   // MANUAL INTENT IS PER-SCAN, AND MUST NOT BE A SHARED MUTABLE FLAG.
   //
   // The first version of this used a single `manualScanRef` set at the top of
@@ -792,75 +785,53 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAddCountdown, autoAddTargetCard, autoAddEditing]);
 
-  // Capture scheduler: fire the next capture after the previous scan finishes
-  // (loading drops), waiting an amount PROPORTIONAL TO WHAT JUST HAPPENED.
+  // THE AUTO LOOP'S LIFETIME (FastScanner.jsx:352-361).
   //
-  // See SCAN_RETRY_* — a frame the sharpness gate skipped captured nothing and
-  // must not be punished with the same pause as a completed scan. That flat
-  // 3s-after-everything is the bulk of the per-card time Zach measured.
+  // The loop schedules its OWN next tick -- that is what makes it a 60ms loop
+  // rather than a React effect re-arming a timer after each render. This
+  // effect only decides WHETHER it should be running, and hands it a
+  // `isPaused` predicate for the conditions that must stop it mid-run.
   //
-  // PR 9: the fixed-cadence metronome that used to sit here is gone with the
-  // scan-detail slider. It only ever ran for the 'Turbo' preset (the sole
-  // profile carrying a `cadence`), and Turbo was the 400px/recallK-28 tier the
-  // measurements retired. With one profile there is no cadence, so that whole
-  // branch was unreachable code — and unreachable timer code on a page Zach
-  // uses for long stretches is a liability, not a spare option.
+  // WHAT THIS REPLACES: an effect that re-armed a setTimeout on every state
+  // change, with the gap chosen from the last outcome. That design cannot hit
+  // 60ms -- it pays a render between every pass -- and it was where the
+  // "continually scanning" and "settle pause" bugs both lived.
+  //
+  // `!showStaging` is a CORRECTNESS condition, not a nicety. Zach: "when I
+  // look at the scanned cards, scanning should stop in the background." It
+  // also closes a real data-loss race (review finding S2): /scan-stage/
+  // commit reads the rows to commit and then deletes ALL rows for the user, so
+  // a row inserted between the read and the delete is destroyed silently.
+  // Pausing capture while the list is open closes that window at its source.
   useEffect(() => {
-    let timerId;
-    // `!showStaging` is a CORRECTNESS condition, not a nicety. Zach: "when I
-    // look at the scanned cards, scanning should stop in the background."
-    //
-    // Auto-scan is permanently on and the Scanned overlay does not stop the
-    // camera, so while he reviewed the list the scanner kept firing at whatever
-    // the phone was pointing at -- the table, his lap, the next card in the
-    // stack -- and every one of those inserted a staging row he never asked for.
-    //
-    // It also opened a real data-loss race (review finding S2): /scan-stage/
-    // commit reads the rows to commit and then deletes ALL rows for the user.
-    // A row inserted between the read and the delete is destroyed without ever
-    // reaching the collection, and the symptom is a card that was scanned,
-    // never arrived, and left no trace. Pausing capture while the list is open
-    // closes that window at its source -- the only thing that inserts is off.
-    // AUTO-SCAN IS A PLAIN LOOP NOW, LIKE UPSTREAM'S.
-    //
-    // Tick, read the frame, schedule the next tick. That is the whole thing.
-    //
-    // WHAT USED TO GATE THIS, AND WHY IT IS GONE. Capture waited on
-    // `liveDetectRef` (a card is in view), `stableCountRef` (it held still for
-    // N frames) and `stablePeriodConsumedRef` (this stable period has not
-    // already scanned) -- all three fed by the separate YOLO detector loop that
-    // no longer exists. Every one of those questions is now answered INSIDE
-    // the reader, on the same frame it is about:
-    //
-    //   is a card in view      -> cornelius returns no quad; the pass ends in
-    //                             ~15ms having read nothing.
-    //   has it held still      -> requireStill on an auto pass: the pipeline
-    //                             compares corner drift between passes and
-    //                             refuses a moving card itself.
-    //   is it the same card    -> the reader TRACKS identity by art signature,
-    //                             and the duplicate guard below
-    //                             (lastQueuedNameRef) refuses a repeat by name.
-    //
-    // Keeping the old gates would have been three more questions asked of a
-    // detector that is not running -- `liveDetectRef.current` is now always
-    // null, so `if (!liveDetectRef.current) return;` would have silently
-    // disabled auto-scan completely while every test still passed.
-    if (cameraActive && autoScan && !isDrawerOpen && !loading && scanMatches.length === 0 && !autoAddTargetCard && !dupConfirmCard && !showStaging) {
-      const outcome = lastTickOutcomeRef.current;
-      const delay = outcome === 'rejected' ? SCAN_RETRY_REJECTED_MS
-        : outcome === 'error' ? SCAN_RETRY_ERROR_MS
-        : SCAN_RETRY_SETTLE_MS;
-      timerId = setTimeout(() => {
-        handleCaptureRef.current?.(true);   // auto: the reader gates the frame
-      }, delay);
+    aliveRef.current = true;
+    const shouldRun = cameraActive && autoScan;
+    if (!shouldRun) {
+      scannerRef.current.setAutoRunning(false);
+      return undefined;
     }
-    return () => {
-      if (timerId) clearTimeout(timerId);
-    };
-  // cardPresent/steady are gone from the deps with the detector that set them:
-  // a dep that never changes cannot wake an effect, and leaving them in would
-  // have implied a liveness this loop no longer has.
-  }, [cameraActive, autoScan, isDrawerOpen, loading, scanMatches, autoAddTargetCard, dupConfirmCard, showStaging]);
+    scannerRef.current.setAutoRunning(
+      true,
+      () => videoRef.current,
+      // Re-checked before EVERY tick, so opening the staged list stops the
+      // next pass rather than waiting for a re-render to tear the loop down.
+      () => isDrawerOpenRef.current || showStagingRef.current
+        || scanMatchesRef.current.length > 0 || autoAddTargetRef.current != null
+        || dupConfirmRef.current != null,
+      resetOnDevice,
+    );
+    return () => { scannerRef.current.setAutoRunning(false); };
+  }, [cameraActive, autoScan]);
+
+  // Unmount: late results must not touch state, and an in-flight server read
+  // must be abandoned rather than left to resolve into a dead component.
+  useEffect(() => () => {
+    aliveRef.current = false;
+    autoRef.current = false;
+    runRef.current++;
+    clearTimeout(loopTimerRef.current);
+    scanAbortRef.current?.abort();
+  }, []);
 
   // WHY AUTO-SCAN IS WAITING, in Zach's words rather than the code's.
   //
@@ -1322,903 +1293,105 @@ function CameraScanner({ onAddSuccess, showToast }) {
     setScanMatches([]);
   };
 
-  // Present the image-match results: show the picker, and on a single result
-  // take the fast path (auto-add / quick-
-  // add per mode). autoSingle lets the caller allow the fast path for a single MTG
-  // result too — used when the image match is confident and the printing is
-  // unambiguous (only one printing, or the set code narrowed it to one). Ambiguous
-  // MTG (many printings, no set code) still shows the picker.
-  // `manualOverride` is the calling scan's own intent, passed explicitly rather
-  // than read from shared state -- see the note by lastQueuedNameRef for the
-  // duplicate-record bug that a shared flag caused here.
-  const applyMatches = async (matches, notFoundMsg, autoSingle = false, matchInliers = null, manualOverride = false) => {
-    setScanMatches(matches);
-    if (matches.length === 0) {
-      // Nothing in frame — the resolved-duplicate card has left, so clear the
-      // skip guard; re-presenting it later should prompt again, not skip forever.
-      resolvedDupIdRef.current = null;
-      setScanStatus(notFoundMsg);
-      signal('error');
-      return;
-    }
-    setScanStatus('');
-    if (matches.length === 1 && (scanGame !== 'mtg' || autoSingle)) {
-      if (autoScan) {
-        const id = matches[0].id;
-        // A LOW-CONFIDENCE MATCH IS NOT AN IDENTITY, so it must not drive the
-        // duplicate guards below.
-        //
-        // Zach: "It's not really scanning each new card on top." The trace
-        // showed why: two DIFFERENT foil cards both matched as 'Jeskai
-        // Ascendancy' at 11 and 14 inliers -- noise. The second was then
-        // suppressed as "same card still in view" and never scanned. The guard
-        // was working correctly on an identity that was simply wrong.
-        //
-        // Below WEAK_MATCH_INLIERS the matcher is guessing (measured on Zach's
-        // scans: correct matches 47-141, wrong ones 4-23), so a repeated name
-        // carries no information about whether the CARDBOARD is the same. Let
-        // it through and let the server's set+number resolution decide -- that
-        // path reads the printed catalogue address and is right where the art
-        // is not.
-        const WEAK_MATCH_INLIERS = 25;
-        const inl = Number.isFinite(matchInliers) ? matchInliers : matches[0].inliers;
-        const identityIsTrusted = Number.isFinite(inl) && inl > WEAK_MATCH_INLIERS;
-
-        // A MANUAL TAP OVERRIDES EVERY DEDUPE GUARD.
-        //
-        // Zach: "no card would scan twice even with a tap trying to override
-        // it."
-        //
-        // The tap path already clears the capture-side latches
-        // (stablePeriodConsumedRef, loading, currentScanId) -- but the scan then
-        // completed and died HERE instead, in the match-side guards, showing
-        // "Same card still in view". So the tap did fire a real scan and its
-        // result was thrown away, which looks identical to the tap doing
-        // nothing.
-        //
-        // The guards exist to stop a card LINGERING in frame from being counted
-        // twice on its own. A tap is not lingering -- it is Zach explicitly
-        // asserting "this is a new card, scan it". He is holding the cardboard;
-        // the app is inferring from 64 brightness samples. He wins.
-        //
-        // This is deliberately NOT extended to the auto path: there, a repeat
-        // identity really is ambiguous, and a wrong count against physical
-        // cardboard costs a recount while a missed card costs a tap.
-        if (identityIsTrusted && manualOverride && id === resolvedDupIdRef.current) {
-          resolvedDupIdRef.current = null;
-        }
-        if (identityIsTrusted && !manualOverride && id === resolvedDupIdRef.current) {
-          // Same card we already handled, still sitting in frame — wait for a
-          // different card before doing anything.
-          setScanMatches([]);
-          setScanStatus('Same card still in view — swap in the next card.');
-          return;
-        }
-        if (identityIsTrusted && id === lastAddedIdRef.current) {
-          // Repeat of the card just auto-added: could be a real second copy or
-          // just the same card lingering. Make the user decide.
-          setDupConfirmCard(matches[0]);
-          setDupQty(1);
-          setScanMatches([]);
-          return;
-        }
-        // A different card is now in frame — clear the skip guard so the old
-        // resolved-duplicate card is scannable again later.
-        resolvedDupIdRef.current = null;
-        // The countdown overlay gives a window to cancel a mis-scan before the
-        // card is added. SCAN_COUNTDOWN is fixed at 2 now that the profile
-        // table is gone; the old countdown-0 fast path belonged to 'Turbo'.
-        setAutoAddTargetCard(matches[0]);
-        setAutoAddCountdown(SCAN_COUNTDOWN);
-        setScanMatches([]);
-      } else {
-        openQuickAdd(matches[0]);
-      }
-    }
-  };
 
   // `auto` distinguishes the two callers, and it is the ONLY thing the
   // sharpness gate keys on. The metronome effect passes true; the scan BUTTON
   // passes nothing, so a manual tap is never gated and always produces a scan.
-  const handleCapture = async (auto = false, force = false) => {
-    // `loading` guards against two scans running at once. A MANUAL tap may
-    // override it, because a stuck `loading` is otherwise unrecoverable without
-    // restarting the camera -- Zach: "tapping didn't get it to scan again".
-    // Auto-scan never forces: only a deliberate tap does.
-    if ((loading && !force) || !videoRef.current || !cameraActive) return;
+  // THE SERVER FALLBACK, in the shape the loop expects.
+  //
+  // Posts the frame to /api/cardscan/frame, which runs cvScan (cornelius +
+  // milo) locally. Upstream posts the same bytes to a separate OCR container;
+  // the contract is identical, so the loop does not know or care which.
+  const serverScan = useCallback(async (blob, { signal: abortSignal, why, autoPass }) => {
+    const resp = await fetch('/api/cardscan/frame', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'X-Scan-Client': `od=${onDeviceRef.current ? 1 : 0} why=${why} mode=${autoPass ? 'auto' : 'shutter'}`,
+      },
+      body: blob,
+      signal: abortSignal,
+    });
+    // 429 is "the server is busy", not "no card" -- the loop backs off a full
+    // second on this rather than retrying in 60ms.
+    if (resp.status === 429) return { busy: true, backoff: true };
+    const j = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` }));
+    if (!resp.ok || !j.ok) throw new Error(j.error || 'scan service error');
+    return j;
+  }, []);
 
-    // THE INTENT BEHIND THIS SCAN, as a local. `auto === false` means a tap.
-    // Captured by this invocation's closure, so a concurrent scan starting
-    // mid-flight cannot change what this one believes about itself.
-    const isManual = !auto;
+  // ONE SCANNER, BUILT ONCE. The loop owns the scan decision; onCard owns what
+  // happens to a proven card, which is where this app differs from upstream on
+  // purpose (cards land in the staging tray for review).
+  // The scanner is built ONCE, but these change every render. Routing them
+  // through refs means the loop always calls the current closure instead of
+  // capturing the first one -- the classic stale-closure bug, which here would
+  // show up as cards staging into a review queue that no longer exists.
+  // WHAT MUST PAUSE THE LOOP, read through refs.
+  //
+  // The predicate runs before every tick, inside a loop that schedules itself
+  // -- so it cannot read state from the render that started the loop. A stale
+  // `showStaging` here would mean scanning continues in the background while
+  // Zach reviews the staged list, which is the data-loss race that pause
+  // exists to close.
+  const isDrawerOpenRef = useRef(false);   isDrawerOpenRef.current = isDrawerOpen;
+  const showStagingRef = useRef(false);    showStagingRef.current = showStaging;
+  const scanMatchesRef = useRef([]);       scanMatchesRef.current = scanMatches;
+  const autoAddTargetRef = useRef(null);   autoAddTargetRef.current = autoAddTargetCard;
+  const dupConfirmRef = useRef(null);      dupConfirmRef.current = dupConfirmCard;
 
-    setLoading(true);
-    const scanId = ++currentScanId.current;
-    setScanMatches([]);
-    // NO STATUS ON AN AUTO PASS.
-    //
-    // This used to set 'Initializing scanner...' unconditionally, which was
-    // harmless when a scan meant a server round trip -- the next line of the
-    // flow always overwrote it. It is not harmless now: an auto pass with no
-    // card in frame returns EARLY (the whole point of the 60ms loop), so the
-    // text was written every 60ms and never cleared. Zach saw it as "stuck in
-    // initialize scanner like it's stuck in an infinite loop", which is
-    // exactly what it looked like.
-    //
-    // Upstream never does this. Its auto loop sets a HINT from the OUTCOME
-    // ("no card", "hold steady", "move closer") after a pass completes, never
-    // a "working on it" message before one starts. A message that appears
-    // before the work and is cleared by the work cannot survive an early
-    // return; a message derived from the result can.
-    if (isManual) setScanStatus('Initializing scanner...');
+  const applyScanOutcomeRef = useRef(null);
+  applyScanOutcomeRef.current = applyScanOutcome;
+  const signalRef = useRef(null);
+  signalRef.current = signal;
 
+  const scannerRef = useRef(null);
+  if (!scannerRef.current) {
+    scannerRef.current = createScanner({
+      busyRef, autoRef, aliveRef, runRef,
+      timerRef: loopTimerRef, scanAbortRef, failStreakRef, seenIdsRef,
+      onDeviceRef, firstSeenRef, canvasRef: frameCanvasRef,
+    }, {
+      submitScan: (payload) => reviewQueueRef.current.submitScan(payload),
+      applyScanOutcome: (outcome, identified) => applyScanOutcomeRef.current(outcome, identified),
+      serverScan,
+      signal: (type) => signalRef.current(type),
+      setScanStatus: (s) => setScanStatus(s),
+      setDebugCandidates: (c) => setDebugCandidates(c),
+      setCaptureSource: (s) => setCaptureSource(s),
+      // HINTS COME FROM THE OUTCOME, after a pass. Never a "working on it"
+      // message before one: an early return cannot clear that, and a 60ms loop
+      // would leave it on screen for ever. That was the "stuck on Initializing
+      // scanner" bug.
+      hint: (key, vars) => {
+        if (!key) return setScanStatus('');
+        const map = {
+          noCard: t('scan.waitingForCard'),
+          hold: t('scan.holdSteady'),
+          footer: 'Show the bottom-left corner of the card',
+          adjust: vars?.reason ? `Adjust the card (${vars.reason})` : t('scan.holdSteady'),
+          working: '',
+        };
+        return setScanStatus(map[key] ?? '');
+      },
+      onError: (msg) => {
+        if (msg) console.warn('[scan]', msg);
+        lastTickOutcomeRef.current = msg ? 'error' : lastTickOutcomeRef.current;
+        if (msg) setScanStatus(msg);
+      },
+      onBusy: (b) => setLoading(b),
+      isStale: () => !aliveRef.current,
+    });
+  }
+
+  // handleCapture is now a thin adapter: the tap overlay and the auto loop
+  // both call the SAME scan(). `force` no longer has to exist to rescue a
+  // wedged `loading` flag -- busyRef is released in a finally, so it cannot
+  // wedge.
+  const handleCapture = async (auto = false) => {
     const video = videoRef.current;
-    
-    const guideElement = document.querySelector('.scan-card-guide');
-    if (!guideElement) {
-      setLoading(false);
-      setScanStatus('Error: Guide box overlay not found.');
-      return;
-    }
-
-    // 1. Capture and correctly orient the frame onto a canvas.
-    //
-    // ORDER MATTERS: the sharpness gate runs on the CHEAP video frame, and the
-    // still-photo shutter only fires once that gate has passed.
-    //
-    // takePhoto() costs a real shutter (~0.3-1s on iOS). Auto-scan ticks every
-    // SCAN_COOLDOWN_MS and DELIBERATELY discards blurred frames, so taking a
-    // still before the gate would pay that shutter on every rejected tick —
-    // turning a fast reject into a slow one and making the scanner feel worse
-    // than before precisely when conditions are poor. Gating first means the
-    // expensive capture happens only for frames that were going to be uploaded.
-    // ONE FRAME, STRAIGHT OFF THE PREVIEW. Nothing else.
-    //
-    // Zach: "I want the scanner to match scrybox exactly so remove anything
-    // scrybox isn't using." Everything that used to sit between here and the
-    // read has been deleted, because the reader already does its job:
-    //
-    //   getOrientedVideoCanvas + cropGuideRegion + the locked-detection crop
-    //     -> cornelius predicts the card's four corners from the FULL frame.
-    //        Cropping first fed it a picture of a crop and cost three canvas
-    //        draws per tick to do it.
-    //
-    //   the laplacian sharpness gate (frameSharpness.js)
-    //     -> the pipeline has its own blur gate, measured on 506 real frames:
-    //        every card it ever proved scored >= 2161 on the title band and
-    //        nothing below 500 ever read. It gates the strip that has to be
-    //        legible, not the whole frame.
-    //
-    //   the separate YOLO live detector on its own 140ms loop
-    //     -> the SAME QUESTION cornelius answers, asked twice, by two ONNX
-    //        models competing for one wasm thread. That contention is most of
-    //        why this felt slow: the scan's own model queued behind a detector
-    //        looking for the card it had already found.
-    //
-    // The reader takes the video element directly; clientScan draws the two
-    // canvases it needs (full frame at FRAME_MAX, plus a 384x384 copy for
-    // cornelius) from the same instant, so corners and pixels can never come
-    // from different moments.
-    const sw = video.videoWidth, sh = video.videoHeight;
-    if (!sw || !sh) { setLoading(false); return; }
-
-    // ASK THE PHONE FIRST, OFF THE LIVE PREVIEW, BEFORE PAYING FOR ANYTHING.
-    //
-    // THIS ORDER IS THE WHOLE POINT. Everything below this block -- the
-    // ImageCapture still, the 2000px downscale, the main-thread JPEG encode --
-    // exists to produce an UPLOAD. When the phone can read the card itself,
-    // none of it is needed, and doing it first is pure latency on every scan.
-    //
-    // Zach, comparing against the app this pipeline came from: "His scans
-    // worked way quicker than ours." He was right, and this was why: the
-    // reader was identical, but it had been wired INSIDE the old server-scan
-    // preamble, so every scan paid the full cost of both pipelines. That app
-    // reads straight off the <video> element and only encodes a JPEG if the
-    // local read fails. So does this now.
-    //
-    // The reader is handed the VIDEO ELEMENT, exactly as upstream does it.
-    // clientScan draws both canvases it needs from that one source at one
-    // instant. The corpus replay that measured this pipeline (92.6%
-    // identified, zero wrong cards on 271 of Zach's frames) ran on saved
-    // PREVIEW frames, not ImageCapture stills -- so this is the input it was
-    // validated against, not a downgrade from it.
-    // THE SCAN DECISION, TRANSCRIBED FROM UPSTREAM'S scan() (FastScanner.jsx
-    // lines 255-277). Same order, same branches, same meanings. I have broken
-    // this three times by paraphrasing it, so it is written here as a direct
-    // transcription with their line numbers, not as my own arrangement.
-    //
-    //   local = await readOnDevice(source, sw, sh, { requireStill: autoPass })
-    //   track why, and RESET the fail streak when there is no card         (259)
-    //   if (!needsServer(local, {autoPass})) out = hydrate(local)          (264)
-    //   if (out) abort()                       -> proven on the phone: done (269)
-    //   else if (autoPass && !serverAllowed()) -> hold, hint, return        (271)
-    //   else out = await serverRead(...)       -> EVERYTHING ELSE UPLOADS   (277)
-    //
-    // WHAT I GOT WRONG, AND WHY IT LOOKED "STUCK ON WAITING FOR A CARD":
-    // I replaced line 277 with an unconditional `return` whenever the phone
-    // had not proven a card. Upstream only holds when serverAllowed() says the
-    // CURRENT frame shows the same unresolved card in the same place as the
-    // last few passes -- a backoff that deliberately cannot hold back a new
-    // card. With my return, an unproven card never reached the server at all,
-    // so the only thing the UI could ever say was "waiting for a card".
-    let deviceCard = null;
-    let deviceTitle = null;
-    let local = null;
-    try {
-      local = await readOnDevice(video, sw, sh, { requireStill: !isManual });
-      if (scanId !== currentScanId.current) return;
-      // (258-259) A failed read is not a streak, and neither is an empty
-      // frame: clearing the streak here is what lets the NEXT card through
-      // immediately instead of inheriting the previous card's backoff.
-      if (local?.error) console.warn('[scan] on-device read failed:', local.error);
-      else if (!local?.candidates?.length) failStreakRef.current = null;
-    } catch (e) {
-      console.warn('[scan] on-device path unavailable, using server:', e?.message || e);
-    }
-
-    // (264-267) Proven on the phone -- or an auto pass the stillness gate held
-    // back -- means no upload. hydrateResults turns a proven Scryfall id into
-    // a real card row.
-    if (!needsServer(local, { autoPass: !isManual })) {
-      try {
-        const hydrated = await hydrateResults(local?.results || []);
-        if (scanId !== currentScanId.current) return;
-        const hit = hydrated.find(r => r.ok && r.card);
-        if (hit) { deviceCard = hit.card; deviceTitle = hit.title || null; }
-      } catch (e) {
-        console.warn('[scan] hydrate failed, using server:', e?.message || e);
-        deviceCard = null;
-      }
-    }
-
-    // (271-276) THE ONLY CASE THAT ENDS A PASS WITHOUT AN ANSWER. Not "the
-    // phone did not prove it" -- specifically "this frame shows the same
-    // unresolved card, in the same place, as the last few passes, and the
-    // backoff window has not expired". serverAllowed() is given the CURRENT
-    // local read precisely so a new card is never held.
-    if (!deviceCard && !isManual && !serverAllowed(failStreakRef.current, Date.now(), local)) {
-      lastTickOutcomeRef.current = 'rejected';
-      setScanStatus(t('scan.holdSteady'));
-      setLoading(false);
-      return;
-    }
-
-    if (deviceCard) {
-      lastTickOutcomeRef.current = 'settle';
-      signal('capture');
-      setCaptureSource('video');
-      console.log('Scan candidates: on-device', deviceCard.name, deviceCard.set_id, deviceCard.number);
-      setDebugScoped(false);
-      setDebugCandidates([{
-        name: deviceCard.name, set: deviceCard.set_id, number: deviceCard.number,
-        inliers: 100, score: 1, verified: true, card: deviceCard,
-      }]);
-      const identified = deviceCard.name;
-      // THE DUPLICATE GUARD, TRANSCRIBED FROM UPSTREAM (FastScanner.jsx:301-306).
-      //
-      // Keyed by SCRYFALL ID with a 4s expiry, not by name with a latch.
-      //
-      // WHAT WAS HERE AND WHY IT BROKE STACK SCANNING: `identified ===
-      // lastQueuedNameRef.current`, a sticky latch cleared only when the card
-      // LEFT THE FRAME -- an event the deleted live detector used to report.
-      // With that detector gone, nothing ever cleared it. And Zach's actual
-      // workflow is "I just drop cards on top", so the previous card never
-      // leaves the frame at all. Drop a second Forest on a first and the
-      // scanner silently refuses it.
-      //
-      // A time window needs no leave event: the card on the table stays quiet
-      // for 4s, a DIFFERENT card is never blocked for even one pass, and a
-      // genuine second copy is scannable again by the clock.
-      const now = Date.now();
-      const lastSeen = seenIdsRef.current.get(deviceCard.id);
-      const isRepeat = lastSeen != null && now - lastSeen < SEEN_CARD_MS;
-      // A manual tap is a deliberate request and overrides the window -- once
-      // per card, so a double tap cannot stage two rows for one piece of
-      // cardboard.
-      if (isRepeat && isManual && deviceCard.id === manualForcedNameRef.current) {
-        setScanStatus('Already scanned this card — tap again in a moment to add another copy.');
-        setLoading(false);
-        return;
-      }
-      if (isRepeat && !isManual) {
-        // Refresh the window so a card left on the table stays quiet rather
-        // than re-firing every 4s, and say nothing: upstream shows no message
-        // for a card it is deliberately ignoring.
-        seenIdsRef.current.set(deviceCard.id, now);
-        lastTickOutcomeRef.current = 'settle';
-        setLoading(false);
-        return;
-      }
-      if (isRepeat && isManual) manualForcedNameRef.current = deviceCard.id;
-      seenIdsRef.current.set(deviceCard.id, now);
-      setScanStatus('');
-      try {
-        // THE SAME SUBMIT AND THE SAME HANDLER AS A SERVER SCAN.
-        //
-        // printingHint carries the printing the phone PROVED by reading the
-        // footer, so set + number are evidence rather than a guess. The server
-        // still validates it against the catalogue and ignores it unless it
-        // resolves to exactly one real printing -- nothing is added on the
-        // client's say-so.
-        //
-        // stage: true because Zach chose staging for on-device reads: nothing
-        // enters the collection until he presses Add All.
-        const outcome = await reviewQueue.submitScan({
-          matchInliers: 100,
-          match_inliers: 100,
-          name: identified,
-          titleText: deviceTitle || identified,
-          ocrText: '',
-          printingHint: { set: deviceCard.set_id, number: deviceCard.number },
-          stage: true,
-          crop: null,
-          quantity: 1,
-        });
-        if (scanId !== currentScanId.current) return;
-        applyScanOutcome(outcome, identified);
-      } catch (err) {
-        console.error('on-device submit failed:', err);
-        lastTickOutcomeRef.current = 'error';
-        if (scanId === currentScanId.current) setScanStatus('Scan failed. Please search manually.');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    // THE PHONE COULD NOT PROVE IT -- the server gets the same frame.
-    //
-    // lastFrameJpeg() encodes the canvas clientScan ALREADY drew for the read,
-    // so the server sees exactly the pixels the phone looked at and no second
-    // capture happens. That is upstream's behaviour and it is also the honest
-    // one: a server answer about a different frame is not a fallback, it is a
-    // second opinion on a different question.
-    //
-    // takeStillPhoto / ImageCapture is GONE. It cost a real shutter
-    // (~0.3-1s on iOS) on every scan, and upstream never calls it -- the
-    // reader proves the card from preview pixels, and the ~7% it cannot prove
-    // are cards a sharper still would not have rescued either (no readable
-    // title, or a footer the catalogue cannot narrow to one printing).
-    setCaptureSource('video');
-
-    // Past the gate: a real scan is now running. Default the tick outcome to
-    // 'settle' so the scheduler paces the next attempt for a physical card
-    // swap. The catch below overrides this to 'error' if the scan throws.
-    lastTickOutcomeRef.current = 'settle';
-
-    // Picture is now taken — fire the instant cue (click + vibrate + flash) so
-    // the user can move the card immediately, before the server lookup runs.
-    signal('capture');
-
-    try {
-      // Identify by image (server-side). Send the WHOLE oriented frame (downscaled)
-      // so the server can auto-detect + deskew the card before matching — the guide
-      // box is just an aim hint.
-      {
-        setScanStatus('Matching card image...');
-        {
-          // REUSE THE FRAME THE READER ALREADY DREW.
-          //
-          // lastFrameJpeg() encodes clientScan's own full-frame canvas -- the
-          // exact pixels cornelius and the recognizer just looked at. No second
-          // capture, no third canvas, and the server is answering about the
-          // same frame that failed rather than a fresh one.
-          const blob = await lastFrameJpeg();
-          if (!blob) {
-            // NO FRAME MEANS THE READER NEVER RAN, NOT "NO MATCH".
-            //
-            // This used to say "No confident match", which is a claim about a
-            // CARD. When the reader fails to load, no card was ever examined --
-            // and that wrong message is what made a broken loader look like a
-            // scanner that simply could not recognise anything. Say what
-            // actually happened so the next failure is diagnosable from the
-            // screen instead of from a CDP probe.
-            console.warn('[scan] no frame to send: the on-device reader did not run');
-            setScanStatus('Scanner is still loading — try again in a moment.');
-            lastTickOutcomeRef.current = 'error';
-            signal('error');
-            return;
-          }
-          const imageData = await new Promise((res, rej) => {
-            const fr = new FileReader();
-            fr.onload = () => res(fr.result);
-            fr.onerror = () => rej(fr.error);
-            fr.readAsDataURL(blob);
-          });
-          // WHAT WE ACTUALLY SENT, for the diagnostics panel. KB is the
-          // Tailscale cost, measured rather than predicted; base64 is ~4/3 of
-          // the bytes, so that factor is removed.
-          setUploadInfo({
-            cropW: sw,
-            sentW: Math.min(sw, FRAME_MAX),
-            kb: Math.round(blob.size / 1024),
-          });
-          setDebugHashImg(imageData);
-          try {
-
-            const resp = await fetch('/api/scan-match', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              // ocr: true is what connects PR 8's collector-number pipeline to
-              // the app. The server GATES OCR behind this flag, so without it
-              // the whole pipeline — reader, parser, resolver, queue — was built
-              // and tested but never once ran from the scanner, and every scan
-              // fell back to guessing the printing from whichever unique_artwork
-              // entry matched. That is the bug PR 9 exists to fix.
-              body: JSON.stringify({ game: 'mtg', image: imageData, set: scanSetParam, lang: 'en', recallK: SCAN_RECALL_K, orb: SCAN_ORB, ocr: true }),
-            });
-            if (scanId !== currentScanId.current) return;
-            if (resp.ok) {
-              const { game: matchGame, verified, candidates, crop, scoped, englishOnly, ocr } = await resp.json();
-
-              // (281-282) FOLD THIS SERVER ANSWER INTO THE FAIL STREAK.
-              //
-              // The other half of serverAllowed(): without this the streak is
-              // never built, the backoff never engages, and a card the server
-              // also cannot resolve is re-uploaded every 60ms for ever. The
-              // shape given to nextFailStreak matches upstream's -- an
-              // unresolved result carrying a title, plus where it sat in the
-              // frame -- so "same card, same place" means the same thing here
-              // as it does there.
-              failStreakRef.current = nextFailStreak(failStreakRef.current, {
-                results: ocr?.title
-                  ? [{ ok: false, title: ocr.title, number: ocr.number ?? null, box: ocr.box || null }]
-                  : [],
-                candidates: (candidates || []).map(c => ({ number: c.number ?? null, box: c.box || null })),
-                frame: { width: Math.min(sw, FRAME_MAX), height: Math.min(sh, FRAME_MAX) },
-              }, Date.now());
-
-              console.log('Scan candidates:', matchGame, scoped ? `(set-scoped ${scanSetParam})` : '(GLOBAL)', verified ? 'ORB' : 'CLIP', candidates);
-              if (crop) setDebugHashImg(crop); // show the server's auto-cropped card
-              setDebugScoped(scoped ? scanSetParam : false);
-              setDebugCandidates((candidates || []).map(c => ({ ...c, verified })));
-              // The whole-game indexes only exist in English, so a non-English scan
-              // needs a set selected (its index builds on demand). Say that plainly
-              // instead of leaving the user re-scanning a card that cannot match.
-              if (englishOnly) {
-                setScanStatus('Select a set before scanning this card.');
-                return;
-              }
-              const top = candidates && candidates[0];
-              const confident = top && (verified ? top.inliers >= SCAN_MATCH_MIN_INLIERS : top.score >= SCAN_MATCH_MIN_SCORE);
-              // Printing ambiguity: basic lands (and other low-art cards) share one
-              // big symbol + frame, so ORB scores nearly tie across every printing
-              // of the same card. A near-tied same-name runner-up means the image
-              // can't tell the printings apart — so DON'T auto-add the top pick's
-              // set; fall through to the picker and let the user choose the set.
-              const second = candidates && candidates[1];
-              const ambiguousPrinting = top && second && top.name === second.name
-                && (top.set !== second.set || top.number !== second.number)
-                && (verified ? second.inliers >= top.inliers * 0.7 : second.score >= top.score - 0.02);
-              if (candidates && candidates.length > 0) {
-                // --- PR 9: the add-or-queue decision ------------------------
-                //
-                // AUTO-SCAN ONLY, and that boundary is deliberate. Auto-scan is
-                // the stack workflow: Zach holds a pile and the app must never
-                // stop to ask, so an unresolved card goes to the server-side
-                // review queue and scanning continues. A MANUAL tap is already
-                // an explicit, one-card-at-a-time interaction, so the existing
-                // picker below stays exactly as it is for that path — showing
-                // him a picker he asked for is not an interruption.
-                //
-                // THE SERVER MAKES THE DECISION, NOT THIS CODE. /scan-resolve
-                // adds only when the OCR read narrows the catalogue to exactly
-                // one printing; everything else queues. Nothing here inspects
-                // the OCR read to second-guess that, because the catalogue is
-                // the validator and this component is not.
-                // PR 11: A CONFIDENT CLIP MATCH IS NO LONGER REQUIRED TO
-                // SUBMIT, and this gate was the real single point of failure.
-                //
-                // `confident` is a threshold on the ARTWORK match. On Zach's
-                // glared Fated Firepower the top candidate was noise (9 inliers,
-                // wrong card), so this gate returned early and the scan was
-                // never sent — even though the title and collector number were
-                // both plainly legible in the very same photo. The backend
-                // could not rescue a request it never received.
-                //
-                // So the condition is now "we have SOMETHING to identify with":
-                // a confident CLIP name, or an OCR'd title. The server still
-                // makes the whole decision and still adds only when the
-                // catalogue narrows to exactly one printing — this widens what
-                // gets ASKED, not what gets added.
-                const titleText = (ocr?.title || '').trim();
-                const clipName = confident && top?.name ? top.name : '';
-                // THE PRINTING THE ARTWORK ACTUALLY MATCHED.
-                //
-                // The scan index is built per ARTWORK, so a confident match does
-                // not merely name the card — it names one specific printing
-                // (top.set + top.number). That was computed and then thrown
-                // away: only `name` was sent, so the server re-looked-up EVERY
-                // printing of that name, found several, and queued as
-                // 'ambiguous'. Zach's stack shows the cost — 'The Legend of
-                // Roku' (tla 357) and 'Dai Li Agents' (tla 214) are ALT ARTS
-                // with artwork unique to one printing, and both were queued
-                // asking him a question the matcher had already answered.
-                //
-                // Only sent when the image can actually tell the printings
-                // apart. `ambiguousPrinting` (computed above) flags the case
-                // where a same-name runner-up scores nearly as well — basic
-                // lands and other low-art cards, where every printing shares one
-                // frame and ORB near-ties across all of them. In that case the
-                // artwork genuinely does NOT identify the printing, so the hint
-                // is withheld and the collector number / the queue decides, as
-                // before.
-                //
-                // This is a HINT, not an instruction: the server validates it
-                // against the catalogue and ignores it if it does not resolve to
-                // exactly one real printing. Nothing is added on the strength of
-                // the client's say-so.
-                // THE SET IS SENT EVEN WHEN THE PRINTING IS AMBIGUOUS.
-                //
-                // Zach: "ManaBox had no issues with basic lands", and his stack
-                // kept queueing Forests the matcher had already identified.
-                //
-                // MEASURED on 22 basic lands from his real scans: the matcher got
-                // the card right EVERY TIME (Forest->Forest, Plains->Plains,
-                // Mountain->Mountain, 0 misidentified) and OCR read the number
-                // reliably -- Forest #295 seven times, Plains #288 five times,
-                // Mountain #293 three times, the same answer on every repeat.
-                // The ONLY unreliable signal was the OCR'd SET CODE: 'rvryg',
-                // 'nard', 'rrr', 'ere', 'mshen', null.
-                //
-                // The old condition withheld the hint whenever `ambiguousPrinting`
-                // was true -- which is ALWAYS true for a basic land, because every
-                // printing of a Forest shares the art and ties on inliers. So on
-                // exactly the cards that were failing, we threw away the set we
-                // already knew and left the resolver holding a garbage one.
-                //
-                // TWO DIFFERENT QUESTIONS WERE BEING CONFLATED:
-                //   which CARD     -- Forest, in msh. The matcher knows this.
-                //   which PRINTING -- #295 or #296. The art genuinely cannot say.
-                // Ambiguity about the second is not a reason to discard the first.
-                //
-                // So the SET always goes, and the NUMBER only goes when the image
-                // could actually tell the printings apart. The collector number --
-                // the signal that IS reliable -- then picks within the set. Still
-                // a HINT: the server validates against the catalogue and ignores
-                // it unless it resolves to exactly one real printing, so nothing
-                // is added on the client's say-so and a wrong guess still queues.
-                // THE MATCHER'S SET IS ONLY TRUSTED WHEN THE MATCH IS REAL.
-                //
-                // WHAT INLIERS ARE: the number of feature points from the photo
-                // that agree with a single geometric transform onto the reference
-                // image. High means many landmarks genuinely line up; low means a
-                // handful agreed by coincidence and the matcher is picking the
-                // least-bad row rather than recognising anything.
-                //
-                // MEASURED on Zach's stack, where sending the set unconditionally
-                // put WRONG CARDS into staging:
-                //     Plains              inliers 52, 70   -> correct
-                //     Forest              inliers 9-15      -> staged as pal03 #5
-                //     Blightstep Pathway  inliers 12        -> not a land at all
-                // The separation is clean and it is not close. Below ~20 every
-                // result was wrong; above it every result was right.
-                //
-                // Basic lands are the hard case for a reason: a Forest is smooth
-                // artwork with very few distinctive corners, so there are barely
-                // any feature points to match and the score stays near the noise
-                // floor even for the correct card. That is exactly when the set
-                // must NOT be taken on trust.
-                //
-                // Sending the set regardless is what turned "queues annoyingly"
-                // into "silently files a Forest as Arena League 2003". A queued
-                // card costs a tap; a wrong card in the collection cannot be
-                // reconciled against the physical stack.
-                const MIN_TRUSTED_INLIERS = 20;
-                const matchInliers = Number.isFinite(top?.inliers) ? top.inliers : null;
-                const matchIsTrusted = matchInliers != null && matchInliers >= MIN_TRUSTED_INLIERS;
-                const printingHint = (clipName && top?.set && matchIsTrusted)
-                  ? {
-                    set: String(top.set),
-                    number: (!ambiguousPrinting && top?.number) ? String(top.number) : null,
-                  }
-                  : null;
-                if (autoScan && (clipName || titleText)) {
-                  // The dedup key must survive CLIP being wrong, so it keys on
-                  // whichever identifier we actually have. Without this a stack
-                  // of glared cards with no CLIP name would all share the key ''
-                  // and every card after the first would be silently skipped.
-                  const identified = clipName || titleText;
-                  // A TAP OVERRIDES THIS GUARD -- BUT ONLY ONCE PER CARD.
-                  //
-                  // The guard exists so a card LINGERING in frame is not staged
-                  // repeatedly on its own. A tap is Zach asserting "this is a
-                  // new card", so it must get through; that is the whole point
-                  // of the escape hatch.
-                  //
-                  // But an unconditional override means a double tap -- or one
-                  // stray double-click on the full-bleed transparent overlay --
-                  // stages TWO rows for one piece of cardboard, with no
-                  // confirmation anywhere on this path. Given his stated cost
-                  // asymmetry (a duplicate costs a recount against cardboard, a
-                  // miss costs a tap) that trade is the wrong way round.
-                  //
-                  // So: the first tap on an identity forces through, a second
-                  // tap on the SAME identity is refused AND SAYS SO. If it
-                  // really is a second physical copy, the message tells him to
-                  // lift and re-present the card, which clears the guard
-                  // legitimately. That costs a tap in the rare case and prevents
-                  // a recount in the likely one.
-                  // SAME WINDOW AS THE ON-DEVICE PATH. The server path has no
-                  // Scryfall id yet (that is what submitScan resolves), so it
-                  // keys the window on the identity it does have. The MECHANISM
-                  // must match though -- a time window, not a latch cleared by
-                  // the card leaving the frame, because nothing reports that
-                  // event any more and Zach drops cards on top of each other.
-                  const nowSrv = Date.now();
-                  const lastSeenSrv = seenIdsRef.current.get(identified);
-                  const repeatIdentity = lastSeenSrv != null && nowSrv - lastSeenSrv < SEEN_CARD_MS;
-                  if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
-                    setScanStatus('Already scanned this card — tap again in a moment to add another copy.');
-                    return;
-                  }
-                  if (repeatIdentity && !isManual) {
-                    seenIdsRef.current.set(identified, nowSrv);
-                    return;
-                  }
-                  // Claim the override BEFORE the await, so a second tap that
-                  // arrives while this submit is in flight sees it.
-                  if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
-                  seenIdsRef.current.set(identified, nowSrv);
-                  setScanStatus('');
-                  // DO NOT WRITE ON BEHALF OF A SUPERSEDED SCAN. This check used
-                  // to sit only AFTER submitScan returned, which is too late --
-                  // the row already exists. Two rapid taps both reach here, and
-                  // the second bumps currentScanId, so the first must abandon.
-                  if (scanId !== currentScanId.current) return;
-                  const outcome = await reviewQueue.submitScan({
-                    // HOW STRONG THE MATCH WAS. The staging row stores this and
-                    // the low_confidence flag keys on it -- a flag that has never
-                    // once fired, because this value was never sent. Every wrong
-                    // card in Zach's session (Forest as pal03 #5, Blightstep
-                    // Pathway as a land) scored 9-15 while the one correct land
-                    // scored 52-70, so the signal that would have caught all of
-                    // them was sitting in the response, unused.
-                    matchInliers,
-                    name: clipName,
-                    // The OCR'd TITLE. The server fuzzy-matches it against the
-                    // catalogue and prefers it over the CLIP name — the title
-                    // survives a torch highlight, the artwork does not.
-                    titleText,
-                    // The RAW OCR text, not a parsed number. The server owns the
-                    // parse (collectorNumberParse.js) and re-parsing it here
-                    // would be a second, divergent implementation of the one
-                    // rule that keeps a misread from becoming a wrong card.
-                    ocrText: ocr?.raw || '',
-                    // STAGE, DO NOT ADD. Zach reviews the whole session and
-                    // presses Add All; nothing reaches the collection before
-                    // that. The resolution rules are unchanged — only the
-                    // destination moves.
-                    stage: true,
-                    // So the server can flag a weak match as worth a look.
-                    match_inliers: Number.isFinite(top?.inliers) ? top.inliers : null,
-                    // WHICH PRINTING the artwork matched, when the artwork can
-                    // tell them apart. See printingHint above. The server
-                    // validates it against the catalogue before trusting it.
-                    printingHint,
-                    // The server's rectified crop, so the queue shows the card
-                    // he actually photographed rather than a catalogue image.
-                    crop: crop || null,
-                    quantity: 1,
-                  });
-                  if (scanId !== currentScanId.current) return;
-
-                  applyScanOutcome(outcome, identified);
-                  return;
-                }
-
-                if (confident && !ambiguousPrinting) {
-                  // Instant path: if scan-match pre-hydrated the card from local card_cache,
-                  // apply it directly without waiting for a second /api/search HTTP round-trip!
-                  if (top.card) {
-                    await applyMatches([top.card], '', true, top.inliers, isManual);
-                    return;
-                  }
-
-                  // Uses the DETECTED game (auto-detect may override the UI mode).
-                  // Query the MATCHED card's exact set + number (top.set/top.number),
-                  // not just its name — otherwise search returns some other printing
-                  // of the same name instead of the card ORB actually identified.
-                  // `lang` keeps the lookup on the printing that was scanned: the
-                  // matched name may itself be localized (稲妻), and the English row
-                  // for the same set+number is a different card.
-                  const exact = new URLSearchParams({ game: matchGame, lang: 'en' });
-                  if (top.name) exact.append('name', top.name);
-                  if (top.set) exact.append('set', top.set);
-                  if (top.number) exact.append('number', top.number);
-                  let searchResponse = await fetch(`/api/search?${exact.toString()}`);
-                  if (scanId !== currentScanId.current) return;
-                  let matches = searchResponse.ok ? await searchResponse.json() : [];
-                  // Fallback: exact set/number isn't cached/known — offer all
-                  // printings by name so the user can still pick.
-                  if (matches.length === 0) {
-                    const byName = new URLSearchParams({ game: matchGame, lang: 'en', prints: '1' });
-                    if (top.name) byName.append('name', top.name);
-                    searchResponse = await fetch(`/api/search?${byName.toString()}`);
-                    if (scanId !== currentScanId.current) return;
-                    matches = searchResponse.ok ? await searchResponse.json() : [];
-                  }
-                  // Confident image match on an exact set+number is unambiguous, so
-                  // take the fast path (single result auto-adds).
-                  // A CONFIDENT MATCH WITH SEVERAL PRINTINGS IS STILL A QUESTION,
-                  // so it must not interrupt a stack either.
-                  //
-                  // applyMatches shows the picker whenever it receives more than
-                  // one card. This call passes autoSingle, so ONE result
-                  // auto-adds -- but the by-name fallback above deliberately
-                  // fetches every printing, and that reopens the modal on a card
-                  // the matcher was actually sure about. Same interruption, a
-                  // different door.
-                  //
-                  // One result: take it, that is the fast path working.
-                  // Several: fall through to the queue with the candidates, and
-                  // he picks the printing when the stack is done.
-                  // One result: take it, that is the fast path working.
-                  // Several: fall through to the queue with the candidates.
-                  //
-                  // There was a second line here for the auto-scan-OFF case,
-                  // which showed the picker. Auto-scan is permanent now, so it
-                  // was unreachable -- and leaving it would imply a mode that
-                  // no longer exists.
-                  if (matches.length === 1) { await applyMatches(matches, '', true, null, isManual); return; }
-                }
-
-                // A LOW-CONFIDENCE MATCH GOES TO THE QUEUE, NOT A POPUP.
-                //
-                // Zach, on the "Identified Cards Found" modal: "Why does this
-                // screen still pop up? Feels like it doesn't belong with the
-                // scanned section now... a low confidence match should go to
-                // the queue with maybe the top 3 cards it thinks and I can
-                // search for it otherwise."
-                //
-                // He is right, and the screenshot proves the modal was never a
-                // real question: it offered Katerina of Myra's Marvels next to
-                // Twisted Experiment -- unrelated cards, not two printings of
-                // one. That is the matcher saying "I don't know" while looking
-                // like a choice, and it stops a stack mid-flow to ask.
-                //
-                // The queue already does this properly: it stores the
-                // candidates, the review screen renders them to pick from, and
-                // it offers a manual search when none of them are right. So
-                // this path submits and moves on, and he reviews the whole
-                // queue when the stack is done -- which is the entire point of
-                // having a queue.
-                //
-                // NOTHING IS ADDED TO THE COLLECTION HERE. A queue entry costs
-                // a tap later; a wrong card costs a recount against cardboard.
-                // THE GATE IS THE QUEUE'S, NOT A GUESS AT ONE.
-                //
-                // This first read `if (autoScan && (clipName || titleText))`,
-                // which is why Zach still saw the modal after the last deploy:
-                // the popup fires precisely when the matcher is LEAST sure, and
-                // those are exactly the scans with no CLIP name and no readable
-                // title. His screenshot -- Ceremonial Knife beside Inspiring
-                // Call, an artifact and an instant from unrelated sets -- is a
-                // scan where nothing was identified at all.
-                //
-                // The server accepts a staging row on name, title_text OR
-                // ocr_text (collection.js:730), so a scan with only OCR text is
-                // queueable. Gating on name/title alone rejected the very cases
-                // this change exists to capture and dropped them back into the
-                // picker.
-                //
-                // Anything the queue will accept goes to the queue.
-                // `ocr.raw`, NOT `ocr.text`. The server builds this object from
-                // parseCollectorStrip (collection.js:608) whose field is `raw`;
-                // there has never been a `text` key, so this read was always
-                // undefined and the whole condition below collapsed to
-                // (clipName || titleText).
-                //
-                // CONSEQUENCE, and it is the worst kind: exactly the scans this
-                // fallback was added for -- no CLIP name, no readable title, but
-                // a legible collector strip, i.e. the glare and foil cases --
-                // fell through to "No confident match" and were SILENTLY
-                // DROPPED. No staging row, no unresolved row, nothing to
-                // resolve. The card simply went missing from the stack, and
-                // lastQueuedNameRef is reset on that path so there was not even
-                // a status trace to notice it by.
-                //
-                // The other call site (:2343) had it right, which is what made
-                // this invisible.
-                const ocrText = ocr?.raw || '';
-                if (autoScan && (clipName || titleText || ocrText)) {
-                  // The dedup key must survive having no name at all: fall back
-                  // to the OCR text so a stack of unidentifiable cards does not
-                  // share one empty key and silently skip every card after the
-                  // first.
-                  const identified = clipName || titleText || ocrText;
-                  // Same time window as the other two paths.
-                  const nowUnid = Date.now();
-                  const lastSeenUnid = seenIdsRef.current.get(identified);
-                  const repeatIdentity = lastSeenUnid != null && nowUnid - lastSeenUnid < SEEN_CARD_MS;
-                  if (repeatIdentity && isManual && identified === manualForcedNameRef.current) {
-                    setScanStatus('Already scanned this card — tap again in a moment to add another copy.');
-                    return;
-                  }
-                  if (repeatIdentity && !isManual) {
-                    seenIdsRef.current.set(identified, nowUnid);
-                    return;
-                  }
-                  seenIdsRef.current.set(identified, nowUnid);
-                  if (repeatIdentity && isManual) manualForcedNameRef.current = identified;
-                  if (scanId !== currentScanId.current) return;
-                  const outcome = await reviewQueue.submitScan({
-                    matchInliers,
-                    name: clipName,
-                    titleText,
-                    ocrText,
-                    crop,
-                    quantity: 1,
-                  });
-                  if (scanId !== currentScanId.current) return;
-                                // Never show raw OCR text as if it were a card name -- when
-                  // nothing was identified, say so plainly.
-                  const label = clipName || titleText || 'Unidentified card';
-                  if (outcome.action === 'staged_unresolved') staging.noteStaged(true);
-                  setScanStatus(`${label} — needs a printing chosen`);
-                  showToast(`${label} — pick a printing in Scanned`);
-                  signal('capture');
-                  setScanMatches([]);
-                  return;
-                }
-
-                // THE PICKER IS GONE. There was a fallback here that fetched
-                // every candidate and showed the "Identified Cards Found"
-                // modal, kept for the auto-scan-OFF case. Auto-scan is
-                // permanent now -- "I just want it always on no more click to
-                // capture button" -- so the queue branch above always returns
-                // and this was unreachable.
-                //
-                // Deleted rather than left behind: dead code that renders a
-                // screen Zach removed twice is how it comes back.
-              }
-            }
-          } catch (e) { console.warn('scan-match request failed:', e); }
-        }
-      }
-
-      setScanStatus('No confident match. Try again or search manually.');
-      // Frame no longer shows a recognizable card — clear the skip guard so the
-      // resolved-duplicate card isn't skipped forever once re-presented.
-      resolvedDupIdRef.current = null;
-      // Same reasoning for the queue guard: once the card has left the frame, a
-      // genuine SECOND physical copy of it must be scannable again. Without
-      // this, scanning two real copies of the same card in one stack would
-      // silently record only the first.
-      manualForcedNameRef.current = null;
-      signal('error');
-    } catch (err) {
-      console.error('Scan match failed:', err);
-      // A thrown scan backs off further — see SCAN_RETRY_ERROR_MS. Retrying
-      // hard against a failing server makes it worse, and the cause (a dropped
-      // request, a restart) rarely clears inside one fast tick.
-      lastTickOutcomeRef.current = 'error';
-      if (scanId === currentScanId.current) setScanStatus('Scan failed. Please search manually.');
-    } finally {
-      // ALWAYS CLEAR `loading`, EVEN FOR A SUPERSEDED SCAN.
-      //
-      // Zach: "it stopped scanning eventually and tapping didn't get it to scan
-      // again". This is why. `loading` gates BOTH auto-scan and the tap
-      // override (handleCapture's first line returns immediately when it is
-      // true), so if it is ever left stuck the scanner is dead until the camera
-      // is restarted -- and no amount of tapping recovers it.
-      //
-      // The guard used to be `if (scanId === currentScanId.current)`, which
-      // skips the reset whenever this scan was superseded: a cancel, or a new
-      // capture starting, bumps currentScanId. The NEW scan then owns `loading`
-      // and clears it on its own path -- but if that newer scan returned early
-      // (a stale-id check, an englishOnly bail, a missing guide element), the
-      // flag was never cleared by anyone. Terminal, and exactly the symptom he
-      // hit: works for a while, then stops forever.
-      //
-      // Clearing unconditionally is safe. A superseded scan setting `loading`
-      // to false at worst lets one extra capture start a moment early, which
-      // the stability gate then has to approve anyway. A stuck `true` is
-      // unrecoverable. Prefer the recoverable failure.
-      setLoading(false);
-      // The STATUS text still belongs to the newest scan only, so a stale scan
-      // cannot overwrite what the current one is saying.
-    }
+    if (!video || !cameraActive) return;
+    await scannerRef.current.scan(video, { autoPass: auto });
   };
   // Keep the ref pointing at the latest handleCapture so timers (metronome /
   // cooldown) always invoke the current closure, never a stale one.
