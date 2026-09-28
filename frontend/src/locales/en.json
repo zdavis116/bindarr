@@ -1806,5 +1806,6 @@
   "scan.fixFirst": "to fix first",
   "scan.addAll": "Add all",
   "scan.forceScan": "Scan this card",
-  "scan.forceHint": "Scan now, ignoring the stillness check and the repeat-card delay"
+  "scan.forceHint": "Scan now, ignoring the stillness check and the repeat-card delay",
+  "collection.rarities": "Rarity"
 }

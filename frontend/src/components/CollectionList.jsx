@@ -123,6 +123,15 @@ function DropButton({ label, count, onClick }) {
 // a type_line is the card type(s) plus supertypes ("Legendary Creature");
 // everything after is subtypes ("Goblin Berserker"), which would flood a filter
 // list with hundreds of entries.
+// Printed order, commonest first. NOT alphabetical: that reads Common,
+// Mythic, Rare, Uncommon, which puts the rarest in the middle and looks
+// broken to anyone who plays the game.
+//
+// Capitalised because that is how card_cache stores it -- verified against
+// Zach's own collection (Common 2681, Uncommon 1332, Rare 816, Mythic 139),
+// not assumed from Scryfall's lowercase API values.
+const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Mythic'];
+
 const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant',
                     'Land', 'Planeswalker', 'Sorcery'];
 
@@ -187,6 +196,15 @@ function CollectionList({ statsTrigger, onUpdate, showToast, onNavigate }) {
   const [colorFilters, setColorFilters] = useState(() => new Set());
   const [typeFilters, setTypeFilters] = useState(() => new Set());
   const [setFilters, setSetFilters] = useState(() => new Set());
+  // RARITY IS OR, NOT AND, unlike colours and types beside it.
+  //
+  // A card has exactly one rarity, so "Rare AND Mythic" matches nothing at
+  // all. Selecting more rarities has to WIDEN the result, which is the
+  // opposite of what the colour and type chips do -- and the same rule sets
+  // already follow, since a card belongs to one set.
+  //
+  // Stated plainly rather than discovered: Zach was told before this shipped.
+  const [rarityFilters, setRarityFilters] = useState(() => new Set());
   const [sortBy, setSortBy] = useState('added-newest');
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -346,6 +364,40 @@ const cardTypesOf = (card) => {
     () => Array.from(new Set(collection.map(c => c.set_name).filter(Boolean))).sort(),
     [collection]);
 
+  // RARITY, IN PRINTED ORDER rather than alphabetical.
+  //
+  // Alphabetical would read Common, Mythic, Rare, Uncommon -- which puts the
+  // rarest in the middle and looks like a bug to anyone who knows the game.
+  // Only rarities actually present are offered, so a collection with no
+  // mythics does not show an option that can only ever return nothing.
+  const uniqueRarities = useMemo(() => {
+    const found = new Set(collection.map(c => c.rarity).filter(Boolean));
+    return RARITY_ORDER.filter(r => found.has(r));
+  }, [collection]);
+
+  // HOW MANY CARDS EACH OPTION WOULD MATCH. Zach: "can you add counts for
+  // rarity set and type?"
+  //
+  // Counted over the WHOLE collection, not the currently filtered view. A
+  // count that moved as you ticked other boxes would answer a different
+  // question each time you looked at it, and could not tell you whether an
+  // option is worth ticking at all.
+  //
+  // Copies, not rows: four Lightning Bolts is four cards. That matches the
+  // number shown everywhere else in this app.
+  const optionCounts = useMemo(() => {
+    const rarity = new Map(), set = new Map(), type = new Map();
+    const bump = (m, k, n) => { if (k) m.set(k, (m.get(k) || 0) + n); };
+    for (const c of collection) {
+      const n = c.quantity || 1;
+      bump(rarity, c.rarity, n);
+      bump(set, c.set_name, n);
+      // A card counts once per type it HAS -- an Artifact Creature is in both.
+      for (const ty of cardTypesOf(c)) bump(type, ty, n);
+    }
+    return { rarity, set, type };
+  }, [collection]);
+
   const shown = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
     const out = collection.filter(item => {
@@ -388,8 +440,11 @@ const cardTypesOf = (card) => {
       const matchesType = typeFilters.size === 0
         || [...typeFilters].every(ty => cardTypes.includes(ty));
       const matchesSet = setFilters.size === 0 || setFilters.has(item.set_name);
+      // ANY of these rarities -- see the note on rarityFilters. A card has one
+      // rarity, so `every` would match nothing the moment two were ticked.
+      const matchesRarity = rarityFilters.size === 0 || rarityFilters.has(item.rarity);
 
-      return matchesSearch && matchesColor && matchesType && matchesSet;
+      return matchesSearch && matchesColor && matchesType && matchesSet && matchesRarity;
     });
 
     // Collapse identical copies into one tile. Key on what makes a copy
@@ -425,7 +480,7 @@ const cardTypesOf = (card) => {
 
     sortCardsByOrder(grouped, SORT_CRITERIA[sortBy] || SORT_CRITERIA['added-newest']);
     return grouped;
-  }, [collection, searchFilter, colorFilters, typeFilters, setFilters, sortBy]);
+  }, [collection, searchFilter, colorFilters, typeFilters, setFilters, rarityFilters, sortBy]);
 
   const totalValue = useMemo(
     () => shown.reduce((sum, c) => sum + (c.price_trend || 0) * (c.quantity || 1), 0),
@@ -463,11 +518,12 @@ const cardTypesOf = (card) => {
     () => shown.reduce((sum, c) => sum + (c.quantity || 1), 0),
     [shown]);
 
-  const activeFilters = colorFilters.size + typeFilters.size + setFilters.size;
+  const activeFilters = colorFilters.size + typeFilters.size + setFilters.size + rarityFilters.size;
 
 
   const sheetTitle = sheet === 'type' ? t('collection.types')
     : sheet === 'set' ? t('collection.sets')
+    : sheet === 'rarity' ? t('collection.rarities')
     : t('collection.sortBy');
 
   return (
@@ -621,9 +677,16 @@ const cardTypesOf = (card) => {
         })}
         <DropButton label={t('collection.types')} count={typeFilters.size} onClick={() => openSheet('type')} />
         <DropButton label={t('collection.sets')} count={setFilters.size} onClick={() => openSheet('set')} />
+        {/* Only offered when the collection actually has rarities to filter by:
+            a control that can only ever return nothing is worse than no
+            control. */}
+        {uniqueRarities.length > 1 && (
+          <DropButton label={t('collection.rarities')} count={rarityFilters.size}
+            onClick={() => openSheet('rarity')} />
+        )}
         {activeFilters > 0 && (
           <button
-            onClick={() => { setColorFilters(new Set()); setTypeFilters(new Set()); setSetFilters(new Set()); }}
+            onClick={() => { setColorFilters(new Set()); setTypeFilters(new Set()); setSetFilters(new Set()); setRarityFilters(new Set()); }}
             style={{ flexShrink: 0, minHeight: 34, padding: '0 0.8rem', border: 0, background: 'transparent', color: 'var(--accent-blue)', font: 'inherit', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}
           >
             {t('collection.clearFilters')}
@@ -994,8 +1057,17 @@ const cardTypesOf = (card) => {
                     // nothing -- the user cannot see, or untick, what is doing
                     // it. Options are never removed from view, only reordered by
                     // relevance.
-                    const source = sheet === 'type' ? uniqueTypes : uniqueSets;
-                    const sel = sheet === 'type' ? typeFilters : setFilters;
+                    // Three sheets now, so pick by name rather than by a
+                    // two-way ternary -- adding rarity to the old shape would
+                    // have made it the silent `else` branch of `type`.
+                    const source = sheet === 'type' ? uniqueTypes
+                      : sheet === 'rarity' ? uniqueRarities : uniqueSets;
+                    const sel = sheet === 'type' ? typeFilters
+                      : sheet === 'rarity' ? rarityFilters : setFilters;
+                    const counts = sheet === 'type' ? optionCounts.type
+                      : sheet === 'rarity' ? optionCounts.rarity : optionCounts.set;
+                    // Only the set list is long enough to need searching; 4
+                    // rarities and 9 types are not.
                     const q = sheet === 'set' ? sheetSearch.trim().toLowerCase() : '';
                     const options = q
                       ? source.filter(o => o.toLowerCase().includes(q) || sel.has(o))
@@ -1010,16 +1082,29 @@ const cardTypesOf = (card) => {
                     }
                     return options.map(opt => {
                       const on = sel.has(opt);
+                      const n = counts.get(opt) || 0;
                       return (
                         <button
                           key={opt}
                           onClick={() => (sheet === 'type'
                             ? setTypeFilters(toggleIn(typeFilters, opt))
-                            : setSetFilters(toggleIn(setFilters, opt)))}
+                            : sheet === 'rarity'
+                              ? setRarityFilters(toggleIn(rarityFilters, opt))
+                              : setSetFilters(toggleIn(setFilters, opt)))}
                           style={{ ...SHEET_ROW, color: on ? 'var(--accent-blue)' : 'var(--text-primary)' }}
                         >
                           <span>{opt}</span>
-                          {on && <Check size={17} />}
+                          {/* HOW MANY CARDS THIS WOULD MATCH. Pushed to the
+                              right of the name and muted: it is a hint for
+                              choosing, not a value to read down the list.
+                              Counted over the whole collection, so it does not
+                              shift as other boxes are ticked. */}
+                          <span style={{ marginLeft: 'auto', paddingLeft: '0.75rem',
+                                         fontSize: '0.78rem', color: 'var(--text-muted)',
+                                         fontVariantNumeric: 'tabular-nums' }}>
+                            {n.toLocaleString()}
+                          </span>
+                          {on && <Check size={17} style={{ marginLeft: '0.5rem', flexShrink: 0 }} />}
                         </button>
                       );
                     });
