@@ -50,12 +50,18 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // empty list.
 {
   start('FEED-TC2');
-  const eff = /useEffect\(\(\) => \{\s*if \(lastScanned\)([\s\S]{0,80}?)\}, \[lastScanned[^\]]*\]\);/.exec(jsx);
+  const eff = /useEffect\(\(\) => \{\s*if \(lastScanned\)([\s\S]{0,120}?)\}, \[lastScanned[^\]]*\]\);/.exec(jsx);
   assert.ok(eff, 'the new-scan effect could not be found');
-  assert.match(eff[1], /sync\(\)/,
-    'a new scan must call sync() (which refreshes from the server). '
-    + 'setState(staging.getState()) re-reads local state that does not '
-    + 'contain the new row — that IS the bug');
+  // THE RULE IS "GO TO THE SERVER", not "call a function named sync".
+  //
+  // This originally required sync() by name and went red the moment the hot
+  // path became refreshSince() -- which still fetches, just incrementally.
+  // Asserting the mechanism rather than the spelling: either full refresh or
+  // an incremental one is correct here; re-reading local state is not.
+  assert.match(eff[1], /sync\(\)|staging\.refreshSince\(\)/,
+    'a new scan must FETCH from the server. setState(staging.getState()) '
+    + 're-reads local state that does not contain the new row — that IS the '
+    + 'bug this test exists for');
   assert.ok(!/setState\(staging\.getState\(\)\)/.test(eff[1]),
     'the new-scan effect must not merely re-read local state');
   pass('FEED-TC2', 'a new scan refreshes from the server');

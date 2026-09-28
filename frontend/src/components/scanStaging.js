@@ -283,6 +283,48 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
     emit();
   }
 
+  // FETCH ONLY WHAT IS NEW, for a surface that refreshes constantly.
+  //
+  // The desktop table is always on screen, so it refreshes after every scan.
+  // A full list costs a megabyte at 75 staged cards (measured), because every
+  // row carries its base64 crop -- and it is paid three times a second while
+  // scanning. That is what Zach felt as the whole app slowing down.
+  //
+  // This asks for rows newer than the highest id we hold and APPENDS them.
+  //
+  // It is deliberately NOT the general refresh. An append-only client cannot
+  // see a row that was edited or deleted elsewhere, so every mutation path,
+  // the mount, and the manual refresh button all still call refresh() for the
+  // authoritative list. This is an optimisation for one specific, very hot
+  // case: "a new card just landed".
+  async function refreshSince() {
+    const since = entries.reduce((m, e) => (e.id > m ? e.id : m), 0);
+    if (!since) return refresh();      // nothing held yet: nothing to be incremental about
+    try {
+      const res = await fetchImpl(`/api/scan-stage?since=${since}`);
+      const body = await readJson(res);
+      if (!res.ok) throw new Error(body?.error || 'Failed to load staged scans');
+      const fresh = Array.isArray(body?.entries) ? body.entries : [];
+      // Guard against a server that ignored `since` and sent everything: keying
+      // by id makes a duplicate impossible either way.
+      if (fresh.length) {
+        const seen = new Set(entries.map(e => e.id));
+        entries = entries.concat(fresh.filter(e => !seen.has(e.id)));
+      }
+      // The COUNTS still come from the server and describe the whole session,
+      // not the increment -- they gate Add All.
+      if (Number.isFinite(body?.total)) stagedCount = body.total;
+      if (Number.isFinite(body?.unresolved)) unresolvedCount = body.unresolved;
+      error = null;
+    } catch (e) {
+      // A failed increment must not blank the table. Keep what we have and let
+      // the next scan or a manual refresh reconcile.
+      error = e.message;
+    }
+    emit();
+    return state();
+  }
+
   // PICK THE PRINTING for a row the scanner could not resolve. `cardId` may be
   // any card in the catalogue, not only one of the offered candidates -- when
   // the matcher is wrong, restricting him to its guesses would leave the row
@@ -306,6 +348,7 @@ export function createScanStaging({ fetchImpl = fetch, onChange = () => {} } = {
   return {
     getState: state,
     refresh,
+    refreshSince,
     stage,
     resolveEntry,
     noteStaged,

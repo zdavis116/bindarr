@@ -881,15 +881,56 @@ router.post('/scan-stage', async (req, res) => {
 // rows that need anything from Zach now that the advisory flags are gone, and
 // Add All refuses while any exist -- so the count is what the UI leads with
 // instead of making him hunt for them in a fifty-row list.
+// INCREMENTAL LIST. `?since=<id>` returns only rows NEWER than that id.
+//
+// THE COST THIS REMOVES, measured on dev before it was written:
+//
+//     rows   GET ms   payload KB
+//       10        8         134
+//       25        7         336
+//       50       11         672
+//       75       19        1008
+//
+// Every row carries its crop_data_url -- a base64 JPEG of ~10-15KB -- so the
+// response grows linearly with the stack. The phone pays that once, when its
+// tray opens. The DESKTOP table is always visible, so it refreshes after every
+// scan: at 75 staged cards that is a megabyte re-sent to learn about one new
+// row, roughly three times a second. Zach: "I did scan a large set over 50
+// cards and I did notice the scan and everything slowing down."
+//
+// With `since`, an ongoing scan session fetches exactly the rows it does not
+// have. The full list is still available -- and still used on mount, on manual
+// refresh, and after any mutation -- because a client that only ever appends
+// would never see a row EDITED or DELETED in another tab.
 router.get('/scan-stage', async (req, res) => {
   try {
+    // Bounds-checked like every other client value. A bad `since` is IGNORED
+    // rather than rejected: falling back to the full list is always correct,
+    // just slower, whereas failing the request would empty the user's tray.
+    const sinceRaw = Number(req.query.since);
+    const since = Number.isSafeInteger(sinceRaw) && sinceRaw > 0 ? sinceRaw : null;
+
     const rows = await db.all(
       `SELECT s.*, c.name, c.set_id, c.number, c.image_url
          FROM scan_staging s
          LEFT JOIN card_cache c ON c.id = s.card_id
-        WHERE s.user_id = ?
+        WHERE s.user_id = ?${since ? ' AND s.id > ?' : ''}
         ORDER BY s.created_at ASC, s.id ASC`,
-      [req.user.id]);
+      since ? [req.user.id, since] : [req.user.id]);
+
+    // THE COUNTS MUST DESCRIBE THE WHOLE SESSION, not the page.
+    //
+    // `total` and `unresolved` drive the badge and the Add All gate. Taking
+    // them from a partial `rows` would report "2 staged" while sixty sit in
+    // the table, and would let Add All enable itself while unresolved rows
+    // outside the window still block the commit server-side.
+    const totals = since
+      ? await db.get(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN card_id IS NULL THEN 1 ELSE 0 END) AS unresolved
+             FROM scan_staging WHERE user_id = ?`, [req.user.id])
+      : null;
+
     res.json({
       entries: rows.map(r => ({
         id: r.id,
@@ -916,8 +957,13 @@ router.get('/scan-stage', async (req, res) => {
           try { return JSON.parse(r.candidates_json || '[]'); } catch { return []; }
         })(),
       })),
-      total: rows.length,
-      unresolved: rows.filter(r => !r.card_id).length,
+      // `partial` tells the client these entries are an INCREMENT to append,
+      // not the whole list to replace. Without it a client cannot distinguish
+      // "nothing new" from "the session is empty" -- and would wipe its table
+      // on the first quiet poll.
+      partial: !!since,
+      total: totals ? totals.total : rows.length,
+      unresolved: totals ? (totals.unresolved || 0) : rows.filter(r => !r.card_id).length,
     });
   } catch (error) {
     console.error('scan-stage list failed:', error);

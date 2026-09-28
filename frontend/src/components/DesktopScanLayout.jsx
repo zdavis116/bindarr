@@ -86,9 +86,18 @@ export default function DesktopScanLayout({
   // which is the price of a list that is always on screen, and it is the
   // ONLY correct source: the row was created by the server, so the server is
   // what knows its id, its candidates and its crop.
+  // INCREMENTAL, because this fires after every single scan. A full list is a
+  // megabyte at 75 staged cards -- every row carries its base64 crop -- and
+  // re-sending all of it to learn about one new row is what Zach felt as the
+  // app slowing down on a 50+ card session.
+  //
+  // refreshSince() asks only for rows newer than the highest id held. The
+  // mount, the manual refresh button and every mutation still use the full
+  // refresh(), because an append-only client cannot see a row that was edited
+  // or deleted elsewhere.
   useEffect(() => {
-    if (lastScanned) sync();
-  }, [lastScanned, sync]);
+    if (lastScanned) staging.refreshSince().then(setState);
+  }, [lastScanned, staging]);
 
   const rows = useMemo(() => sortForReview(state.entries || []), [state.entries]);
   const unresolved = rows.filter(e => !e.card_id);
