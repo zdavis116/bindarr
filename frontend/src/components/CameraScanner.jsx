@@ -10,6 +10,8 @@ import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { createScanReviewQueue } from './scanReviewQueue';
 import ScanStagingReview from './ScanStagingReview';
+import DesktopScanLayout from './DesktopScanLayout';
+import '../styles/desktop-scanner.css';
 import { createScanStaging } from './scanStaging';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
@@ -297,6 +299,46 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // the end letting me add all. That way I can ensure no weirdness occurred or
   // ensure there isn't any dupes."
   const [showStaging, setShowStaging] = useState(false);
+
+  // WHICH LAYOUT. 769px is the app's existing breakpoint, not a third number.
+  //
+  // Tracked in state and updated on resize rather than read once: a desktop
+  // user who snaps the window to half-screen crosses this boundary, and a
+  // layout that only decides at mount would leave them in the wrong one until
+  // a reload. matchMedia rather than innerWidth so it fires exactly on the
+  // crossing.
+  const [isDesktopScan, setIsDesktopScan] = useState(
+    () => typeof window !== 'undefined'
+      && window.matchMedia('(min-width: 769px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)');
+    const onChange = (e) => setIsDesktopScan(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // The card the reader last proved, for the desktop's "Last scanned" panel.
+  // Also the signal that tells the panel to re-read staging: staging state
+  // lives outside React, so a new row does not re-render anything on its own.
+  const [lastScannedCard, setLastScannedCard] = useState(null);
+
+  // PRINTING SEARCH for the desktop row picker. Transcribed from
+  // ScanStagingReview's CardSearch (line 38) -- same endpoint, same params,
+  // same 12-result cap -- so the two surfaces cannot disagree about what a
+  // search returns. Re-deriving it here is how a second, subtly different
+  // search gets built.
+  const searchPrintings = useCallback(async (term) => {
+    const q = (term || '').trim();
+    if (!q) return [];
+    try {
+      const p = new URLSearchParams({ game: 'mtg', lang: 'en', name: q, prints: '1' });
+      const res = await fetch(`/api/search?${p.toString()}`);
+      return res.ok ? (await res.json()).slice(0, 12) : [];
+    } catch {
+      return [];
+    }
+  }, []);
   const [stagedCount, setStagedCount] = useState(0);
   // How many staged rows still need a printing chosen. Replaces the old
   // `flaggedCount`, which read a field the staging controller no longer
@@ -1438,6 +1480,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // free. It is not a local guess: the row exists because the
       // server said 'staged'.
       staging.noteStaged(false);   // resolved: a printing was chosen
+      // THE DESKTOP'S "LAST SCANNED" PANEL, and the signal that a staged row
+      // exists. staging's state lives outside React, so without this the
+      // desktop table would never re-read and the card would appear only
+      // after a manual refresh. staged_id ties the row to the flash animation.
+      setLastScannedCard({ ...outcome.card, staged_id: outcome.staged_id ?? null });
       setRecentScans(prev => [{
         ...outcome.card, card_id: outcome.card?.id, entry_id: null,
         quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
@@ -1475,6 +1522,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // he picks. Nothing is owned, so no modal interrupts the
       // stack -- he resolves them when he is done scanning.
       staging.noteStaged(true);
+      // Same signal as the resolved path. An unresolved card is exactly the
+      // one worth showing large while it is still in hand -- it is the row
+      // that will block Add All.
+      setLastScannedCard({
+        name: identified, card_id: null,
+        staged_id: outcome.staged_id ?? null,
+      });
       setScanStatus(`${identified} — needs a printing chosen`);
       showToast(`${identified} — pick a printing in Scanned`);
       signal('capture');
@@ -1774,6 +1828,26 @@ function CameraScanner({ onAddSuccess, showToast }) {
             </div>
           )}
         </div>
+      ) : isDesktopScan ? (
+        /* DESKTOP LAYOUT. Replaces ONLY the active-camera branch -- the
+           inactive/permission-error branch above is shared, and the phone's
+           branch below is untouched. Zach: "don't touch the phone layout".
+
+           It is handed the SAME `staging` object ScanStagingReview gets, so
+           there is one staging implementation and two layouts, rather than two
+           implementations that can drift. */
+        <DesktopScanLayout
+          staging={staging}
+          videoRef={videoRef}
+          scanStatus={scanStatus || autoScanWaitReason}
+          cameraInfo={cameraInfo}
+          torchOn={isTorchOn}
+          onToggleTorch={toggleTorch}
+          onStopCamera={stopCamera}
+          lastScanned={lastScannedCard}
+          onCommitted={(n) => { if (onAddSuccess) onAddSuccess(n); }}
+          onSearchPrintings={searchPrintings}
+        />
       ) : (
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div className={`camera-preview-wrapper camera-active${fullscreenScan ? ' camera-fullscreen' : ''}`}>

@@ -56,12 +56,21 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
     `the approved mockup's columns are ${wanted.join(', ')}; this test is `
     + 'stale if they changed');
 
+  // The build addresses columns by i18n KEY, not by literal text -- this app's
+  // translate() returns the key when a string is missing, so the English words
+  // live in en.json rather than in the JSX. Check the key exists AND that
+  // en.json maps it to the word the mockup used.
+  const en = JSON.parse(readFileSync(join(REPO, 'frontend/src/locales/en.json'), 'utf8'));
   for (const col of wanted) {
-    assert.ok(jsx.includes(`'${col}'`),
+    const key = `scan.col${col}`;
+    assert.ok(jsx.includes(`t('${key}')`),
       `the built table is missing the ${col} column the mockup has`);
+    assert.strictEqual(en[key], col,
+      `${key} must render "${col}" to match the approved mockup; a missing key `
+      + 'renders as the literal key text on screen');
   }
   assert.ok(!/>Status</.test(mock), 'the mockup still has a Status column');
-  assert.ok(!/'Status'/.test(jsx), 'the build still renders a Status column');
+  assert.ok(!/scan\.colStatus/.test(jsx), 'the build still renders a Status column');
 
   // The pill was the only thing saying "unresolved" in words. With it gone the
   // Set cell has to say so, or the row shows a bare dash that reads as missing
@@ -78,13 +87,15 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   handlers.delete('event');    // event.stopPropagation, not a feature
   handlers.delete('render');   // the mockup's own redraw, not a user action
 
-  // Each mockup handler maps to a prop or local action in the build.
+  // Each mockup handler maps to the real staging call the build makes. The
+  // build talks to the SAME staging object ScanStagingReview uses rather than
+  // an invented callback contract, so these assert the staging method names.
   const map = {
-    toggle: /setOpenId\(/,          // expand a row
-    pick: /onResolve\(/,            // choose a printing
-    bump: /onSetQty\(/,             // change quantity
-    addAll: /onAddAll\b/,           // commit
-    clearAll: /onClear\b/,          // discard
+    toggle: /setOpenId\(/,                 // expand a row
+    pick: /staging\.resolveEntry\(/,       // choose a printing
+    bump: /staging\.updateEntry\(/,        // change quantity
+    addAll: /staging\.commitAll\(/,        // commit to the collection
+    clearAll: /staging\.discardAll\(/,     // discard the session
   };
   for (const h of handlers) {
     assert.ok(map[h], `the mockup wires ${h}() and this test does not know about it`);
@@ -103,10 +114,16 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // a short demo -- all three exist on the phone today.
 {
   start('DSK-TC4');
+  // ANCHORED TO THE USE, NOT THE IMPORT.
+  //
+  // The first version matched /isWeakMatch/, which also appears in the import
+  // line -- so gutting the logic to `const isWeak = false` left the guard
+  // green. Assert the CALL and the branch it feeds.
   for (const [what, re] of [
-    ['weak-match warning', /isWeakMatch/],
-    ['per-row search fallback', /onSearch\(/],
-    ['remove a staged row', /onRemove\(/],
+    ['weak-match warning', /isWeak = !isUnresolved && isWeakMatch\(/],
+    ['weak-match caption', /isWeak && \(/],
+    ['per-row search fallback', /runSearch\(/],
+    ['remove a staged row', /staging\.discardEntry\(/],
   ]) {
     assert.match(jsx, re,
       `${what} exists on the phone and the mockup was silent about it; a port `
