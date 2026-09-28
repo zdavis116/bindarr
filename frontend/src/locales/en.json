@@ -1774,5 +1774,6 @@
   "scan.errCameraNone": "No camera found on this device. If you have a webcam, check it is plugged in and not disabled.",
   "scan.errCameraBusy": "Your camera is in use by another app. Close anything else using it (video call, another browser tab) and try again.",
   "scan.errCameraConstraints": "Your camera could not provide the requested video format. This is a Bindarr bug — please report it with your browser and camera model.",
-  "scan.errCameraUnknown": "Could not start the camera. Open the browser console for the exact error and report it."
+  "scan.errCameraUnknown": "Could not start the camera. Open the browser console for the exact error and report it.",
+  "scan.errCameraTimeout": "Your camera was found and allowed, but never started sending video. This is usually another app holding it (Teams, Zoom, OBS — even minimised), or a webcam that needs unplugging and plugging back in."
 }

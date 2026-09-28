@@ -1047,23 +1047,65 @@ function CameraScanner({ onAddSuccess, showToast }) {
         audio: false
       };
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
-        // DESKTOP FALLBACK, as upstream does (FastScanner.jsx:151).
+      // A HANG IS NOT A REJECTION, so the fallbacks below need a deadline.
+      //
+      // Chrome's own "Timeout starting video source" can take 10-20s to fire,
+      // and Safari may never fire it at all -- the promise simply never
+      // settles and the user watches a dead preview with no error. Racing each
+      // attempt against a timer turns "hung" into "rejected", which is the
+      // only thing a .catch() can act on.
+      //
+      // THE ABANDONED ATTEMPT MUST BE CLEANED UP. Losing the race does not
+      // cancel getUserMedia: if it resolves later we hold a live stream nobody
+      // references, the camera light stays on, and the NEXT attempt finds the
+      // device busy -- turning one slow start into a permanently broken
+      // camera. So a late winner gets its tracks stopped.
+      const withDeadline = (p, ms, label) => {
+        let timer;
+        const guard = new Promise((_, rej) => {
+          timer = setTimeout(
+            () => rej(Object.assign(new Error(`${label} timed out after ${ms}ms`), { name: 'TimeoutError' })),
+            ms);
+        });
+        return Promise.race([p, guard])
+          .finally(() => clearTimeout(timer))
+          .catch((err) => {
+            p.then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+            throw err;
+          });
+      };
+
+      const mediaStream = await withDeadline(navigator.mediaDevices.getUserMedia(constraints), 6000, 'camera at full resolution')
+        // TWO-STEP FALLBACK, because `ideal` does not mean "safe".
         //
-        // `facingMode: 'environment'` as a BARE STRING is a required
-        // constraint per the spec, not an ideal one -- the comment above is
-        // wrong about that. A phone has an environment camera so it never
-        // bites there; a desktop webcam is labelled neither environment nor
-        // user, and browsers differ on whether they tolerate it.
+        // The comment above is right that `ideal` never REJECTS -- and that is
+        // exactly why this bit me. A desktop webcam asked for 4032x3024
+        // negotiates to some mode it advertises but cannot actually start from
+        // cold, and getUserMedia hangs until the browser gives up with
+        // "AbortError: Timeout starting video source". Nothing rejected; the
+        // camera just never produced a frame.
         //
-        // Rather than argue about which browsers enforce it, retry once with
-        // no facingMode at all. A machine with one webcam has nothing to
-        // choose between anyway.
+        // Zach's own diagnosis pinned it: the camera worked in Bindarr ONLY
+        // after visiting a webcam test site first. That site opens the device
+        // at an ordinary resolution, and the already-running camera then starts
+        // instantly for us. A warm-up requirement is a smell -- what it means
+        // is our cold request is the thing failing.
+        //
+        // So: drop facingMode first (covers a desktop with no environment
+        // camera), then drop the resolution entirely and take whatever the
+        // device offers. A scanner at 1280 still scans; a scanner that will
+        // not open scans nothing.
         .catch(async (err) => {
           console.warn('[scan] camera request failed, retrying without facingMode:', err.name, err.message);
-          return navigator.mediaDevices.getUserMedia({
+          return withDeadline(navigator.mediaDevices.getUserMedia({
             video: { width: { ideal: SCAN_CAPTURE_IDEAL_W }, height: { ideal: SCAN_CAPTURE_IDEAL_H } },
             audio: false,
+          }), 6000, 'camera without facingMode').catch(async (err2) => {
+            console.warn('[scan] retrying with no resolution constraint:', err2.name, err2.message);
+            // LAST ATTEMPT, no deadline: if plain `video: true` hangs, the
+            // device is genuinely broken and a timeout would only replace one
+            // failure message with a less accurate one.
+            return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           });
         });
       // PIN THE LENS TO THE MAIN WIDE CAMERA, AND ZOOM IN TO FILL THE FRAME.
@@ -1178,9 +1220,11 @@ function CameraScanner({ onAddSuccess, showToast }) {
           ? 'scan.errCameraNone'               // no camera on this machine
           : err?.name === 'NotReadableError' || err?.name === 'TrackStartError'
             ? 'scan.errCameraBusy'             // another app holds it
-            : err?.name === 'OverconstrainedError'
-              ? 'scan.errCameraConstraints'    // asked for something it cannot do
-              : 'scan.errCameraUnknown';
+            : err?.name === 'AbortError' || err?.name === 'TimeoutError'
+              ? 'scan.errCameraTimeout'        // found and allowed, never started
+              : err?.name === 'OverconstrainedError'
+                ? 'scan.errCameraConstraints'  // asked for something it cannot do
+                : 'scan.errCameraUnknown';
       setCameraErrorKey(key);
       showToast(t(key));
     }
