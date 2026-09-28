@@ -38,6 +38,13 @@ const SCAN_MATCH_MIN_INLIERS = 12;
 // negotiated numbers are recorded into the diagnostics panel (see cameraInfo),
 // because no browser and no camera runs in this repo and only Zach's phone can
 // report what his hardware actually handed back.
+// How long one camera constraint gets before we try the next rung.
+//
+// Was 6000, which cost Zach ~12s of dead preview on every open because his
+// webcam fails the first two rungs. A camera that is going to start does so in
+// well under two seconds; one that has not produced a frame in 2.5s is
+// negotiating a mode it cannot actually deliver.
+const CAMERA_ATTEMPT_MS = 2500;
 const SCAN_CAPTURE_IDEAL_W = 4032;
 const SCAN_CAPTURE_IDEAL_H = 3024;
 // Kept from the old 'Accurate' preset. Deliberately NOT collapsed to Turbo's
@@ -1038,14 +1045,6 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // ~660px, which puts the printed collector number at roughly 6-8px tall —
       // the floor of OCR legibility, and the reason the scanner works in good
       // light and collapses when noise is added.
-      const constraints = {
-        video: {
-          facingMode: 'environment', // Use back camera on phones
-          width: { ideal: SCAN_CAPTURE_IDEAL_W },
-          height: { ideal: SCAN_CAPTURE_IDEAL_H },
-        },
-        audio: false
-      };
 
       // A HANG IS NOT A REJECTION, so the fallbacks below need a deadline.
       //
@@ -1075,39 +1074,86 @@ function CameraScanner({ onAddSuccess, showToast }) {
           });
       };
 
-      const mediaStream = await withDeadline(navigator.mediaDevices.getUserMedia(constraints), 6000, 'camera at full resolution')
-        // TWO-STEP FALLBACK, because `ideal` does not mean "safe".
-        //
-        // The comment above is right that `ideal` never REJECTS -- and that is
-        // exactly why this bit me. A desktop webcam asked for 4032x3024
-        // negotiates to some mode it advertises but cannot actually start from
-        // cold, and getUserMedia hangs until the browser gives up with
-        // "AbortError: Timeout starting video source". Nothing rejected; the
-        // camera just never produced a frame.
-        //
-        // Zach's own diagnosis pinned it: the camera worked in Bindarr ONLY
-        // after visiting a webcam test site first. That site opens the device
-        // at an ordinary resolution, and the already-running camera then starts
-        // instantly for us. A warm-up requirement is a smell -- what it means
-        // is our cold request is the thing failing.
-        //
-        // So: drop facingMode first (covers a desktop with no environment
-        // camera), then drop the resolution entirely and take whatever the
-        // device offers. A scanner at 1280 still scans; a scanner that will
-        // not open scans nothing.
-        .catch(async (err) => {
-          console.warn('[scan] camera request failed, retrying without facingMode:', err.name, err.message);
-          return withDeadline(navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: SCAN_CAPTURE_IDEAL_W }, height: { ideal: SCAN_CAPTURE_IDEAL_H } },
-            audio: false,
-          }), 6000, 'camera without facingMode').catch(async (err2) => {
-            console.warn('[scan] retrying with no resolution constraint:', err2.name, err2.message);
-            // LAST ATTEMPT, no deadline: if plain `video: true` hangs, the
-            // device is genuinely broken and a timeout would only replace one
-            // failure message with a less accurate one.
-            return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          });
-        });
+      // THE CONSTRAINT LADDER, AND WHY IT REMEMBERS.
+      //
+      // Zach: "why did it take so long to open the camera?" -- because his
+      // webcam fails the first two rungs, and he was paying two 6s timeouts
+      // (~12s of dead preview) on EVERY open before reaching the one that
+      // works. The fallback chain was correct and the cost was absurd.
+      //
+      // Two changes, and the second is the one that matters:
+      //
+      //   1. The deadline drops 6s -> 2.5s. A camera that is going to start
+      //      does so in well under two seconds, phones included. Six was a
+      //      guess with no evidence behind it.
+      //
+      //   2. THE WINNING RUNG IS REMEMBERED per device. After one successful
+      //      open we go straight to what worked -- so the cost is paid once on
+      //      a new machine and never again. This is the same trick upstream
+      //      uses for camera selection (FastScanner.jsx:71, localStorage
+      //      'fastscan.device').
+      //
+      // Storing the INDEX rather than the constraint object keeps the stored
+      // value tiny and, more importantly, lets the ladder itself change in a
+      // later release without a stale object being replayed at a camera. A
+      // stored index that no longer exists simply falls back to the top.
+      const ladder = [
+        {
+          name: 'full resolution, environment camera',
+          video: {
+            facingMode: 'environment',
+            width: { ideal: SCAN_CAPTURE_IDEAL_W },
+            height: { ideal: SCAN_CAPTURE_IDEAL_H },
+          },
+        },
+        {
+          name: 'full resolution, any camera',
+          video: {
+            width: { ideal: SCAN_CAPTURE_IDEAL_W },
+            height: { ideal: SCAN_CAPTURE_IDEAL_H },
+          },
+        },
+        {
+          // Last rung: ask for nothing. A webcam that will not start at a
+          // requested mode almost always starts at its own default, and a
+          // scanner at 1280 still scans -- a scanner that will not open scans
+          // nothing.
+          name: 'whatever the device offers',
+          video: true,
+        },
+      ];
+
+      const LADDER_KEY = 'bindarr.camera.rung';
+      const remembered = Number(localStorage.getItem(LADDER_KEY));
+      // A remembered rung is TRIED FIRST, then the others in order. It is a
+      // reordering, not a restriction: if the camera's behaviour changes
+      // (different USB port, driver update) the full ladder is still there.
+      const order = Number.isInteger(remembered) && ladder[remembered]
+        ? [remembered, ...ladder.keys()].filter((v, i, a) => a.indexOf(v) === i)
+        : [...ladder.keys()];
+
+      let mediaStream = null;
+      let usedRung = null;
+      let lastErr = null;
+      for (const i of order) {
+        const rung = ladder[i];
+        try {
+          const attempt = navigator.mediaDevices.getUserMedia({ video: rung.video, audio: false });
+          // The FINAL rung gets no deadline: if plain `video: true` hangs, the
+          // device is genuinely broken and a synthetic timeout would only
+          // replace an accurate browser error with a vaguer one of ours.
+          mediaStream = i === ladder.length - 1
+            ? await attempt
+            : await withDeadline(attempt, CAMERA_ATTEMPT_MS, rung.name);
+          usedRung = i;
+          break;
+        } catch (e) {
+          lastErr = e;
+          console.warn(`[scan] camera rung ${i} (${rung.name}) failed:`, e.name, e.message);
+        }
+      }
+      if (!mediaStream) throw lastErr || new Error('no camera constraint succeeded');
+      if (usedRung !== remembered) localStorage.setItem(LADDER_KEY, String(usedRung));
       // PIN THE LENS TO THE MAIN WIDE CAMERA, AND ZOOM IN TO FILL THE FRAME.
       //
       // On a multi-lens iPhone WebKit hands the page a VIRTUAL camera whose web

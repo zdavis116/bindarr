@@ -57,10 +57,10 @@ mutate() {
 
 # M1: THE BUG. Remove the deadline from the first attempt, so a cold camera
 # that never starts hangs instead of falling back.
-mutate M1 "await getUserMedia with no deadline" "CAM-TC1" "
-  const re = /await withDeadline\(navigator\.mediaDevices\.getUserMedia\(constraints\), \d+, '[^']*'\)/;
+mutate M1 "await each rung with no deadline" "CAM-TC1" "
+  const re = /await withDeadline\(attempt, CAMERA_ATTEMPT_MS, rung\.name\)/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, 'await navigator.mediaDevices.getUserMedia(constraints)');
+  const after = before.replace(re, 'await attempt');
 "
 
 # M2: leak the abandoned stream, so a slow first attempt leaves the camera held
@@ -73,10 +73,20 @@ mutate M2 "never stop the late-resolving stream" "CAM-TC2" "
 
 # M3: drop the unconstrained last attempt, so a webcam that cannot do 4032x3024
 # gets no camera at all.
-mutate M3 "remove the plain video:true fallback" "CAM-TC3" "
-  const re = /return navigator\.mediaDevices\.getUserMedia\(\{ video: true, audio: false \}\);/;
+# M3: THE BUG ZACH HIT SECOND. Stop remembering the winning rung, so every
+# camera open pays for the failed attempts again.
+mutate M3 "never remember the rung that worked" "CAM-TC3" "
+  const re = /if \(usedRung !== remembered\) localStorage\.setItem\(LADDER_KEY, String\(usedRung\)\);/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, 'throw err2;');
+  const after = before.replace(re, '');
+"
+
+# M5: put the deadline back to a value the user actually notices, so two failed
+# rungs cost ~12s of dead preview.
+mutate M5 "restore a 6s per-attempt deadline" "CAM-TC5" "
+  const re = /const CAMERA_ATTEMPT_MS = \d+;/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'const CAMERA_ATTEMPT_MS = 6000;');
 "
 
 # M4: THE ORIGINAL SIN. Report 'check your permissions' for every failure.

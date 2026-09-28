@@ -35,9 +35,16 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   start('CAM-TC1');
   assert.match(code, /const withDeadline = /,
     'each camera attempt must race a timer; a hang cannot be caught otherwise');
-  assert.match(code, /withDeadline\(navigator\.mediaDevices\.getUserMedia\(constraints\)/,
-    'the FIRST attempt is the one that hangs on a cold camera -- it must be '
-    + 'the one with a deadline');
+  // Rewritten with the ladder: the deadline is applied per RUNG now, not to a
+  // single named `constraints` object. What must hold is that a non-final rung
+  // is always raced -- the final one is deliberately unbounded, because if
+  // plain `video: true` hangs the device is broken and a synthetic timeout
+  // would only replace an accurate browser error with a vaguer one.
+  assert.match(code, /withDeadline\(attempt, CAMERA_ATTEMPT_MS, rung\.name\)/,
+    'every non-final rung must be raced against the deadline, or a cold '
+    + 'camera hangs there and the ladder below it is unreachable');
+  assert.match(code, /i === ladder\.length - 1\s*\n?\s*\? await attempt/,
+    'the FINAL rung must be awaited without a deadline');
   assert.match(code, /name: 'TimeoutError'/,
     'the synthetic failure needs a name the error mapping can report');
   pass('CAM-TC1', 'a hung camera request becomes a catchable rejection');
@@ -62,22 +69,59 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('CAM-TC2', 'a timed-out attempt releases the camera it abandoned');
 }
 
-// CAM-TC3: the resolution is dropped before giving up.
+// CAM-TC3: the request degrades, and remembers what worked.
 //
-// 4032x3024 is a phone-camera ceiling. A desktop webcam that cannot start
-// there can almost always start at its default, and a scanner at 1280 still
-// scans -- a scanner that will not open scans nothing.
+// THE FOLLOW-UP BUG (Zach): "why did it take so long to open the camera?"
+// His webcam fails the first two rungs, so he paid two full timeouts (~12s of
+// dead preview) on EVERY open before reaching the one that works. The ladder
+// was correct; charging for it repeatedly was not.
 {
   start('CAM-TC3');
-  assert.match(code, /getUserMedia\(\{ video: true, audio: false \}\)/,
-    'the last attempt must ask for NOTHING but video; dropping every '
-    + 'constraint is what lets a stubborn webcam start');
-  const first = code.indexOf('getUserMedia(constraints)');
-  const last = code.indexOf('getUserMedia({ video: true, audio: false })');
-  assert.ok(last > first,
-    'the unconstrained attempt must come AFTER the full-resolution one -- '
-    + 'otherwise every device gets the lowest common denominator');
-  pass('CAM-TC3', 'the request degrades to plain video before failing');
+  assert.match(code, /video: true,/,
+    'the last rung must ask for NOTHING but video; dropping every constraint '
+    + 'is what lets a stubborn webcam start');
+  // The ladder must be ordered widest-request-first, so a capable camera is
+  // never punished with the lowest common denominator.
+  const full = code.indexOf('facingMode:');
+  const plain = code.indexOf('video: true,');
+  assert.ok(plain > full,
+    'the unconstrained rung must come AFTER the full-resolution one');
+
+  // And the winning rung must be persisted, or every open pays for the
+  // failures again.
+  assert.match(code, /localStorage\.setItem\(LADDER_KEY/,
+    'the successful rung must be remembered, or the fallback cost is paid on '
+    + 'every single camera open');
+  assert.match(code, /localStorage\.getItem\(LADDER_KEY\)/,
+    'the remembered rung must actually be read back');
+
+  // Remembering must REORDER, never RESTRICT: a camera moved to another port
+  // or given a new driver has to be able to reach the other rungs.
+  const orderExpr = /const order = [\s\S]{0,260}?;/.exec(code);
+  assert.ok(orderExpr, 'the rung ordering could not be found');
+  assert.match(orderExpr[0], /\.\.\.ladder\.keys\(\)/,
+    'the remembered rung must be tried FIRST and the rest still tried after '
+    + '-- restricting to one rung would strand a camera whose behaviour '
+    + 'changed');
+  pass('CAM-TC3', 'the request degrades, and the winning rung is remembered');
+}
+
+// CAM-TC5: the per-attempt deadline is short enough to be paid.
+//
+// Every failed rung costs this in dead preview. It only has to be longer than
+// a working camera takes to start.
+{
+  start('CAM-TC5');
+  const m = /const CAMERA_ATTEMPT_MS = (\d+);/.exec(code);
+  assert.ok(m, 'the per-attempt deadline must be a named constant');
+  const ms = Number(m[1]);
+  assert.ok(ms <= 3000,
+    `the camera attempt deadline is ${ms}ms; a user pays it once per failed `
+    + 'rung and a camera that is going to start does so in under two seconds');
+  assert.ok(ms >= 1500,
+    `the camera attempt deadline is ${ms}ms; too short and a slow-but-healthy `
+    + 'camera is abandoned before it ever delivers a frame');
+  pass('CAM-TC5', 'a failed rung costs a bounded, sensible wait');
 }
 
 // CAM-TC4: every failure mode gets its own message.
