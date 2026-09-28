@@ -651,6 +651,22 @@ if (process.env.SPIKE_PHASE4A) {
 // the scanner falls back to the server path.
 const clientScanDir = process.env.CLIENT_SCAN_DIR
   || path.join(process.env.CV_MODEL_DIR || path.join(__dirname, '..', 'data', 'models'), 'client-scan');
+// DESIGN MOCKUPS, served from the repo so they survive a deploy.
+//
+// A deploy is `git fetch && git reset --hard`, which deletes anything staged
+// on the box outside git. Mockups copied into a static directory by hand
+// vanish on the next deploy and the review links die silently -- so they live
+// in sketches/ and are served from there.
+//
+// Mounted before the SPA catch-all, and only when SKETCHES=1, so they cannot
+// appear in production by accident. Delete this block and sketches/ once the
+// desktop scanner layout is settled; they are a conversation, not a feature.
+if (process.env.SKETCHES) {
+  const sketchDir = path.join(__dirname, '../../sketches');
+  app.use('/sketches', express.static(sketchDir));
+  console.log('Design mockups served at /sketches/');
+}
+
 app.use('/scan-assets', express.static(clientScanDir, {
   index: false, dotfiles: 'deny', fallthrough: false,
   setHeaders(res, file) {
