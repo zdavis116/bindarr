@@ -64,12 +64,31 @@ export default function DesktopScanLayout({
     return () => clearInterval(id);
   }, []);
 
-  // A new scan lands in `staging` without this component re-rendering, because
-  // the state lives outside React. The parent bumps lastScanned on every
-  // staged card, so that is the signal to re-read.
+  // A NEW SCAN MUST BE FETCHED, NOT JUST COUNTED.
+  //
+  // THE BUG (Zach): "its scanning but its not adding to the staged area
+  // though it does say its scanning the card successfully."
+  //
+  // The scan path calls staging.noteStaged(), which increments stagedCount
+  // and emits -- but it does NOT append to `entries`. That is deliberate and
+  // correct for the phone: `entries` is only ever filled by refresh(), and the
+  // phone's tray is an overlay that refreshes when it OPENS, so by the time
+  // anyone looks at the list it is accurate. Paying a full GET (thumbnails and
+  // all) after every scan was a real cost that was deliberately removed.
+  //
+  // The desktop table breaks that assumption completely: it is visible the
+  // whole time and never "opens". So a scan bumped the counter in the corner
+  // while the table it sits above stayed empty -- which is exactly what he
+  // saw. Re-reading `staging.getState()` could not fix it either; the rows
+  // genuinely were not there.
+  //
+  // So the desktop refreshes on each new card. It costs one GET per scan,
+  // which is the price of a list that is always on screen, and it is the
+  // ONLY correct source: the row was created by the server, so the server is
+  // what knows its id, its candidates and its crop.
   useEffect(() => {
-    if (lastScanned) setState(staging.getState());
-  }, [lastScanned, staging]);
+    if (lastScanned) sync();
+  }, [lastScanned, sync]);
 
   const rows = useMemo(() => sortForReview(state.entries || []), [state.entries]);
   const unresolved = rows.filter(e => !e.card_id);
