@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Desktop scanner (A: live side-by-side)</title>
+<style>
+/* Tokens copied from frontend/src/index.css, not invented. If these drift from
+   the app the mockup stops being a preview and becomes a different product. */
+:root{
+  --bg-primary:#000; --bg-secondary:#1c1c1e;
+  --surface-1:#1c1c1e; --surface-2:#2c2c2e;
+  --border-glass:rgba(255,255,255,.10); --border-glass-hover:rgba(255,255,255,.18);
+  --text-primary:#f5f5f7; --text-secondary:#98989d; --text-muted:#636366;
+  --accent-blue:#0a84ff; --accent-yellow:#ff9f0a; --accent-green:#30d158;
+  --accent-danger:#ff453a;
+  --radius-sm:10px; --radius-md:14px;
+  --font-main:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-main);
+  height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+.topbar{height:52px;flex-shrink:0;border-bottom:1px solid var(--border-glass);
+  display:flex;align-items:center;gap:1rem;padding:0 1rem;background:var(--bg-secondary)}
+.topbar h1{font-size:.95rem;font-weight:600;letter-spacing:-.01em}
+.topbar .sp{flex:1}
+.chip{font-size:.72rem;color:var(--text-secondary);background:var(--surface-2);
+  padding:.25rem .55rem;border-radius:999px;border:1px solid var(--border-glass)}
+
+/* THE WHOLE POINT OF THE REDESIGN: camera and staged list are both live, side
+   by side. The phone has to make these two modes because it has one screen's
+   worth of room; the desktop does not, and flipping between them is what makes
+   a long session tedious. */
+.split{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 420px;min-height:0}
+@media (max-width:1200px){ .split{grid-template-columns:minmax(0,1fr) 360px} }
+
+/* ---- LEFT: camera ---- */
+.camera{position:relative;background:#0a0a0a;display:flex;align-items:center;
+  justify-content:center;min-width:0;overflow:hidden}
+.feed{position:absolute;inset:0;background:
+  repeating-linear-gradient(115deg,#141416 0 22px,#0f0f11 22px 44px)}
+.guide{position:relative;width:min(46%,340px);aspect-ratio:63/88;
+  border:2px solid rgba(255,255,255,.5);border-radius:12px;
+  box-shadow:0 0 0 100vmax rgba(0,0,0,.45)}
+.guide .corner{position:absolute;width:22px;height:22px;border:3px solid var(--accent-blue)}
+.guide .tl{top:-2px;left:-2px;border-right:0;border-bottom:0;border-radius:12px 0 0 0}
+.guide .tr{top:-2px;right:-2px;border-left:0;border-bottom:0;border-radius:0 12px 0 0}
+.guide .bl{bottom:-2px;left:-2px;border-right:0;border-top:0;border-radius:0 0 0 12px}
+.guide .br{bottom:-2px;right:-2px;border-left:0;border-top:0;border-radius:0 0 12px 0}
+
+.hint{position:absolute;bottom:1.25rem;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.72);border:1px solid var(--border-glass);
+  padding:.5rem .9rem;border-radius:999px;font-size:.82rem;white-space:nowrap}
+.camctl{position:absolute;top:1rem;right:1rem;display:flex;gap:.5rem}
+.iconbtn{width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.6);
+  border:1px solid var(--border-glass);color:var(--text-primary);cursor:pointer;
+  font-size:1rem;display:grid;place-items:center}
+.iconbtn:hover{border-color:var(--border-glass-hover);background:var(--surface-2)}
+.camstat{position:absolute;top:1rem;left:1rem;font-size:.7rem;color:var(--text-muted);
+  background:rgba(0,0,0,.6);padding:.3rem .6rem;border-radius:var(--radius-sm);
+  border:1px solid var(--border-glass)}
+
+/* THE LAST CARD, big. On the phone this is a toast that vanishes; with room to
+   spare it can stay until the next card replaces it, which is what makes a
+   wrong read obvious WHILE the card is still in your hand. */
+.lastcard{position:absolute;bottom:1.25rem;left:1.25rem;display:flex;gap:.75rem;
+  align-items:center;background:rgba(0,0,0,.78);border:1px solid var(--border-glass);
+  border-radius:var(--radius-md);padding:.6rem .85rem;max-width:min(380px,48%)}
+.lastcard img{width:44px;height:61px;border-radius:6px;object-fit:cover;flex-shrink:0;
+  background:var(--surface-2)}
+.lastcard .nm{font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.lastcard .mt{font-size:.72rem;color:var(--text-secondary);margin-top:.15rem}
+
+/* ---- RIGHT: the staged list, always visible ---- */
+.tray{border-left:1px solid var(--border-glass);background:var(--bg-secondary);
+  display:flex;flex-direction:column;min-height:0}
+.trayhead{padding:.85rem 1rem;border-bottom:1px solid var(--border-glass);flex-shrink:0}
+.trayhead .row{display:flex;align-items:baseline;gap:.5rem}
+.trayhead h2{font-size:.92rem;font-weight:650}
+.trayhead .sub{font-size:.75rem;color:var(--text-secondary);margin-top:.15rem}
+.needs{color:var(--accent-yellow);font-weight:600}
+
+/* FLEXIBLE BY SESSION SIZE, which is what Zach asked for: "sometimes large,
+   sometimes small". Search only earns its space once the list is long enough
+   to need it, so a 5-card session is not cluttered by a control for a
+   300-card one. */
+.filter{padding:.6rem 1rem;border-bottom:1px solid var(--border-glass);flex-shrink:0}
+.filter input{width:100%;background:var(--surface-2);border:1px solid var(--border-glass);
+  color:var(--text-primary);padding:.45rem .7rem;border-radius:var(--radius-sm);
+  font-size:.82rem;font-family:inherit}
+.filter input::placeholder{color:var(--text-muted)}
+
+.list{flex:1;overflow-y:auto;min-height:0;padding:.5rem}
+.list::-webkit-scrollbar{width:10px}
+.list::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:5px}
+
+.row{display:flex;gap:.65rem;align-items:center;padding:.55rem;border-radius:var(--radius-sm);
+  cursor:pointer;border:1px solid transparent}
+.row:hover{background:var(--surface-1);border-color:var(--border-glass)}
+.row.attn{background:rgba(255,159,10,.10);border-color:rgba(255,159,10,.35)}
+.row img{width:38px;height:53px;border-radius:5px;object-fit:cover;flex-shrink:0;
+  background:var(--surface-2)}
+.row .mid{flex:1;min-width:0}
+.row .nm{font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .mt{font-size:.72rem;color:var(--text-secondary);margin-top:.1rem}
+.row .qty{font-size:.78rem;color:var(--text-secondary);flex-shrink:0;
+  background:var(--surface-2);padding:.15rem .45rem;border-radius:6px}
+
+/* The printing fix stays a DROPDOWN inside the row, as Zach asked -- same
+   interaction as today, just reachable without leaving the camera. */
+.fix{display:none;padding:.5rem .55rem .65rem;border-top:1px dashed var(--border-glass);
+  margin-top:.5rem}
+.row.open .fix{display:block}
+.fix .lbl{font-size:.72rem;color:var(--text-secondary);margin-bottom:.4rem}
+.cand{display:flex;gap:.5rem;align-items:center;padding:.35rem .45rem;border-radius:6px;
+  font-size:.78rem}
+.cand:hover{background:var(--surface-2)}
+.cand .set{color:var(--text-muted);font-size:.72rem}
+
+.trayfoot{padding:.8rem 1rem;border-top:1px solid var(--border-glass);flex-shrink:0;
+  display:flex;gap:.6rem;align-items:center}
+.btn{flex:1;padding:.6rem;border-radius:var(--radius-sm);border:1px solid var(--border-glass);
+  background:var(--surface-2);color:var(--text-primary);font-size:.84rem;font-weight:600;
+  cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+.btn.primary:disabled{background:var(--surface-2);border-color:var(--border-glass);
+  color:var(--text-muted);cursor:not-allowed}
+.btn.ghost{flex:0 0 auto;padding:.6rem .8rem;color:var(--text-secondary)}
+.empty{padding:2.5rem 1rem;text-align:center;color:var(--text-muted);font-size:.82rem}
+.note{position:fixed;bottom:.5rem;left:.75rem;font-size:.68rem;color:var(--text-muted)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Scan cards</h1>
+  <span class="chip" id="resChip">1920×1080 · rung 3</span>
+  <span class="sp"></span>
+  <span class="chip">Auto-scan on</span>
+</div>
+
+<div class="split">
+  <!-- LEFT: the camera keeps the full height it has today. Nothing about the
+       scan itself changes; it simply stops being covered by the review. -->
+  <section class="camera">
+    <div class="feed"></div>
+    <div class="guide">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+    </div>
+    <div class="camstat">1920×1080 · 30fps</div>
+    <div class="camctl">
+      <button class="iconbtn" title="Torch">&#9728;</button>
+      <button class="iconbtn" title="Stop camera">&#10005;</button>
+    </div>
+    <div class="hint" id="hint">Waiting for a card…</div>
+
+    <div class="lastcard" id="lastcard" style="display:none">
+      <img id="lcImg" alt="">
+      <div style="min-width:0">
+        <div class="nm" id="lcName">—</div>
+        <div class="mt" id="lcMeta">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: staged list, live. -->
+  <aside class="tray">
+    <div class="trayhead">
+      <div class="row"><h2 id="trayTitle">Scanned — 0 cards</h2></div>
+      <div class="sub" id="traySub">Nothing staged yet</div>
+    </div>
+
+    <div class="filter" id="filterWrap" style="display:none">
+      <input id="q" placeholder="Filter staged cards…" oninput="render()">
+    </div>
+
+    <div class="list" id="list">
+      <div class="empty">Scanned cards appear here as you go.</div>
+    </div>
+
+    <div class="trayfoot">
+      <button class="btn primary" id="addAll" disabled onclick="addAll()">Add all</button>
+      <button class="btn ghost" onclick="clearAll()">Clear</button>
+    </div>
+  </aside>
+</div>
+
+<div class="note">Mockup — simulated scans, no camera.</div>
+
+<script>
+// Sample data stands in for real scans. Grounded in cards Zach actually
+// scanned (Final Fantasy, fra) plus one deliberately ambiguous basic land,
+// because "which Forest is this" is the case the dropdown exists for.
+const POOL = [
+  { name:'Cloud, Midgar Mercenary',  set:'FRA', num:'1',   finish:'nonfoil' },
+  { name:'Tifa, Martial Artist',     set:'FRA', num:'214', finish:'foil'    },
+  { name:'Sephiroth, Fabled SOLDIER',set:'FRA', num:'103', finish:'nonfoil' },
+  { name:'Aerith, Last Ancient',     set:'FRA', num:'8',   finish:'nonfoil' },
+  { name:'Barret, Avalanche Leader', set:'FRA', num:'87',  finish:'nonfoil' },
+  { name:'Forest', set:'FRA', num:'291', finish:'nonfoil', ambiguous:true },
+  { name:'Yuffie, Materia Hunter',   set:'FRA', num:'62',  finish:'nonfoil' },
+  { name:'Red XIII, Cosmo Guardian', set:'FRA', num:'188', finish:'nonfoil' },
+];
+let staged = [];
+let openId = null;
+let n = 0;
+
+function render(){
+  const q = (document.getElementById('q').value || '').toLowerCase();
+  const shown = staged.filter(c => !q || c.name.toLowerCase().includes(q));
+  const needs = staged.filter(c => c.ambiguous).length;
+
+  document.getElementById('trayTitle').textContent =
+    `Scanned — ${staged.length} card${staged.length === 1 ? '' : 's'}`;
+  document.getElementById('traySub').innerHTML = staged.length === 0
+    ? 'Nothing staged yet'
+    : (needs
+        ? `<span class="needs">${needs} need${needs === 1 ? 's' : ''} a printing chosen</span>`
+        : 'All resolved — ready to add');
+
+  // Search appears only when the list is long enough to need it.
+  document.getElementById('filterWrap').style.display = staged.length >= 8 ? 'block' : 'none';
+  document.getElementById('addAll').disabled = staged.length === 0 || needs > 0;
+  document.getElementById('addAll').textContent =
+    needs > 0 ? `${needs} to fix first` : `Add all (${staged.length})`;
+
+  const list = document.getElementById('list');
+  if (!shown.length){
+    list.innerHTML = '<div class="empty">' +
+      (staged.length ? 'No matches.' : 'Scanned cards appear here as you go.') + '</div>';
+    return;
+  }
+  // Index-keyed, never name-keyed: card names contain apostrophes
+  // (Atraxa, Praetors' Voice) and string interpolation into onclick breaks
+  // silently on exactly those rows.
+  list.innerHTML = shown.map((c) => {
+    const i = staged.indexOf(c);
+    return `
+    <div class="row ${c.ambiguous ? 'attn' : ''} ${openId === c.id ? 'open' : ''}" onclick="toggle(${i})">
+      <img src="${c.img}" alt="">
+      <div class="mid">
+        <div class="nm">${c.name}</div>
+        <div class="mt">${c.ambiguous ? 'Which printing is this?' : `${c.set} #${c.num} · ${c.finish}`}</div>
+      </div>
+      <span class="qty">×${c.qty}</span>
+      <div class="fix" onclick="event.stopPropagation()">
+        <div class="lbl">Choose the printing</div>
+        ${['291 · Final Fantasy','292 · Final Fantasy','276 · Foundations','380 · Bloomburrow']
+          .map((s,k) => `<div class="cand" onclick="pick(${i},${k})">
+             <span>Forest</span><span class="set">${s}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggle(i){
+  const c = staged[i];
+  openId = (openId === c.id) ? null : c.id;
+  render();
+}
+function pick(i){
+  staged[i].ambiguous = false;
+  staged[i].num = '291';
+  openId = null;
+  render();
+}
+function scan(){
+  const src = POOL[n % POOL.length];
+  n++;
+  const c = Object.assign({}, src, {
+    id: 'c' + n, qty: 1,
+    img: 'https://placehold.co/63x88/2c2c2e/636366?text=' + encodeURIComponent(src.name[0]),
+  });
+  staged.unshift(c);
+
+  document.getElementById('lastcard').style.display = 'flex';
+  document.getElementById('lcImg').src = c.img;
+  document.getElementById('lcName').textContent = c.name;
+  document.getElementById('lcMeta').textContent =
+    c.ambiguous ? 'Needs a printing chosen' : `${c.set} #${c.num} · ${c.finish}`;
+  document.getElementById('hint').textContent = 'Staged ' + c.name;
+  setTimeout(() => { document.getElementById('hint').textContent = 'Waiting for a card…'; }, 1200);
+  render();
+}
+function addAll(){
+  const cnt = staged.length;
+  staged = []; openId = null; render();
+  document.getElementById('hint').textContent = `Added ${cnt} cards to your collection`;
+}
+function clearAll(){ staged = []; openId = null; render(); }
+
+// A card lands every ~2.5s so the layout can be judged filling up, which is
+// the state it actually lives in.
+setInterval(scan, 2500);
+setTimeout(scan, 400);
+render();
+</script>
+</body>
+</html>

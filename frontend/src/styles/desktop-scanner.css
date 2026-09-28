@@ -1,0 +1,335 @@
+/* DESKTOP SCANNER LAYOUT
+ * Transcribed from sketches/scanner-desktop/c-balanced.html, the mockup Zach
+ * approved. Values are copied, not re-derived.
+ *
+ * SCOPING, AND WHY IT IS THE WAY IT IS.
+ *
+ * "don't touch the phone layout."
+ *
+ * Every rule in this file is inside the min-width:769px query and every
+ * selector is under .dsk-scan, a class that only the desktop component
+ * renders. So there are two independent guarantees that the phone is
+ * untouched: the breakpoint, and a container the phone never mounts.
+ *
+ * The usual failure in this repo is the opposite -- shared design written
+ * INSIDE a width query, leaving nothing on the other side. That does not apply
+ * here: this is not shared design being split, it is a second layout that
+ * exists only on desktop. The phone's fullscreen camera and overlay tray are
+ * not referenced, overridden, or reset anywhere below.
+ *
+ * 769px matches the app's existing breakpoint (index.css) rather than
+ * inventing a third number.
+ */
+
+@media (min-width: 769px) {
+  .dsk-scan {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    z-index: 40;
+  }
+
+  /* ---- topbar (mockup:176) ---- */
+  .dsk-topbar {
+    height: 52px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-glass);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1rem;
+    background: var(--bg-secondary);
+  }
+  .dsk-topbar h1 { font-size: 0.95rem; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .dsk-sp { flex: 1; }
+  .dsk-chip {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    background: var(--surface-2);
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-glass);
+    white-space: nowrap;
+  }
+
+  /* ---- the split (mockup:74) ----
+   * 520px is FIXED, not a fraction. That is the whole point of variant C: at
+   * 1473px the table gets ~950px, at 1855px it gets ~1334px, and the camera
+   * stays 520 either way. A fraction would grow the camera on a wide monitor,
+   * which is the half of variant A that was rejected. */
+  .dsk-split {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 520px minmax(0, 1fr);
+    min-height: 0;
+  }
+  @media (max-width: 1280px) {
+    .dsk-split { grid-template-columns: 420px minmax(0, 1fr); }
+  }
+
+  /* ---- camera column ---- */
+  .dsk-camcol {
+    border-right: 1px solid var(--border-glass);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-secondary);
+  }
+  .dsk-camera {
+    position: relative;
+    background: #0a0a0a;
+    aspect-ratio: 4 / 3;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .dsk-feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .dsk-guide {
+    position: relative;
+    width: 44%;
+    aspect-ratio: 63 / 88;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 10px;
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.42);
+    pointer-events: none;
+  }
+  .dsk-corner { position: absolute; width: 18px; height: 18px; border: 3px solid var(--accent-blue); }
+  .dsk-corner.tl { top: -2px; left: -2px; border-right: 0; border-bottom: 0; border-radius: 10px 0 0 0; }
+  .dsk-corner.tr { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-radius: 0 10px 0 0; }
+  .dsk-corner.bl { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-radius: 0 0 0 10px; }
+  .dsk-corner.br { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-radius: 0 0 10px 0; }
+
+  .dsk-camctl { position: absolute; top: 0.7rem; right: 0.7rem; display: flex; gap: 0.45rem; }
+  .dsk-iconbtn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+  .dsk-iconbtn:hover { border-color: var(--border-glass-hover); background: var(--surface-2); }
+  .dsk-iconbtn.sm { width: 28px; height: 28px; background: var(--surface-2); }
+  .dsk-camstat {
+    position: absolute; top: 0.7rem; left: 0.7rem;
+    font-size: 0.68rem; color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.6);
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-glass);
+  }
+  /* FORCE-SCAN BUTTON. Sits opposite the status pill rather than beside it:
+     the pill is where "printing is moving" appears, and a control that covers
+     the explanation of why a scan was refused is worse than no control. */
+  .dsk-force {
+    position: absolute;
+    bottom: 0.7rem;
+    right: 0.7rem;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .dsk-force:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+  .dsk-hint {
+    position: absolute; bottom: 0.7rem; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid var(--border-glass);
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  /* ---- last scanned (mockup:200) ---- */
+  .dsk-lastwrap {
+    padding: 0.85rem;
+    border-top: 1px solid var(--border-glass);
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .dsk-lastlbl {
+    font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted);
+  }
+  .dsk-lastcard {
+    display: flex; gap: 0.8rem; align-items: center;
+    background: var(--surface-1);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: 0.7rem;
+  }
+  .dsk-lastempty { color: var(--text-muted); font-size: 0.82rem; }
+  .dsk-lastcard img, .dsk-lastph {
+    width: 58px; height: 81px;
+    border-radius: 7px; object-fit: cover;
+    flex-shrink: 0; background: var(--surface-2);
+  }
+  .dsk-lastcard .dsk-nm {
+    font-size: 0.92rem; font-weight: 650;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dsk-lastcard .dsk-mt { font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem; }
+  .dsk-warn { color: var(--accent-yellow); }
+  .dsk-sessions {
+    margin-top: auto; display: flex; gap: 0.5rem;
+    font-size: 0.72rem; color: var(--text-muted);
+  }
+  .dsk-sessions b { color: var(--text-secondary); font-weight: 600; }
+
+  /* ---- table column ---- */
+  .dsk-tablecol { display: flex; flex-direction: column; min-height: 0; }
+  .dsk-toolbar {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border-glass);
+    flex-shrink: 0;
+    display: flex; gap: 0.7rem; align-items: center;
+  }
+  .dsk-toolbar input {
+    flex: 1; max-width: 300px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    padding: 0.45rem 0.7rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    font-family: inherit;
+  }
+  .dsk-toolbar input::placeholder { color: var(--text-muted); }
+  .dsk-count { font-size: 0.8rem; color: var(--text-secondary); }
+  .dsk-needs { color: var(--accent-yellow); font-weight: 600; }
+
+  .dsk-tablewrap { flex: 1; overflow-y: auto; min-height: 0; }
+  .dsk-tablewrap::-webkit-scrollbar { width: 10px; }
+  .dsk-tablewrap::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+
+  .dsk-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  .dsk-table thead th {
+    position: sticky; top: 0;
+    background: var(--bg-primary);
+    text-align: left;
+    font-size: 0.7rem; font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border-glass);
+    z-index: 1;
+  }
+  .dsk-table tbody tr { border-bottom: 1px solid rgba(255, 255, 255, 0.05); cursor: pointer; }
+  .dsk-table tbody tr:hover { background: var(--surface-1); }
+  /* The amber tint IS the status now -- the Status column was removed because
+     "I will know the status just by looking at it". */
+  .dsk-table tbody tr.attn { background: rgba(255, 159, 10, 0.10); }
+  .dsk-table tbody tr.attn:hover { background: rgba(255, 159, 10, 0.16); }
+  /* (mockup:114) a landing row flashes, so "I scanned that" and "that row"
+     connect without hunting. */
+  .dsk-table tbody tr.fresh { animation: dsk-land 0.8s ease-out; }
+  @keyframes dsk-land {
+    from { background: rgba(10, 132, 255, 0.22); }
+    to   { background: transparent; }
+  }
+  .dsk-table td { padding: 0.45rem 1rem; vertical-align: middle; }
+  .dsk-table td.img img, .dsk-ph {
+    width: 32px; height: 45px;
+    border-radius: 5px; object-fit: cover;
+    background: var(--surface-2); display: block;
+  }
+  .dsk-table td.nm { font-weight: 600; }
+  .dsk-table td.set, .dsk-table td.fin, .dsk-table td.when { color: var(--text-secondary); }
+  .dsk-table td.qty { text-align: right; }
+  .dsk-weak { font-size: 0.66rem; color: var(--accent-yellow); font-weight: 400; margin-top: 0.15rem; }
+
+  .dsk-qtyctl { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .dsk-qtyctl button {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    cursor: pointer; font-family: inherit; line-height: 1;
+    display: grid; place-items: center;
+  }
+  .dsk-qtyctl button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .dsk-qtyctl .dsk-del { margin-left: 0.25rem; color: var(--text-muted); }
+  .dsk-qtyctl .dsk-del:hover { color: var(--accent-danger, #ff453a); }
+
+  /* ---- the printing dropdown (mockup:284) ---- */
+  .dsk-table tr.fixrow { cursor: default; }
+  .dsk-table tr.fixrow td { padding: 0 1rem 0.6rem; }
+  .dsk-fixbox {
+    background: var(--surface-1);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.7rem;
+  }
+  .dsk-fixlbl { font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 0.4rem; }
+  .dsk-cand {
+    display: flex; gap: 0.6rem; align-items: center;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .dsk-cand:hover { background: var(--surface-2); }
+  .dsk-cand .set { color: var(--text-muted); font-size: 0.73rem; margin-left: auto; }
+  .dsk-nocand { font-size: 0.75rem; color: var(--text-muted); padding: 0.25rem 0.5rem; }
+  .dsk-searchrow { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+  .dsk-searchrow input {
+    flex: 1; background: var(--surface-2);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    padding: 0.35rem 0.6rem;
+    border-radius: 6px; font-size: 0.78rem; font-family: inherit;
+  }
+  .dsk-searchrow button {
+    padding: 0 0.6rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border-glass);
+    border-radius: 6px; color: var(--text-primary); cursor: pointer;
+  }
+  .dsk-searchrow button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ---- footer (mockup:305) ---- */
+  .dsk-foot {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-glass);
+    flex-shrink: 0;
+    display: flex; gap: 0.6rem; align-items: center;
+  }
+  .dsk-btn {
+    padding: 0.45rem 0.85rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-glass);
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .dsk-btn.primary { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .dsk-btn.primary:disabled,
+  .dsk-btn.ghost:disabled {
+    background: var(--surface-2);
+    border-color: var(--border-glass);
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+  .dsk-btn.ghost { color: var(--text-secondary); }
+  .dsk-empty { padding: 3rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.84rem; }
+}

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Desktop scanner (C: fixed camera + table)</title>
+<style>
+/* Tokens copied from frontend/src/index.css, not invented. */
+:root{
+  --bg-primary:#000; --bg-secondary:#1c1c1e;
+  --surface-1:#1c1c1e; --surface-2:#2c2c2e;
+  --border-glass:rgba(255,255,255,.10); --border-glass-hover:rgba(255,255,255,.18);
+  --text-primary:#f5f5f7; --text-secondary:#98989d; --text-muted:#636366;
+  --accent-blue:#0a84ff; --accent-yellow:#ff9f0a; --accent-green:#30d158;
+  --radius-sm:10px; --radius-md:14px;
+  --font-main:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-main);
+  height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+.topbar{height:52px;flex-shrink:0;border-bottom:1px solid var(--border-glass);
+  display:flex;align-items:center;gap:1rem;padding:0 1rem;background:var(--bg-secondary)}
+.topbar h1{font-size:.95rem;font-weight:600;letter-spacing:-.01em}
+.topbar .sp{flex:1}
+.chip{font-size:.72rem;color:var(--text-secondary);background:var(--surface-2);
+  padding:.25rem .55rem;border-radius:999px;border:1px solid var(--border-glass)}
+.btn{padding:.45rem .85rem;border-radius:var(--radius-sm);border:1px solid var(--border-glass);
+  background:var(--surface-2);color:var(--text-primary);font-size:.82rem;font-weight:600;
+  cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+.btn.primary:disabled{background:var(--surface-2);border-color:var(--border-glass);
+  color:var(--text-muted);cursor:not-allowed}
+.btn.ghost{color:var(--text-secondary)}
+
+/* C SPLITS THE DIFFERENCE, which is exactly what was asked for: "the scanner
+   side was too big on A but too small on B... I liked all the info I got on B
+   and how it was more table like".
+   A gave the camera ~1050px at his 1473px width; B gave it 300px. C fixes it
+   at 520px -- big enough to see framing and glare, small enough that the table
+   keeps ~950px, which is what made B's columns readable. The camera is a FIXED
+   width rather than a fraction so the table absorbs every extra pixel on a
+   wider monitor; at 1855px the table gets 1334px and the camera stays 520. */
+.split{flex:1;display:grid;grid-template-columns:520px minmax(0,1fr);min-height:0}
+@media (max-width:1280px){ .split{grid-template-columns:420px minmax(0,1fr)} }
+
+/* ---- LEFT: camera column ---- */
+.camcol{border-right:1px solid var(--border-glass);display:flex;flex-direction:column;
+  min-height:0;background:var(--bg-secondary)}
+.camera{position:relative;background:#0a0a0a;aspect-ratio:4/3;flex-shrink:0;
+  display:grid;place-items:center;overflow:hidden}
+.feed{position:absolute;inset:0;background:
+  repeating-linear-gradient(115deg,#141416 0 22px,#0f0f11 22px 44px)}
+.guide{position:relative;width:44%;aspect-ratio:63/88;
+  border:2px solid rgba(255,255,255,.5);border-radius:10px;
+  box-shadow:0 0 0 100vmax rgba(0,0,0,.42)}
+.guide .corner{position:absolute;width:18px;height:18px;border:3px solid var(--accent-blue)}
+.guide .tl{top:-2px;left:-2px;border-right:0;border-bottom:0;border-radius:10px 0 0 0}
+.guide .tr{top:-2px;right:-2px;border-left:0;border-bottom:0;border-radius:0 10px 0 0}
+.guide .bl{bottom:-2px;left:-2px;border-right:0;border-top:0;border-radius:0 0 0 10px}
+.guide .br{bottom:-2px;right:-2px;border-left:0;border-top:0;border-radius:0 0 10px 0}
+.camctl{position:absolute;top:.7rem;right:.7rem;display:flex;gap:.45rem}
+.iconbtn{width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.6);
+  border:1px solid var(--border-glass);color:var(--text-primary);cursor:pointer;
+  font-size:.95rem;display:grid;place-items:center}
+.iconbtn:hover{border-color:var(--border-glass-hover);background:var(--surface-2)}
+.camstat{position:absolute;top:.7rem;left:.7rem;font-size:.68rem;color:var(--text-muted);
+  background:rgba(0,0,0,.6);padding:.25rem .5rem;border-radius:var(--radius-sm);
+  border:1px solid var(--border-glass)}
+.hint{position:absolute;bottom:.7rem;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.75);border:1px solid var(--border-glass);
+  padding:.4rem .8rem;border-radius:999px;font-size:.78rem;white-space:nowrap}
+
+/* THE LAST CARD, kept from A. This is the part of A worth keeping at any
+   camera size: it makes a misread visible WHILE the card is still in your
+   hand, rather than ten rows later in the table. */
+.lastwrap{padding:.85rem;border-top:1px solid var(--border-glass);flex:1;min-height:0;
+  display:flex;flex-direction:column;gap:.6rem}
+.lastlbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.lastcard{display:flex;gap:.8rem;align-items:center;background:var(--surface-1);
+  border:1px solid var(--border-glass);border-radius:var(--radius-md);padding:.7rem}
+.lastcard img{width:58px;height:81px;border-radius:7px;object-fit:cover;flex-shrink:0;
+  background:var(--surface-2)}
+.lastcard .nm{font-size:.92rem;font-weight:650;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.lastcard .mt{font-size:.76rem;color:var(--text-secondary);margin-top:.2rem}
+.lastcard .warn{color:var(--accent-yellow)}
+.sessions{margin-top:auto;display:flex;gap:.5rem;font-size:.72rem;color:var(--text-muted)}
+.sessions b{color:var(--text-secondary);font-weight:600}
+
+/* ---- RIGHT: B's table, given the room ---- */
+.tablecol{display:flex;flex-direction:column;min-height:0}
+.toolbar{padding:.7rem 1rem;border-bottom:1px solid var(--border-glass);flex-shrink:0;
+  display:flex;gap:.7rem;align-items:center}
+.toolbar input{flex:1;max-width:300px;background:var(--surface-2);
+  border:1px solid var(--border-glass);color:var(--text-primary);
+  padding:.45rem .7rem;border-radius:var(--radius-sm);font-size:.82rem;font-family:inherit}
+.toolbar input::placeholder{color:var(--text-muted)}
+.toolbar .sp{flex:1}
+.count{font-size:.8rem;color:var(--text-secondary)}
+.needs{color:var(--accent-yellow);font-weight:600}
+
+.tablewrap{flex:1;overflow-y:auto;min-height:0}
+.tablewrap::-webkit-scrollbar{width:10px}
+.tablewrap::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:5px}
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+thead th{position:sticky;top:0;background:var(--bg-primary);text-align:left;
+  font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:.04em;padding:.5rem 1rem;border-bottom:1px solid var(--border-glass);z-index:1}
+tbody tr{border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+tbody tr:hover{background:var(--surface-1)}
+tbody tr.attn{background:rgba(255,159,10,.10)}
+tbody tr.attn:hover{background:rgba(255,159,10,.16)}
+tbody tr.fresh{animation:land .8s ease-out}
+@keyframes land{from{background:rgba(10,132,255,.22)}to{background:transparent}}
+td{padding:.45rem 1rem;vertical-align:middle}
+td.img img{width:32px;height:45px;border-radius:5px;object-fit:cover;
+  background:var(--surface-2);display:block}
+td.nm{font-weight:600}
+td.set,td.fin,td.when{color:var(--text-secondary)}
+td.qty{text-align:right}
+.qtyctl{display:inline-flex;align-items:center;gap:.4rem}
+.qtyctl button{width:22px;height:22px;border-radius:6px;background:var(--surface-2);
+  border:1px solid var(--border-glass);color:var(--text-primary);cursor:pointer;
+  font-family:inherit;line-height:1}
+
+tr.fixrow td{padding:0 1rem .6rem}
+.fixbox{background:var(--surface-1);border:1px solid var(--border-glass);
+  border-radius:var(--radius-sm);padding:.6rem .7rem}
+.fixbox .lbl{font-size:.72rem;color:var(--text-secondary);margin-bottom:.4rem}
+.cand{display:flex;gap:.6rem;align-items:center;padding:.35rem .5rem;border-radius:6px;font-size:.8rem}
+.cand:hover{background:var(--surface-2)}
+.cand .set{color:var(--text-muted);font-size:.73rem;margin-left:auto}
+
+.foot{padding:.75rem 1rem;border-top:1px solid var(--border-glass);flex-shrink:0;
+  display:flex;gap:.6rem;align-items:center}
+.foot .sp{flex:1}
+.empty{padding:3rem 1rem;text-align:center;color:var(--text-muted);font-size:.84rem}
+.note{position:fixed;bottom:.45rem;left:.75rem;font-size:.68rem;color:var(--text-muted)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Scan cards</h1>
+  <span class="chip">1920×1080 · 30fps</span>
+  <span class="sp"></span>
+  <span class="chip">Auto-scan on</span>
+</div>
+
+<div class="split">
+  <!-- LEFT: camera at a fixed, middling width. -->
+  <section class="camcol">
+    <div class="camera">
+      <div class="feed"></div>
+      <div class="guide">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+      </div>
+      <div class="camstat">1920×1080</div>
+      <div class="camctl">
+        <button class="iconbtn" title="Torch">&#9728;</button>
+        <button class="iconbtn" title="Stop camera">&#10005;</button>
+      </div>
+      <div class="hint" id="hint">Waiting for a card…</div>
+    </div>
+
+    <div class="lastwrap">
+      <div class="lastlbl">Last scanned</div>
+      <div class="lastcard" id="lastcard" style="display:none">
+        <img id="lcImg" alt="">
+        <div style="min-width:0">
+          <div class="nm" id="lcName">—</div>
+          <div class="mt" id="lcMeta">—</div>
+        </div>
+      </div>
+      <div class="lastcard" id="lastEmpty" style="color:var(--text-muted);font-size:.82rem">
+        Nothing scanned yet.
+      </div>
+      <div class="sessions">
+        <span><b id="sTotal">0</b> staged</span>
+        <span>·</span>
+        <span><b id="sNeeds">0</b> need a printing</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: the table from B, with the width it wanted. -->
+  <section class="tablecol">
+    <div class="toolbar">
+      <input id="q" placeholder="Filter staged cards…" oninput="render()">
+      <span class="sp"></span>
+      <span class="count" id="count">0 staged</span>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50px"></th>
+            <th>Card</th>
+            <th style="width:150px">Set</th>
+            <th style="width:100px">Finish</th>
+            <th style="width:80px">When</th>
+            <th style="width:110px;text-align:right">Qty</th>
+          </tr>
+        </thead>
+        <tbody id="tb"></tbody>
+      </table>
+      <div class="empty" id="empty">Scanned cards appear here as you go.</div>
+    </div>
+
+    <div class="foot">
+      <span class="count" id="footNote">Nothing staged yet</span>
+      <span class="sp"></span>
+      <button class="btn ghost" onclick="clearAll()">Clear</button>
+      <button class="btn primary" id="addAll" disabled onclick="addAll()">Add all</button>
+    </div>
+  </section>
+</div>
+
+<div class="note">Mockup — simulated scans, no camera.</div>
+
+<script>
+const POOL = [
+  { name:'Cloud, Midgar Mercenary',   set:'Final Fantasy', num:'1',   finish:'Nonfoil' },
+  { name:'Tifa, Martial Artist',      set:'Final Fantasy', num:'214', finish:'Foil'    },
+  { name:'Sephiroth, Fabled SOLDIER', set:'Final Fantasy', num:'103', finish:'Nonfoil' },
+  { name:'Aerith, Last Ancient',      set:'Final Fantasy', num:'8',   finish:'Nonfoil' },
+  { name:'Barret, Avalanche Leader',  set:'Final Fantasy', num:'87',  finish:'Nonfoil' },
+  { name:'Forest',                    set:'Final Fantasy', num:'291', finish:'Nonfoil', ambiguous:true },
+  { name:'Yuffie, Materia Hunter',    set:'Final Fantasy', num:'62',  finish:'Nonfoil' },
+  { name:'Red XIII, Cosmo Guardian',  set:'Final Fantasy', num:'188', finish:'Nonfoil' },
+];
+let staged = [], openId = null, n = 0, freshId = null;
+
+function ago(t){
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  return Math.round(s / 60) + 'm ago';
+}
+
+function render(){
+  const q = (document.getElementById('q').value || '').toLowerCase();
+  const shown = staged.filter(c => !q || c.name.toLowerCase().includes(q));
+  const needs = staged.filter(c => c.ambiguous).length;
+
+  document.getElementById('count').innerHTML = staged.length
+    ? `${staged.length} staged` + (needs ? ` · <span class="needs">${needs} need a printing</span>` : '')
+    : '0 staged';
+  document.getElementById('sTotal').textContent = staged.length;
+  document.getElementById('sNeeds').textContent = needs;
+  document.getElementById('footNote').textContent = staged.length === 0
+    ? 'Nothing staged yet'
+    : (needs ? `${needs} card${needs === 1 ? '' : 's'} need a printing before you can add` : 'All resolved');
+  document.getElementById('addAll').disabled = !staged.length || needs > 0;
+  document.getElementById('addAll').textContent =
+    needs > 0 ? `${needs} to fix first` : `Add all (${staged.length})`;
+  document.getElementById('empty').style.display = shown.length ? 'none' : 'block';
+
+  // Index-keyed, never name-keyed: a card name with an apostrophe
+  // (Atraxa, Praetors' Voice) silently breaks a row built by interpolation.
+  document.getElementById('tb').innerHTML = shown.map(c => {
+    const i = staged.indexOf(c);
+    const main = `
+      <tr class="${c.ambiguous ? 'attn' : ''} ${c.id === freshId ? 'fresh' : ''}" onclick="toggle(${i})">
+        <td class="img"><img src="${c.img}" alt=""></td>
+        <td class="nm">${c.name}</td>
+        <td class="set">${c.ambiguous
+          ? '<span class="needs">Needs printing</span>'
+          : c.set + ' #' + c.num}</td>
+        <td class="fin">${c.finish}</td>
+        <td class="when">${ago(c.t)}</td>
+        <td class="qty"><span class="qtyctl" onclick="event.stopPropagation()">
+          <button onclick="bump(${i},-1)">–</button>${c.qty}<button onclick="bump(${i},1)">+</button>
+        </span></td>
+      </tr>`;
+    if (openId !== c.id) return main;
+    return main + `
+      <tr class="fixrow"><td colspan="6">
+        <div class="fixbox">
+          <div class="lbl">Choose the printing</div>
+          ${['Final Fantasy · #291','Final Fantasy · #292','Foundations · #276','Bloomburrow · #380']
+            .map((s,k) => `<div class="cand" onclick="pick(${i},${k})">
+               <span>Forest</span><span class="set">${s}</span></div>`).join('')}
+        </div>
+      </td></tr>`;
+  }).join('');
+}
+
+function toggle(i){ const c = staged[i]; openId = (openId === c.id) ? null : c.id; render(); }
+function pick(i){ staged[i].ambiguous = false; staged[i].num = '291'; openId = null; render(); }
+function bump(i,d){ staged[i].qty = Math.max(1, staged[i].qty + d); render(); }
+
+function scan(){
+  const src = POOL[n % POOL.length]; n++;
+  const c = Object.assign({}, src, { id:'c'+n, qty:1, t:Date.now(),
+    img:'https://placehold.co/63x88/2c2c2e/636366?text=' + encodeURIComponent(src.name[0]) });
+  staged.unshift(c);
+  freshId = c.id;
+  setTimeout(() => { if (freshId === c.id){ freshId = null; render(); } }, 900);
+
+  document.getElementById('lastEmpty').style.display = 'none';
+  document.getElementById('lastcard').style.display = 'flex';
+  document.getElementById('lcImg').src = c.img;
+  document.getElementById('lcName').textContent = c.name;
+  const meta = document.getElementById('lcMeta');
+  meta.textContent = c.ambiguous ? 'Needs a printing chosen' : `${c.set} #${c.num} · ${c.finish}`;
+  meta.className = 'mt' + (c.ambiguous ? ' warn' : '');
+  document.getElementById('hint').textContent = 'Staged ' + c.name;
+  setTimeout(() => { document.getElementById('hint').textContent = 'Waiting for a card…'; }, 1200);
+  render();
+}
+function addAll(){ const k = staged.length; staged = []; openId = null; render();
+  document.getElementById('hint').textContent = `Added ${k} cards`; }
+function clearAll(){ staged = []; openId = null; render(); }
+
+setInterval(scan, 2500);
+setInterval(render, 5000);   // keep the "When" column honest
+setTimeout(scan, 400);
+render();
+</script>
+</body>
+</html>

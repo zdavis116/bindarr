@@ -83,6 +83,10 @@ export function loadClientScan() {
 }
 
 let frameCanvas = null, smallCanvas = null;
+// The quad of the card in the CURRENT frameCanvas, kept so a staged row can be
+// cropped to the card afterwards. Cleared when a pass finds no card, so a crop
+// can never be taken against a stale outline from a previous frame.
+let lastQuad = null;
 function ctx2d(c) { return c.getContext('2d', { willReadFrequently: true }); }
 function canvas(w, h) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
@@ -103,6 +107,7 @@ function serialized(fn) {
 
 // Forget the tracked card and pooled footer evidence (auto stop/start).
 export function resetOnDevice() {
+  lastQuad = null;
   if (worker) worker.postMessage({ type: 'reset' });
 }
 
@@ -127,7 +132,8 @@ async function readOnce(source, sw, sh, { requireStill = false } = {}) {
   const small = pixels(sc, CORN_SIZE, CORN_SIZE);
   const p = await call({ type: 'probe', small, w, h }, [small]);
   if (p.error) return { error: p.error };
-  if (!p.quad) return p.out;          // no card: skip the full-frame readback
+  if (!p.quad) { lastQuad = null; return p.out; }   // no card: skip the full-frame readback
+  lastQuad = p.quad;
   const frame = pixels(fc, w, h);
   const r = await call({ type: 'read', frame, w, h, quad: p.quad, requireStill }, [frame]);
   return r.error ? { error: r.error } : r.out;
@@ -138,6 +144,47 @@ export function lastFrameJpeg() {
   if (!frameCanvas) return null;
   if (frameCanvas.convertToBlob) return frameCanvas.convertToBlob({ type: 'image/jpeg', quality: 0.88 });
   return new Promise((res, rej) => frameCanvas.toBlob(b => (b ? res(b) : rej(new Error('encode'))), 'image/jpeg', 0.88));
+}
+
+// The card the reader just looked at, as a small data URL for the staging
+// review list.
+//
+// THE BUG THIS FIXES (Zach): "the cards added to the add review list now have
+// no card image, why is that?" The old server path returned a crop with every
+// match and the review row rendered it; the on-device path submitted
+// `crop: null`, so every row drew an empty grey box. Forty rows of names with
+// no way to tell which piece of cardboard each one was -- which is exactly
+// what the crop is for when a printing looks wrong.
+//
+// Cropped to the card's own quad (with a small margin) rather than the whole
+// frame, so the thumbnail is the CARD and not the table around it. Bounded
+// hard: the backend rejects anything over 512KB, and a scan must never fail
+// because its thumbnail was too big.
+const CROP_W = 210;    // ~2.5x the 52x73 render box, so it stays sharp
+const CROP_H = 294;
+export function lastCardCrop() {
+  if (!frameCanvas || !lastQuad) return null;
+  try {
+    const xs = lastQuad.map(p => p.x);
+    const ys = lastQuad.map(p => p.y);
+    const pad = 0.04;
+    const x0 = Math.max(0, Math.min(...xs) - (Math.max(...xs) - Math.min(...xs)) * pad);
+    const y0 = Math.max(0, Math.min(...ys) - (Math.max(...ys) - Math.min(...ys)) * pad);
+    const x1 = Math.min(frameCanvas.width, Math.max(...xs) + (Math.max(...xs) - Math.min(...xs)) * pad);
+    const y1 = Math.min(frameCanvas.height, Math.max(...ys) + (Math.max(...ys) - Math.min(...ys)) * pad);
+    const w = x1 - x0, h = y1 - y0;
+    if (!(w > 8 && h > 8)) return null;
+
+    const c = document.createElement('canvas');
+    c.width = CROP_W; c.height = CROP_H;
+    c.getContext('2d').drawImage(frameCanvas, x0, y0, w, h, 0, 0, CROP_W, CROP_H);
+    // 0.7 keeps a 210x294 JPEG around 10-15KB: well inside the server's limit
+    // even for a long stack, and plenty for a 52px-wide thumbnail.
+    return c.toDataURL('image/jpeg', 0.7);
+  } catch {
+    // A crop is a nicety; a scan is not. Never let this path throw.
+    return null;
+  }
 }
 
 // Turn on-device answers into card_cache rows (prices, image, set) via the

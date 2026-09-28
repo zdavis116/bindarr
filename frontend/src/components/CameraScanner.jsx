@@ -10,6 +10,8 @@ import CardEntryFields from './CardEntryFields';
 import CardInspectorModal from './CardInspectorModal';
 import { createScanReviewQueue } from './scanReviewQueue';
 import ScanStagingReview from './ScanStagingReview';
+import DesktopScanLayout from './DesktopScanLayout';
+import '../styles/desktop-scanner.css';
 import { createScanStaging } from './scanStaging';
 import { useBackGuard } from '../utils/useBackGuard';
 import { useMultiSelect } from '../utils/useMultiSelect';
@@ -38,6 +40,20 @@ const SCAN_MATCH_MIN_INLIERS = 12;
 // negotiated numbers are recorded into the diagnostics panel (see cameraInfo),
 // because no browser and no camera runs in this repo and only Zach's phone can
 // report what his hardware actually handed back.
+// How long one camera constraint gets before we try the next rung.
+//
+// Was 6000, which cost Zach ~12s of dead preview on every open because his
+// webcam fails the first two rungs. A camera that is going to start does so in
+// well under two seconds; one that has not produced a frame in 2.5s is
+// negotiating a mode it cannot actually deliver.
+const CAMERA_ATTEMPT_MS = 2500;
+// Below this width the collector number at the foot of the card stops having
+// enough pixels for the footer read -- which is the whole basis of proving a
+// PRINTING rather than just a card name. 640x480 (the browser default when no
+// resolution is requested) is well under it. A capture this small is accepted
+// rather than refused, because a poor scanner beats no scanner, but it is
+// never REMEMBERED: the next open retries the full ladder.
+const MIN_USEFUL_CAPTURE_W = 1280;
 const SCAN_CAPTURE_IDEAL_W = 4032;
 const SCAN_CAPTURE_IDEAL_H = 3024;
 // Kept from the old 'Accurate' preset. Deliberately NOT collapsed to Turbo's
@@ -283,6 +299,46 @@ function CameraScanner({ onAddSuccess, showToast }) {
   // the end letting me add all. That way I can ensure no weirdness occurred or
   // ensure there isn't any dupes."
   const [showStaging, setShowStaging] = useState(false);
+
+  // WHICH LAYOUT. 769px is the app's existing breakpoint, not a third number.
+  //
+  // Tracked in state and updated on resize rather than read once: a desktop
+  // user who snaps the window to half-screen crosses this boundary, and a
+  // layout that only decides at mount would leave them in the wrong one until
+  // a reload. matchMedia rather than innerWidth so it fires exactly on the
+  // crossing.
+  const [isDesktopScan, setIsDesktopScan] = useState(
+    () => typeof window !== 'undefined'
+      && window.matchMedia('(min-width: 769px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)');
+    const onChange = (e) => setIsDesktopScan(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // The card the reader last proved, for the desktop's "Last scanned" panel.
+  // Also the signal that tells the panel to re-read staging: staging state
+  // lives outside React, so a new row does not re-render anything on its own.
+  const [lastScannedCard, setLastScannedCard] = useState(null);
+
+  // PRINTING SEARCH for the desktop row picker. Transcribed from
+  // ScanStagingReview's CardSearch (line 38) -- same endpoint, same params,
+  // same 12-result cap -- so the two surfaces cannot disagree about what a
+  // search returns. Re-deriving it here is how a second, subtly different
+  // search gets built.
+  const searchPrintings = useCallback(async (term) => {
+    const q = (term || '').trim();
+    if (!q) return [];
+    try {
+      const p = new URLSearchParams({ game: 'mtg', lang: 'en', name: q, prints: '1' });
+      const res = await fetch(`/api/search?${p.toString()}`);
+      return res.ok ? (await res.json()).slice(0, 12) : [];
+    } catch {
+      return [];
+    }
+  }, []);
   const [stagedCount, setStagedCount] = useState(0);
   // How many staged rows still need a printing chosen. Replaces the old
   // `flaggedCount`, which read a field the staging controller no longer
@@ -399,6 +455,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
   const onDeviceRef = useRef(false);    // did the reader load
   const firstSeenRef = useRef(null);    // when the card in view was first seen
   const frameCanvasRef = useRef(null);  // reused JPEG encode canvas
+  // The status line holds its last hint rather than tracking every 60ms pass.
+  // Long enough that a single disagreeing pass cannot blink it, short enough
+  // that it never misreports the current state for a noticeable time.
+  const HINT_CLEAR_MS = 900;
+  const hintHeldRef = useRef('');
+  const hintClearRef = useRef(null);
   // The identity a TAP has already forced past the queue dedupe guard. Lets the
   // first tap through and refuses a second one on the same card, so a double tap
   // cannot stage two rows for one piece of cardboard. Cleared alongside
@@ -1032,16 +1094,142 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // ~660px, which puts the printed collector number at roughly 6-8px tall —
       // the floor of OCR legibility, and the reason the scanner works in good
       // light and collapses when noise is added.
-      const constraints = {
-        video: {
-          facingMode: 'environment', // Use back camera on phones
-          width: { ideal: SCAN_CAPTURE_IDEAL_W },
-          height: { ideal: SCAN_CAPTURE_IDEAL_H },
-        },
-        audio: false
+
+      // A HANG IS NOT A REJECTION, so the fallbacks below need a deadline.
+      //
+      // Chrome's own "Timeout starting video source" can take 10-20s to fire,
+      // and Safari may never fire it at all -- the promise simply never
+      // settles and the user watches a dead preview with no error. Racing each
+      // attempt against a timer turns "hung" into "rejected", which is the
+      // only thing a .catch() can act on.
+      //
+      // THE ABANDONED ATTEMPT MUST BE CLEANED UP. Losing the race does not
+      // cancel getUserMedia: if it resolves later we hold a live stream nobody
+      // references, the camera light stays on, and the NEXT attempt finds the
+      // device busy -- turning one slow start into a permanently broken
+      // camera. So a late winner gets its tracks stopped.
+      const withDeadline = (p, ms, label) => {
+        let timer;
+        const guard = new Promise((_, rej) => {
+          timer = setTimeout(
+            () => rej(Object.assign(new Error(`${label} timed out after ${ms}ms`), { name: 'TimeoutError' })),
+            ms);
+        });
+        return Promise.race([p, guard])
+          .finally(() => clearTimeout(timer))
+          .catch((err) => {
+            p.then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+            throw err;
+          });
       };
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // THE CONSTRAINT LADDER, AND WHY IT REMEMBERS.
+      //
+      // Zach: "why did it take so long to open the camera?" -- his webcam
+      // fails the first rungs, and he was paying a full timeout on each one,
+      // on EVERY open, before reaching the attempt that works. The ladder was
+      // correct; charging for it repeatedly was not. The winning rung is now
+      // remembered per device, so the cost is paid once.
+      //
+      // Then: "my camera is a 4k camera why is it only at 640x480" -- and that
+      // was this ladder failing badly, twice over.
+      //
+      //   The old rungs were 4032x3024, then 4032x3024 again without
+      //   facingMode, then `video: true`. There was NOTHING IN BETWEEN. A
+      //   camera that cannot start at 12MP fell straight through to asking for
+      //   nothing at all, and a browser given no resolution hint hands back its
+      //   default -- 640x480. Remembering then made that permanent.
+      //
+      //   A ladder whose rungs are "everything" and "nothing" is not a ladder.
+      //
+      // The rungs now STEP DOWN through real camera modes: 4K, 1440p, 1080p,
+      // 720p, then unconstrained as a last resort. Each is a mode webcams
+      // actually advertise, so a 4K camera that will not start at 4K still
+      // lands on 1440p or 1080p instead of collapsing to VGA.
+      //
+      // WHY 1080p IS ENOUGH, AND WHY MORE STILL HELPS: the reader downscales
+      // every frame to FRAME_MAX (1920) before it reads anything, so past
+      // 1080p there is no extra detail for the OCR. Above it costs upload and
+      // encode time for nothing. Below it, the collector number at the bottom
+      // of the card starts losing the pixels the footer read depends on --
+      // which is exactly what 640x480 does, and why his scans would have got
+      // worse as well as smaller.
+      const ladder = [
+        { name: '4K, environment camera', video: { facingMode: 'environment', width: { ideal: 3840 }, height: { ideal: 2160 } } },
+        { name: '4K', video: { width: { ideal: 3840 }, height: { ideal: 2160 } } },
+        { name: '1440p', video: { width: { ideal: 2560 }, height: { ideal: 1440 } } },
+        { name: '1080p', video: { width: { ideal: 1920 }, height: { ideal: 1080 } } },
+        { name: '720p', video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+        // Last resort. Whatever the device offers, which may be 640x480 -- a
+        // working scanner at VGA still beats no camera, but every rung above
+        // exists so this one is almost never reached.
+        { name: 'whatever the device offers', video: true },
+      ];
+
+      const LADDER_KEY = 'bindarr.camera.rung';
+      // VERSIONED, so a bad memory cannot outlive the bug that caused it.
+      //
+      // The previous ladder jumped from 4032x3024 straight to `video: true`,
+      // so Zach's 4K webcam settled on 640x480 -- and the remembering made
+      // that PERMANENT in his browser. Fixing the ladder is not enough: his
+      // localStorage still points at the old bad rung, and the indices have
+      // moved anyway (6 rungs now, not 3).
+      //
+      // Bumping the version invalidates every stored rung exactly once. A
+      // stale value is not merely ignored, it is REMOVED, so nothing is left
+      // to confuse the next version.
+      const LADDER_VERSION = '2';
+      if (localStorage.getItem('bindarr.camera.ladderVersion') !== LADDER_VERSION) {
+        localStorage.removeItem(LADDER_KEY);
+        localStorage.setItem('bindarr.camera.ladderVersion', LADDER_VERSION);
+      }
+      const remembered = Number(localStorage.getItem(LADDER_KEY));
+      // A remembered rung is TRIED FIRST, then the others in order. It is a
+      // reordering, not a restriction: if the camera's behaviour changes
+      // (different USB port, driver update) the full ladder is still there.
+      const order = Number.isInteger(remembered) && ladder[remembered]
+        ? [remembered, ...ladder.keys()].filter((v, i, a) => a.indexOf(v) === i)
+        : [...ladder.keys()];
+
+      let mediaStream = null;
+      let usedRung = null;
+      let lastErr = null;
+      for (const i of order) {
+        const rung = ladder[i];
+        try {
+          const attempt = navigator.mediaDevices.getUserMedia({ video: rung.video, audio: false });
+          // The FINAL rung gets no deadline: if plain `video: true` hangs, the
+          // device is genuinely broken and a synthetic timeout would only
+          // replace an accurate browser error with a vaguer one of ours.
+          mediaStream = i === ladder.length - 1
+            ? await attempt
+            : await withDeadline(attempt, CAMERA_ATTEMPT_MS, rung.name);
+          usedRung = i;
+          break;
+        } catch (e) {
+          lastErr = e;
+          console.warn(`[scan] camera rung ${i} (${rung.name}) failed:`, e.name, e.message);
+        }
+      }
+      if (!mediaStream) throw lastErr || new Error('no camera constraint succeeded');
+
+      // WHAT THE CAMERA ACTUALLY GAVE US, not what we asked for.
+      //
+      // `ideal` negotiates silently: a rung can SUCCEED and still hand back a
+      // far smaller frame than it requested, which is how a 4K webcam ends up
+      // at 640x480 with nothing in the logs. Read the real numbers back and
+      // refuse to remember a rung that produced a frame too small to read a
+      // collector number from.
+      const settings = mediaStream.getVideoTracks()[0]?.getSettings?.() || {};
+      const gotW = settings.width || 0;
+      const gotH = settings.height || 0;
+      console.log(`[scan] camera open: rung ${usedRung} (${ladder[usedRung].name}) -> ${gotW}x${gotH}`);
+      if (gotW && gotW < MIN_USEFUL_CAPTURE_W) {
+        console.warn(`[scan] ${gotW}x${gotH} is below ${MIN_USEFUL_CAPTURE_W}px wide; not remembering this rung`);
+        localStorage.removeItem(LADDER_KEY);
+      } else if (usedRung !== remembered) {
+        localStorage.setItem(LADDER_KEY, String(usedRung));
+      }
       // PIN THE LENS TO THE MAIN WIDE CAMERA, AND ZOOM IN TO FILL THE FRAME.
       //
       // On a multi-lens iPhone WebKit hands the page a VIRTUAL camera whose web
@@ -1140,9 +1328,27 @@ function CameraScanner({ onAddSuccess, showToast }) {
       setStream(mediaStream);
       setCameraActive(true);
     } catch (err) {
-      console.error('Error opening camera:', err);
-      setCameraErrorKey('scan.errCameraPermissions');
-      showToast(t('scan.errCameraAccess'));
+      console.error('[scan] camera open failed:', err.name, err.message, err);
+      // SAY WHICH FAILURE IT WAS.
+      //
+      // This used to report 'scan.errCameraPermissions' for EVERY error --
+      // "make sure camera permissions are enabled" -- which is a guess, and a
+      // confident one. Zach hit this on desktop and went looking at browser
+      // permissions that were already fine. getUserMedia's error names are
+      // specific; the user should get the specific answer.
+      const key = err?.name === 'NotAllowedError' || err?.name === 'SecurityError'
+        ? 'scan.errCameraPermissions'          // genuinely blocked or dismissed
+        : err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError'
+          ? 'scan.errCameraNone'               // no camera on this machine
+          : err?.name === 'NotReadableError' || err?.name === 'TrackStartError'
+            ? 'scan.errCameraBusy'             // another app holds it
+            : err?.name === 'AbortError' || err?.name === 'TimeoutError'
+              ? 'scan.errCameraTimeout'        // found and allowed, never started
+              : err?.name === 'OverconstrainedError'
+                ? 'scan.errCameraConstraints'  // asked for something it cannot do
+                : 'scan.errCameraUnknown';
+      setCameraErrorKey(key);
+      showToast(t(key));
     }
   };
 
@@ -1274,13 +1480,29 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // free. It is not a local guess: the row exists because the
       // server said 'staged'.
       staging.noteStaged(false);   // resolved: a printing was chosen
+      // THE DESKTOP'S "LAST SCANNED" PANEL, and the signal that a staged row
+      // exists. staging's state lives outside React, so without this the
+      // desktop table would never re-read and the card would appear only
+      // after a manual refresh. staged_id ties the row to the flash animation.
+      setLastScannedCard({ ...outcome.card, staged_id: outcome.staged_id ?? null });
       setRecentScans(prev => [{
         ...outcome.card, card_id: outcome.card?.id, entry_id: null,
         quantity: 1, condition: 'Near Mint', printing: 'nonfoil', location_id: null,
         staged: true,
       }, ...prev].slice(0, 10));
-      // No flag variant any more -- the advisory flags are gone.
-      showToast(t('scan.stagedToast', { name: outcome.card?.name || identified }));
+      // NAME, SET AND COLLECTOR NUMBER -- Zach: "I would like to see name and
+      // set when notifying it was added to add review list".
+      //
+      // The set and number are the whole point of this scanner: it proves an
+      // exact PRINTING from the collector footer, not just a card name. A
+      // toast that says only "Forest" hides the one fact worth checking --
+      // that it picked the right Forest out of 774. Uppercased because
+      // set_id is stored lowercase ('fra') and printed uppercase on the card.
+      showToast(t('scan.stagedToast', {
+        name: outcome.card?.name || identified,
+        set: (outcome.card?.set_id || '?').toUpperCase(),
+        number: outcome.card?.number || '?',
+      }));
       signal('success');
     } else if (outcome.action === 'added') {
       lastAddedIdRef.current = outcome.card?.id;
@@ -1300,6 +1522,13 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // he picks. Nothing is owned, so no modal interrupts the
       // stack -- he resolves them when he is done scanning.
       staging.noteStaged(true);
+      // Same signal as the resolved path. An unresolved card is exactly the
+      // one worth showing large while it is still in hand -- it is the row
+      // that will block Add All.
+      setLastScannedCard({
+        name: identified, card_id: null,
+        staged_id: outcome.staged_id ?? null,
+      });
       setScanStatus(`${identified} — needs a printing chosen`);
       showToast(`${identified} — pick a printing in Scanned`);
       signal('capture');
@@ -1385,8 +1614,21 @@ function CameraScanner({ onAddSuccess, showToast }) {
       // message before one: an early return cannot clear that, and a 60ms loop
       // would leave it on screen for ever. That was the "stuck on Initializing
       // scanner" bug.
+      // THE HINT IS HELD, NOT REPAINTED EVERY PASS.
+      //
+      // THE BUG (Zach): "when scanning if there is no card it starts flashing
+      // waiting for card but it's flashing instead of just steady saying
+      // waiting for card."
+      //
+      // The loop reports an outcome every ~60ms, and consecutive passes
+      // legitimately disagree -- a hand moving over the mat gives noCard,
+      // hold, noCard, '' in a fifth of a second. Writing each one straight to
+      // the status line turns honest per-frame reporting into a strobe.
+      //
+      // So a hint must persist until something REPLACES it, and a clear must
+      // survive a full quiet period before it blanks the line. The scanner is
+      // no less responsive; the text just stops chasing every frame.
       hint: (key, vars) => {
-        if (!key) return setScanStatus('');
         const map = {
           noCard: t('scan.waitingForCard'),
           hold: t('scan.holdSteady'),
@@ -1394,7 +1636,20 @@ function CameraScanner({ onAddSuccess, showToast }) {
           adjust: vars?.reason ? `Adjust the card (${vars.reason})` : t('scan.holdSteady'),
           working: '',
         };
-        return setScanStatus(map[key] ?? '');
+        const next = key ? (map[key] ?? '') : '';
+        clearTimeout(hintClearRef.current);
+        if (next) {
+          hintHeldRef.current = next;
+          setScanStatus(next);
+          return undefined;
+        }
+        // Clearing is DEFERRED. A single successful pass between two "no card"
+        // passes should not blink the line off and on again.
+        hintClearRef.current = setTimeout(() => {
+          hintHeldRef.current = '';
+          setScanStatus('');
+        }, HINT_CLEAR_MS);
+        return undefined;
       },
       onError: (msg) => {
         if (msg) console.warn('[scan]', msg);
@@ -1573,6 +1828,27 @@ function CameraScanner({ onAddSuccess, showToast }) {
             </div>
           )}
         </div>
+      ) : isDesktopScan ? (
+        /* DESKTOP LAYOUT. Replaces ONLY the active-camera branch -- the
+           inactive/permission-error branch above is shared, and the phone's
+           branch below is untouched. Zach: "don't touch the phone layout".
+
+           It is handed the SAME `staging` object ScanStagingReview gets, so
+           there is one staging implementation and two layouts, rather than two
+           implementations that can drift. */
+        <DesktopScanLayout
+          staging={staging}
+          videoRef={videoRef}
+          scanStatus={scanStatus || autoScanWaitReason}
+          cameraInfo={cameraInfo}
+          torchOn={isTorchOn}
+          onToggleTorch={toggleTorch}
+          onStopCamera={stopCamera}
+          lastScanned={lastScannedCard}
+          onCommitted={(n) => { if (onAddSuccess) onAddSuccess(n); }}
+          onSearchPrintings={searchPrintings}
+          onForceScan={() => handleCaptureRef.current?.(false)}
+        />
       ) : (
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div className={`camera-preview-wrapper camera-active${fullscreenScan ? ' camera-fullscreen' : ''}`}>
@@ -1730,7 +2006,47 @@ function CameraScanner({ onAddSuccess, showToast }) {
               />
             )}
 
-            {fullscreenScan && (scanStatus || loading || autoScanWaitReason) && (
+            {/* FORCE A SCAN, on the phone too.
+              *
+              * Zach: "I would like to be able to force scanning on both
+              * desktop and mobile."
+              *
+              * Tapping the preview has ALWAYS done this -- it runs a manual
+              * pass, which skips both the stillness gate ("printing is
+              * moving") and the 4s dedupe window that blocks a genuine second
+              * copy of the same card. The capability was there; nothing ever
+              * said so, which makes it a feature that does not exist.
+              *
+              * A real button rather than a hint, because the invisible
+              * full-screen tap target is easy to miss and impossible to
+              * discover. Placed above the status pill so it never covers the
+              * message explaining why a scan was refused.
+              */}
+            {fullscreenScan && cameraActive && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleCaptureRef.current?.(false); }}
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  bottom: 'calc(9rem + env(safe-area-inset-bottom))',
+                  zIndex: 22,
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.72)',
+                  border: '1px solid rgba(255,255,255,0.28)',
+                  color: 'var(--text-strong)',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {t('scan.forceScan')}
+              </button>
+            )}
+
+            {fullscreenScan && (scanStatus || autoScanWaitReason) && (
               <div
                 style={{
                   position: 'absolute',
@@ -1756,18 +2072,12 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 {/* A moving indicator distinguishes "working" from "idle and
                     stuck". A static string cannot: an auto-scan that has quietly
                     stopped and one mid-lookup look identical without it. */}
-                {loading && (
-                  <span
-                    style={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      border: '2px solid rgba(255,255,255,0.35)',
-                      borderTopColor: 'var(--accent-red)',
-                      animation: 'scan-status-spin 0.8s linear infinite',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-                <span>{scanStatus || autoScanWaitReason || t('scan.working')}</span>
+                {/* NO SPINNER. It used to prove "working, not wedged" when a
+                    scan was a ~1.5s server round trip. The loop now ticks every
+                    60ms, so `loading` strobes rather than spins -- Zach: "it
+                    starts flashing waiting for card but it's flashing instead
+                    of just steady". The hint text itself is the status now. */}
+                <span>{scanStatus || autoScanWaitReason}</span>
               </div>
             )}
 
@@ -1864,7 +2174,10 @@ function CameraScanner({ onAddSuccess, showToast }) {
                   animation: scanFlash === 'capture' ? 'border-flash-capture 0.4s ease-in-out' : scanFlash === 'error' ? 'border-flash-error 1.5s ease-in-out' : 'none'
                 }}
               >
-                {loading && <div className="scan-line"></div>}
+                {/* The sweeping scan line is removed, not re-gated. Zach:
+                    "the scan bar is also flashing but I would just like for
+                    that to be removed." At a 60ms cadence it strobed; at any
+                    cadence it decorated work the user can already see. */}
               </div>
               {(guideOffset.x !== 0 || guideOffset.y !== 0 || guideAngle !== 0 || guideScale !== 1) && (
                 <button

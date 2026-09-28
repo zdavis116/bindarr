@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindarr — Desktop scanner (B: table + inspector)</title>
+<style>
+/* Same tokens as A, copied from frontend/src/index.css. */
+:root{
+  --bg-primary:#000; --bg-secondary:#1c1c1e;
+  --surface-1:#1c1c1e; --surface-2:#2c2c2e;
+  --border-glass:rgba(255,255,255,.10); --border-glass-hover:rgba(255,255,255,.18);
+  --text-primary:#f5f5f7; --text-secondary:#98989d; --text-muted:#636366;
+  --accent-blue:#0a84ff; --accent-yellow:#ff9f0a; --accent-green:#30d158;
+  --radius-sm:10px; --radius-md:14px;
+  --font-main:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-main);
+  height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+.topbar{height:52px;flex-shrink:0;border-bottom:1px solid var(--border-glass);
+  display:flex;align-items:center;gap:1rem;padding:0 1rem;background:var(--bg-secondary)}
+.topbar h1{font-size:.95rem;font-weight:600}
+.topbar .sp{flex:1}
+.chip{font-size:.72rem;color:var(--text-secondary);background:var(--surface-2);
+  padding:.25rem .55rem;border-radius:999px;border:1px solid var(--border-glass)}
+.btn{padding:.45rem .8rem;border-radius:var(--radius-sm);border:1px solid var(--border-glass);
+  background:var(--surface-2);color:var(--text-primary);font-size:.82rem;font-weight:600;
+  cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+.btn.primary:disabled{background:var(--surface-2);border-color:var(--border-glass);
+  color:var(--text-muted);cursor:not-allowed}
+
+/* B's bet: the CAMERA shrinks to a corner once it is working, and the staged
+   list gets the whole width as a proper table. The argument is that during a
+   long session you look at the LIST, not the viewfinder -- the camera only
+   needs to be big enough to aim.
+   The cost, stated plainly: a small preview makes a badly-framed card harder
+   to notice, and the card in your hand is the thing you can still fix. */
+.main{flex:1;display:grid;grid-template-rows:minmax(0,1fr);min-height:0;position:relative}
+.tablewrap{overflow:auto;min-height:0;padding:0 0 1rem}
+.tablewrap::-webkit-scrollbar{width:10px}
+.tablewrap::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:5px}
+
+.toolbar{position:sticky;top:0;z-index:2;background:var(--bg-primary);
+  padding:.7rem 1rem;border-bottom:1px solid var(--border-glass);
+  display:flex;gap:.7rem;align-items:center}
+.toolbar input{flex:1;max-width:320px;background:var(--surface-2);
+  border:1px solid var(--border-glass);color:var(--text-primary);
+  padding:.45rem .7rem;border-radius:var(--radius-sm);font-size:.82rem;font-family:inherit}
+.toolbar input::placeholder{color:var(--text-muted)}
+.toolbar .sp{flex:1}
+.count{font-size:.8rem;color:var(--text-secondary)}
+.needs{color:var(--accent-yellow);font-weight:600}
+
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+thead th{position:sticky;top:53px;background:var(--bg-primary);text-align:left;
+  font-size:.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:.04em;padding:.55rem 1rem;border-bottom:1px solid var(--border-glass);z-index:1}
+tbody tr{border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+tbody tr:hover{background:var(--surface-1)}
+tbody tr.attn{background:rgba(255,159,10,.10)}
+tbody tr.attn:hover{background:rgba(255,159,10,.16)}
+td{padding:.5rem 1rem;vertical-align:middle}
+td.img img{width:34px;height:47px;border-radius:5px;object-fit:cover;background:var(--surface-2);display:block}
+td.nm{font-weight:600}
+td.set,td.fin{color:var(--text-secondary)}
+td.qty{text-align:right}
+.qtyctl{display:inline-flex;align-items:center;gap:.4rem}
+.qtyctl button{width:22px;height:22px;border-radius:6px;background:var(--surface-2);
+  border:1px solid var(--border-glass);color:var(--text-primary);cursor:pointer;font-family:inherit}
+.pill{font-size:.7rem;padding:.15rem .5rem;border-radius:999px;border:1px solid}
+.pill.ok{color:var(--accent-green);border-color:rgba(48,209,88,.4);background:rgba(48,209,88,.12)}
+.pill.no{color:var(--accent-yellow);border-color:rgba(255,159,10,.45);background:rgba(255,159,10,.14)}
+
+/* The printing fix: a dropdown row beneath the card, same as today. */
+tr.fixrow td{padding:0 1rem .6rem}
+.fixbox{background:var(--surface-1);border:1px solid var(--border-glass);
+  border-radius:var(--radius-sm);padding:.6rem .7rem}
+.fixbox .lbl{font-size:.72rem;color:var(--text-secondary);margin-bottom:.4rem}
+.cand{display:flex;gap:.6rem;align-items:center;padding:.35rem .5rem;border-radius:6px;font-size:.8rem}
+.cand:hover{background:var(--surface-2)}
+.cand .set{color:var(--text-muted);font-size:.73rem;margin-left:auto}
+
+/* Floating camera. Draggable in a real build; fixed here. */
+.cam{position:absolute;right:1rem;bottom:1rem;width:300px;border-radius:var(--radius-md);
+  overflow:hidden;border:1px solid var(--border-glass);background:#0a0a0a;
+  box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.cam .feed{aspect-ratio:4/3;background:repeating-linear-gradient(115deg,#141416 0 22px,#0f0f11 22px 44px);
+  position:relative;display:grid;place-items:center}
+.cam .guide{width:42%;aspect-ratio:63/88;border:2px solid rgba(255,255,255,.55);border-radius:8px}
+.cam .bar{display:flex;align-items:center;gap:.5rem;padding:.45rem .6rem;
+  background:var(--bg-secondary);border-top:1px solid var(--border-glass)}
+.cam .bar .st{font-size:.74rem;color:var(--text-secondary);flex:1;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.cam .bar button{width:26px;height:26px;border-radius:50%;background:var(--surface-2);
+  border:1px solid var(--border-glass);color:var(--text-primary);cursor:pointer;font-size:.8rem}
+.empty{padding:3rem 1rem;text-align:center;color:var(--text-muted);font-size:.84rem}
+.note{position:fixed;bottom:.5rem;left:.75rem;font-size:.68rem;color:var(--text-muted)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Scan cards</h1>
+  <span class="chip">1920×1080 · 30fps</span>
+  <span class="sp"></span>
+  <button class="btn primary" id="addAll" disabled onclick="addAll()">Add all</button>
+</div>
+
+<div class="main">
+  <div class="tablewrap">
+    <div class="toolbar">
+      <input id="q" placeholder="Filter staged cards…" oninput="render()">
+      <span class="sp"></span>
+      <span class="count" id="count">0 staged</span>
+    </div>
+    <table>
+      <thead>
+        <tr><th style="width:52px"></th><th>Card</th><th style="width:130px">Set</th>
+          <th style="width:110px">Finish</th><th style="width:120px">Status</th>
+          <th style="width:110px;text-align:right">Qty</th></tr>
+      </thead>
+      <tbody id="tb"></tbody>
+    </table>
+    <div class="empty" id="empty">Scanned cards appear here as you go.</div>
+  </div>
+
+  <div class="cam">
+    <div class="feed"><div class="guide"></div></div>
+    <div class="bar">
+      <span class="st" id="hint">Waiting for a card…</span>
+      <button title="Torch">&#9728;</button>
+      <button title="Stop">&#10005;</button>
+    </div>
+  </div>
+</div>
+
+<div class="note">Mockup — simulated scans, no camera.</div>
+
+<script>
+const POOL = [
+  { name:'Cloud, Midgar Mercenary',  set:'FRA', num:'1',   finish:'Nonfoil' },
+  { name:'Tifa, Martial Artist',     set:'FRA', num:'214', finish:'Foil'    },
+  { name:'Sephiroth, Fabled SOLDIER',set:'FRA', num:'103', finish:'Nonfoil' },
+  { name:'Aerith, Last Ancient',     set:'FRA', num:'8',   finish:'Nonfoil' },
+  { name:'Barret, Avalanche Leader', set:'FRA', num:'87',  finish:'Nonfoil' },
+  { name:'Forest', set:'FRA', num:'291', finish:'Nonfoil', ambiguous:true },
+  { name:'Yuffie, Materia Hunter',   set:'FRA', num:'62',  finish:'Nonfoil' },
+  { name:'Red XIII, Cosmo Guardian', set:'FRA', num:'188', finish:'Nonfoil' },
+];
+let staged = [], openId = null, n = 0;
+
+function render(){
+  const q = (document.getElementById('q').value || '').toLowerCase();
+  const shown = staged.filter(c => !q || c.name.toLowerCase().includes(q));
+  const needs = staged.filter(c => c.ambiguous).length;
+
+  document.getElementById('count').innerHTML = staged.length
+    ? `${staged.length} staged` + (needs ? ` · <span class="needs">${needs} need a printing</span>` : '')
+    : '0 staged';
+  document.getElementById('addAll').disabled = !staged.length || needs > 0;
+  document.getElementById('addAll').textContent =
+    needs > 0 ? `${needs} to fix first` : `Add all (${staged.length})`;
+  document.getElementById('empty').style.display = shown.length ? 'none' : 'block';
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = shown.map(c => {
+    const i = staged.indexOf(c);
+    const main = `
+      <tr class="${c.ambiguous ? 'attn' : ''}" onclick="toggle(${i})">
+        <td class="img"><img src="${c.img}" alt=""></td>
+        <td class="nm">${c.name}</td>
+        <td class="set">${c.ambiguous ? '—' : c.set + ' #' + c.num}</td>
+        <td class="fin">${c.finish}</td>
+        <td><span class="pill ${c.ambiguous ? 'no' : 'ok'}">${c.ambiguous ? 'Needs printing' : 'Resolved'}</span></td>
+        <td class="qty"><span class="qtyctl" onclick="event.stopPropagation()">
+          <button onclick="bump(${i},-1)">–</button>${c.qty}<button onclick="bump(${i},1)">+</button>
+        </span></td>
+      </tr>`;
+    if (openId !== c.id) return main;
+    return main + `
+      <tr class="fixrow"><td colspan="6">
+        <div class="fixbox">
+          <div class="lbl">Choose the printing</div>
+          ${['Final Fantasy · #291','Final Fantasy · #292','Foundations · #276','Bloomburrow · #380']
+            .map((s,k) => `<div class="cand" onclick="pick(${i},${k})">
+               <span>Forest</span><span class="set">${s}</span></div>`).join('')}
+        </div>
+      </td></tr>`;
+  }).join('');
+}
+function toggle(i){ const c = staged[i]; openId = (openId === c.id) ? null : c.id; render(); }
+function pick(i){ staged[i].ambiguous = false; staged[i].num = '291'; openId = null; render(); }
+function bump(i,d){ staged[i].qty = Math.max(1, staged[i].qty + d); render(); }
+function scan(){
+  const src = POOL[n % POOL.length]; n++;
+  staged.unshift(Object.assign({}, src, { id:'c'+n, qty:1,
+    img:'https://placehold.co/63x88/2c2c2e/636366?text=' + encodeURIComponent(src.name[0]) }));
+  document.getElementById('hint').textContent = 'Staged ' + src.name;
+  setTimeout(() => { document.getElementById('hint').textContent = 'Waiting for a card…'; }, 1200);
+  render();
+}
+function addAll(){ const c = staged.length; staged = []; openId = null; render();
+  document.getElementById('hint').textContent = `Added ${c} cards`; }
+setInterval(scan, 2500);
+setTimeout(scan, 400);
+render();
+</script>
+</body>
+</html>

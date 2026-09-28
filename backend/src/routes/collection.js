@@ -5,6 +5,16 @@ const sharp = require('sharp');
 const db = require('../db');
 const { trashEntries, restoreBatch, listTrash } = require('../utils/collectionTrash');
 const scryfallApi = require('../scryfallApi');
+// THE SCAN STAGING RESOLVER. /scan-resolve is the LIVE staging route -- the
+// on-device scanner posts every proven card to it -- and it calls this. I
+// deleted the module with the CLIP+ORB engine because grep showed only an
+// import, and missed that the call site 650 lines below still used it. Every
+// scan then 500'd with "Failed to resolve scanned card".
+//
+// It is NOT part of the old artwork matcher: it resolves a PRINTING from the
+// title and collector-number reads, which is exactly what the text-first
+// scanner produces. It belongs here.
+const { resolveScannedPrinting } = require('../utils/scanPrintingResolver');
 const setIndex = require('../setIndex');
 
 const { authenticateToken, searchLimiter } = require('../middleware/auth');
