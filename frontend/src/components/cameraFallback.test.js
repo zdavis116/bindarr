@@ -77,13 +77,13 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // was correct; charging for it repeatedly was not.
 {
   start('CAM-TC3');
-  assert.match(code, /video: true,/,
+  assert.match(code, /video: true \}/,
     'the last rung must ask for NOTHING but video; dropping every constraint '
     + 'is what lets a stubborn webcam start');
   // The ladder must be ordered widest-request-first, so a capable camera is
   // never punished with the lowest common denominator.
   const full = code.indexOf('facingMode:');
-  const plain = code.indexOf('video: true,');
+  const plain = code.indexOf('video: true }');
   assert.ok(plain > full,
     'the unconstrained rung must come AFTER the full-resolution one');
 
@@ -147,6 +147,77 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
     assert.ok(en[k], `${k} has no string; the user would see the raw key`);
   }
   pass('CAM-TC4', 'each getUserMedia failure reports what actually happened');
+}
+
+// CAM-TC6: the ladder steps down through real modes, not off a cliff.
+//
+// THE BUG (Zach): "my camera is a 4k camera why is it only at 640x480".
+//
+// The old ladder was 4032x3024, the same again without facingMode, then
+// `video: true`. Nothing in between. A camera that could not start at 12MP
+// fell straight through to asking for NOTHING, and a browser given no
+// resolution hint returns its default -- measured in a real browser as
+// exactly 640x480. Remembering then made that permanent.
+//
+// Below 1280 wide the collector number at the foot of the card stops having
+// the pixels the footer read depends on, so this is an accuracy bug as well as
+// a cosmetic one.
+{
+  start('CAM-TC6');
+  const ladderSrc = /const ladder = \[([\s\S]*?)\n      \];/.exec(code);
+  assert.ok(ladderSrc, 'the ladder could not be found');
+
+  const widths = [...ladderSrc[1].matchAll(/width: \{ ideal: (\d+) \}/g)].map(m => Number(m[1]));
+  assert.ok(widths.length >= 4,
+    `only ${widths.length} rungs request a resolution; a ladder that jumps `
+    + 'from the maximum straight to unconstrained is how a 4K camera ends up '
+    + 'at 640x480');
+
+  // Monotonically NON-INCREASING: each rung is the same or a genuine step
+  // down. Equal neighbours are legitimate -- the first two rungs are both 4K,
+  // differing only in facingMode, which is a different question from
+  // resolution. What must never happen is a rung going back UP, which would
+  // retry a mode that has already failed.
+  for (let i = 1; i < widths.length; i++) {
+    assert.ok(widths[i] <= widths[i - 1],
+      `rung widths ${widths.join(' -> ')} go back UP; a ladder that raises its `
+      + 'request after a failure retries a mode already known not to work');
+  }
+  // And it must actually descend overall, or it is not a ladder at all.
+  assert.ok(widths[widths.length - 1] < widths[0],
+    `rung widths ${widths.join(' -> ')} never descend; without real steps `
+    + 'between the maximum and unconstrained, a 4K camera that cannot start '
+    + 'at 4K collapses to the browser default of 640x480');
+  // And the smallest explicit rung must still be usable for a footer read.
+  assert.ok(widths[widths.length - 1] >= 1280,
+    `the lowest explicit rung is ${widths[widths.length - 1]}px wide; below `
+    + '1280 the collector number loses the detail the printing proof needs');
+  pass('CAM-TC6', 'the ladder steps down through real camera modes');
+}
+
+// CAM-TC7: a tiny capture is never remembered, and a bad memory expires.
+//
+// `ideal` negotiates SILENTLY -- a rung can succeed and still hand back a far
+// smaller frame than it asked for. Without reading the real numbers back,
+// that is invisible; with remembering, it is permanent.
+{
+  start('CAM-TC7');
+  assert.match(code, /getVideoTracks\(\)\[0\]\?\.getSettings\?\.\(\)/,
+    'the ACTUAL negotiated frame size must be read back; asking for 4K and '
+    + 'checking nothing is how this bug hid');
+  assert.match(code, /MIN_USEFUL_CAPTURE_W/,
+    'there must be a floor below which a capture is not worth remembering');
+  const m = /const MIN_USEFUL_CAPTURE_W = (\d+);/.exec(code);
+  assert.ok(m && Number(m[1]) >= 1280,
+    'the useful-capture floor must be at least 1280 wide');
+  assert.match(code, /localStorage\.removeItem\(LADDER_KEY\)/,
+    'a rung that produced a too-small frame must NOT be remembered');
+
+  // A bad memory from a previous release must expire by itself.
+  assert.match(code, /const LADDER_VERSION = /,
+    'the stored rung must be versioned; fixing the ladder does not fix the '
+    + "value already sitting in a user's browser, and the indices have moved");
+  pass('CAM-TC7', 'a poor capture is not remembered and stale memories expire');
 }
 
 console.log(`\ncameraFallback.test.js: ${passed} cases passed`);

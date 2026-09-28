@@ -76,9 +76,9 @@ mutate M2 "never stop the late-resolving stream" "CAM-TC2" "
 # M3: THE BUG ZACH HIT SECOND. Stop remembering the winning rung, so every
 # camera open pays for the failed attempts again.
 mutate M3 "never remember the rung that worked" "CAM-TC3" "
-  const re = /if \(usedRung !== remembered\) localStorage\.setItem\(LADDER_KEY, String\(usedRung\)\);/;
+  const re = /\} else if \(usedRung !== remembered\) \{\n\s*localStorage\.setItem\(LADDER_KEY, String\(usedRung\)\);\n\s*\}/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, '');
+  const after = before.replace(re, '}');
 "
 
 # M5: put the deadline back to a value the user actually notices, so two failed
@@ -94,6 +94,22 @@ mutate M4 "collapse every camera error to permissions" "CAM-TC4" "
   const re = /: err\?\.name === 'AbortError' \|\| err\?\.name === 'TimeoutError'\n\s*\? 'scan\.errCameraTimeout'[^\n]*\n/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(re, '');
+"
+
+# M6: THE 640x480 BUG. Collapse the ladder back to "everything, then nothing",
+# so a 4K camera that cannot start at 4K falls through to the browser default.
+mutate M6 "remove the intermediate resolution rungs" "CAM-TC6" "
+  const re = /\{ name: '1440p'[\s\S]*?\{ name: '720p'[^\n]*\n/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '');
+"
+
+# M7: stop checking what the camera ACTUALLY returned, so a silently-negotiated
+# 640x480 gets remembered as if it were a success.
+mutate M7 "never read back the negotiated frame size" "CAM-TC7" "
+  const re = /const settings = mediaStream\.getVideoTracks\(\)\[0\]\?\.getSettings\?\.\(\) \|\| \{\};/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'const settings = {};');
 "
 
 printf '\n'

@@ -45,6 +45,13 @@ const SCAN_MATCH_MIN_INLIERS = 12;
 // well under two seconds; one that has not produced a frame in 2.5s is
 // negotiating a mode it cannot actually deliver.
 const CAMERA_ATTEMPT_MS = 2500;
+// Below this width the collector number at the foot of the card stops having
+// enough pixels for the footer read -- which is the whole basis of proving a
+// PRINTING rather than just a card name. 640x480 (the browser default when no
+// resolution is requested) is well under it. A capture this small is accepted
+// rather than refused, because a poor scanner beats no scanner, but it is
+// never REMEMBERED: the next open retries the full ladder.
+const MIN_USEFUL_CAPTURE_W = 1280;
 const SCAN_CAPTURE_IDEAL_W = 4032;
 const SCAN_CAPTURE_IDEAL_H = 3024;
 // Kept from the old 'Accurate' preset. Deliberately NOT collapsed to Turbo's
@@ -1076,54 +1083,64 @@ function CameraScanner({ onAddSuccess, showToast }) {
 
       // THE CONSTRAINT LADDER, AND WHY IT REMEMBERS.
       //
-      // Zach: "why did it take so long to open the camera?" -- because his
-      // webcam fails the first two rungs, and he was paying two 6s timeouts
-      // (~12s of dead preview) on EVERY open before reaching the one that
-      // works. The fallback chain was correct and the cost was absurd.
+      // Zach: "why did it take so long to open the camera?" -- his webcam
+      // fails the first rungs, and he was paying a full timeout on each one,
+      // on EVERY open, before reaching the attempt that works. The ladder was
+      // correct; charging for it repeatedly was not. The winning rung is now
+      // remembered per device, so the cost is paid once.
       //
-      // Two changes, and the second is the one that matters:
+      // Then: "my camera is a 4k camera why is it only at 640x480" -- and that
+      // was this ladder failing badly, twice over.
       //
-      //   1. The deadline drops 6s -> 2.5s. A camera that is going to start
-      //      does so in well under two seconds, phones included. Six was a
-      //      guess with no evidence behind it.
+      //   The old rungs were 4032x3024, then 4032x3024 again without
+      //   facingMode, then `video: true`. There was NOTHING IN BETWEEN. A
+      //   camera that cannot start at 12MP fell straight through to asking for
+      //   nothing at all, and a browser given no resolution hint hands back its
+      //   default -- 640x480. Remembering then made that permanent.
       //
-      //   2. THE WINNING RUNG IS REMEMBERED per device. After one successful
-      //      open we go straight to what worked -- so the cost is paid once on
-      //      a new machine and never again. This is the same trick upstream
-      //      uses for camera selection (FastScanner.jsx:71, localStorage
-      //      'fastscan.device').
+      //   A ladder whose rungs are "everything" and "nothing" is not a ladder.
       //
-      // Storing the INDEX rather than the constraint object keeps the stored
-      // value tiny and, more importantly, lets the ladder itself change in a
-      // later release without a stale object being replayed at a camera. A
-      // stored index that no longer exists simply falls back to the top.
+      // The rungs now STEP DOWN through real camera modes: 4K, 1440p, 1080p,
+      // 720p, then unconstrained as a last resort. Each is a mode webcams
+      // actually advertise, so a 4K camera that will not start at 4K still
+      // lands on 1440p or 1080p instead of collapsing to VGA.
+      //
+      // WHY 1080p IS ENOUGH, AND WHY MORE STILL HELPS: the reader downscales
+      // every frame to FRAME_MAX (1920) before it reads anything, so past
+      // 1080p there is no extra detail for the OCR. Above it costs upload and
+      // encode time for nothing. Below it, the collector number at the bottom
+      // of the card starts losing the pixels the footer read depends on --
+      // which is exactly what 640x480 does, and why his scans would have got
+      // worse as well as smaller.
       const ladder = [
-        {
-          name: 'full resolution, environment camera',
-          video: {
-            facingMode: 'environment',
-            width: { ideal: SCAN_CAPTURE_IDEAL_W },
-            height: { ideal: SCAN_CAPTURE_IDEAL_H },
-          },
-        },
-        {
-          name: 'full resolution, any camera',
-          video: {
-            width: { ideal: SCAN_CAPTURE_IDEAL_W },
-            height: { ideal: SCAN_CAPTURE_IDEAL_H },
-          },
-        },
-        {
-          // Last rung: ask for nothing. A webcam that will not start at a
-          // requested mode almost always starts at its own default, and a
-          // scanner at 1280 still scans -- a scanner that will not open scans
-          // nothing.
-          name: 'whatever the device offers',
-          video: true,
-        },
+        { name: '4K, environment camera', video: { facingMode: 'environment', width: { ideal: 3840 }, height: { ideal: 2160 } } },
+        { name: '4K', video: { width: { ideal: 3840 }, height: { ideal: 2160 } } },
+        { name: '1440p', video: { width: { ideal: 2560 }, height: { ideal: 1440 } } },
+        { name: '1080p', video: { width: { ideal: 1920 }, height: { ideal: 1080 } } },
+        { name: '720p', video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+        // Last resort. Whatever the device offers, which may be 640x480 -- a
+        // working scanner at VGA still beats no camera, but every rung above
+        // exists so this one is almost never reached.
+        { name: 'whatever the device offers', video: true },
       ];
 
       const LADDER_KEY = 'bindarr.camera.rung';
+      // VERSIONED, so a bad memory cannot outlive the bug that caused it.
+      //
+      // The previous ladder jumped from 4032x3024 straight to `video: true`,
+      // so Zach's 4K webcam settled on 640x480 -- and the remembering made
+      // that PERMANENT in his browser. Fixing the ladder is not enough: his
+      // localStorage still points at the old bad rung, and the indices have
+      // moved anyway (6 rungs now, not 3).
+      //
+      // Bumping the version invalidates every stored rung exactly once. A
+      // stale value is not merely ignored, it is REMOVED, so nothing is left
+      // to confuse the next version.
+      const LADDER_VERSION = '2';
+      if (localStorage.getItem('bindarr.camera.ladderVersion') !== LADDER_VERSION) {
+        localStorage.removeItem(LADDER_KEY);
+        localStorage.setItem('bindarr.camera.ladderVersion', LADDER_VERSION);
+      }
       const remembered = Number(localStorage.getItem(LADDER_KEY));
       // A remembered rung is TRIED FIRST, then the others in order. It is a
       // reordering, not a restriction: if the camera's behaviour changes
@@ -1153,7 +1170,24 @@ function CameraScanner({ onAddSuccess, showToast }) {
         }
       }
       if (!mediaStream) throw lastErr || new Error('no camera constraint succeeded');
-      if (usedRung !== remembered) localStorage.setItem(LADDER_KEY, String(usedRung));
+
+      // WHAT THE CAMERA ACTUALLY GAVE US, not what we asked for.
+      //
+      // `ideal` negotiates silently: a rung can SUCCEED and still hand back a
+      // far smaller frame than it requested, which is how a 4K webcam ends up
+      // at 640x480 with nothing in the logs. Read the real numbers back and
+      // refuse to remember a rung that produced a frame too small to read a
+      // collector number from.
+      const settings = mediaStream.getVideoTracks()[0]?.getSettings?.() || {};
+      const gotW = settings.width || 0;
+      const gotH = settings.height || 0;
+      console.log(`[scan] camera open: rung ${usedRung} (${ladder[usedRung].name}) -> ${gotW}x${gotH}`);
+      if (gotW && gotW < MIN_USEFUL_CAPTURE_W) {
+        console.warn(`[scan] ${gotW}x${gotH} is below ${MIN_USEFUL_CAPTURE_W}px wide; not remembering this rung`);
+        localStorage.removeItem(LADDER_KEY);
+      } else if (usedRung !== remembered) {
+        localStorage.setItem(LADDER_KEY, String(usedRung));
+      }
       // PIN THE LENS TO THE MAIN WIDE CAMERA, AND ZOOM IN TO FILL THE FRAME.
       //
       // On a multi-lens iPhone WebKit hands the page a VIRTUAL camera whose web
