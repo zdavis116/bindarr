@@ -124,6 +124,26 @@
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-glass);
   }
+  /* FORCE-SCAN BUTTON. Sits opposite the status pill rather than beside it:
+     the pill is where "printing is moving" appears, and a control that covers
+     the explanation of why a scan was refused is worse than no control. */
+  .dsk-force {
+    position: absolute;
+    bottom: 0.7rem;
+    right: 0.7rem;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .dsk-force:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
   .dsk-hint {
     position: absolute; bottom: 0.7rem; left: 50%;
     transform: translateX(-50%);

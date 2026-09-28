@@ -38,7 +38,7 @@ function ago(ts) {
 export default function DesktopScanLayout({
   staging,
   videoRef, scanStatus, cameraInfo, torchOn, onToggleTorch, onStopCamera,
-  lastScanned, onCommitted, onSearchPrintings,
+  lastScanned, onCommitted, onSearchPrintings, onForceScan,
 }) {
   const { t } = useT();
   const [state, setState] = useState(staging.getState());
@@ -180,6 +180,37 @@ export default function DesktopScanLayout({
               </button>
             </div>
             {scanStatus ? <div className="dsk-hint">{scanStatus}</div> : null}
+
+            {/* FORCE A SCAN.
+              *
+              * THE BUG (Zach): "it seems to get stuck on printing is moving or
+              * something like that and also back to back of the same card. I
+              * would like to be able to force scanning on both desktop and
+              * mobile."
+              *
+              * Both symptoms are ONE cause: an auto pass is deliberately
+              * conservative in two ways that a manual pass is not.
+              *
+              *   1. requireStill -- fastScanLoop:118 passes
+              *      `requireStill: autoPass`, so an auto pass refuses a frame
+              *      whose corners moved more than STILL_DRIFT. Hence
+              *      "printing is moving". Holding a card by hand over a mat
+              *      can sit just above that threshold indefinitely.
+              *
+              *   2. the 4s dedupe window -- fastScanLoop:186 begins
+              *      `if (!autoPass) return true`, so the window that stops one
+              *      card being staged twice ALSO stops a genuine second copy
+              *      being staged back to back.
+              *
+              * A manual pass already bypasses both. The phone has had one all
+              * along (tapping the preview); the desktop had no equivalent,
+              * and neither surface said the option existed. This is that
+              * button, said out loud.
+              */}
+            <button type="button" className="dsk-force" onClick={onForceScan}
+              title={t('scan.forceHint')}>
+              {t('scan.forceScan')}
+            </button>
           </div>
 
           {/* (mockup:200) LAST SCANNED -- the part of variant A worth keeping

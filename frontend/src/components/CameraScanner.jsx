@@ -1847,6 +1847,7 @@ function CameraScanner({ onAddSuccess, showToast }) {
           lastScanned={lastScannedCard}
           onCommitted={(n) => { if (onAddSuccess) onAddSuccess(n); }}
           onSearchPrintings={searchPrintings}
+          onForceScan={() => handleCaptureRef.current?.(false)}
         />
       ) : (
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -2003,6 +2004,46 @@ function CameraScanner({ onAddSuccess, showToast }) {
                 }}
                 aria-label={t('scan.tapToScan')}
               />
+            )}
+
+            {/* FORCE A SCAN, on the phone too.
+              *
+              * Zach: "I would like to be able to force scanning on both
+              * desktop and mobile."
+              *
+              * Tapping the preview has ALWAYS done this -- it runs a manual
+              * pass, which skips both the stillness gate ("printing is
+              * moving") and the 4s dedupe window that blocks a genuine second
+              * copy of the same card. The capability was there; nothing ever
+              * said so, which makes it a feature that does not exist.
+              *
+              * A real button rather than a hint, because the invisible
+              * full-screen tap target is easy to miss and impossible to
+              * discover. Placed above the status pill so it never covers the
+              * message explaining why a scan was refused.
+              */}
+            {fullscreenScan && cameraActive && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleCaptureRef.current?.(false); }}
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  bottom: 'calc(9rem + env(safe-area-inset-bottom))',
+                  zIndex: 22,
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.72)',
+                  border: '1px solid rgba(255,255,255,0.28)',
+                  color: 'var(--text-strong)',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {t('scan.forceScan')}
+              </button>
             )}
 
             {fullscreenScan && (scanStatus || autoScanWaitReason) && (
