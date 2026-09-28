@@ -123,9 +123,6 @@ td.qty{text-align:right}
 .qtyctl button{width:22px;height:22px;border-radius:6px;background:var(--surface-2);
   border:1px solid var(--border-glass);color:var(--text-primary);cursor:pointer;
   font-family:inherit;line-height:1}
-.pill{font-size:.69rem;padding:.14rem .5rem;border-radius:999px;border:1px solid;white-space:nowrap}
-.pill.ok{color:var(--accent-green);border-color:rgba(48,209,88,.4);background:rgba(48,209,88,.12)}
-.pill.no{color:var(--accent-yellow);border-color:rgba(255,159,10,.45);background:rgba(255,159,10,.14)}
 
 tr.fixrow td{padding:0 1rem .6rem}
 .fixbox{background:var(--surface-1);border:1px solid var(--border-glass);
@@ -204,7 +201,6 @@ tr.fixrow td{padding:0 1rem .6rem}
             <th>Card</th>
             <th style="width:150px">Set</th>
             <th style="width:100px">Finish</th>
-            <th style="width:130px">Status</th>
             <th style="width:80px">When</th>
             <th style="width:110px;text-align:right">Qty</th>
           </tr>
@@ -271,9 +267,10 @@ function render(){
       <tr class="${c.ambiguous ? 'attn' : ''} ${c.id === freshId ? 'fresh' : ''}" onclick="toggle(${i})">
         <td class="img"><img src="${c.img}" alt=""></td>
         <td class="nm">${c.name}</td>
-        <td class="set">${c.ambiguous ? '—' : c.set + ' #' + c.num}</td>
+        <td class="set">${c.ambiguous
+          ? '<span class="needs">Needs printing</span>'
+          : c.set + ' #' + c.num}</td>
         <td class="fin">${c.finish}</td>
-        <td><span class="pill ${c.ambiguous ? 'no' : 'ok'}">${c.ambiguous ? 'Needs printing' : 'Resolved'}</span></td>
         <td class="when">${ago(c.t)}</td>
         <td class="qty"><span class="qtyctl" onclick="event.stopPropagation()">
           <button onclick="bump(${i},-1)">–</button>${c.qty}<button onclick="bump(${i},1)">+</button>
@@ -281,7 +278,7 @@ function render(){
       </tr>`;
     if (openId !== c.id) return main;
     return main + `
-      <tr class="fixrow"><td colspan="7">
+      <tr class="fixrow"><td colspan="6">
         <div class="fixbox">
           <div class="lbl">Choose the printing</div>
           ${['Final Fantasy · #291','Final Fantasy · #292','Foundations · #276','Bloomburrow · #380']
