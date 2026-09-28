@@ -1770,5 +1770,9 @@
   "mpc.sectionArtifact": "Artifact",
   "mpc.sectionPlaneswalker": "Planeswalker",
   "mpc.sectionOther": "Other",
-  "deck.comparePremade": "Compare pre-built"
+  "deck.comparePremade": "Compare pre-built",
+  "scan.errCameraNone": "No camera found on this device. If you have a webcam, check it is plugged in and not disabled.",
+  "scan.errCameraBusy": "Your camera is in use by another app. Close anything else using it (video call, another browser tab) and try again.",
+  "scan.errCameraConstraints": "Your camera could not provide the requested video format. This is a Bindarr bug — please report it with your browser and camera model.",
+  "scan.errCameraUnknown": "Could not start the camera. Open the browser console for the exact error and report it."
 }

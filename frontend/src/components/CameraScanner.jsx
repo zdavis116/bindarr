@@ -1047,7 +1047,25 @@ function CameraScanner({ onAddSuccess, showToast }) {
         audio: false
       };
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+        // DESKTOP FALLBACK, as upstream does (FastScanner.jsx:151).
+        //
+        // `facingMode: 'environment'` as a BARE STRING is a required
+        // constraint per the spec, not an ideal one -- the comment above is
+        // wrong about that. A phone has an environment camera so it never
+        // bites there; a desktop webcam is labelled neither environment nor
+        // user, and browsers differ on whether they tolerate it.
+        //
+        // Rather than argue about which browsers enforce it, retry once with
+        // no facingMode at all. A machine with one webcam has nothing to
+        // choose between anyway.
+        .catch(async (err) => {
+          console.warn('[scan] camera request failed, retrying without facingMode:', err.name, err.message);
+          return navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: SCAN_CAPTURE_IDEAL_W }, height: { ideal: SCAN_CAPTURE_IDEAL_H } },
+            audio: false,
+          });
+        });
       // PIN THE LENS TO THE MAIN WIDE CAMERA, AND ZOOM IN TO FILL THE FRAME.
       //
       // On a multi-lens iPhone WebKit hands the page a VIRTUAL camera whose web
@@ -1146,9 +1164,25 @@ function CameraScanner({ onAddSuccess, showToast }) {
       setStream(mediaStream);
       setCameraActive(true);
     } catch (err) {
-      console.error('Error opening camera:', err);
-      setCameraErrorKey('scan.errCameraPermissions');
-      showToast(t('scan.errCameraAccess'));
+      console.error('[scan] camera open failed:', err.name, err.message, err);
+      // SAY WHICH FAILURE IT WAS.
+      //
+      // This used to report 'scan.errCameraPermissions' for EVERY error --
+      // "make sure camera permissions are enabled" -- which is a guess, and a
+      // confident one. Zach hit this on desktop and went looking at browser
+      // permissions that were already fine. getUserMedia's error names are
+      // specific; the user should get the specific answer.
+      const key = err?.name === 'NotAllowedError' || err?.name === 'SecurityError'
+        ? 'scan.errCameraPermissions'          // genuinely blocked or dismissed
+        : err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError'
+          ? 'scan.errCameraNone'               // no camera on this machine
+          : err?.name === 'NotReadableError' || err?.name === 'TrackStartError'
+            ? 'scan.errCameraBusy'             // another app holds it
+            : err?.name === 'OverconstrainedError'
+              ? 'scan.errCameraConstraints'    // asked for something it cannot do
+              : 'scan.errCameraUnknown';
+      setCameraErrorKey(key);
+      showToast(t(key));
     }
   };
 
