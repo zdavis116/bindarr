@@ -1808,5 +1808,14 @@
   "scan.forceScan": "Scan this card",
   "scan.forceHint": "Scan now, ignoring the stillness check and the repeat-card delay",
   "collection.rarities": "Rarity",
-  "collection.colors": "Colors"
+  "collection.colors": "Colors",
+  "collection.collectorView": "Collector view",
+  "collector.loading": "Working out what you have…",
+  "collector.loadFailed": "Could not load set progress.",
+  "collector.empty": "No sets to show yet — add some cards first.",
+  "collector.filterSets": "Filter sets…",
+  "collector.refresh": "Refresh",
+  "collector.noSetsMatch": "No sets match.",
+  "collector.acrossSets": "across {count} sets",
+  "collector.completeCount": "{count} complete"
 }

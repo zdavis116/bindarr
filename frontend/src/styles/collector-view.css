@@ -1,0 +1,194 @@
+/* COLLECTOR VIEW — set completion bars.
+ *
+ * Zach: "We would see a bar with percentage."
+ *
+ * UNSCOPED BY BREAKPOINT, deliberately, unlike the desktop scanner: this is
+ * one layout that works at any width. The rows are a flex line that collapses
+ * gracefully, so there is no phone variant to keep in step with a desktop one
+ * — and two variants is how a fix lands on one surface and not the other.
+ */
+
+.collector-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-bottom: 2rem;
+}
+
+/* SUMMARY. The headline the screen exists for. */
+.cv-summary {
+  background: var(--surface-1);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+}
+.cv-sumrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+.cv-sumpct {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+  font-variant-numeric: tabular-nums;
+}
+.cv-summeta {
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.cv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cv-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  padding: 0 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+}
+.cv-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  outline: none;
+}
+.cv-refresh {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.cv-refresh:disabled { opacity: 0.5; cursor: default; }
+
+.cv-error {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 90, 90, 0.12);
+  color: var(--accent-red);
+  font-size: 0.82rem;
+}
+
+.cv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.cv-row {
+  background: var(--surface-1);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
+}
+.cv-row.done { border-color: var(--accent-green); }
+
+.cv-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.45rem;
+  min-width: 0;
+}
+.cv-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  /* Scryfall's symbols are dark-on-transparent SVGs; invert so they read on a
+     dark surface rather than vanishing into it. */
+  filter: invert(1);
+  opacity: 0.75;
+}
+.cv-icon-ph {
+  border-radius: 50%;
+  background: var(--surface-3);
+  filter: none;
+}
+.cv-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cv-code {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 1px solid var(--border-glass);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+.cv-count {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.cv-pct {
+  flex-shrink: 0;
+  min-width: 3.2rem;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* THE BAR. Rounded, so a 1% sliver is still visible as a shape rather than a
+   dot -- an empty-looking bar next to "1%" reads as a rendering bug. */
+.cv-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.cv-bar-lg { height: 10px; margin-top: 0.5rem; }
+.cv-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: var(--accent-blue);
+  transition: width 0.3s ease;
+}
+.cv-row.done .cv-bar > span { background: var(--accent-green); }
+
+.cv-empty {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Wider screens get more room for the set name; nothing else changes. */
+@media (min-width: 769px) {
+  .cv-head { gap: 0.75rem; }
+  .cv-name { font-size: 0.95rem; }
+}

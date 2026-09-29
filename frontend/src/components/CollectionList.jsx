@@ -23,11 +23,13 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Search, X, LayoutGrid, List, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown, Package } from 'lucide-react';
+  Search, X, LayoutGrid, List, Library, Plus, Camera, Download, ChevronDown, Check, ArrowUpDown, Package } from 'lucide-react';
 import { formatPrice } from '../utils/formatPrice';
 import { sortCardsByOrder } from '../utils/cardSort';
 import { collectionGroupKey, isBasicLand } from '../utils/basicLands';
 import ProductImportModal from './ProductImportModal';
+import CollectorView from './CollectorView';
+import '../styles/collector-view.css';
 import { useT } from '../utils/i18n';
 import { Z_BACKDROP, Z_MODAL } from '../utils/zLayers';
 import CardInspectorModal from './CardInspectorModal';
@@ -785,7 +787,10 @@ const cardTypesOf = (card) => {
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
           {[{ m: 'gallery', Icon: LayoutGrid, label: t('collection.galleryView') },
-            { m: 'list', Icon: List, label: t('collection.listView') }].map(({ m, Icon, label }) => (
+            { m: 'list', Icon: List, label: t('collection.listView') },
+            // COLLECTOR VIEW, Zach's third mode: "grid view, list view and then
+            // collector view. We would see a bar with percentage."
+            { m: 'collector', Icon: Library, label: t('collection.collectorView') }].map(({ m, Icon, label }) => (
             <button
               key={m} onClick={() => setViewMode(m)} title={label} aria-label={label}
               aria-pressed={viewMode === m}
@@ -919,6 +924,17 @@ const cardTypesOf = (card) => {
         <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-secondary)' }}>
           {t('common.loading')}
         </div>
+      ) : viewMode === 'collector' ? (
+        /* COLLECTOR VIEW ANSWERS A DIFFERENT QUESTION, so it sits BEFORE the
+           empty-state branch and ignores `shown`.
+           
+           The card filters narrow which cards are listed; set completion is
+           about which cards are MISSING. Filtering to Mythic and then asking
+           "how complete is this set" has no sensible answer -- and running it
+           through `shown` would mean a filter that matches nothing renders
+           "no cards match" instead of the progress bars, which is not what the
+           view is for. */
+        <CollectorView />
       ) : shown.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-secondary)', background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>

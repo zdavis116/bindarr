@@ -2438,6 +2438,72 @@ router.get('/collection/filters/presets', async (req, res) => {
   }
 });
 
+// SET COMPLETION, for the Collector view.
+//
+// Zach: "show how many of the cards I have collected from the set like x out
+// of x", and on the rules: "the full set... every number for a set 1 to
+// whatever like lands are 389 they should be included like borderless has its
+// own number as well", "foil doesn't count as long as I have 1 card for that
+// set and number combo", "Don't include tokens though, just main set cards."
+//
+// So: numerator is DISTINCT collector number owned within 1..total, and a
+// borderless card counts because it has its own number. Denominator is the
+// set's card_count from Scryfall. Token sets are excluded entirely.
+//
+// COMPUTED IN SQL, NOT IN THE BROWSER. The collection screen already ships
+// every row to the client, but grouping 4,968 cards by set on the main thread
+// on a phone is work the database does in one indexed pass -- and this endpoint
+// returns ~105 small rows instead.
+//
+// THE DENOMINATOR HAS TO BE TRUE OR THE FEATURE IS WORSE THAN NOTHING. The
+// `sets` table was stale when this was written -- Reality Fracture cached at
+// 43 of its real 461 -- which would have shown 670% complete. That is fixed
+// separately (sets_synced_at); this route additionally clamps, so a
+// denominator that goes stale again cannot render a bar past full.
+router.get('/set-completion', async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT s.ptcgo_code                        AS code,
+              s.name                              AS name,
+              s.release_date                      AS released,
+              s.symbol_url                        AS icon,
+              s.total                             AS total,
+              COUNT(DISTINCT c.number)            AS owned,
+              SUM(col.quantity)                   AS copies
+         FROM collection col
+         JOIN card_cache c ON c.id = col.card_id
+         JOIN sets s       ON s.id = 'mtg-' || LOWER(c.set_id)
+        WHERE col.user_id = ?
+          AND s.series != 'token'
+          AND s.total > 0
+          -- Numeric collector numbers only, inside the set's own range.
+          -- Promos and Secret Lair drops carry numbers far above their set's
+          -- count and would push a bar past 100%.
+          AND c.number GLOB '[0-9]*'
+          AND CAST(c.number AS INTEGER) BETWEEN 1 AND s.total
+        GROUP BY s.id
+        ORDER BY (COUNT(DISTINCT c.number) * 1.0 / s.total) DESC, s.name ASC`,
+      [req.user.id]);
+
+    res.json(rows.map(r => ({
+      code: (r.code || '').toUpperCase(),
+      name: r.name,
+      released: r.released || null,
+      icon: r.icon || null,
+      owned: r.owned,
+      total: r.total,
+      copies: r.copies,
+      // Clamped and rounded here so every caller shows the same number. A bar
+      // that reads 101% destroys trust in every other figure on the screen.
+      percent: Math.min(100, Math.round((r.owned / r.total) * 1000) / 10),
+      complete: r.owned >= r.total,
+    })));
+  } catch (error) {
+    console.error('set-completion failed:', error);
+    res.status(500).json({ error: 'Failed to compute set completion' });
+  }
+});
+
 router.post('/collection/filters/presets', async (req, res) => {
   const { name, filter_config, sort_config, is_default = 0 } = req.body;
   if (!name || !filter_config) {
