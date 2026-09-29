@@ -688,9 +688,28 @@ const cardTypesOf = (card) => {
         </button>
       </div>
 
-      {/* FILTER ROW: pips, then Types / Sets / Sort, then Clear. One scrolling
-          line -- not a collapsible panel. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', overflowX: 'auto', paddingBottom: '0.3rem', marginBottom: '0.75rem' }}>
+      {/* FILTER ROW: pips, then Types / Sets / Rarity, then Clear. */}
+      {/* THE FILTER ROW WRAPS RATHER THAN SCROLLING SIDEWAYS.
+        *
+        * Zach, with a screenshot: "The rarity filter is slightly off the
+        * screen where I have to scroll to see it fully."
+        *
+        * The row was `overflowX: auto`, and adding Rarity pushed it past the
+        * edge of a phone: six colour circles plus Types, Sets and Rarity come
+        * to roughly 625px, against 390-430px of phone width. On his 1473px
+        * desktop it fit, which is exactly why I did not see it -- I measured
+        * the screen I could reach instead of the one he was holding.
+        *
+        * A horizontally scrolling strip HIDES controls. There is no arrow, no
+        * cut-off shadow, nothing that says a filter exists past the right
+        * edge -- so the newest button was invisible to anyone who did not
+        * already know to swipe. That is the reachability failure this project
+        * keeps producing: the control renders, and the user cannot get to it.
+        *
+        * Wrapping puts every filter on screen at once. It costs a second row
+        * on a narrow phone, which is cheap next to a hidden control.
+        */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', paddingBottom: '0.3rem', marginBottom: '0.75rem' }}>
         {MTG_COLORS.map(({ code, label, token }) => {
           const on = colorFilters.has(label);
           return (

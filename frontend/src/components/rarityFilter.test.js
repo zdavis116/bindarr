@@ -174,4 +174,35 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('RARITY-TC5', 'the filter is visible, titled and clearable');
 }
 
+// RARITY-TC7: every filter is reachable without sideways scrolling.
+//
+// Zach, with a screenshot from his PHONE: "The rarity filter is slightly off
+// the screen where I have to scroll to see it fully."
+//
+// The row was `overflowX: auto`. Six colour circles plus Types, Sets and
+// Rarity come to ~625px against 390-430px of phone width, so the newest
+// button sat off the right edge. Nothing marks a horizontally scrolling strip
+// as scrollable -- no arrow, no cut-off shadow -- so the control was
+// effectively invisible.
+//
+// I MISSED IT BY MEASURING THE WRONG SCREEN: at his 1473px desktop the row
+// fits with room to spare, and that is the width I checked. A filter row must
+// survive the narrowest screen the app runs on, not the widest.
+{
+  start('RARITY-TC7');
+  const row = /\{MTG_COLORS\.map/.exec(code);
+  assert.ok(row, 'the colour pips could not be found');
+  // The container is the div immediately preceding the pips.
+  const before = code.slice(0, row.index);
+  const openDiv = before.lastIndexOf('<div style={{');
+  const container = code.slice(openDiv, row.index);
+  assert.ok(!/overflowX:\s*'auto'/.test(container),
+    'the filter row must not scroll horizontally -- a control past the right '
+    + 'edge has no visual cue and cannot be found');
+  assert.match(container, /flexWrap:\s*'wrap'/,
+    'the filter row must wrap so every filter is on screen at once, however '
+    + 'narrow the device');
+  pass('RARITY-TC7', 'no filter can hide past the right edge');
+}
+
 console.log(`\nrarityFilter.test.js: ${passed} cases passed`);

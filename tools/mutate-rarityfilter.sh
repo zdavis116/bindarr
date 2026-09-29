@@ -137,6 +137,14 @@ mutate M5b "missing i18n key renders as the key" "RARITY-TC5" "frontend/src/loca
   const after = JSON.stringify(j, null, 2) + '\n';
 "
 
+# M7: THE REACHABILITY BUG. Put the row back to horizontal scrolling, so the
+# last filter sits off the right edge of a phone with no cue that it exists.
+mutate M7 "filter row scrolls sideways again" "RARITY-TC7" "frontend/src/components/CollectionList.jsx" "
+  const re = /flexWrap: 'wrap', paddingBottom: '0\\.3rem'/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, \"overflowX: 'auto', paddingBottom: '0.3rem'\");
+"
+
 printf '\n'
 if ! git diff --quiet -- $TARGETS "$TEST"; then
   echo "TREE NOT CLEAN after the run - restore failed. Check git status."
