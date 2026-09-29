@@ -375,28 +375,63 @@ const cardTypesOf = (card) => {
     return RARITY_ORDER.filter(r => found.has(r));
   }, [collection]);
 
-  // HOW MANY CARDS EACH OPTION WOULD MATCH. Zach: "can you add counts for
-  // rarity set and type?"
+  // HOW MANY CARDS EACH OPTION WOULD MATCH, given everything else already
+  // ticked. Zach: "the numbers don't update the more I filter like they
+  // should. If I filter a set the mythics shouldn't say 139 still because I
+  // now filtered for a specific set."
   //
-  // Counted over the WHOLE collection, not the currently filtered view. A
-  // count that moved as you ticked other boxes would answer a different
-  // question each time you looked at it, and could not tell you whether an
-  // option is worth ticking at all.
+  // He is right, and my first version was wrong. It counted the whole
+  // collection always, on the reasoning that a moving number answers a
+  // different question each time. That argument fails on its own terms: the
+  // question a count answers is "what do I get if I tick this", and once a set
+  // is chosen, 139 is simply not the answer to it. A number that cannot come
+  // true is worse than one that moves.
   //
-  // Copies, not rows: four Lightning Bolts is four cards. That matches the
-  // number shown everywhere else in this app.
+  // EXCLUDE-SELF is the rule, and it is what makes the counts usable rather
+  // than merely accurate:
+  //
+  //   * a RARITY count respects the set, type, colour and search filters, but
+  //     ignores which rarities are ticked
+  //   * a SET count respects rarity, type, colour and search, but ignores the
+  //     set ticks
+  //
+  // Counting a facet against its own selection would make every unticked
+  // option read 0 the moment one was ticked -- tick Mythic and Rare instantly
+  // shows 0, because no card is both. The user could never widen an OR filter,
+  // because every option they might add would look empty.
+  //
+  // Still copies rather than rows, matching every other total in the app.
   const optionCounts = useMemo(() => {
+    const q = searchFilter.trim().toLowerCase();
+    // The same predicates the list uses, named so they can be applied one
+    // facet at a time. Kept adjacent to `shown` deliberately: if these two
+    // ever disagree, the counts promise something the filter will not deliver.
+    const okSearch = (c) => !q
+      || c.name.toLowerCase().includes(q)
+      || (c.flavor_name || '').toLowerCase().includes(q)
+      || (c.back_name || '').toLowerCase().includes(q);
+    const okColor = (c) => colorFilters.size === 0
+      || [...colorFilters].every(x => (c.color_identity || []).includes(x));
+    const okType = (c) => typeFilters.size === 0
+      || [...typeFilters].every(ty => cardTypesOf(c).includes(ty));
+    const okSet = (c) => setFilters.size === 0 || setFilters.has(c.set_name);
+    const okRarity = (c) => rarityFilters.size === 0 || rarityFilters.has(c.rarity);
+
     const rarity = new Map(), set = new Map(), type = new Map();
     const bump = (m, k, n) => { if (k) m.set(k, (m.get(k) || 0) + n); };
+
     for (const c of collection) {
+      if (!okSearch(c) || !okColor(c)) continue;   // these two constrain every facet
       const n = c.quantity || 1;
-      bump(rarity, c.rarity, n);
-      bump(set, c.set_name, n);
-      // A card counts once per type it HAS -- an Artifact Creature is in both.
-      for (const ty of cardTypesOf(c)) bump(type, ty, n);
+      if (okSet(c) && okType(c)) bump(rarity, c.rarity, n);
+      if (okRarity(c) && okType(c)) bump(set, c.set_name, n);
+      if (okRarity(c) && okSet(c)) {
+        // A card counts once per type it HAS -- an Artifact Creature is in both.
+        for (const ty of cardTypesOf(c)) bump(type, ty, n);
+      }
     }
     return { rarity, set, type };
-  }, [collection]);
+  }, [collection, searchFilter, colorFilters, typeFilters, setFilters, rarityFilters]);
 
   const shown = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
@@ -1083,6 +1118,16 @@ const cardTypesOf = (card) => {
                     return options.map(opt => {
                       const on = sel.has(opt);
                       const n = counts.get(opt) || 0;
+                      // ZERO OPTIONS STAY VISIBLE, but are dimmed.
+                      //
+                      // Now that counts respond to the other filters, options
+                      // can legitimately reach 0 -- pick a Commander set and
+                      // most rarities empty out. Removing them would make the
+                      // list reshuffle under the finger mid-tap, and would
+                      // hide a TICKED option, leaving a filter active with no
+                      // visible way to untick it. So they stay, greyed, and
+                      // stay tappable: unticking is how you get back.
+                      const empty = n === 0 && !on;
                       return (
                         <button
                           key={opt}
@@ -1091,7 +1136,10 @@ const cardTypesOf = (card) => {
                             : sheet === 'rarity'
                               ? setRarityFilters(toggleIn(rarityFilters, opt))
                               : setSetFilters(toggleIn(setFilters, opt)))}
-                          style={{ ...SHEET_ROW, color: on ? 'var(--accent-blue)' : 'var(--text-primary)' }}
+                          style={{ ...SHEET_ROW,
+                            color: on ? 'var(--accent-blue)'
+                              : empty ? 'var(--text-muted)' : 'var(--text-primary)',
+                            opacity: empty ? 0.55 : 1 }}
                         >
                           <span>{opt}</span>
                           {/* HOW MANY CARDS THIS WOULD MATCH. Pushed to the

@@ -45,9 +45,16 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // renders, it ticks, and the list ignores it.
 {
   start('RARITY-TC2');
-  const deps = /\}, \[collection, searchFilter, colorFilters, typeFilters, setFilters([^\]]*)\]\);/.exec(code);
-  assert.ok(deps, 'the filtered-list memo could not be found');
-  assert.match(deps[1], /rarityFilters/,
+  // ANCHORED TO THE LIST MEMO, NOT TO A DEPENDENCY SHAPE.
+  //
+  // This originally matched any `}, [collection, searchFilter, ...]);` line.
+  // optionCounts now ends with the SAME dependency list, so the regex found
+  // that one instead and the guard went vacuous -- deleting rarityFilters
+  // from the list memo left it green. Match the memo that actually produces
+  // the filtered rows.
+  const listMemo = /const shown = useMemo\(\(\) => \{[\s\S]*?\}, \[([^\]]+)\]\);/.exec(code);
+  assert.ok(listMemo, 'the filtered-list memo could not be found');
+  assert.match(listMemo[1], /rarityFilters/,
     'rarityFilters must be a dependency of the filtered list, or ticking a '
     + 'rarity changes nothing on screen');
   assert.match(code, /matchesSearch && matchesColor && matchesType && matchesSet && matchesRarity/,
@@ -77,20 +84,42 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('RARITY-TC3', 'printed order, correct case, no dead options');
 }
 
-// RARITY-TC4: counts are over the WHOLE collection, not the filtered view.
+// RARITY-TC4: counts respond to the OTHER filters, but not to their own.
 //
-// A count that moves as other boxes are ticked answers a different question
-// each time, and cannot tell you whether an option is worth ticking at all.
+// Zach: "the numbers don't update the more I filter like they should. If I
+// filter a set the mythics shouldn't say 139 still."
+//
+// The first version of this test asserted the OPPOSITE -- that counts depend
+// on `collection` alone -- because that is what I built. He was right and the
+// reasoning was wrong: a count answers "what do I get if I tick this", and
+// once a set is chosen, 139 is not the answer. A number that cannot come true
+// is worse than one that moves.
+//
+// EXCLUDE-SELF is the other half, and it is not cosmetic. If a facet were
+// counted against its own selection, ticking Mythic would make every other
+// rarity read 0 -- no card is both -- so an OR filter could never be widened.
+// Verified on his real data: with a set chosen, Mythic 139 -> 13, and Rare
+// still reads 102 rather than 0 when Mythic is also ticked.
 {
   start('RARITY-TC4');
   const memo = /const optionCounts = useMemo\(\(\) => \{([\s\S]*?)\}, \[([^\]]+)\]\);/.exec(code);
   assert.ok(memo, 'optionCounts could not be found');
-  assert.strictEqual(memo[2].trim(), 'collection',
-    `optionCounts depends on [${memo[2].trim()}]; it must depend on the whole `
-    + 'collection only. Depending on the filtered list would make every count '
-    + 'shift as the user ticks boxes');
-  assert.match(memo[1], /for \(const c of collection\)/,
-    'counts must be computed from the full collection');
+  const deps = memo[2].split(',').map(d => d.trim());
+  for (const d of ['collection', 'searchFilter', 'colorFilters', 'typeFilters', 'setFilters', 'rarityFilters']) {
+    assert.ok(deps.includes(d),
+      `optionCounts must depend on ${d}; without it the counts freeze and `
+      + 'keep promising cards the filters will not return');
+  }
+  // Exclude-self: each facet is bumped under the OTHER facets' tests only.
+  assert.match(memo[1], /if \(okSet\(c\) && okType\(c\)\) bump\(rarity,/,
+    'the rarity count must respect set and type but NOT rarity itself');
+  assert.match(memo[1], /if \(okRarity\(c\) && okType\(c\)\) bump\(set,/,
+    'the set count must respect rarity and type but NOT set itself');
+  assert.match(memo[1], /if \(okRarity\(c\) && okSet\(c\)\)/,
+    'the type count must respect rarity and set but NOT type itself');
+  assert.ok(!/if \(okRarity\(c\) && okSet\(c\) && okType\(c\)\)/.test(memo[1]),
+    'no facet may be counted against its own selection -- every unticked '
+    + 'option would read 0 and the filter could never be widened');
   assert.match(memo[1], /c\.quantity \|\| 1/,
     'count COPIES, not rows -- four Lightning Bolts is four cards, which is '
     + 'the number shown everywhere else in this app');
@@ -98,7 +127,30 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
     assert.ok(new RegExp(`bump\\(${k},`).test(memo[1]),
       `${k} has no counts; Zach asked for all three`);
   }
-  pass('RARITY-TC4', 'counts cover the whole collection, in copies');
+  pass('RARITY-TC4', 'counts narrow with other filters, never with their own');
+}
+
+// RARITY-TC6: an option that reaches 0 stays visible and tappable.
+//
+// With counts now responsive, options legitimately empty out -- 78 of his 105
+// sets have no mythic. Hiding them would reshuffle the list under a finger
+// mid-tap, and could hide a TICKED option, leaving a filter active with no
+// visible way to remove it. That is the reachability failure this project
+// keeps hitting.
+{
+  start('RARITY-TC6');
+  assert.match(code, /const empty = n === 0 && !on;/,
+    'a zero option must be identifiable so it can be dimmed');
+  assert.ok(!/options\.filter\(o => counts\.get\(o\)/.test(code),
+    'zero options must not be filtered out of the sheet');
+  assert.match(code, /opacity: empty \? 0\.55 : 1/,
+    'zero options should be dimmed rather than removed');
+  // A ticked option is never dimmed, whatever its count: it is the thing the
+  // user has to be able to find in order to untick it.
+  assert.match(code, /n === 0 && !on/,
+    'a TICKED option must never be dimmed, or the user cannot find the filter '
+    + 'that is hiding their cards');
+  pass('RARITY-TC6', 'empty options dim rather than disappear');
 }
 
 // RARITY-TC5: the filter can be seen and cleared.

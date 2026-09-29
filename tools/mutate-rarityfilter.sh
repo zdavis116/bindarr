@@ -87,12 +87,38 @@ mutate M3b "lowercase rarity values" "RARITY-TC3" "frontend/src/components/Colle
   const after = before.replace(re, \"const RARITY_ORDER = ['common', 'uncommon', 'rare', 'mythic'];\");
 "
 
-# M4: count rows instead of copies, so four Lightning Bolts read as one card
-# and the number disagrees with every other total in the app.
-mutate M4 "counts rows, not copies" "RARITY-TC4" "frontend/src/components/CollectionList.jsx" "
-  const re = /const n = c\.quantity \|\| 1;/;
+# M4: THE ORIGINAL BUG. Freeze the counts on the whole collection, so
+# filtering a set leaves Mythic reading 139.
+mutate M4 "counts ignore the other filters" "RARITY-TC4" "frontend/src/components/CollectionList.jsx" "
+  const re = /\}, \[collection, searchFilter, colorFilters, typeFilters, setFilters, rarityFilters\]\);/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, 'const n = 1;');
+  const after = before.replace(re, '}, [collection]);');
+"
+
+# M4b: THE EXCLUDE-SELF TRAP. Count each facet against its own selection too.
+# Tick Mythic and every other rarity instantly reads 0, so the OR filter can
+# never be widened -- and it looks like the collection has no rares.
+mutate M4b "a facet counts against its own selection" "RARITY-TC4" "frontend/src/components/CollectionList.jsx" "
+  const re = /if \(okSet\(c\) && okType\(c\)\) bump\(rarity,/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'if (okRarity(c) && okSet(c) && okType(c)) bump(rarity,');
+"
+
+# M4c: count rows instead of copies, so four Lightning Bolts read as one card
+# and the number disagrees with every other total in the app.
+mutate M4c "counts rows, not copies" "RARITY-TC4" "frontend/src/components/CollectionList.jsx" "
+  const re = /const n = c\.quantity \|\| 1;\n      if \(okSet/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'const n = 1;\n      if (okSet');
+"
+
+# M6: hide zero options instead of dimming them. The list reshuffles under the
+# finger, and a TICKED option can vanish -- leaving a filter active that the
+# user cannot see or remove.
+mutate M6 "empty options disappear" "RARITY-TC6" "frontend/src/components/CollectionList.jsx" "
+  const re = /opacity: empty \? 0\.55 : 1/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'display: empty ? \'none\' : undefined');
 "
 
 # M5: Clear-all forgets rarity -- the badge says a filter is active and nothing
