@@ -110,16 +110,29 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
       `optionCounts must depend on ${d}; without it the counts freeze and `
       + 'keep promising cards the filters will not return');
   }
-  // Exclude-self: each facet is bumped under the OTHER facets' tests only.
-  assert.match(memo[1], /if \(okSet\(c\) && okType\(c\)\) bump\(rarity,/,
-    'the rarity count must respect set and type but NOT rarity itself');
-  assert.match(memo[1], /if \(okRarity\(c\) && okType\(c\)\) bump\(set,/,
-    'the set count must respect rarity and type but NOT set itself');
-  assert.match(memo[1], /if \(okRarity\(c\) && okSet\(c\)\)/,
-    'the type count must respect rarity and set but NOT type itself');
-  assert.ok(!/if \(okRarity\(c\) && okSet\(c\) && okType\(c\)\)/.test(memo[1]),
-    'no facet may be counted against its own selection -- every unticked '
-    + 'option would read 0 and the filter could never be widened');
+  // Exclude-self: each OR facet is bumped under the OTHER facets' tests only.
+  assert.match(memo[1], /if \(okColor\(c\) && okSet\(c\) && okType\(c\)\) bump\(rarity,/,
+    'the rarity count must respect colour, set and type but NOT rarity itself');
+  assert.match(memo[1], /if \(okColor\(c\) && okRarity\(c\) && okType\(c\)\) bump\(set,/,
+    'the set count must respect colour, rarity and type but NOT set itself');
+  assert.match(memo[1], /if \(okColor\(c\) && okRarity\(c\) && okSet\(c\)\)/,
+    'the type count must respect colour, rarity and set but NOT type itself');
+  // No OR facet may test its own predicate on the line that bumps it. Scoped
+  // to that one line: a loose search caught the colour block below, which
+  // legitimately DOES test okColor.
+  for (const [facet, own] of [['rarity', 'okRarity'], ['set', 'okSet']]) {
+    const line = memo[1].split('\n').find(l => l.includes(`bump(${facet},`) && l.includes('if ('));
+    assert.ok(line, `the ${facet} bump could not be found`);
+    assert.ok(!line.includes(own),
+      `the ${facet} count must not test ${own} -- every unticked option would `
+      + 'read 0 and the filter could never be widened');
+  }
+  // COLOUR IS THE EXCEPTION, and deliberately so. It is an AND filter, so the
+  // useful number beside Blue is "how many of what I am looking at ALSO need
+  // blue" -- which means it must respect the current colour selection.
+  assert.match(memo[1], /if \(okRarity\(c\) && okSet\(c\) && okType\(c\) && okColor\(c\)\)/,
+    'colour counts DO include okColor: colour is an AND filter, so each '
+    + 'option shows what remains if you add it');
   assert.match(memo[1], /c\.quantity \|\| 1/,
     'count COPIES, not rows -- four Lightning Bolts is four cards, which is '
     + 'the number shown everywhere else in this app');
@@ -174,35 +187,64 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('RARITY-TC5', 'the filter is visible, titled and clearable');
 }
 
-// RARITY-TC7: every filter is reachable without sideways scrolling.
+// RARITY-TC7: every filter is reachable, and the row fits one line.
 //
 // Zach, with a screenshot from his PHONE: "The rarity filter is slightly off
-// the screen where I have to scroll to see it fully."
+// the screen where I have to scroll to see it fully." Then, after it wrapped:
+// "I don't want it on two rows like that. Can we turn the color filter into a
+// drop down to free up space."
 //
-// The row was `overflowX: auto`. Six colour circles plus Types, Sets and
-// Rarity come to ~625px against 390-430px of phone width, so the newest
-// button sat off the right edge. Nothing marks a horizontally scrolling strip
-// as scrollable -- no arrow, no cut-off shadow -- so the control was
-// effectively invisible.
+// Six 34px pips plus gaps were 234px of a ~400px phone -- more than half the
+// row for one filter. As a dropdown it is ~84px, and four buttons total ~333px
+// which fits a 390px phone on one line.
 //
-// I MISSED IT BY MEASURING THE WRONG SCREEN: at his 1473px desktop the row
-// fits with room to spare, and that is the width I checked. A filter row must
-// survive the narrowest screen the app runs on, not the widest.
+// I MISSED THE ORIGINAL BY MEASURING THE WRONG SCREEN: at his 1473px desktop
+// the row fit with 800px to spare, and that is the width I checked. A filter
+// row must survive the NARROWEST screen the app runs on.
 {
   start('RARITY-TC7');
-  const row = /\{MTG_COLORS\.map/.exec(code);
-  assert.ok(row, 'the colour pips could not be found');
-  // The container is the div immediately preceding the pips.
+  const row = /<DropButton label=\{t\('collection\.colors'\)\}/.exec(code);
+  assert.ok(row, 'colours must be a DropButton like the filters beside it, '
+    + 'not a strip of pips that eats half the row');
   const before = code.slice(0, row.index);
   const openDiv = before.lastIndexOf('<div style={{');
   const container = code.slice(openDiv, row.index);
   assert.ok(!/overflowX:\s*'auto'/.test(container),
     'the filter row must not scroll horizontally -- a control past the right '
     + 'edge has no visual cue and cannot be found');
+  // flexWrap is the safety net, not the fix: it costs nothing while the row
+  // fits, and the NEXT filter added lands on a visible second line rather
+  // than silently off the edge.
   assert.match(container, /flexWrap:\s*'wrap'/,
-    'the filter row must wrap so every filter is on screen at once, however '
-    + 'narrow the device');
-  pass('RARITY-TC7', 'no filter can hide past the right edge');
+    'keep flexWrap: it is what stops a future filter disappearing off the '
+    + 'right edge the way Rarity did');
+  // The pips must not still be rendered inline -- that was the 234px.
+  assert.ok(!/\{MTG_COLORS\.map\(\(\{ code, label, token \}\) => \{/.test(code),
+    'the inline colour pips must be gone from the row; they belong in the '
+    + 'sheet now');
+  pass('RARITY-TC7', 'colours are a dropdown and no filter can hide');
+}
+
+// RARITY-TC8: the colour sheet keeps what the pips carried.
+//
+// Moving a control into a menu is where affordances get dropped. The pip is
+// how a player recognises a colour at a glance; six words in a list is any
+// other menu.
+{
+  start('RARITY-TC8');
+  assert.match(code, /sheet === 'color' \? MTG_COLORS\.map\(c => c\.label\)/,
+    'the colour sheet must list the colours');
+  assert.match(code, /sheet === 'color'\s*\?\s*setColorFilters\(toggleIn\(colorFilters, opt\)\)/,
+    'tapping a colour in the sheet must toggle the filter');
+  assert.match(code, /background: MTG_COLORS\.find\(c => c\.label === opt\)\?\.token/,
+    'each colour row must still show its pip -- it is how the filter is '
+    + 'recognised');
+  assert.match(code, /sheet === 'color' \? t\('collection\.colors'\)/,
+    'the colour sheet needs its own title');
+  const en = JSON.parse(readFileSync(join(HERE, '..', 'locales', 'en.json'), 'utf8'));
+  assert.ok(en['collection.colors'],
+    'collection.colors has no string; the button would read the key itself');
+  pass('RARITY-TC8', 'the colour sheet keeps the pip and the toggle');
 }
 
 console.log(`\nrarityFilter.test.js: ${passed} cases passed`);

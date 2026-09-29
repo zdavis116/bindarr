@@ -417,20 +417,33 @@ const cardTypesOf = (card) => {
     const okSet = (c) => setFilters.size === 0 || setFilters.has(c.set_name);
     const okRarity = (c) => rarityFilters.size === 0 || rarityFilters.has(c.rarity);
 
-    const rarity = new Map(), set = new Map(), type = new Map();
+    const rarity = new Map(), set = new Map(), type = new Map(), color = new Map();
     const bump = (m, k, n) => { if (k) m.set(k, (m.get(k) || 0) + n); };
 
     for (const c of collection) {
-      if (!okSearch(c) || !okColor(c)) continue;   // these two constrain every facet
+      if (!okSearch(c)) continue;                  // search constrains every facet
       const n = c.quantity || 1;
-      if (okSet(c) && okType(c)) bump(rarity, c.rarity, n);
-      if (okRarity(c) && okType(c)) bump(set, c.set_name, n);
-      if (okRarity(c) && okSet(c)) {
+      if (okColor(c) && okSet(c) && okType(c)) bump(rarity, c.rarity, n);
+      if (okColor(c) && okRarity(c) && okType(c)) bump(set, c.set_name, n);
+      if (okColor(c) && okRarity(c) && okSet(c)) {
         // A card counts once per type it HAS -- an Artifact Creature is in both.
         for (const ty of cardTypesOf(c)) bump(type, ty, n);
       }
+      // COLOUR COUNTS MEAN SOMETHING DIFFERENT, because colour is an AND
+      // filter. Ticking White then Blue asks for cards needing BOTH, so the
+      // useful number next to Blue is "how many of what I am already looking
+      // at also need blue" -- not how many blue cards exist.
+      //
+      // So unlike the OR facets, colour counts DO respect the current colour
+      // selection: each option shows what remains if you add it. A card is
+      // counted under every colour in its identity.
+      if (okRarity(c) && okSet(c) && okType(c) && okColor(c)) {
+        for (const { label } of MTG_COLORS) {
+          if ((c.color_identity || []).includes(label)) bump(color, label, n);
+        }
+      }
     }
-    return { rarity, set, type };
+    return { rarity, set, type, color };
   }, [collection, searchFilter, colorFilters, typeFilters, setFilters, rarityFilters]);
 
   const shown = useMemo(() => {
@@ -559,6 +572,7 @@ const cardTypesOf = (card) => {
   const sheetTitle = sheet === 'type' ? t('collection.types')
     : sheet === 'set' ? t('collection.sets')
     : sheet === 'rarity' ? t('collection.rarities')
+    : sheet === 'color' ? t('collection.colors')
     : t('collection.sortBy');
 
   return (
@@ -707,28 +721,31 @@ const cardTypesOf = (card) => {
         * keeps producing: the control renders, and the user cannot get to it.
         *
         * Wrapping puts every filter on screen at once. It costs a second row
-        * on a narrow phone, which is cheap next to a hidden control.
+        * on a narrow phone -- which he then rejected: "I don't want it on two
+        * rows like that. Can we turn the color filter into a drop down to free
+        * up space." So the pips became a dropdown and the four buttons now
+        * measure ~333px, fitting one line on a 390px phone.
+        *
+        * flexWrap STAYS regardless. It is the safety net: it costs nothing
+        * while everything fits, and the next filter added to this row lands on
+        * a second line instead of silently off the right edge. Wrapping is
+        * visible; overflow is not.
         */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', paddingBottom: '0.3rem', marginBottom: '0.75rem' }}>
-        {MTG_COLORS.map(({ code, label, token }) => {
-          const on = colorFilters.has(label);
-          return (
-            <button
-              key={code} type="button" aria-pressed={on} title={label} aria-label={label}
-              onClick={() => setColorFilters(toggleIn(colorFilters, label))}
-              style={{
-                width: 34, height: 34, minWidth: 34, borderRadius: '50%', flexShrink: 0,
-                border: on ? '2px solid var(--text-primary)' : '1px solid var(--border-glass)',
-                background: on ? token : 'var(--surface-1)',
-                color: on ? '#1a1a1a' : 'var(--text-muted)',
-                fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', padding: 0,
-                transition: 'var(--transition-smooth)',
-              }}
-            >
-              {code}
-            </button>
-          );
-        })}
+        {/* COLOURS AS A DROPDOWN, like the three beside it.
+          *
+          * Zach: "I don't want it on two rows like that. Can we turn the color
+          * filter into a drop down to free up space."
+          *
+          * Six 34px circles plus their gaps were 234px of a ~400px phone --
+          * more than half the row for one filter, which is what forced Rarity
+          * onto a second line. As a button it is ~84px, and all four filters
+          * fit on one line on the narrowest phone this app runs on.
+          *
+          * The pips do not disappear: they move inside the sheet, where each
+          * one now gets a name and a count instead of a bare letter. */}
+        <DropButton label={t('collection.colors')} count={colorFilters.size}
+          onClick={() => openSheet('color')} />
         <DropButton label={t('collection.types')} count={typeFilters.size} onClick={() => openSheet('type')} />
         <DropButton label={t('collection.sets')} count={setFilters.size} onClick={() => openSheet('set')} />
         {/* Only offered when the collection actually has rarities to filter by:
@@ -1115,11 +1132,14 @@ const cardTypesOf = (card) => {
                     // two-way ternary -- adding rarity to the old shape would
                     // have made it the silent `else` branch of `type`.
                     const source = sheet === 'type' ? uniqueTypes
-                      : sheet === 'rarity' ? uniqueRarities : uniqueSets;
+                      : sheet === 'rarity' ? uniqueRarities
+                      : sheet === 'color' ? MTG_COLORS.map(c => c.label) : uniqueSets;
                     const sel = sheet === 'type' ? typeFilters
-                      : sheet === 'rarity' ? rarityFilters : setFilters;
+                      : sheet === 'rarity' ? rarityFilters
+                      : sheet === 'color' ? colorFilters : setFilters;
                     const counts = sheet === 'type' ? optionCounts.type
-                      : sheet === 'rarity' ? optionCounts.rarity : optionCounts.set;
+                      : sheet === 'rarity' ? optionCounts.rarity
+                      : sheet === 'color' ? optionCounts.color : optionCounts.set;
                     // Only the set list is long enough to need searching; 4
                     // rarities and 9 types are not.
                     const q = sheet === 'set' ? sheetSearch.trim().toLowerCase() : '';
@@ -1154,12 +1174,26 @@ const cardTypesOf = (card) => {
                             ? setTypeFilters(toggleIn(typeFilters, opt))
                             : sheet === 'rarity'
                               ? setRarityFilters(toggleIn(rarityFilters, opt))
-                              : setSetFilters(toggleIn(setFilters, opt)))}
+                              : sheet === 'color'
+                                ? setColorFilters(toggleIn(colorFilters, opt))
+                                : setSetFilters(toggleIn(setFilters, opt)))}
                           style={{ ...SHEET_ROW,
                             color: on ? 'var(--accent-blue)'
                               : empty ? 'var(--text-muted)' : 'var(--text-primary)',
                             opacity: empty ? 0.55 : 1 }}
                         >
+                          {/* The colour pip survives the move into the sheet.
+                              It is how a player recognises the filter at a
+                              glance, and a list of six words without it reads
+                              like any other menu. */}
+                          {sheet === 'color' && (
+                            <span aria-hidden="true" style={{
+                              width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                              marginRight: '0.6rem', display: 'inline-block',
+                              background: MTG_COLORS.find(c => c.label === opt)?.token,
+                              border: '1px solid var(--border-glass)',
+                            }} />
+                          )}
                           <span>{opt}</span>
                           {/* HOW MANY CARDS THIS WOULD MATCH. Pushed to the
                               right of the name and muted: it is a hint for

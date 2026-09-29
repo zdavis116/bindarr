@@ -99,17 +99,17 @@ mutate M4 "counts ignore the other filters" "RARITY-TC4" "frontend/src/component
 # Tick Mythic and every other rarity instantly reads 0, so the OR filter can
 # never be widened -- and it looks like the collection has no rares.
 mutate M4b "a facet counts against its own selection" "RARITY-TC4" "frontend/src/components/CollectionList.jsx" "
-  const re = /if \(okSet\(c\) && okType\(c\)\) bump\(rarity,/;
+  const re = /if \(okColor\(c\) && okSet\(c\) && okType\(c\)\) bump\(rarity,/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, 'if (okRarity(c) && okSet(c) && okType(c)) bump(rarity,');
+  const after = before.replace(re, 'if (okRarity(c) && okColor(c) && okSet(c) && okType(c)) bump(rarity,');
 "
 
 # M4c: count rows instead of copies, so four Lightning Bolts read as one card
 # and the number disagrees with every other total in the app.
 mutate M4c "counts rows, not copies" "RARITY-TC4" "frontend/src/components/CollectionList.jsx" "
-  const re = /const n = c\.quantity \|\| 1;\n      if \(okSet/;
+  const re = /const n = c\.quantity \|\| 1;\n      if \(okColor/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, 'const n = 1;\n      if (okSet');
+  const after = before.replace(re, 'const n = 1;\n      if (okColor');
 "
 
 # M6: hide zero options instead of dimming them. The list reshuffles under the
@@ -143,6 +143,14 @@ mutate M7 "filter row scrolls sideways again" "RARITY-TC7" "frontend/src/compone
   const re = /flexWrap: 'wrap', paddingBottom: '0\\.3rem'/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(re, \"overflowX: 'auto', paddingBottom: '0.3rem'\");
+"
+
+# M8: drop the colour pip from the sheet rows. Six words in a list, with the
+# one thing a player actually recognises removed.
+mutate M8 "colour sheet loses its pips" "RARITY-TC8" "frontend/src/components/CollectionList.jsx" "
+  const re = /background: MTG_COLORS\\.find\\(c => c\\.label === opt\\)\\?\\.token,/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, 'background: undefined,');
 "
 
 printf '\n'

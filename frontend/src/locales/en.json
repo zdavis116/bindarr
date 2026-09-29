@@ -1807,5 +1807,6 @@
   "scan.addAll": "Add all",
   "scan.forceScan": "Scan this card",
   "scan.forceHint": "Scan now, ignoring the stillness check and the repeat-card delay",
-  "collection.rarities": "Rarity"
+  "collection.rarities": "Rarity",
+  "collection.colors": "Colors"
 }
