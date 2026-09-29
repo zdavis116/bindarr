@@ -2504,6 +2504,75 @@ router.get('/set-completion', async (req, res) => {
   }
 });
 
+// EVERY CARD IN ONE SET, flagged owned or missing.
+//
+// Zach: "I would like to be able to click on the set and see all cards showing
+// the ones I have and the ones I am missing" / "Show everything with missing
+// grayed out."
+//
+// The catalogue already holds the whole set, not just his copies -- Reality
+// Fracture is 461 of 461 rows in card_cache -- so the missing list is a LEFT
+// JOIN against what he owns, with no Scryfall call needed.
+//
+// One row per COLLECTOR NUMBER, matching how completion is counted: he owns a
+// number or he does not, and a foil plus a non-foil of the same card is one
+// number owned, not two. `copies` carries the real count for display.
+router.get('/set-cards/:code', async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase();
+    if (!/^[a-z0-9]{1,10}$/.test(code)) {
+      return res.status(400).json({ error: 'Invalid set code' });
+    }
+
+    const set = await db.get(
+      `SELECT name, total, ptcgo_code AS code, symbol_url AS icon
+         FROM sets WHERE id = 'mtg-' || ?`, [code]);
+    if (!set) return res.status(404).json({ error: 'Unknown set' });
+
+    // GROUPED BY NUMBER, not by card id. A set can hold several rows for one
+    // number (different faces or printings sharing it); collapsing here keeps
+    // the grid aligned with the completion count on the previous screen.
+    const rows = await db.all(
+      `SELECT c.number                                   AS number,
+              MIN(c.id)                                  AS card_id,
+              MAX(c.name)                                AS name,
+              MAX(c.image_url)                           AS image_url,
+              MAX(c.rarity)                              AS rarity,
+              MAX(c.type_line)                           AS type_line,
+              MAX(c.mana_cost)                           AS mana_cost,
+              MAX(c.set_id)                              AS set_id,
+              MAX(c.set_name)                            AS set_name,
+              COALESCE(SUM(own.copies), 0)               AS copies,
+              MIN(own.entry_id)                          AS entry_id
+         FROM card_cache c
+         LEFT JOIN (
+              SELECT col.card_id, SUM(col.quantity) AS copies, MIN(col.id) AS entry_id
+                FROM collection col
+               WHERE col.user_id = ?
+               GROUP BY col.card_id
+         ) own ON own.card_id = c.id
+        WHERE LOWER(c.set_id) = ?
+          AND c.number GLOB '[0-9]*'
+          AND CAST(c.number AS INTEGER) BETWEEN 1 AND ?
+        GROUP BY c.number
+        ORDER BY CAST(c.number AS INTEGER) ASC`,
+      [req.user.id, code, set.total]);
+
+    res.json({
+      set: { name: set.name, code: (set.code || '').toUpperCase(), total: set.total, icon: set.icon },
+      owned: rows.filter(r => r.copies > 0).length,
+      cards: rows.map(r => ({
+        ...r,
+        copies: r.copies || 0,
+        owned: r.copies > 0,
+      })),
+    });
+  } catch (error) {
+    console.error('set-cards failed:', error);
+    res.status(500).json({ error: 'Failed to load set cards' });
+  }
+});
+
 router.post('/collection/filters/presets', async (req, res) => {
   const { name, filter_config, sort_config, is_default = 0 } = req.body;
   if (!name || !filter_config) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, RefreshCw } from 'lucide-react';
 import { useT } from '../utils/i18n';
+import SetCardsView from './SetCardsView';
 
 // THE COLLECTOR VIEW: how complete is each set?
 //
@@ -24,12 +25,16 @@ import { useT } from '../utils/i18n';
 // for every /api/ URL, so a plain fetch is already authenticated. Threading a
 // second mechanism through would be a parallel auth path that can drift from
 // the real one.
-export default function CollectorView() {
+export default function CollectorView({ onInspect }) {
   const { t } = useT();
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  // WHICH SET IS OPEN. Zach: "be able to click on the set and see all cards."
+  // Kept here rather than in a route so closing it returns to the same scroll
+  // position in the set list.
+  const [openSet, setOpenSet] = useState(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -73,6 +78,16 @@ export default function CollectorView() {
       complete: rows.filter(r => r.complete).length,
     };
   }, [rows]);
+
+  if (openSet) {
+    return (
+      <SetCardsView
+        code={openSet}
+        onBack={() => setOpenSet(null)}
+        onInspect={onInspect}
+      />
+    );
+  }
 
   if (rows === null) {
     return (
@@ -125,7 +140,12 @@ export default function CollectorView() {
 
       <div className="cv-list">
         {shown.map(s => (
-          <div key={s.code + s.name} className={`cv-row${s.complete ? ' done' : ''}`}>
+          <button
+            type="button"
+            key={s.code + s.name}
+            className={`cv-row${s.complete ? ' done' : ''}`}
+            onClick={() => setOpenSet(s.code.toLowerCase())}
+          >
             <div className="cv-head">
               {/* The set symbol is how a player recognises a set faster than
                   by name. Scryfall serves these as SVG. */}
@@ -142,7 +162,7 @@ export default function CollectorView() {
             <div className="cv-bar">
               <span style={{ width: `${s.percent}%` }} />
             </div>
-          </div>
+          </button>
         ))}
         {!shown.length && (
           <div className="cv-empty">{t('collector.noSetsMatch')}</div>

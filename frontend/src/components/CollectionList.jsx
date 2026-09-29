@@ -934,7 +934,23 @@ const cardTypesOf = (card) => {
            through `shown` would mean a filter that matches nothing renders
            "no cards match" instead of the progress bars, which is not what the
            view is for. */
-        <CollectorView />
+        <CollectorView
+          /* THE READ-ONLY INSPECTOR, the same one the deck view opens for
+             cards he does not own. Zach: "reuse the card detail pane we have.
+             Same as when on deck view for cards I dont own."
+
+             A missing card has no collection row, so it must NOT be handed an
+             entry_id -- the inspector would PUT through it and rewrite some
+             other card. openInspector() is for owned tiles; this path sets
+             the card directly with readOnly. */
+          onInspect={(c) => setInspectorCard({
+            ...c,
+            id: c.card_id,
+            entry_id: c.owned ? c.entry_id : undefined,
+            quantity: c.copies || 0,
+            __readOnly: !c.owned,
+          })}
+        />
       ) : shown.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-secondary)', background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
@@ -1049,6 +1065,10 @@ const cardTypesOf = (card) => {
             key={inspectorCard.entry_id || inspectorCard.id}
             inline
             card={inspectorCard}
+            /* A CARD HE DOES NOT OWN has no collection row. readOnly is the
+               same guard the deck view uses; without it the inspector would
+               PUT through an id that belongs to some other card. */
+            readOnly={!!inspectorCard.__readOnly}
             onClose={() => setInspectorCard(null)}
             onUpdate={() => { onUpdate && onUpdate(); }}
             showToast={showToast}
@@ -1258,6 +1278,9 @@ const cardTypesOf = (card) => {
       {inspectorCard && !isWide && (
         <CardInspectorModal
           card={inspectorCard}
+          /* Same guard as the desktop pane above: a card he does not own has
+             no collection row to write through. */
+          readOnly={!!inspectorCard.__readOnly}
           onClose={() => setInspectorCard(null)}
           onUpdate={() => { onUpdate && onUpdate(); }}
           showToast={showToast}

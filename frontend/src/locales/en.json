@@ -1817,5 +1817,12 @@
   "collector.refresh": "Refresh",
   "collector.noSetsMatch": "No sets match.",
   "collector.acrossSets": "across {count} sets",
-  "collector.completeCount": "{count} complete"
+  "collector.completeCount": "{count} complete",
+  "collector.backToSets": "All sets",
+  "collector.haveOfTotal": "{owned} of {total} collected",
+  "collector.missingCount": "{count} missing",
+  "collector.filterCards": "Filter cards…",
+  "collector.onlyMissing": "Missing only",
+  "collector.noCardsMatch": "No cards match.",
+  "collector.showMore": "Show {count} more"
 }
