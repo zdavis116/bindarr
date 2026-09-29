@@ -845,6 +845,23 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN mtg_prices_swept_at DATETIME`);
   }
 
+  // WHEN THE SET LIST WAS LAST PULLED FROM SCRYFALL.
+  //
+  // Zach: "are we not refreshing our card catalog daily? How was fra behind?"
+  //
+  // Reality Fracture was cached while only 43 of its 461 cards were spoiled,
+  // and stayed at 43. The refresh existed -- setInterval(..., 7 days) -- but a
+  // timer only fires if the PROCESS survives seven continuous days, and this
+  // one is restarted on every deploy. It had almost certainly never run. The
+  // startup call is a populate-if-empty, so it returns early the moment the
+  // table has any rows at all.
+  //
+  // Persisted for exactly the same reason the price sweep is: restarts ARE
+  // the failure mode, so the schedule cannot live in process memory.
+  if (!appSettingsCols.some(c => c.name === 'sets_synced_at')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN sets_synced_at DATETIME`);
+  }
+
   // Card catalogue bookkeeping (see cardCatalogue.js).
   //
   // card_catalogue_updated_at stores SCRYFALL's build timestamp for the bulk

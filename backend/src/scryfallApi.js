@@ -661,18 +661,57 @@ async function getCardsBySet(setCode) {
 
 // Fetch MTG sets from Scryfall and cache them in `sets`. Set IDs retain the
 // established `mtg-` namespace used by scanner index files; only card IDs are
-// Scryfall UUIDs in the Oracle-aware cache. Skips if already populated
-// unless force=true.
+// Scryfall UUIDs in the Oracle-aware cache.
+// HOW OFTEN THE SET LIST IS WORTH RE-PULLING.
+//
+// Scryfall's gameplay data changes rarely, so weekly is plenty -- but during
+// spoiler season a set GROWS: Reality Fracture was cached at 43 cards and
+// finished at 461. A stale total is most wrong exactly when a set is newest.
+const SETS_SYNC_INTERVAL_MS = 1000 * 60 * 60 * 24 * 7;
+
+// Is the stored set list old enough to be worth refreshing?
+//
+// AGE-BASED, NOT EMPTINESS-BASED, and persisted in the database rather than
+// held in a timer. The previous design combined a startup call that returned
+// early whenever the table had any rows with a setInterval of seven days --
+// so the only path that could ever refresh required the process to survive a
+// week, and this one restarts on every deploy. The data sat at whatever
+// Scryfall said the day the database was created.
+async function setsSyncIsDue() {
+  try {
+    const row = await db.get(`SELECT sets_synced_at AS syncedAt FROM app_settings WHERE id = 1`);
+    if (!row || !row.syncedAt) return true;
+    const age = Date.now() - new Date(row.syncedAt.replace(' ', 'T') + 'Z').getTime();
+    return !Number.isFinite(age) || age >= SETS_SYNC_INTERVAL_MS;
+  } catch {
+    return true;   // never block a refresh on a bookkeeping failure
+  }
+}
+
+// Refresh the cached Scryfall set list.
+//
+// `force` skips the age check (used by the in-process timer and by an admin
+// action). Left alone, this now refreshes whenever the stored copy is more
+// than a week old -- including on a box that reboots nightly, which the old
+// design could never serve.
 async function fetchAndCacheSets(force = false) {
   try {
-    const existing = await db.get(`SELECT COUNT(*) as count FROM sets`);
-    if (!force && existing && existing.count > 0) {
-      console.log(`MTG sets already populated (${existing.count} sets). Skipping fetch.`);
+    if (!force && !(await setsSyncIsDue())) {
+      const row = await db.get(`SELECT sets_synced_at AS syncedAt FROM app_settings WHERE id = 1`);
+      console.log(`MTG sets synced ${row?.syncedAt} — within the last week. Skipping fetch.`);
       return;
     }
     console.log('Fetching sets from Scryfall...');
     const resp = await scryGet('/sets');
     const sets = (resp.data && resp.data.data) || [];
+    // A FAILED FETCH MUST NOT LOOK LIKE A SUCCESSFUL ONE. An empty or partial
+    // response leaves the existing rows alone and does NOT stamp the sync
+    // time, so the next start tries again rather than waiting a week on data
+    // that never arrived.
+    if (!sets.length) {
+      console.warn('Scryfall returned no sets; keeping the cached list and not marking it synced.');
+      return;
+    }
     for (const s of sets) {
       await db.run(
         `INSERT OR REPLACE INTO sets (id, name, series, printed_total, total, release_date, ptcgo_code, symbol_url, logo_url)
@@ -683,6 +722,7 @@ async function fetchAndCacheSets(force = false) {
         ]
       );
     }
+    await db.run(`UPDATE app_settings SET sets_synced_at = CURRENT_TIMESTAMP WHERE id = 1`);
     console.log(`Cached ${sets.length} MTG sets.`);
   } catch (error) {
     console.error('Error fetching MTG sets from Scryfall:', error.message);

@@ -149,10 +149,18 @@ db.initDb()
     const { loadSetsCache } = require('./utils/compartmentSort');
     await loadSetsCache(db);
     
-    // Weekly: refresh sets (picks up newly released ones) and reload the
-    // in-memory sets cache so chronological sorting stays current without a
-    // restart. Scryfall's guidance is that gameplay/set data changes rarely and
-    // weekly is plenty — prices are on their own schedule below.
+    // Weekly, for a process that happens to stay up that long.
+    //
+    // THIS TIMER IS THE BACKUP, NOT THE SCHEDULE. It only fires if the process
+    // survives seven continuous days, and this one restarts on every deploy --
+    // which is why the set totals went stale despite a "weekly refresh"
+    // existing. The real guarantee is the age check inside fetchAndCacheSets()
+    // on startup, which is persisted in the database and therefore survives
+    // restarts. Zach: "fix the set sync so it fires weekly regardless of app
+    // being restarted."
+    //
+    // Kept because a long-running instance should not have to wait for a
+    // restart to see a new set.
     setInterval(async () => {
       try {
         await scryfallApi.fetchAndCacheSets(true);
