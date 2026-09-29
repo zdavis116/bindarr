@@ -57,12 +57,27 @@ mutate() {
   fi
 }
 
-# M1: THE ORIGINAL BUG. Remove the whole branch, so a stacked quantity edit
-# falls through to a PUT that sets a row already at 1 -- HTTP 200, no change.
+# M1: THE ORIGINAL BUG. Remove the branch from handleSave, so a stacked
+# quantity edit falls through to a PUT that sets a row already at 1 -- HTTP
+# 200, no change.
 mutate M1 "stacked edit falls back to the no-op PUT" "QTY-TC2" "frontend/src/components/CardInspectorModal.jsx" "
-  const re = /    const memberIds = Array\.isArray\(card\?\.member_ids\) \? card\.member_ids : null;/;
+  const re = /      const memberIds = Array\.isArray\(card\?\.member_ids\) \? card\.member_ids : null;/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, '    const memberIds = null;');
+  const after = before.replace(re, '      const memberIds = null;');
+"
+
+# M1b: THE MISTAKE I ACTUALLY MADE. Move the whole branch into
+# handleQuickToggle, which the Save button never calls. The code exists, reads
+# correctly, and is dead -- which is exactly what shipped and did not fix the
+# bug.
+mutate M1b "fix moved into the toggle handler (dead code)" "QTY-TC2" "frontend/src/components/CardInspectorModal.jsx" "
+  const m = before.match(/      \/\/ LOWERING A STACKED TILE[\s\S]*?\n      \}\n\n/);
+  if (!m) { console.error('anchor missing'); process.exit(3); }
+  let after = before.replace(m[0], '');
+  const tog = after.indexOf('const handleQuickToggle = async (field, value) => {');
+  if (tog < 0) { console.error('handleQuickToggle missing'); process.exit(3); }
+  const insertAt = after.indexOf('\n', tog) + 1;
+  after = after.slice(0, insertAt) + m[0] + after.slice(insertAt);
 "
 
 # M2: DESTRUCTIVE. Drop the stackSize > 1 guard, so a single-row tile deletes
@@ -73,12 +88,12 @@ mutate M2 "single-row tiles get deleted too" "QTY-TC3" "frontend/src/components/
   const after = before.replace(re, 'stackSize && Number.isFinite(wanted)');
 "
 
-# M2b: DESTRUCTIVE. Drop the field gate, so editing the condition or purchase
-# price of a stacked card deletes copies.
-mutate M2b "any field edit deletes rows" "QTY-TC3" "frontend/src/components/CardInspectorModal.jsx" "
-  const re = /if \(field === 'quantity' && stackSize/;
+# M2b: DESTRUCTIVE. Drop the direction check, so RAISING a quantity (2 -> 3)
+# takes the delete path and slice() removes rows instead of adding any.
+mutate M2b "raising a quantity deletes rows" "QTY-TC2" "frontend/src/components/CardInspectorModal.jsx" "
+  const re = /&& wanted >= 1 && wanted < stackSize\) \{/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(re, 'if (stackSize');
+  const after = before.replace(re, '\&\& wanted >= 1) {');
 "
 
 # M3: DESTRUCTIVE AND SUBTLE. Keep the wrong end of the stack -- slice(0,
@@ -90,12 +105,13 @@ mutate M3 "deletes the oldest rows instead of the newest" "QTY-TC2" "frontend/sr
   const after = before.replace(re, 'const doomed = memberIds.slice(0, wanted);');
 "
 
-# M4: the delete succeeds but nothing reloads -- the tile still reads 2 over
-# rows that no longer exist. The user sees the reported bug AND has lost cards.
-mutate M4 "no refresh after the delete" "QTY-TC5" "frontend/src/components/CardInspectorModal.jsx" "
-  const m = before.match(/const memberIds = [\s\S]*?\n      return;\n    \}/);
-  if (!m) { console.error('anchor missing'); process.exit(3); }
-  const after = before.replace(m[0], m[0].replace('onUpdate && onUpdate();', ''));
+# M4: return early after the delete, so the rows are gone but the shared save
+# never runs -- no reload, and the tile keeps showing the old number over rows
+# that no longer exist. The reported bug, now with data loss behind it.
+mutate M4 "delete returns early, skipping the reload" "QTY-TC5" "frontend/src/components/CardInspectorModal.jsx" "
+  const re = /        \/\/ Fall through: the surviving row still needs the other fields this/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '        return;\n        // Fall through: the surviving row still needs the other fields this');
 "
 
 # M5: hard-delete instead of trashing, so a quantity edit destroys a card with

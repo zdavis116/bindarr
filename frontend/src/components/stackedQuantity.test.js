@@ -50,21 +50,62 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('QTY-TC1', 'a tile is a sum of rows, and knows which rows');
 }
 
-// QTY-TC2: lowering a stacked quantity deletes rows.
+// QTY-TC2: lowering a stacked quantity deletes rows -- FROM THE SAVE PATH.
+//
+// THE FAILURE THIS NOW CATCHES. My first fix was correct code in the wrong
+// function: I put it in handleQuickToggle, which only serves the favourite and
+// trade toggles and is never called with field === 'quantity'. Every
+// assertion passed, all seven mutations were caught, and the bug was
+// untouched -- Zach: "you didnt fix anything."
+//
+// A guard that checks a behaviour exists SOMEWHERE in a file is not a guard.
+// It has to be in the function the user's action actually reaches.
 {
   start('QTY-TC2');
-  assert.match(modal, /const memberIds = Array\.isArray\(card\?\.member_ids\) \? card\.member_ids : null;/,
-    'the edit needs the tile\'s member rows');
-  assert.match(modal, /wanted < stackSize && wanted >= 1/,
+  const save = /const handleSave = async \(e\) => \{[\s\S]*?\n  \};/.exec(modal);
+  assert.ok(save, 'handleSave could not be found');
+  const body = save[0];
+
+  assert.match(body, /const memberIds = Array\.isArray\(card\?\.member_ids\) \? card\.member_ids : null;/,
+    'the stacked-quantity handling must live in handleSave -- the function '
+    + 'the Save button calls. In handleQuickToggle it is dead code');
+  assert.match(body, /wanted >= 1 && wanted < stackSize/,
     'only a DECREASE within the stack is handled this way; raising a '
     + 'quantity is adding cards, which is a different operation');
-  assert.match(modal, /memberIds\.slice\(wanted\)/,
+  assert.match(body, /memberIds\.slice\(wanted\)/,
     'keep the first `wanted` rows and remove the rest -- the oldest row is '
     + 'the one most likely to carry the purchase price and storage slot');
-  assert.match(modal, /entry_ids: doomed, action: 'delete'/,
+  assert.match(body, /entry_ids: doomed, action: 'delete'/,
     'removal must go through the same bulk endpoint the selection UI uses, '
     + 'or the two paths can disagree about what removing a copy means');
-  pass('QTY-TC2', 'lowering a stack removes the extra rows');
+
+  // And it must NOT be sitting in the toggle handler, where it cannot fire.
+  const toggle = /const handleQuickToggle = async \(field, value\) => \{[\s\S]*?\n  \};/.exec(modal);
+  if (toggle) {
+    assert.ok(!/member_ids/.test(toggle[0]),
+      'handleQuickToggle serves the favourite/trade toggles and is never '
+      + 'called with a quantity; stacked-quantity logic there is dead code');
+  }
+  pass('QTY-TC2', 'the stack fix is in the function Save actually calls');
+}
+
+// QTY-TC2b: the tile's member rows actually REACH the inspector.
+//
+// The fix reads card.member_ids. If the collection screen handed the
+// inspector a different object -- a raw row rather than the grouped tile --
+// memberIds would be null and the branch would never run, which is the same
+// dead-code failure wearing a different hat.
+{
+  start('QTY-TC2b');
+  assert.match(list, /openInspector\(card\)/,
+    'the tile click must open the inspector with the tile object');
+  assert.match(list, /items=\{shown\}/,
+    'the grid must be fed `shown` -- the GROUPED list that carries '
+    + 'member_ids. Feeding it the ungrouped rows would leave the inspector '
+    + 'with no handle on the other copies');
+  assert.match(list, /const grouped = \[\.\.\.groups\.values\(\)\]/,
+    'the grouped tiles are what `shown` is built from');
+  pass('QTY-TC2b', 'the grouped tile reaches the inspector');
 }
 
 // QTY-TC3: it does not fire when it should not.
@@ -73,15 +114,20 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // is not the quantity, would destroy cards silently.
 {
   start('QTY-TC3');
-  const block = /const memberIds = [\s\S]*?\n      return;\n    \}/.exec(modal);
-  assert.ok(block, 'the stacked-quantity branch could not be found');
-  assert.match(block[0], /field === 'quantity'/,
-    'the delete path must be gated on the quantity field specifically');
+  const save = /const handleSave = async \(e\) => \{[\s\S]*?\n  \};/.exec(modal)[0];
+  const block = /const memberIds = [\s\S]*?\n      \}/.exec(save);
+  assert.ok(block, 'the stacked-quantity branch could not be found in handleSave');
+  // handleSave IS the quantity path -- it is what the Save button submits --
+  // so there is no field to gate on here. What must be gated is the stack
+  // size and the direction of the change.
   assert.match(block[0], /stackSize > 1/,
     'a single-row tile must take the normal PUT; deleting its only row would '
     + 'remove the card entirely when the user asked to set a number');
   assert.match(block[0], /Number\.isFinite\(wanted\)/,
     'an unparseable quantity must not reach a delete');
+  assert.match(block[0], /wanted >= 1/,
+    'quantity 0 must not go down this path -- removing every copy is a '
+    + 'delete, not a quantity edit, and should be deliberate');
   pass('QTY-TC3', 'the delete path is narrowly gated');
 }
 
@@ -108,13 +154,25 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // user sees the same bug with cards now missing underneath it.
 {
   start('QTY-TC5');
-  const block = /const memberIds = [\s\S]*?\n      return;\n    \}/.exec(modal)[0];
-  assert.match(block, /onUpdate && onUpdate\(\)/,
-    'the collection must be reloaded after the delete, or the tile keeps '
-    + 'showing the old number over rows that no longer exist');
-  assert.ok(!/showToast\(t\('inspector\.cardUpdated'\)\);\s*\}\s*else/.test(block.replace(/\n/g, ''))
-    || /res\.ok/.test(block),
-    'success must be reported only on res.ok');
+  // THE BRANCH MUST FALL THROUGH to the shared PUT, which is what reloads the
+  // collection. An early return would delete rows and leave the tile showing
+  // the old number -- the reported bug, now with data loss behind it.
+  //
+  // Checked by looking at what follows the delete's own error return: the
+  // only `return` inside this branch may be the !del.ok guard. My first
+  // attempt tried to express this with a nested regex and silently matched
+  // nothing, so the guard was vacuous -- caught by M4.
+  const save = /const handleSave = async \(e\) => \{[\s\S]*?\n  \};/.exec(modal)[0];
+  const branch = /const memberIds = [\s\S]*?\n      \}/.exec(save)[0];
+  const returns = (branch.match(/\breturn;/g) || []).length;
+  assert.strictEqual(returns, 1,
+    `the stacked branch has ${returns} return statements; exactly one is `
+    + 'allowed (the !del.ok guard). A second return skips the shared save '
+    + 'that reloads the collection, leaving the tile stale over deleted rows');
+  assert.match(branch, /if \(!del\.ok\) \{\s*\n\s*showToast[\s\S]{0,120}?return;/,
+    'the one permitted return must be the failure guard');
+  assert.match(save, /onUpdate && onUpdate\(\)/,
+    'handleSave must reload the collection on success');
   pass('QTY-TC5', 'the view reloads after the change');
 }
 

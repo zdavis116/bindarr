@@ -553,6 +553,49 @@ function CardInspectorModal({
       return;
     }
     try {
+      // LOWERING A STACKED TILE'S QUANTITY MEANS DELETING ROWS, NOT SETTING A NUMBER.
+      //
+      // THE BUG (Zach): "This shows quantity 2 but when I try to edit to
+      // quantity 1 it won't edit to just 1."
+      //
+      // There is no row with quantity 2. He owns TWO rows of quantity 1 -- one
+      // physical card is one row, which splitStackedEntries enforces on purpose
+      // so each copy can carry its own condition and storage slot. The
+      // collection screen SUMS them into a tile reading "2".
+      //
+      // So the PUT below does exactly the wrong thing for a stack: it sets ONE
+      // row to 1, that row is ALREADY 1, the server returns 200, and the tile
+      // still reads 2.
+      //
+      // THIS LIVES IN handleSave, THE FUNCTION THE SAVE BUTTON CALLS. My first
+      // attempt put it in handleQuickToggle, which only serves the favourite
+      // and trade toggles and is never called with field === 'quantity'. It was
+      // dead code: I shipped it, told him it was fixed, and he still had the
+      // bug. Verify the path the user actually takes, not the one that looks
+      // plausible.
+      const memberIds = Array.isArray(card?.member_ids) ? card.member_ids : null;
+      const stackSize = memberIds ? memberIds.length : null;
+      const wanted = parseInt(q, 10);
+
+      if (stackSize && stackSize > 1 && Number.isFinite(wanted)
+          && wanted >= 1 && wanted < stackSize) {
+        // Keep the first `wanted` rows; the oldest is likeliest to carry the
+        // purchase price and storage slot he set up.
+        const doomed = memberIds.slice(wanted);
+        const del = await fetch('/api/collection/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entry_ids: doomed, action: 'delete' }),
+        });
+        if (!del.ok) {
+          showToast && showToast(t('inspector.errUpdate'), 'error');
+          return;
+        }
+        // Fall through: the surviving row still needs the other fields this
+        // form edits -- condition, printing, price, notes. One save path, not
+        // two that can disagree.
+      }
+
       const res = await fetch(`/api/collection/${targetEntryId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -603,60 +646,6 @@ function CardInspectorModal({
     if (field === 'is_trade') { setIsTrade(nextIsTrade); card.is_trade = nextIsTrade; }
     if (field === 'favorite') { setFavorite(nextFavorite); card.favorite = nextFavorite; }
     if (field === 'list_type') { setListType(nextListType); card.list_type = nextListType; }
-
-    // LOWERING A STACKED TILE'S QUANTITY MEANS DELETING ROWS, NOT SETTING A NUMBER.
-    //
-    // THE BUG (Zach): "when trying to edit a quantity from 2 to 1 the quantity
-    // wont change. I am trying to edit Jace's Machinations from 2 to 1 for the
-    // foil version."
-    //
-    // There was no row with quantity 2. He owned TWO rows of quantity 1 --
-    // one physical card is one row, which splitStackedEntries enforces
-    // deliberately so each copy can carry its own condition and storage slot.
-    // The collection screen SUMS them into a tile reading "2".
-    //
-    // So the old code did exactly the wrong thing: it PUT quantity=1 to a
-    // single entry id, that row was ALREADY 1, the server returned 200, and
-    // the tile still read 2. A success response for a change that could not
-    // happen -- which is worse than an error, because nothing looks wrong.
-    //
-    // The tile carries `member_ids`, every row it stands for. Going from N to
-    // M means removing the (N - M) rows that are no longer owned. Rows are
-    // dropped NEWEST FIRST: the oldest row is the one most likely to carry the
-    // purchase price and storage location he set up, so it is the one worth
-    // keeping.
-    const memberIds = Array.isArray(card?.member_ids) ? card.member_ids : null;
-    const stackSize = memberIds ? memberIds.length : null;
-    const wanted = parseInt(q, 10);
-
-    if (field === 'quantity' && stackSize && stackSize > 1 && Number.isFinite(wanted)
-        && wanted < stackSize && wanted >= 1) {
-      const doomed = memberIds.slice(wanted);   // keep the first `wanted` rows
-      try {
-        // POST with an `action`, not DELETE with `ids` -- I guessed the shape
-        // first and checked second; the route is POST /collection/bulk taking
-        // { entry_ids, action }. Deleting through the SAME endpoint the bulk
-        // selection uses means these two paths cannot drift into two different
-        // ideas of what removing a copy does (trash vs hard delete).
-        const res = await fetch('/api/collection/bulk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ entry_ids: doomed, action: 'delete' }),
-        });
-        if (res.ok) {
-          hasToggledRef.current = true;
-          showToast && showToast(t('inspector.cardUpdated'));
-          onUpdate && onUpdate();
-          onClose && onClose();
-        } else {
-          showToast && showToast(t('inspector.errUpdate'));
-        }
-      } catch (err) {
-        console.error(err);
-        showToast && showToast(t('inspector.errUpdateGeneric'));
-      }
-      return;
-    }
 
     const payload = {
       quantity: parseInt(q, 10),
