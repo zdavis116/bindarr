@@ -123,7 +123,11 @@ test('SHOP-TC11: a price is labelled with the shop it actually came from', () =>
       assert.ok(!c.includes("'manapool'") && !c.includes("'cardkingdom'"),
         `${f}: provenance must name the shop that was queried, not a literal`);
     }
-    assert.match(src, /THEN '\$\{shop\}'/,
+    // The deck list now carries TWO shops -- valueShop for what a card is
+    // worth, buyShop for what a missing one costs -- so the provenance label
+    // names the valuation shop it was joined against. Still interpolated,
+    // never a literal, which is what this guard is for.
+    assert.match(src, /THEN '\$\{(shop|valueShop)\}'/,
       `${f}: the label must interpolate the shop the JOIN used`);
   }
 });
@@ -144,8 +148,10 @@ test('SHOP-TC10: both deck-header figures come from the SAME shop', () => {
   const decks = readFileSync(
     new URL('../src/routes/decks.js', import.meta.url), 'utf8');
   const route = decks.slice(decks.indexOf("'/:id/buylist/estimate'"));
-  assert.match(route, /: await selectedShop\(db\)/,
-    'with no ?source the estimate must use the SELECTED shop, not a literal');
+  // Context added: this endpoint costs a shopping list, so it reads the
+  // BUYING source. Still the selected shop, never a hardcoded one.
+  assert.match(route, /: await selectedShop\(db, 'buying'\)/,
+    'with no ?source the estimate must use the SELECTED buying shop');
   assert.ok(!/req\.query\.source\s*\n?\s*: 'manapool'/.test(route),
     'defaulting to a hardcoded shop is what made the saving fiction');
   // An explicit ?source must still win: each export tab prices at its own shop.

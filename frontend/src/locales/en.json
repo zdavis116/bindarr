@@ -1824,5 +1824,8 @@
   "collector.filterCards": "Filter cards…",
   "collector.onlyMissing": "Missing only",
   "collector.noCardsMatch": "No cards match.",
-  "collector.showMore": "Show {count} more"
+  "collector.showMore": "Show {count} more",
+  "settings.secValuation": "Collection value",
+  "settings.valuationTitle": "Value my collection at",
+  "settings.valuationWhy": "What your cards are worth. Deck shopping lists are priced separately, under Card prices — selling and buying are different numbers."
 }

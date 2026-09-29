@@ -102,15 +102,45 @@ function resolvePricedCard(card) {
 
 const MARKETPLACE_LABELS = { manapool: 'Mana Pool', cardkingdom: 'Card Kingdom' };
 
+// TWO QUESTIONS, TWO PRICES.
+//
+// Zach: "I want to use tcgplayer as my price per card for my collection but
+// for my decks for cards that I am missing I want to use the price as either
+// manapool, card kingdom or tcgplayer... most shops I would sell cards from my
+// collection too would be using tcgplayer but when I am buying cards I will be
+// mainly using mana pool and usually mana pool prices are cheaper."
+//
+// He is right, and the gap is larger than "usually". Measured across the
+// 80,044 cards both shops price: Mana Pool is cheaper than Card Kingdom on
+// 96.5% of them, and his own cards diverge hard -- Omnipresence is $42.15 on
+// TCGplayer market and $15.00 on Mana Pool. Pricing a shopping list at market
+// overstates it by nearly 3x on that card.
+//
+// VALUATION  -- what is this worth / what would I sell it for.
+// BUYING     -- what will it cost me to get the cards I am missing.
+//
+// This replaces a single global shop. That was a deliberate earlier decision --
+// "a deck list and the collection never quote two different shops for the same
+// card" -- and it is now deliberately undone, because one number cannot answer
+// both questions. Call sites must say WHICH they mean; there is no default,
+// since a silent default is how the wrong price reaches a screen unnoticed.
+const PRICE_CONTEXTS = ['valuation', 'buying'];
+
+// SCRYFALL'S usd IS TCGPLAYER MARKET PRICE for that exact printing, non-foil,
+// refreshed daily -- the rolling average of recent completed sales, not the
+// cheapest listing and not a buylist. It lives on card_cache already (98.9%
+// coverage of his collection), so choosing it means adding NO join at all and
+// letting resolvePricedCard fall through to its Scryfall branch.
+//
+// It is NOT what a shop will hand him in cash -- stores pay 40-60% of market --
+// but it is the number he and a buyer would both quote, which is what he asked
+// for.
+const VALUATION_SOURCES = { scryfall: 'TCGplayer (via Scryfall)', ...MARKETPLACE_LABELS };
+
 // THE JOIN THAT BRINGS SHOP PRICES INTO A QUERY.
 //
 // One definition, used by every priced read, so the columns resolvePricedCard
 // looks for can never be spelled differently in two places.
-//
-// THIS USED TO BE HARDCODED TO MANA POOL, with a comment admitting it was a
-// first step. It now honours the shop he selected -- Zach: "I would like to get
-// rid of the priority list and it be a selection whether I used mana pool or
-// card kingdom but the fallback is always scryfall."
 //
 // A FUNCTION, NOT A CONSTANT, because the shop is a runtime setting. Call sites
 // pass the selected id; the parameter is validated against the registry rather
@@ -118,46 +148,81 @@ const MARKETPLACE_LABELS = { manapool: 'Mana Pool', cardkingdom: 'Card Kingdom' 
 //
 // LEFT JOIN, always: a card the chosen shop does not stock must still appear
 // with its Scryfall price, never vanish from the listing.
+//
+// 'scryfall' RETURNS A JOIN THAT MATCHES NOTHING, on purpose. Every mp_* column
+// comes back NULL, resolvePricedCard skips its marketplace branch, and the
+// Scryfall price on card_cache is used. Emitting no join at all would break
+// every query that selects MARKETPLACE_PRICE_COLUMNS -- the columns would not
+// exist -- so the join stays and simply has no rows to find.
 function marketplacePriceJoin(sourceId) {
+  if (sourceId === 'scryfall') {
+    return `
+  LEFT JOIN source_prices mp
+         ON mp.card_id = cc.id AND mp.source = '__scryfall_no_marketplace__'`;
+  }
   const id = MARKETPLACE_LABELS[sourceId] ? sourceId : 'manapool';
   return `
   LEFT JOIN source_prices mp
          ON mp.card_id = cc.id AND mp.source = '${id}'`;
 }
 
-// WHICH SHOP IS SELECTED, READ AT REQUEST TIME.
+// WHICH SHOP IS SELECTED, READ AT REQUEST TIME, FOR ONE CONTEXT.
 //
 // Cached briefly because every priced endpoint needs it and it changes only
 // when he taps Settings. Without the cache a collection page would issue an
 // extra settings query per request through the single operation queue -- the
 // same queue that already made /api/stats take 26 seconds under load.
-let _shopCache = { id: null, at: 0 };
+let _shopCache = { valuation: null, buying: null, at: 0 };
 const SHOP_CACHE_MS = 5000;
 
-async function selectedShop(database) {
-  if (_shopCache.id && Date.now() - _shopCache.at < SHOP_CACHE_MS) return _shopCache.id;
+// THE CONTEXT IS REQUIRED. Not defaulted.
+//
+// Six call sites read this, and which one is asking determines whether he sees
+// a selling price or a buying price. A default would make a forgotten argument
+// silently return the wrong one -- and a price that is merely WRONG looks
+// exactly like a price that is right. Throwing here turns that into a crash in
+// development rather than a bad number on his screen.
+async function selectedShop(database, context) {
+  if (!PRICE_CONTEXTS.includes(context)) {
+    throw new Error(
+      `selectedShop needs a context (${PRICE_CONTEXTS.join(' | ')}); got ${JSON.stringify(context)}`);
+  }
+  if (_shopCache[context] && Date.now() - _shopCache.at < SHOP_CACHE_MS) {
+    return _shopCache[context];
+  }
   try {
     const row = await database.get(
-      `SELECT price_source_order AS o FROM app_settings WHERE id = 1`);
+      `SELECT price_source_order AS o, valuation_price_source AS v FROM app_settings WHERE id = 1`);
+
+    // BUYING keeps the existing setting and its existing meaning, so his
+    // current choice survives this change untouched.
     let stored = null;
     try { stored = JSON.parse(row?.o || 'null'); } catch { stored = null; }
-    // Accepts the legacy array form as well as the current string.
-    const id = typeof stored === 'string'
+    const buyId = typeof stored === 'string'
       ? stored
       : (Array.isArray(stored) ? stored[0] : null);
-    _shopCache = { id: MARKETPLACE_LABELS[id] ? id : 'manapool', at: Date.now() };
+
+    // VALUATION defaults to Scryfall/TCGplayer -- what he asked for -- but is
+    // a separate column so choosing one never moves the other.
+    const valId = row?.v;
+
+    _shopCache = {
+      buying: MARKETPLACE_LABELS[buyId] ? buyId : 'manapool',
+      valuation: VALUATION_SOURCES[valId] ? valId : 'scryfall',
+      at: Date.now(),
+    };
   } catch {
     // A failed settings read must not blank every price: fall back to the
-    // default shop rather than to no join at all.
-    _shopCache = { id: 'manapool', at: Date.now() };
+    // defaults rather than to no join at all.
+    _shopCache = { buying: 'manapool', valuation: 'scryfall', at: Date.now() };
   }
-  return _shopCache.id;
+  return _shopCache[context];
 }
 
 // Called after a write so his choice takes effect immediately rather than up to
 // five seconds later -- a setting that appears not to work is worse than a slow
 // one.
-function clearShopCache() { _shopCache = { id: null, at: 0 }; }
+function clearShopCache() { _shopCache = { valuation: null, buying: null, at: 0 }; }
 
 // Kept for the few call sites with no database handle. Same shape, default shop.
 const MARKETPLACE_PRICE_JOIN = marketplacePriceJoin('manapool');
@@ -275,6 +340,9 @@ module.exports = {
   marketplacePriceJoin,
   selectedShop,
   clearShopCache,
+  PRICE_CONTEXTS,
+  VALUATION_SOURCES,
+  MARKETPLACE_LABELS,
   MARKETPLACE_PRICE_COLUMNS,
   parseCardRow,
   rebalanceCompartmentPositions,

@@ -179,6 +179,12 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   const { t } = useT();
   const [catalogue, setCatalogue] = useState(null);
   const [priceSources, setPriceSources] = useState(null);
+  // WHICH SOURCE VALUES THE COLLECTION -- a separate question from which one
+  // prices a shopping list. Zach: "most shops I would sell cards from my
+  // collection too would be using tcgplayer but when I am buying cards I will
+  // be mainly using mana pool."
+  const [valuation, setValuation] = useState(null);
+  const [savingValuation, setSavingValuation] = useState(false);
   // WHERE MANA POOL SHIPS TO.
   //
   // Required before a cart can be created at all -- their API refuses an order
@@ -314,6 +320,36 @@ function SettingsScreen({ user, onNavigate, showToast }) {
   // WHERE MANA POOL SHIPS TO. Required before a cart can be created at all.
 
 
+  const loadValuation = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/valuation-source');
+      if (res.ok) setValuation(await res.json());
+    } catch { /* the section stays hidden rather than showing a wrong source */ }
+  }, []);
+
+  const selectValuation = async (id) => {
+    if (!valuation || savingValuation || valuation.selected === id) return;
+    setSavingValuation(true);
+    try {
+      const res = await fetch('/api/settings/valuation-source', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || t('settings.priceSourceFailed'));
+      } else {
+        await loadValuation();
+        showToast(t('settings.priceSourceSaved'), 'success');
+      }
+    } catch {
+      showToast(t('settings.priceSourceFailed'));
+    } finally {
+      setSavingValuation(false);
+    }
+  };
+
   const loadPriceSources = useCallback(async () => {
     try {
       const res = await fetch('/api/settings/price-sources');
@@ -386,13 +422,14 @@ function SettingsScreen({ user, onNavigate, showToast }) {
     loadCatalogue();
     loadMoxfield();
     loadPriceSources();
+    loadValuation();
     (async () => {
       try {
         const res = await fetch('/api/settings/version');
         if (res.ok) setVersion(await res.json());
       } catch { /* About shows the dash */ }
     })();
-  }, [loadMoxfield, loadCatalogue, loadPriceSources]);
+  }, [loadMoxfield, loadCatalogue, loadPriceSources, loadValuation]);
 
   const checkUpdate = async () => {
     try {
@@ -490,6 +527,66 @@ function SettingsScreen({ user, onNavigate, showToast }) {
           Zach: "I would like to get rid of the priority list and it be a
           selection whether I used mana pool or card kingdom but the fallback is
           always scryfall since it's an average." */}
+      {valuation && (
+        <Section title={t('settings.secValuation')}>
+          <Row
+            icon={DollarSign}
+            label={t('settings.valuationTitle')}
+            detail={valuation.sources?.find(s => s.id === valuation.selected)?.label || ''}
+            expanded={sourceOpen === 'valuation'}
+            onClick={() => setSourceOpen(sourceOpen === 'valuation' ? null : 'valuation')}
+          />
+          {sourceOpen === 'valuation' && (
+            <div style={{ background: 'var(--surface-2)' }}>
+              {/* WHY THERE ARE TWO OF THESE, said on the screen rather than
+                  only in a commit message. Two prices in one app is confusing
+                  unless the reason is visible at the moment of choosing. */}
+              <div style={{ padding: '0.7rem 1rem 0.5rem 2rem', fontSize: '0.75rem',
+                            color: 'var(--text-tertiary)' }}>
+                {t('settings.valuationWhy')}
+              </div>
+              {(valuation.sources || []).map((src) => {
+                const on = src.id === valuation.selected;
+                return (
+                  <button key={src.id} onClick={() => selectValuation(src.id)}
+                    disabled={savingValuation}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.7rem',
+                      width: '100%', textAlign: 'left', border: 0, font: 'inherit',
+                      padding: '0.7rem 1rem 0.7rem 2rem', background: 'transparent',
+                      color: 'inherit', cursor: savingValuation ? 'default' : 'pointer',
+                      borderBottom: '1px solid var(--border-glass)',
+                    }}>
+                    <span style={{
+                      flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
+                      border: `2px solid ${on ? 'var(--accent-blue)' : 'var(--text-tertiary)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {on && <span style={{ width: 9, height: 9, borderRadius: '50%',
+                                            background: 'var(--accent-blue)' }} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.9rem',
+                                     fontWeight: on ? 600 : 400 }}>
+                        {src.label}
+                      </span>
+                      {/* WHAT THE PRICE ACTUALLY IS. He asked "which what is
+                          that price exactly? Market price?" -- so the answer
+                          lives beside the option, including the part that
+                          matters: market is not what a shop pays you. */}
+                      <span style={{ display: 'block', fontSize: '0.72rem',
+                                     color: 'var(--text-tertiary)' }}>
+                        {src.note}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Section>
+      )}
+
       {priceSources && (
         <Section title={t('settings.secPriceSources')}>
           <Row

@@ -346,7 +346,8 @@ async function availabilityForDeck(database, deckId, userId) {
   // Deck prices follow the shop he selected, exactly like the collection --
   // otherwise a deck row and the card sheet for the same printing disagree,
   // which is the bug he reported as "it says 24 cents... but 15 cents".
-  const shop = await selectedShop(client(database));
+  // BUYING: availability is about acquiring the cards a deck still needs.
+  const shop = await selectedShop(client(database), 'buying');
 
   const deck = await client(database).get(
     `SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]

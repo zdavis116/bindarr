@@ -189,7 +189,8 @@ router.get('/card/:cardId/decks', async (req, res) => {
     // The shop he selected prices this query. Read per request (cached 5s) so
     // switching shops in Settings takes effect on the next screen he opens,
     // rather than on the next restart.
-    const shopJoin = marketplacePriceJoin(await selectedShop(db));
+    // VALUATION: this is his collection, priced as what it is worth.
+    const shopJoin = marketplacePriceJoin(await selectedShop(db, 'valuation'));
 
     // THE WHOLE CATALOGUE ROW, not just the identity.
     //
@@ -1364,7 +1365,8 @@ router.get('/collection', async (req, res) => {
     // The shop he selected prices this query. Read per request (cached 5s) so
     // switching shops in Settings takes effect on the next screen he opens,
     // rather than on the next restart.
-    const shopJoin = marketplacePriceJoin(await selectedShop(db));
+    // VALUATION: this is his collection, priced as what it is worth.
+    const shopJoin = marketplacePriceJoin(await selectedShop(db, 'valuation'));
 
     const listType = req.query.list_type || 'collection';
     const isTrade = req.query.is_trade;

@@ -46,17 +46,29 @@ test('DP-TC1: deck card rows price from the marketplace, not the catalogue', () 
     'Scryfall stays the last resort when the marketplace has nothing');
 });
 
-test('DP-TC2: deck_value and missing_cost derive from that same price', () => {
-  // Both totals read `resolved`, which inherits from `req`. If they ever read a
-  // different column they can disagree with the rows above them -- which is how
-  // the completion ring and missing_cost drifted apart before.
+test('DP-TC2: deck_value and missing_cost both read the resolved chain', () => {
+  // THIS TEST USED TO REQUIRE THEM TO SHARE ONE PRICE. They no longer do, on
+  // purpose. Zach: "I want A because deck_value is what I own so I want it to
+  // reflect properly" -- deck_value is what his cards are WORTH (valuation
+  // source) and missing_cost is what the gaps will COST (buying source).
+  //
+  // Mana Pool is cheaper than Card Kingdom on 96.5% of the cards both carry,
+  // so one number genuinely cannot answer both questions.
+  //
+  // WHAT STILL HOLDS, and is the part that mattered: both totals read columns
+  // from `resolved`, never card_cache directly. That is what keeps each total
+  // consistent with the card rows above it -- the drift that put a shopping
+  // cost on a deck already shown as complete.
   const value = decks.slice(decks.indexOf('AS deck_value') - 220,
                             decks.indexOf('AS deck_value'));
   const missing = decks.slice(decks.indexOf('AS missing_cost') - 220,
                               decks.indexOf('AS missing_cost'));
+  assert.match(value, /r\.price_trend/,
+    'deck_value must read the resolved VALUATION price');
+  assert.match(missing, /r\.buy_price/,
+    'missing_cost must read the resolved BUY price -- it is the only figure '
+    + 'on that screen that is money he would spend');
   for (const [name, block] of [['deck_value', value], ['missing_cost', missing]]) {
-    assert.match(block, /r\.price_trend/,
-      `${name} must read the resolved price, not the catalogue directly`);
     assert.doesNotMatch(block, /cc\.price_trend|dcc\.price_trend/,
       `${name} must not bypass the chain by reading card_cache`);
   }

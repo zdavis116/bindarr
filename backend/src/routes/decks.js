@@ -151,9 +151,28 @@ async function assertDeckNameAvailable(database, userId, name, { excludeDeckId =
 // SQL rather than in the client so every screen gets the same number.
 router.get('/', async (req, res) => {
   try {
-    // Prices follow the shop he selected, so a deck list and the collection
-    // never quote two different shops for the same card.
-    const shop = await selectedShop(db);
+    // TWO PRICES ON ONE SCREEN, DELIBERATELY.
+    //
+    // Zach: "I want A because deck_value is what I own so I want it to reflect
+    // properly."
+    //
+    //   deck_value   -- what these cards are WORTH   -> valuation source
+    //   missing_cost -- what the gaps will COST him  -> buying source
+    //
+    // These used to share one column, and the comment here said so: "a deck
+    // list and the collection never quote two different shops for the same
+    // card." That consistency was the point, and it is now given up on
+    // purpose, because one number cannot answer both questions. Mana Pool is
+    // cheaper than Card Kingdom on 96.5% of cards; his Omnipresence is $42.15
+    // at TCGplayer market and $15.00 at Mana Pool. Costing a shopping list at
+    // market overstates it nearly 3x, and valuing a collection at a discount
+    // shop understates what he could sell it for.
+    //
+    // The two numbers must therefore NOT be added together anywhere. They are
+    // separate columns with separate joins so that mixing them requires a
+    // deliberate act rather than happening by default.
+    const valueShop = await selectedShop(db, 'valuation');
+    const buyShop = await selectedShop(db, 'buying');
 
     const rows = await db.all(`
       -- DECK LIST, rewritten from five correlated subqueries to two grouped
@@ -219,10 +238,18 @@ router.get('/', async (req, res) => {
                  ELSE mp.price_cents / 100.0
             END,
             dcc.price_trend, 0) AS price_trend,
+          -- BUY PRICE, the same shape against the buying shop. Used only by
+          -- missing_cost; a card he already owns never consults it.
+          COALESCE(
+            CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                 THEN bp.price_cents_foil / 100.0
+                 ELSE bp.price_cents / 100.0
+            END,
+            dcc.price_trend, 0) AS buy_price,
           -- Which source that number came from, so a deck row can say it.
           CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
                           THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
-               THEN '${shop}'
+               THEN '${valueShop}'
                WHEN dcc.price_trend > 0 THEN 'scryfall'
                ELSE NULL
           END AS price_source
@@ -230,7 +257,9 @@ router.get('/', async (req, res) => {
         LEFT JOIN deck_cards dc ON d.id = dc.deck_id
         LEFT JOIN card_cache dcc ON dcc.id = dc.desired_card_id
         LEFT JOIN source_prices mp
-               ON mp.card_id = dcc.id AND mp.source = '${shop}'
+               ON mp.card_id = dcc.id AND mp.source = '${valueShop}'
+        LEFT JOIN source_prices bp
+               ON bp.card_id = dcc.id AND bp.source = '${buyShop}'
         WHERE d.user_id = ?
       ),
 
@@ -275,6 +304,14 @@ router.get('/', async (req, res) => {
           r.quantity,
           r.board,
           r.price_trend,
+          -- CARRIED THROUGH from req. Adding buy_price to the req CTE was not
+          -- enough: the resolved CTE re-selects named columns, so anything not
+          -- listed here is invisible downstream. Missed on the first pass and
+          -- caught by the deck list returning HTTP 500.
+          --
+          -- (No backticks in this comment: the whole query is a JS template
+          -- literal, and a backtick here ends it mid-SQL.)
+          r.buy_price,
           MIN(r.quantity, MAX(0, COALESCE(s.owned, 0) - COALESCE(c.claimed_before, 0))) AS owned_here
         FROM req r
         LEFT JOIN supply s ON s.identity = r.identity
@@ -316,7 +353,9 @@ router.get('/', async (req, res) => {
         -- Both figures now read the same resolved rows, so they cannot
         -- disagree again by construction rather than by my remembering to keep
         -- two rules in step. Guarded by DECK-TC-PERF3.
-        COALESCE((SELECT SUM((r.quantity - r.owned_here) * r.price_trend) FROM resolved r
+        -- COSTED AT THE BUYING SHOP, not the valuation one. This is the only
+        -- figure on the deck screen that is money he would SPEND.
+        COALESCE((SELECT SUM((r.quantity - r.owned_here) * r.buy_price) FROM resolved r
                    WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS missing_cost,
         COALESCE((SELECT SUM(r.quantity * r.price_trend) FROM resolved r
                    WHERE r.deck_id = d.id AND r.board != 'considering'), 0) AS deck_value,
@@ -2440,9 +2479,12 @@ router.get('/:id/buylist/estimate', async (req, res) => {
     // "$127.66 cheapest printings - saves $105.02" (Mana Pool). Two shops in one
     // subtraction, and the saving was pure fiction -- the real Card Kingdom
     // figure is $213.21, a saving of $19, not $105.
+    // BUYING: this endpoint exists to cost a shopping list of cheapest
+    // printings. Valuing it at TCGplayer market would overstate the bill --
+    // Mana Pool is cheaper on 96.5% of the cards both shops carry.
     const shop = ['manapool', 'cardkingdom'].includes(req.query.source)
       ? req.query.source
-      : await selectedShop(db);
+      : await selectedShop(db, 'buying');
 
     const resolved = await manaPoolBuylist.chooseCheapestPrintings(db,
       items.map(i => ({

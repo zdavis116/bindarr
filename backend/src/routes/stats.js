@@ -13,7 +13,8 @@ router.get('/stats', async (req, res) => {
     // The shop he selected prices this query. Read per request (cached 5s) so
     // switching shops in Settings takes effect on the next screen he opens,
     // rather than on the next restart.
-    const shopJoin = marketplacePriceJoin(await selectedShop(db));
+    // VALUATION: collection totals answer "what is this worth".
+    const shopJoin = marketplacePriceJoin(await selectedShop(db, 'valuation'));
 
     const statsParams = [req.user.id];
 

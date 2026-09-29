@@ -862,6 +862,18 @@ async function initDb() {
     await run(`ALTER TABLE app_settings ADD COLUMN sets_synced_at DATETIME`);
   }
 
+  // WHICH SOURCE VALUES THE COLLECTION, separate from which one prices a
+  // shopping list. Zach: "I want to use tcgplayer as my price per card for my
+  // collection but for my decks for cards that I am missing I want to use...
+  // mana pool."
+  //
+  // A SECOND COLUMN rather than a reshaped price_source_order, so his existing
+  // buying choice keeps its meaning and is not silently reinterpreted by this
+  // migration. NULL means the default (scryfall).
+  if (!appSettingsCols.some(c => c.name === 'valuation_price_source')) {
+    await run(`ALTER TABLE app_settings ADD COLUMN valuation_price_source TEXT`);
+  }
+
   // Card catalogue bookkeeping (see cardCatalogue.js).
   //
   // card_catalogue_updated_at stores SCRYFALL's build timestamp for the bulk

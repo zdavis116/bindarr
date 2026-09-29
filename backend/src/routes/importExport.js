@@ -19,7 +19,8 @@ router.get('/export', async (req, res) => {
   try {
     // Prices follow the shop he selected, so a deck list and the collection
     // never quote two different shops for the same card.
-    const shop = await selectedShop(db);
+    // VALUATION: an export of his collection carries its value.
+    const shop = await selectedShop(db, 'valuation');
 
     const query = `
       SELECT 

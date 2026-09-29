@@ -206,6 +206,58 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
 //
 // GET returns every known source, the current order, and per-source freshness
 // so a stale price is diagnosable in the UI rather than merely old.
+// WHICH SOURCE VALUES THE COLLECTION, separate from which one prices a buy.
+//
+// Zach: "I want to use tcgplayer as my price per card for my collection but
+// for my decks for cards that I am missing I want to use... mana pool... most
+// shops I would sell cards from my collection too would be using tcgplayer but
+// when I am buying cards I will be mainly using mana pool."
+//
+// Deliberately a SECOND endpoint rather than another field on /price-sources:
+// the two settings answer different questions and are read by different call
+// sites, and keeping them apart means saving one can never move the other.
+router.get('/valuation-source', authenticateToken, async (req, res) => {
+  try {
+    const row = await db.get(`SELECT valuation_price_source AS v FROM app_settings WHERE id = 1`);
+    const sources = priceHelpers.VALUATION_SOURCES;
+    const selected = sources[row?.v] ? row.v : 'scryfall';
+    res.json({
+      selected,
+      sources: Object.entries(sources).map(([id, label]) => ({
+        id,
+        label,
+        // Said plainly, because "market price" is not what a shop hands him in
+        // cash -- stores pay 40-60% of it. He asked what this price actually
+        // is; the answer belongs on the screen, not only in a commit message.
+        note: id === 'scryfall'
+          ? 'TCGplayer market price - the rolling average of recent sales. What a card trades for, not what a shop pays you.'
+          : `What ${label} currently charges.`,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to read the valuation source' });
+  }
+});
+
+router.put('/valuation-source', authenticateToken, async (req, res) => {
+  try {
+    const requested = req.body?.source;
+    if (!priceHelpers.VALUATION_SOURCES[requested]) {
+      return res.status(400).json({
+        error: `Unknown valuation source: ${requested}`,
+      });
+    }
+    await db.run(`UPDATE app_settings SET valuation_price_source = ? WHERE id = 1`, [requested]);
+    // Immediately, not in five seconds -- same reason as the buying source.
+    priceHelpers.clearShopCache();
+    res.json({ selected: requested });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to save the valuation source' });
+  }
+});
+
 router.get('/price-sources', authenticateToken, async (req, res) => {
   try {
     const row = await db.get(`SELECT price_source_order AS order_json FROM app_settings WHERE id = 1`);
