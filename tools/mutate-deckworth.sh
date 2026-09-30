@@ -113,7 +113,7 @@ mutate M5 "deck search ignores the selected tab" "DW-TC5" "frontend/src/componen
 
 # M6: say the deck is empty when a search matches nothing.
 mutate M6 "empty search reads as an empty deck" "DW-TC6" "frontend/src/components/DeckView.jsx" "
-  const re = /          \{query\.trim\(\) \? t\('deck\.noCardsMatch'\)\n/;
+  const re = /          \{query\.trim\(\)\n            \? \(deckHasMatch \? t\('deck\.matchOnAnotherTab'\) : t\('deck\.noCardsMatch'\)\)\n/;
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(re, '          {');
 "

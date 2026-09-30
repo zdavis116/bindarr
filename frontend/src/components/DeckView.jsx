@@ -348,6 +348,24 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       ? { level: 'warn', message: w }
       : { level: w.level || 'warn', message: w.message })), [deck]);
 
+  // IS WHAT HE TYPED ALREADY IN THIS DECK?
+  //
+  // Decides whether the catalogue results are worth showing at all. Checked
+  // against the WHOLE deck, not the filtered `shown` list: sitting on the
+  // Missing tab and typing a card he owns should still count as "it is in
+  // this deck" -- otherwise the add-a-card results appear for a card that is
+  // right there on another tab, which is the confusion being fixed.
+  //
+  // Name only, not the type line. `shown` matches types too so "artifact"
+  // usefully filters the list, but matching a type here would suppress the
+  // add results for every search that happens to name a card type.
+  const deckHasMatch = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return false;
+    return [...deckCards, ...considering]
+      .some(c => (c.name || '').toLowerCase().includes(term));
+  }, [query, deckCards, considering]);
+
   const shown = useMemo(() => {
     const byTab = (() => {
       if (tab === 'consider') return considering;
@@ -1207,7 +1225,23 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         />
       )}
 
-      {(searching || results.length > 0) && (
+      {/* THE CATALOGUE RESULTS YIELD TO THE DECK.
+          Zach: "when I search it shows cards in a drop down but it pushes my
+          deck list down further so I have to scroll to see if its even in my
+          deck... if I search for something and its in the deck I am searching
+          in it just shows the card in the deck no drop down list of other
+          cards."
+
+          He is describing the right rule, not just a layout complaint. If the
+          card is already in the deck, "is it in here" is ANSWERED -- and the
+          answer was being pushed below the fold by results offering to add
+          cards he did not ask for. Suppressing them is not hiding
+          information; it is not burying the information he wanted.
+
+          The add path is untouched: a name that matches nothing in the deck
+          still fetches and lists, which is the case where adding is the only
+          sensible reading. So one box, and the deck always wins. */}
+      {(searching || results.length > 0) && !deckHasMatch && (
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
                       borderRadius: 'var(--radius-md)', marginBottom: '0.75rem', overflow: 'hidden' }}>
           {searching && !results.length ? (
@@ -1302,8 +1336,15 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
         <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-secondary)',
                       background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
           {/* A SEARCH THAT MATCHES NOTHING IS NOT AN EMPTY DECK. Saying "no
-              cards in this deck" while a filter is active reads as data loss. */}
-          {query.trim() ? t('deck.noCardsMatch')
+              cards in this deck" while a filter is active reads as data loss.
+
+              AND "no cards match" IS WRONG WHEN THE CARD IS ON ANOTHER TAB.
+              Suppressing the catalogue results means the deck list is now the
+              only answer on screen, so it has to give the real one: the card
+              IS here, just not under this filter. Saying "no match" while
+              deckHasMatch is true would be the app contradicting itself. */}
+          {query.trim()
+            ? (deckHasMatch ? t('deck.matchOnAnotherTab') : t('deck.noCardsMatch'))
             : tab === 'consider' ? t('deck.noConsidering')
             : tab === 'need' ? t('deck.nothingMissing')
             : t('deck.noCards')}

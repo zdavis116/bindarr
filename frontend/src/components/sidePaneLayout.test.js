@@ -26,6 +26,7 @@ const layers = readFileSync(join(HERE, '..', 'utils', 'zLayers.js'), 'utf8');
 const modal = readFileSync(join(HERE, 'CardInspectorModal.jsx'), 'utf8');
 const deck = readFileSync(join(HERE, 'DeckView.jsx'), 'utf8');
 const card = readFileSync(join(HERE, 'DeckCard.jsx'), 'utf8');
+const en = JSON.parse(readFileSync(join(HERE, '..', 'locales', 'en.json'), 'utf8'));
 
 let passed = 0;
 const start = (id) => console.log(`RUN: ${id}`);
@@ -199,6 +200,40 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   assert.match(deck, /\{costToFinish > 0 && savings !== null && \(/,
     'it must render as its own row, and only when there is a saving to state');
   pass('PANE-TC7', 'the savings line cannot widen the money block');
+}
+
+// PANE-TC8: catalogue results yield when the card is already in the deck.
+//
+// Zach: "when I search it shows cards in a drop down but it pushes my deck
+// list down further so I have to scroll to see if its even in my deck... if I
+// search for something and its in the deck I am searching in it just shows the
+// card in the deck no drop down list of other cards."
+//
+// The answer to "is it in here" was being pushed below the fold by an offer to
+// add cards he did not ask for.
+{
+  start('PANE-TC8');
+  assert.match(deck, /\{\(searching \|\| results\.length > 0\) && !deckHasMatch && \(/,
+    'the add-a-card results must be suppressed when the deck already has a '
+    + 'match, or the answer stays below the fold');
+
+  const memo = /const deckHasMatch = useMemo\([\s\S]*?\n  \}, \[query, deckCards, considering\]\);/.exec(deck);
+  assert.ok(memo, 'deckHasMatch could not be found');
+  assert.match(memo[0], /\[\.\.\.deckCards, \.\.\.considering\]/,
+    'it must check the WHOLE deck, not the filtered list: a card on another '
+    + 'tab is still in this deck');
+  assert.ok(!/type_line/.test(memo[0]),
+    'name only -- matching the type line here would suppress the add results '
+    + 'for every search that happens to name a card type');
+
+  // And the list must then tell the truth about where the card is.
+  assert.match(deck, /deckHasMatch \? t\('deck\.matchOnAnotherTab'\) : t\('deck\.noCardsMatch'\)/,
+    'with the results gone the list is the only answer on screen; saying "no '
+    + 'cards match" while the card is on another tab contradicts itself');
+  assert.ok('deck.matchOnAnotherTab' in en,
+    'deck.matchOnAnotherTab has no string; the app renders the KEY when one '
+    + 'is missing');
+  pass('PANE-TC8', 'the deck answers first, and says where the card is');
 }
 
 console.log(`\nsidePaneLayout.test.js: ${passed} cases passed`);

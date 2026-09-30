@@ -1833,5 +1833,6 @@
   "deck.searchDeck": "Search this deck…",
   "deck.noCardsMatch": "No cards match.",
   "common.clear": "Clear",
-  "deck.searchOrAdd": "Search this deck, or add a card…"
+  "deck.searchOrAdd": "Search this deck, or add a card…",
+  "deck.matchOnAnotherTab": "In this deck, but not on this tab."
 }

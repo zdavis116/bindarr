@@ -125,7 +125,11 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 // DW-TC6: an empty search result does not read as an empty deck.
 {
   start('DW-TC6');
-  assert.match(view, /\{query\.trim\(\) \? t\('deck\.noCardsMatch'\)/,
+  // The empty state now has THREE cases, not two: no match at all, and a
+  // match that is simply on another tab (PANE-TC8 owns that distinction).
+  // What this case still guards is that an active search never falls through
+  // to "no cards in this deck", which reads as data loss.
+  assert.match(view, /\{query\.trim\(\)\n\s*\? \(deckHasMatch \? t\('deck\.matchOnAnotherTab'\) : t\('deck\.noCardsMatch'\)\)/,
     'a search matching nothing must say so; "no cards in this deck" while a '
     + 'filter is active reads as data loss');
   for (const k of ['deck.worth', 'deck.worthOwned', 'deck.searchOrAdd',

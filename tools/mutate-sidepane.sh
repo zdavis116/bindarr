@@ -161,6 +161,30 @@ mutate M9 "savings line widens the money block" "PANE-TC7" "frontend/src/compone
   const after = before.replace(re, '              </div>\n              {savings !== null && (<div>{t(\'deck.toFinishCheapest\', { price: formatPrice(cheapest), saved: formatPrice(savings) })}</div>)}\n            </div>\n          )}\n          </div>');
 "
 
+# M10: THE BUG. Always show the catalogue results, so a card that IS in the
+# deck gets its answer pushed below a list of cards he did not ask for.
+mutate M10 "results push the deck list down again" "PANE-TC8" "frontend/src/components/DeckView.jsx" "
+  const re = /\(searching \|\| results\.length > 0\) && !deckHasMatch && \(/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '(searching || results.length > 0) && (');
+"
+
+# M10b: check only the FILTERED list, so sitting on Missing and typing a card
+# he owns still pops the add-a-card results for a card already in the deck.
+mutate M10b "match checked against the filtered list" "PANE-TC8" "frontend/src/components/DeckView.jsx" "
+  const re = /    return \[\.\.\.deckCards, \.\.\.considering\]\n      \.some/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '    return shown\n      .some');
+"
+
+# M10c: keep saying 'no cards match' while the card sits on another tab --
+# the app contradicting itself with the results now suppressed.
+mutate M10c "list denies a card that is in the deck" "PANE-TC8" "frontend/src/components/DeckView.jsx" "
+  const re = /\(deckHasMatch \? t\('deck\.matchOnAnotherTab'\) : t\('deck\.noCardsMatch'\)\)/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, \"t('deck.noCardsMatch')\");
+"
+
 printf '\n'
 if ! git diff --quiet -- $TARGETS "$TEST"; then
   echo "TREE NOT CLEAN after the run - restore failed. Check git status."
