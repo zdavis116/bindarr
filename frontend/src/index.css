@@ -3711,6 +3711,16 @@ button, input, select, textarea {
        disappears"). A constant can be wrong if the chrome is restructured, but
        it cannot go STALE, which is the failure that actually bit. */
     position: fixed;
+    /* ABOVE THE LIST IT SITS BESIDE.
+       This had no z-index, so a fixed element stacked by document order and
+       LOST to the deck list's sticky section headers (z-index 5). Zach's
+       screenshot showed a section header and a stray card count "1" drawn
+       straight through the pane, over the oracle text.
+       Mirrors Z_SIDE_PANE in utils/zLayers.js -- above the list's sticky
+       headers, below the app header (900) which the pane sits beneath. An
+       equal value would resolve by document order, which is exactly the
+       accident this is fixing. */
+    z-index: 890;
     top: var(--deck-pane-top, 4.5rem);
     /* MATCHES THE GRID TRACK, WHICH IS NOT 400px.
        Two rules set .deck-panes columns: the one at ~3675 says 400px, and a

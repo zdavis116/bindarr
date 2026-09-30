@@ -90,9 +90,6 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   const [inspecting, setInspecting] = useState(null);
   const [commanderOpen, setCommanderOpen] = useState(false);
   const [commanderSearch, setCommanderSearch] = useState('');
-  // Filters the cards already IN the deck -- distinct from the add-a-card
-  // search, which queries the catalogue.
-  const [deckSearch, setDeckSearch] = useState('');
   const [commanderResults, setCommanderResults] = useState([]);
   // { card, removing, message } while the server is asking whether it may
   // remove off-colour cards. Null the rest of the time.
@@ -362,8 +359,14 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       return deckCards;
     })();
 
-    // SEARCH WITHIN THE DECK. Zach: "can I have a search that lets me search
-    // my deck for the card?"
+    // ONE BOX, TWO JOBS. Zach: "can we combine the search with the add
+    // because 2 search bars is dumb."
+    //
+    // He is right, and they were never really two questions. Typing a card
+    // name means "where is this" if it is already in the deck and "add this"
+    // if it is not -- so the same `query` filters the list AND fetches
+    // catalogue results, which appear below only when something matches
+    // there. Nothing is lost: adding still works exactly as before.
     //
     // Applied AFTER the tab so the two compose -- searching inside Missing
     // stays inside Missing. A search that silently jumped to All would answer
@@ -371,12 +374,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     //
     // Matches the type line too: "search my deck for the card" in practice
     // includes "where are my artifacts", and it costs nothing here.
-    const term = deckSearch.trim().toLowerCase();
+    const term = query.trim().toLowerCase();
     if (!term) return byTab;
     return byTab.filter(c =>
       (c.name || '').toLowerCase().includes(term)
       || (c.type_line || '').toLowerCase().includes(term));
-  }, [tab, deckCards, considering, deckSearch]);
+  }, [tab, deckCards, considering, query]);
 
   // Grouping is the SHARED rule (deckListSections), not a local copy. Only the
   // count is added here, and it keeps this screen's meaning: a deck row always
@@ -1102,7 +1105,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
                       borderRadius: 'var(--radius-md)', padding: '0 0.85rem', height: 44, marginBottom: '0.75rem' }}>
         <Search size={17} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
         <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
-               placeholder={t('deck.addCardPlaceholder')}
+               placeholder={t('deck.searchOrAdd')}
                style={{ border: 0, outline: 'none', background: 'transparent', flex: 1,
                         color: 'var(--text-primary)', font: 'inherit', fontSize: '0.95rem' }} />
         {query && (
@@ -1266,47 +1269,12 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       {/* CARD LIST, grouped by type. Hidden on the Curve tab, which shows its
           own list filtered by whatever you tapped on the chart -- two lists of
           the same cards on one screen is the redundant surface Zach dislikes. */}
-      {/* FILTER THE CARDS ALREADY IN THE DECK.
-          Zach: "can I have a search that lets me search my deck for the card?"
-
-          BELOW the tabs, deliberately -- the opposite of the add-a-card box
-          above them. That one spans every tab because it adds to the deck
-          regardless of the filter; this one narrows the list you are looking
-          at, so it belongs inside the tab it filters. Two search boxes on one
-          screen only works if their positions say what they do.
-
-          Hidden on the curve tab, which has no card list to filter. */}
-      {tab !== 'curve' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
-                        background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
-                        borderRadius: 'var(--radius-sm)', padding: '0 0.7rem', minHeight: 36,
-                        margin: '0.6rem 0 0.2rem' }}>
-          <Search size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-          <input
-            value={deckSearch}
-            onChange={e => setDeckSearch(e.target.value)}
-            placeholder={t('deck.searchDeck')}
-            style={{ flex: 1, minWidth: 0, border: 0, background: 'transparent',
-                     color: 'var(--text-primary)', font: 'inherit', fontSize: '0.85rem',
-                     outline: 'none' }}
-          />
-          {deckSearch && (
-            <button type="button" onClick={() => setDeckSearch('')}
-              aria-label={t('common.clear')}
-              style={{ border: 0, background: 'transparent', color: 'var(--text-secondary)',
-                       cursor: 'pointer', padding: 0, display: 'flex' }}>
-              <X size={14} />
-            </button>
-          )}
-        </label>
-      )}
-
       {tab === 'curve' ? null : sections.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-secondary)',
                       background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
           {/* A SEARCH THAT MATCHES NOTHING IS NOT AN EMPTY DECK. Saying "no
               cards in this deck" while a filter is active reads as data loss. */}
-          {deckSearch.trim() ? t('deck.noCardsMatch')
+          {query.trim() ? t('deck.noCardsMatch')
             : tab === 'consider' ? t('deck.noConsidering')
             : tab === 'need' ? t('deck.nothingMissing')
             : t('deck.noCards')}

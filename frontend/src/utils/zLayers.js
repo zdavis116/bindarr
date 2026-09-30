@@ -25,6 +25,22 @@ export const Z_BACKDROP = 1100;
 // reachable are different problems.
 export const Z_BOTTOM_BAR = 1200;
 
+// THE DESKTOP SIDE PANE (deck view, collection).
+//
+// It is `position: fixed`, so it leaves the page's flow entirely -- but it had
+// NO z-index at all, which means it stacked purely by document order and lost
+// to anything positioned. Zach's screenshot: the deck list's sticky section
+// header (zIndex 5) and its card count drew straight through the pane, with a
+// stray "1" floating over the card text.
+//
+// Below the backdrop and every modal: a modal covers the pane deliberately.
+// Above the page's own sticky list headers, which is the whole point -- but
+// BELOW the app header (z-index 900 in index.css), which the pane is
+// positioned under and must never cover. 890 rather than 900 because an equal
+// value resolves by document order, and "it happens to work" is how this class
+// of bug returns.
+export const Z_SIDE_PANE = 890;
+
 // Sheets and modals: the surface the user is meant to be looking at.
 export const Z_MODAL = 1500;
 

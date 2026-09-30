@@ -93,30 +93,43 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('DW-TC4', 'both totals shown, never combined');
 }
 
-// DW-TC5: searching the deck composes with the tab, and is not the add box.
+// DW-TC5: ONE search box filters the deck AND adds cards.
+//
+// Zach: "can we combine the search with the add because 2 search bars is
+// dumb." He was right -- typing a name means "where is this" when the card is
+// in the deck and "add this" when it is not, so one `query` drives both.
+//
+// The risk in merging them is losing the add path silently, so this asserts
+// BOTH behaviours still hang off the same state.
 {
   start('DW-TC5');
-  const shown = /const shown = useMemo\([\s\S]*?\n  \}, \[tab, deckCards, considering, deckSearch\]\);/.exec(view);
-  assert.ok(shown, 'the filtered list could not be found');
+  const shown = /const shown = useMemo\([\s\S]*?\n  \}, \[tab, deckCards, considering, query\]\);/.exec(view);
+  assert.ok(shown, 'the filtered list could not be found, or it no longer reads `query`');
   assert.match(shown[0], /const byTab = \(\(\) => \{/,
     'the tab filter must run first');
   assert.match(shown[0], /return byTab\.filter\(c =>/,
-    'the search must narrow the TAB\'s cards, not all cards -- searching '
+    "the search must narrow the TAB's cards, not all cards -- searching "
     + 'inside Missing must stay inside Missing');
-  assert.ok(!/\/api\/search/.test(shown[0]),
-    'this filters cards already in the deck; it must not query the catalogue '
-    + 'like the add-a-card box does');
-  pass('DW-TC5', 'deck search narrows the current tab');
+
+  // Exactly ONE search input on this screen.
+  const inputs = (view.match(/placeholder=\{t\('deck\.(searchOrAdd|addCardPlaceholder|searchDeck)'\)\}/g) || []);
+  assert.strictEqual(inputs.length, 1,
+    `${inputs.length} search boxes found; there must be exactly one`);
+
+  // And the add path still exists behind that same box.
+  assert.match(view, /\/api\/search\?name=\$\{encodeURIComponent\(q\)\}/,
+    'merging the boxes must not drop the catalogue lookup that adds cards');
+  pass('DW-TC5', 'one box filters the deck and still adds cards');
 }
 
 // DW-TC6: an empty search result does not read as an empty deck.
 {
   start('DW-TC6');
-  assert.match(view, /\{deckSearch\.trim\(\) \? t\('deck\.noCardsMatch'\)/,
+  assert.match(view, /\{query\.trim\(\) \? t\('deck\.noCardsMatch'\)/,
     'a search matching nothing must say so; "no cards in this deck" while a '
     + 'filter is active reads as data loss');
-  for (const k of ['deck.worth', 'deck.worthOwned', 'deck.searchDeck',
-                   'deck.noCardsMatch', 'common.clear']) {
+  for (const k of ['deck.worth', 'deck.worthOwned', 'deck.searchOrAdd',
+                   'deck.noCardsMatch']) {
     assert.ok(k in en,
       `${k} has no string; this app renders the KEY when one is missing, so `
       + `the screen would show "${k}"`);

@@ -1832,5 +1832,6 @@
   "deck.worthOwned": "value of cards you have",
   "deck.searchDeck": "Search this deck…",
   "deck.noCardsMatch": "No cards match.",
-  "common.clear": "Clear"
+  "common.clear": "Clear",
+  "deck.searchOrAdd": "Search this deck, or add a card…"
 }

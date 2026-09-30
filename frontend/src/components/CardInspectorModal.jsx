@@ -1128,6 +1128,21 @@ function CardInspectorModal({
                     borderRadius: 'var(--radius-md)', padding: '0.75rem',
                     fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-primary)',
                     whiteSpace: 'pre-wrap',
+                    // A LONG RULES LINE MUST WRAP, NOT OVERFLOW.
+                    //
+                    // Zach's screenshot: Oscorp Industries' Mayhem reminder
+                    // text ran past the pane and the last line rendered as
+                    // "ng rules still apply.)" -- clipped, not wrapped.
+                    //
+                    // `pre-wrap` alone preserves the card's own line breaks
+                    // but will not break a line that has no space where one is
+                    // needed, and this grid column is narrower than the modal
+                    // the styling was written for. overflow-wrap handles the
+                    // unbreakable case; minWidth:0 lets the box actually
+                    // shrink to its grid track, which a flex/grid child will
+                    // not do by default.
+                    overflowWrap: 'anywhere',
+                    minWidth: 0,
                   }}>
                     {faceRules}
                   </div>
