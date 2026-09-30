@@ -181,4 +181,24 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   pass('PANE-TC6', 'a complete deck tile shows its value');
 }
 
+// PANE-TC7: the savings line does not set the money block's width.
+//
+// Zach: "why is there still a gap like this it just looks weird."
+//
+// It lived INSIDE the cost-to-finish block as a third line, nowrap and ~240px
+// wide against a "$19.42" above it. A block is as wide as its widest child, so
+// the savings line -- not the number -- sized that block and pushed the deck
+// value left into the middle of the row. The gap was its overhang.
+{
+  start('PANE-TC7');
+  const row = /<div style=\{\{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0\.7rem'[\s\S]*?\n        <\/div>/.exec(deck);
+  assert.ok(row, "the deck header's figures row could not be found");
+  assert.ok(!/toFinishCheapest/.test(row[0]),
+    'the savings line must NOT sit inside the figures row; it is wider than '
+    + 'either number and silently sets its block width');
+  assert.match(deck, /\{costToFinish > 0 && savings !== null && \(/,
+    'it must render as its own row, and only when there is a saving to state');
+  pass('PANE-TC7', 'the savings line cannot widen the money block');
+}
+
 console.log(`\nsidePaneLayout.test.js: ${passed} cases passed`);

@@ -153,6 +153,14 @@ mutate M8 "footer wraps to two lines again" "PANE-TC6" "frontend/src/index.css" 
 "
 
 
+# M9: THE GAP. Put the savings line back inside the cost block, where its
+# ~240px nowrap width sets the block width and shoves the value left.
+mutate M9 "savings line widens the money block" "PANE-TC7" "frontend/src/components/DeckView.jsx" "
+  const re = /              <\/div>\n            <\/div>\n          \)\}\n          <\/div>/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '              </div>\n              {savings !== null && (<div>{t(\'deck.toFinishCheapest\', { price: formatPrice(cheapest), saved: formatPrice(savings) })}</div>)}\n            </div>\n          )}\n          </div>');
+"
+
 printf '\n'
 if ! git diff --quiet -- $TARGETS "$TEST"; then
   echo "TREE NOT CLEAN after the run - restore failed. Check git status."

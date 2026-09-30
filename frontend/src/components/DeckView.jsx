@@ -800,17 +800,30 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
                 {savings !== null ? t('deck.toFinishAsListed') : t('deck.toFinish')}
               </div>
-              {savings !== null && (
-                <div style={{ fontSize: '0.68rem', color: 'var(--accent-green, #30d158)',
-                              marginTop: 2, whiteSpace: 'nowrap' }}>
-                  {t('deck.toFinishCheapest', {
-                    price: formatPrice(cheapest), saved: formatPrice(savings) })}
-                </div>
-              )}
             </div>
           )}
           </div>
         </div>
+
+        {/* THE SAVINGS LINE GETS ITS OWN ROW.
+            Zach: "why is there still a gap like this it just looks weird."
+
+            It was the THIRD line inside the cost-to-finish block, nowrap, and
+            about 240px wide -- far wider than "$19.42" above it. A block is as
+            wide as its widest child, so this line, not the number, was setting
+            that block's width and shoving the deck value left into the middle
+            of the row. The gap was the savings line's overhang.
+
+            On its own row it cannot widen anything, and it still sits directly
+            under the figure it qualifies. */}
+        {costToFinish > 0 && savings !== null && (
+          <div style={{ textAlign: 'right', fontSize: '0.68rem',
+                        color: 'var(--accent-green, #30d158)',
+                        marginTop: '-0.45rem', marginBottom: '0.6rem' }}>
+            {t('deck.toFinishCheapest', {
+              price: formatPrice(cheapest), saved: formatPrice(savings) })}
+          </div>
+        )}
 
         <div style={{ height: 6, background: 'var(--surface-3)', borderRadius: 3, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent-green)',
