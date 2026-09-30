@@ -125,8 +125,28 @@ export default function DeckCard({
               legal break point regardless -- measured the footer at 36px (two
               lines) each time. A single <b> wrapping only the money keeps the
               colour without introducing a second inline box before it. */}
+          {/* A FINISHED DECK STILL HAS A VALUE. Zach: "the deck cards should
+              also show the total of value of the deck."
+
+              It used to say only "Complete" -- the deckValue was fetched,
+              carried through DeckList, and then never rendered on the one
+              tile where it is the only money figure that applies. Dead data
+              on screen is worse than absent data: it looks considered.
+
+              An incomplete deck keeps leading with what it COSTS to finish,
+              because that is the actionable number, and adds the value of
+              what is already there after it. */}
           {deck.have >= deck.target
-            ? t('deck.complete')
+            ? (
+              <span className="deck-row-foot-run">
+                {`${t('deck.complete')} · `}
+                <b className="deck-row-value">
+                  {deck.deckValue > 0
+                    ? `$${deck.deckValue.toFixed(2)}`
+                    : t('deck.priceUnknown')}
+                </b>
+              </span>
+            )
             : (
               <span className="deck-row-foot-run">
                 {`${t('deck.nMissing', { n: deck.target - deck.have })} · `}
@@ -142,6 +162,17 @@ export default function DeckCard({
                       ? `$${deck.deckValue.toFixed(2)}`
                       : t('deck.priceUnknown'))}
                 </b>
+                {/* AND WHAT HE ALREADY HAS IS WORTH, when both are known.
+                    Two figures answering different questions, so they are
+                    never added -- one is money out, one is money he holds. */}
+                {deck.toFinish > 0 && deck.deckValue > 0 && (
+                  <>
+                    {' · '}
+                    <b className="deck-row-value">
+                      {`$${deck.deckValue.toFixed(2)}`}
+                    </b>
+                  </>
+                )}
               </span>
             )}
           {extra}

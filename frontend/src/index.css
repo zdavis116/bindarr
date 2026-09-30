@@ -3457,7 +3457,18 @@ button, input, select, textarea {
    all measured the footer at 36px. Asked the browser for the computed value
    instead of re-reading my own rule; that named it in one query. */
 .deck-row-foot .deck-row-cost,
-.deck-row-foot-run .deck-row-cost { display: inline !important; }
+.deck-row-foot-run .deck-row-cost,
+/* THE VALUE IS THE SAME KIND OF THING and needs the same rule. A <b> computes
+   to display:block under these footer styles, and a block child starts a new
+   line regardless of white-space -- the failure that measured the footer at
+   36px three times. Adding a second money figure without this would reproduce
+   it exactly. */
+.deck-row-foot .deck-row-value,
+.deck-row-foot-run .deck-row-value { display: inline !important; }
+
+/* GREEN, because it is money he HAS -- the same colour the deck screen uses
+   for the same number. The cost to finish keeps the default. */
+.deck-row-value { color: var(--accent-green, #30d158); }
 .deck-row-foot-run { display: block; }
 /* The run is one line; if the card is too narrow the ELLIPSIS eats the end,
    which is readable. A wrap is not. */
@@ -3680,37 +3691,42 @@ button, input, select, textarea {
   .deck-panes-main { min-width: 0; }
 
   .deck-panes-side {
-    /* PINNED TO THE VIEWPORT.
+    /* IN ITS OWN GRID TRACK, PINNED WHILE YOU SCROLL.
 
-       `position: sticky` was wrong here for the same reason it was wrong on
-       .coll-pane: it only engages once you have scrolled far enough, so before
-       that the pane sits where the document puts it. Measured at 1473x736 on
-       Doctor Doom: at the top of the page the pane started at y=388 and ran to
-       y=1092 -- 356px off the bottom of a 736 viewport. Scrolled to the end of
-       a 100-card deck its top went NEGATIVE (-174), sliding off the top.
+       THE HISTORY HERE MATTERS, because both previous versions were wrong in
+       opposite directions and the notes for each are the reason this one is
+       shaped the way it is.
 
-       Zach: "Seems you solved the collection but not the deck view... also the
-       pane is expanding when I scroll here as well." Correct on both counts --
-       the collection fix was never applied to this rule.
+       1. PLAIN `position: sticky` with no height. The pane sat where the
+          document put it -- 388px down, below the app header, deck title and
+          progress block -- and ran 356px past the bottom of a 736px viewport.
+          Scrolled to the end of a 100-card deck its top went NEGATIVE (-174).
+          Zach: "the pane is expanding when I scroll here as well."
 
-       PINNED NEAR THE TOP, NOT AT THE DECK HEADER'S OFFSET. The deck content
-       starts 388px down (app header + deck title + progress block), and
-       starting the pane there left it 336px tall -- too short to reach its own
-       footer buttons, and stranded beside blank space once the deck list
-       scrolled past. The collection pane can sit at its content offset because
-       223px still leaves a usable 496px; 388px does not.
+       2. `position: fixed`, which fixed the scrolling but pinned the pane to
+          the VIEWPORT. Its reserved grid track stayed inside the padded
+          content area, so on a wide window the two were not the same place.
+          Zach's screenshot at ~1731px: an empty track (he drew a red box
+          round it) with the pane floating off to the right, fitting nothing.
 
-       So the pane clears the app header only and uses the height that buys.
-       A card sheet is a fixed thing -- art, tabs, a scrolling body, a footer --
-       and it needs room, not alignment with a row it no longer sits beside.
+       WHAT ACTUALLY HOLDS. Sticky keeps the element IN the grid, so the track
+       IS the pane and they cannot drift apart at any width. The two failures
+       of version 1 are handled explicitly rather than by luck:
 
-       A CSS constant with a literal fallback, never a JS measurement. That
-       measurement caused the two previous bugs here: stale after pinning it
-       made the pane grow, and read as a page offset it hit 6152px and
-       collapsed the pane to 0px ("the whole side panel or card modal
-       disappears"). A constant can be wrong if the chrome is restructured, but
-       it cannot go STALE, which is the failure that actually bit. */
-    position: fixed;
+         `top`    pins it near the top of the viewport instead of at the
+                  document offset, so it never starts 388px down.
+         `height` is viewport-relative and definite, so it cannot run past the
+                  fold however long the deck list is, and the inspector inside
+                  -- which is height:100% -- has something to resolve against.
+
+       The same offset appears in `top` and in `height`. Subtracting a
+       different number would place the pane correctly and size it wrongly,
+       which is exactly how it ran past the fold before.
+
+       min-height IS THE SAFETY NET, not decoration. A layout rule that CAN
+       evaluate to zero will find a way; this keeps an invisible pane
+       impossible even if the offset is ever set badly. */
+    position: sticky;
     /* ABOVE THE LIST IT SITS BESIDE.
        This had no z-index, so a fixed element stacked by document order and
        LOST to the deck list's sticky section headers (z-index 5). Zach's
@@ -3721,19 +3737,16 @@ button, input, select, textarea {
        equal value would resolve by document order, which is exactly the
        accident this is fixing. */
     z-index: 890;
-    top: var(--deck-pane-top, 4.5rem);
-    /* MATCHES THE GRID TRACK, WHICH IS NOT 400px.
-       Two rules set .deck-panes columns: the one at ~3675 says 400px, and a
-       LATER one says `clamp(440px, 30%, 560px)`. A plain rule lower in the
-       file wins at equal specificity, so the real track is the clamp --
-       measured 440px at 1473 wide. Hardcoding 400 would misalign the pane at
-       every viewport, so this repeats the clamp rather than a number read off
-       one screenshot.
+    top: var(--deck-pane-top, 1.2rem);
+    /* THE ELEMENT IS THE TRACK NOW, so no width is declared here at all.
+       It used to repeat `clamp(440px, 30%, 560px)` to mirror the grid column,
+       because a fixed element had left the grid and had to be re-aligned to a
+       track it no longer occupied. Sticky stays in the grid, so the column
+       sizes it and the two cannot disagree.
 
-       The track stays reserved even though the pane is position:fixed and no
-       longer occupies it -- otherwise the deck list would flow underneath. */
-    width: clamp(440px, 30%, 560px);
-    right: 1.5rem;
+       align-self: start stops the pane stretching to the height of a
+       100-card list; the explicit height below is what it uses instead. */
+    align-self: start;
     /* THIS WRAPPER DOES NOT SCROLL. It used to be overflow-y:auto, which is
        what made the WHOLE pane scrollable -- art, name and tabs slid away
        together. Zach: "should not fully be scrollable just the bottom portion
@@ -3752,8 +3765,8 @@ button, input, select, textarea {
        min-height IS THE SAFETY NET, not decoration. A layout rule that CAN
        evaluate to zero will find a way; this keeps an invisible pane
        impossible even if the offset is ever set badly. */
-    height: calc(100vh - var(--deck-pane-top, 4.5rem) - 1rem);
-    height: calc(100dvh - var(--deck-pane-top, 4.5rem) - 1rem);
+    height: calc(100vh - var(--deck-pane-top, 1.2rem) - 1.2rem);
+    height: calc(100dvh - var(--deck-pane-top, 1.2rem) - 1.2rem);
     min-height: 18rem;
     overflow: hidden;
   }

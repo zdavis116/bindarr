@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 
 TEST=frontend/src/components/sidePaneLayout.test.js
 NODE="${NODE:-node}"
-TARGETS="frontend/src/index.css frontend/src/utils/zLayers.js frontend/src/components/CardInspectorModal.jsx frontend/src/components/DeckView.jsx"
+TARGETS="frontend/src/index.css frontend/src/utils/zLayers.js frontend/src/components/CardInspectorModal.jsx frontend/src/components/DeckView.jsx frontend/src/components/DeckCard.jsx"
 
 if ! git diff --quiet -- $TARGETS "$TEST"; then
   echo "REFUSING: a target or the test has uncommitted changes. Commit first."
@@ -102,6 +102,56 @@ mutate M4b "text box cannot shrink to its column" "PANE-TC4" "frontend/src/compo
   if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
   const after = before.replace(re, '');
 "
+
+# M5: THE BUG IN THE RED BOX. Go back to position:fixed, so the pane pins to
+# the viewport and floats outside its own reserved grid track on a wide window.
+mutate M5 "pane leaves its grid track again" "PANE-TC1" "frontend/src/index.css" "
+  // SCOPED TO THE PANE'S OWN BLOCK. A bare /    position: sticky;/ matched
+  // line 1117 -- an unrelated rule -- so this mutation was editing the wrong
+  // declaration and the pane kept its correct value. The test was fine; the
+  // MUTATION was vacuous, which is the harder one to notice.
+  const i = before.indexOf('.deck-panes-side {');
+  if (i < 0) { console.error('anchor missing'); process.exit(3); }
+  const j = before.indexOf('\n  }', i);
+  const block = before.slice(i, j);
+  if (!/\n    position: sticky;/.test(block)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.slice(0, i)
+    + block.replace('\n    position: sticky;', '\n    position: fixed;')
+    + before.slice(j);
+"
+
+# M5b: keep sticky but drop the height, restoring the ORIGINAL failure -- the
+# pane starts at the document offset and runs past the fold.
+mutate M5b "pane has no definite height" "PANE-TC1" "frontend/src/index.css" "
+  const re = /    height: calc\(100dvh - var\(--deck-pane-top, 1\.2rem\) - 1\.2rem\);\n/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '');
+"
+
+# M6: ungroup the money figures, so the deck value floats in the middle of the
+# header row again.
+mutate M6 "deck value floats in the middle" "PANE-TC5" "frontend/src/components/DeckView.jsx" "
+  const re = /          <div style=\{\{ display: 'flex', alignItems: 'flex-start', gap: '1\.4rem',\n                        marginLeft: 'auto' \}\}>\n/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '          <div>\n');
+"
+
+# M7: a complete deck goes back to showing only the word, throwing away the
+# value it already fetched.
+mutate M7 "complete deck hides its value" "PANE-TC6" "frontend/src/components/DeckCard.jsx" "
+  const m = before.match(/\{deck\.have >= deck\.target\n            \? \([\s\S]*?\n            \)\n            : \(/);
+  if (!m) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(m[0], '{deck.have >= deck.target\n            ? t(\'deck.complete\')\n            : (');
+"
+
+# M8: drop the inline rule, so the second money figure wraps the footer to two
+# lines -- the exact failure that was fixed three times before.
+mutate M8 "footer wraps to two lines again" "PANE-TC6" "frontend/src/index.css" "
+  const re = /\.deck-row-foot-run \.deck-row-value \{ display: inline !important; \}/;
+  if (!re.test(before)) { console.error('anchor missing'); process.exit(3); }
+  const after = before.replace(re, '.deck-row-foot-run .deck-row-value { display: block; }');
+"
+
 
 printf '\n'
 if ! git diff --quiet -- $TARGETS "$TEST"; then

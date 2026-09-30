@@ -385,8 +385,22 @@ test('PANE-TC12: the deck pane is pinned too, and its top and height agree', () 
   assert.ok(at > 0, 'the deck pane must have a rule');
   const block = cssCode.slice(at, cssCode.indexOf('}', at));
 
-  assert.match(block, /position:\s*fixed/,
-    'the deck pane must be pinned to the viewport, like the collection pane');
+  // PINNED, BUT IN ITS OWN GRID TRACK.
+  //
+  // This asserted `position: fixed`, which fixed the scroll bug above and
+  // caused a different one: fixed pins to the VIEWPORT, so on a wide window
+  // the pane floated outside its reserved grid column. Zach's screenshot at
+  // ~1731px showed an empty track with the pane off to the right of it.
+  //
+  // Sticky keeps it in the grid -- so the track IS the pane -- while `top`
+  // and the definite height below still prevent BOTH failures this test was
+  // written for: starting at the document offset, and running past the fold.
+  assert.match(block, /position:\s*sticky/,
+    'the deck pane must stay in its grid track; fixed pins it to the viewport '
+    + 'and it drifts out of its own column on a wide window');
+  assert.match(block, /top:\s*var\(--deck-pane-top/,
+    'sticky alone starts 388px down the document -- `top` is what pins it, '
+    + 'and it shares its offset with the height below');
   assert.doesNotMatch(block, /--pane-top/,
     'and must not resurrect the measured offset that grew it');
   assert.match(block, /min-height:\s*\d/,

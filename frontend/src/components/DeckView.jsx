@@ -747,7 +747,20 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
           wrong". Legality is part of "is this deck ready", not a separate
           subject. */}
       <div style={{ background: 'var(--surface-1)', borderRadius: 'var(--radius-md)', padding: '0.95rem', marginBottom: '0.8rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.7rem' }}>
+        {/* THE MONEY FIGURES SIT TOGETHER ON THE RIGHT.
+            Zach: "why is the 195 just floating in the middle that needs to be
+            aligned better."
+
+            This row was `space-between` with TWO children -- the built
+            percentage and the cost to finish -- so it read correctly. Adding
+            the deck value made three, and space-between parks the middle one
+            in the centre of the row with gaps either side. It looked adrift
+            because it WAS: nothing was aligning it to anything.
+
+            Now the percentage takes the slack and the two money figures are
+            grouped, right-aligned, and sit next to each other where they can
+            be compared. */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.7rem', gap: '1rem' }}>
           <div>
             <div style={{ fontSize: '1.95rem', fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1 }}>
               {pct}<small style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginLeft: 3, letterSpacing: 0 }}>
@@ -765,6 +778,8 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
 
               Sits BESIDE the cost to finish, never added to it: one is money
               he could get, the other money he would spend. */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1.4rem',
+                        marginLeft: 'auto' }}>
           {deckWorth > 0 && (
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '1.15rem', fontWeight: 700, letterSpacing: '-0.02em',
@@ -794,6 +809,7 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               )}
             </div>
           )}
+          </div>
         </div>
 
         <div style={{ height: 6, background: 'var(--surface-3)', borderRadius: 3, overflow: 'hidden' }}>
