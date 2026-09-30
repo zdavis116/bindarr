@@ -1827,5 +1827,10 @@
   "collector.showMore": "Show {count} more",
   "settings.secValuation": "Collection value",
   "settings.valuationTitle": "Value my collection at",
-  "settings.valuationWhy": "What your cards are worth. Deck shopping lists are priced separately, under Card prices — selling and buying are different numbers."
+  "settings.valuationWhy": "What your cards are worth. Deck shopping lists are priced separately, under Card prices — selling and buying are different numbers.",
+  "deck.worth": "deck value",
+  "deck.worthOwned": "value of cards you have",
+  "deck.searchDeck": "Search this deck…",
+  "deck.noCardsMatch": "No cards match.",
+  "common.clear": "Clear"
 }

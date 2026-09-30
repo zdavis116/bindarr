@@ -346,8 +346,20 @@ async function availabilityForDeck(database, deckId, userId) {
   // Deck prices follow the shop he selected, exactly like the collection --
   // otherwise a deck row and the card sheet for the same printing disagree,
   // which is the bug he reported as "it says 24 cents... but 15 cents".
-  // BUYING: availability is about acquiring the cards a deck still needs.
+  // TWO PRICES PER ROW, because a deck screen answers two questions.
+  //
+  // Zach: "we should always be using TCGPlayer market price for cards we own
+  // even in deck view screen... right now if we are missing cards we show the
+  // cost of those missing cards I dont want to lose that either."
+  //
+  //   price_trend  -- BUYING  -> what a missing copy will cost him
+  //   value_price  -- VALUING -> what a copy he owns is worth
+  //
+  // Same split as the deck list (deck_value vs missing_cost). Without it, a
+  // "deck worth" total built from price_trend would quietly be a Mana Pool
+  // number wearing a TCGplayer label.
   const shop = await selectedShop(client(database), 'buying');
+  const valueShop = await selectedShop(client(database), 'valuation');
 
   const deck = await client(database).get(
     `SELECT id FROM decks WHERE id = ? AND user_id = ?`, [deckId, userId]
@@ -420,6 +432,16 @@ async function availabilityForDeck(database, deckId, userId) {
                    ELSE mp.price_cents / 100.0
               END,
               cc.price_trend) AS price_trend,
+            -- WHAT AN OWNED COPY IS WORTH, at the valuation source. Falls
+            -- through to the Scryfall/TCGplayer number on card_cache, which is
+            -- exactly what 'scryfall' valuation means -- so with the default
+            -- setting vp matches nothing and this IS cc.price_trend.
+            COALESCE(
+              CASE WHEN dc.desired_finish IN ('foil', 'etched')
+                   THEN vp.price_cents_foil / 100.0
+                   ELSE vp.price_cents / 100.0
+              END,
+              cc.price_trend) AS value_price,
             CASE WHEN (CASE WHEN dc.desired_finish IN ('foil', 'etched')
                             THEN mp.price_cents_foil ELSE mp.price_cents END) > 0
                  THEN '${shop}'
@@ -438,6 +460,8 @@ async function availabilityForDeck(database, deckId, userId) {
      LEFT JOIN card_roles cr ON cr.oracle_id = cc.oracle_id
      LEFT JOIN source_prices mp
             ON mp.card_id = cc.id AND mp.source = '${shop}'
+     LEFT JOIN source_prices vp
+            ON vp.card_id = cc.id AND vp.source = '${valueShop}'
      WHERE dc.deck_id = ?
      ORDER BY cc.name COLLATE NOCASE ASC, dc.id ASC`,
     [deckId]
@@ -776,6 +800,7 @@ async function buylistForDeck(database, deckId, userId) {
       // and was reported as "Mana Pool has no price for". Flexible cards hid the
       // bug because substitution looked their price up again.
       price_trend: entry.price_trend,
+      value_price: entry.value_price,
       price_source: entry.price_source,
       price_condition: entry.price_condition
     });

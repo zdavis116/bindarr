@@ -90,6 +90,9 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
   const [inspecting, setInspecting] = useState(null);
   const [commanderOpen, setCommanderOpen] = useState(false);
   const [commanderSearch, setCommanderSearch] = useState('');
+  // Filters the cards already IN the deck -- distinct from the add-a-card
+  // search, which queries the catalogue.
+  const [deckSearch, setDeckSearch] = useState('');
   const [commanderResults, setCommanderResults] = useState([]);
   // { card, removing, message } while the server is asking whether it may
   // remove off-colour cards. Null the rest of the time.
@@ -257,6 +260,30 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
     () => deckCards.reduce((sum, c) => sum + (c.quantity_missing || 0) * (c.price_trend || 0), 0),
     [deckCards]);
 
+  // WHAT THE CARDS HE ACTUALLY HAS ARE WORTH.
+  //
+  // Zach: "when a deck is complete can I see what my deck is worth?" and then
+  // "we should always be using TCGPlayer market price for cards we own even in
+  // deck view screen... right now if we are missing cards we show the cost of
+  // those missing cards I dont want to lose that either."
+  //
+  // So the two numbers sit side by side and answer different questions:
+  //   deckWorth    -- owned copies, at the VALUATION source (value_price)
+  //   costToFinish -- missing copies, at the BUYING source (price_trend)
+  //
+  // They must not be added. One is money he could get, the other money he
+  // would spend.
+  //
+  // COUNTS AVAILABLE COPIES, not owned ones -- the same rule the completion
+  // ring uses. A copy sleeved into another deck is not part of THIS deck's
+  // worth, or two decks would each claim the same card.
+  const deckWorth = useMemo(
+    () => deckCards.reduce((sum, c) => {
+      const have = Math.min(c.quantity || 0, c.quantity_available || 0);
+      return sum + have * (c.value_price ?? c.price_trend ?? 0);
+    }, 0),
+    [deckCards]);
+
   // TWO TOTALS, BOTH TRUE, AND THE DIFFERENCE MADE VISIBLE.
   //
   // Zach: "where does that 142.51 come from that is on the deck... but when I go
@@ -325,14 +352,31 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       : { level: w.level || 'warn', message: w.message })), [deck]);
 
   const shown = useMemo(() => {
-    if (tab === 'consider') return considering;
-    // Owned and Missing must be COMPLEMENTARY: a card belongs to exactly one.
-    // Defining Owned as "nothing missing" guarantees that, where a separate
-    // quantity_owned test let a card qualify for both.
-    if (tab === 'have') return deckCards.filter(c => (c.quantity_missing || 0) === 0);
-    if (tab === 'need') return deckCards.filter(c => (c.quantity_missing || 0) > 0);
-    return deckCards;
-  }, [tab, deckCards, considering]);
+    const byTab = (() => {
+      if (tab === 'consider') return considering;
+      // Owned and Missing must be COMPLEMENTARY: a card belongs to exactly one.
+      // Defining Owned as "nothing missing" guarantees that, where a separate
+      // quantity_owned test let a card qualify for both.
+      if (tab === 'have') return deckCards.filter(c => (c.quantity_missing || 0) === 0);
+      if (tab === 'need') return deckCards.filter(c => (c.quantity_missing || 0) > 0);
+      return deckCards;
+    })();
+
+    // SEARCH WITHIN THE DECK. Zach: "can I have a search that lets me search
+    // my deck for the card?"
+    //
+    // Applied AFTER the tab so the two compose -- searching inside Missing
+    // stays inside Missing. A search that silently jumped to All would answer
+    // a question he did not ask.
+    //
+    // Matches the type line too: "search my deck for the card" in practice
+    // includes "where are my artifacts", and it costs nothing here.
+    const term = deckSearch.trim().toLowerCase();
+    if (!term) return byTab;
+    return byTab.filter(c =>
+      (c.name || '').toLowerCase().includes(term)
+      || (c.type_line || '').toLowerCase().includes(term));
+  }, [tab, deckCards, considering, deckSearch]);
 
   // Grouping is the SHARED rule (deckListSections), not a local copy. Only the
   // count is added here, and it keeps this screen's meaning: a deck row always
@@ -711,6 +755,25 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
               {t('deck.ownedOfTarget', { owned: counts.owned, target })}
             </div>
           </div>
+          {/* WHAT HE HAS IS WORTH -- shown whether or not the deck is finished.
+              Zach asked for it "when a deck is complete", but a total that
+              appears only at 100% vanishes the moment he pulls a card, and
+              "worth $180 of the $224 it will be" is the more useful reading.
+
+              Sits BESIDE the cost to finish, never added to it: one is money
+              he could get, the other money he would spend. */}
+          {deckWorth > 0 && (
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, letterSpacing: '-0.02em',
+                            color: 'var(--accent-green, #30d158)' }}>
+                ${formatPrice(deckWorth)}
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2,
+                            whiteSpace: 'nowrap' }}>
+                {counts.missing > 0 ? t('deck.worthOwned') : t('deck.worth')}
+              </div>
+            </div>
+          )}
           {costToFinish > 0 && (
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '1.15rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
@@ -1203,10 +1266,48 @@ function DeckView({ deck, onBack, onChanged, showToast }) {
       {/* CARD LIST, grouped by type. Hidden on the Curve tab, which shows its
           own list filtered by whatever you tapped on the chart -- two lists of
           the same cards on one screen is the redundant surface Zach dislikes. */}
+      {/* FILTER THE CARDS ALREADY IN THE DECK.
+          Zach: "can I have a search that lets me search my deck for the card?"
+
+          BELOW the tabs, deliberately -- the opposite of the add-a-card box
+          above them. That one spans every tab because it adds to the deck
+          regardless of the filter; this one narrows the list you are looking
+          at, so it belongs inside the tab it filters. Two search boxes on one
+          screen only works if their positions say what they do.
+
+          Hidden on the curve tab, which has no card list to filter. */}
+      {tab !== 'curve' && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
+                        borderRadius: 'var(--radius-sm)', padding: '0 0.7rem', minHeight: 36,
+                        margin: '0.6rem 0 0.2rem' }}>
+          <Search size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+          <input
+            value={deckSearch}
+            onChange={e => setDeckSearch(e.target.value)}
+            placeholder={t('deck.searchDeck')}
+            style={{ flex: 1, minWidth: 0, border: 0, background: 'transparent',
+                     color: 'var(--text-primary)', font: 'inherit', fontSize: '0.85rem',
+                     outline: 'none' }}
+          />
+          {deckSearch && (
+            <button type="button" onClick={() => setDeckSearch('')}
+              aria-label={t('common.clear')}
+              style={{ border: 0, background: 'transparent', color: 'var(--text-secondary)',
+                       cursor: 'pointer', padding: 0, display: 'flex' }}>
+              <X size={14} />
+            </button>
+          )}
+        </label>
+      )}
+
       {tab === 'curve' ? null : sections.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-secondary)',
                       background: 'var(--surface-1)', borderRadius: 'var(--radius-md)' }}>
-          {tab === 'consider' ? t('deck.noConsidering')
+          {/* A SEARCH THAT MATCHES NOTHING IS NOT AN EMPTY DECK. Saying "no
+              cards in this deck" while a filter is active reads as data loss. */}
+          {deckSearch.trim() ? t('deck.noCardsMatch')
+            : tab === 'consider' ? t('deck.noConsidering')
             : tab === 'need' ? t('deck.nothingMissing')
             : t('deck.noCards')}
         </div>
