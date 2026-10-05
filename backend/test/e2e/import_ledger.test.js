@@ -402,6 +402,24 @@ async function runTests() {
     assert.deepStrictEqual(missingAdded, [],
       `every added product must be returned even past the limit (${missingAdded.length} dropped)`);
 
+    // POSITION, NOT MERELY PRESENCE.
+    //
+    // Deleting the added-first comparison still left the 2023 product in the
+    // response -- the past-the-cut overflow rescued it -- so a presence-only
+    // assertion passed while it rendered in the WRONG PLACE, which is exactly
+    // what Zach reported ("marked as added and isnt at the top"). Assert that
+    // no unadded product appears above an added one.
+    const flags = over.groups.map((g) => manyAdded.has(g.editions[0].id));
+    const firstUnadded = flags.indexOf(false);
+    if (firstUnadded !== -1) {
+      assert.ok(!flags.slice(firstUnadded).includes(true),
+        'no added product may render below an unadded one');
+    }
+    const singleFlags = sorted.groups.map((g) => g.editions[0].id === 'LATE');
+    const firstPlain = singleFlags.indexOf(false);
+    assert.ok(firstPlain === -1 || !singleFlags.slice(firstPlain).includes(true),
+      'the added product must rank above every unadded one, not merely appear');
+
     // The route has to supply the ids, or the parameter is never exercised.
     assert.match(SRC, /SELECT product_id FROM import_ledger WHERE user_id = \? AND product_id IS NOT NULL/,
       'the search route must read the ledger');
