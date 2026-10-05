@@ -1105,5 +1105,7 @@
   "wizard.nothingToMove": "沒有需要移動的卡牌。",
   "wizard.page": "頁",
   "wizard.selectAll": "全選",
-  "wizard.slot": "第 {slot} 格"
+  "wizard.slot": "第 {slot} 格",
+  "product.addedOn": "{date} 已新增",
+  "product.addedManual": "標記為已新增"
 }

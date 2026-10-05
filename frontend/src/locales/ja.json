@@ -1105,5 +1105,7 @@
   "wizard.nothingToMove": "移動するカードはありません。",
   "wizard.page": "ページ",
   "wizard.selectAll": "すべて選択",
-  "wizard.slot": "スロット {slot}"
+  "wizard.slot": "スロット {slot}",
+  "product.addedOn": "{date} に追加",
+  "product.addedManual": "追加済みとして記録"
 }

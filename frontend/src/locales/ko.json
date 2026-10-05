@@ -1105,5 +1105,7 @@
   "wizard.nothingToMove": "옮길 카드가 없습니다.",
   "wizard.page": "페이지",
   "wizard.selectAll": "전체 선택",
-  "wizard.slot": "{slot}번 칸"
+  "wizard.slot": "{slot}번 칸",
+  "product.addedOn": "{date} 추가됨",
+  "product.addedManual": "추가됨으로 표시"
 }

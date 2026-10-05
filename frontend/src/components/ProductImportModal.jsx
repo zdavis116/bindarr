@@ -44,6 +44,18 @@ const SECTION_KEYS = {
   Other: 'mpc.sectionOther',
 };
 
+// A date he can act on, not a timestamp. "Sep 28" answers "did I already do
+// this?" faster than an ISO string, and the year appears only when it is not
+// the current one.
+function formatLedgerDate(value) {
+  if (!value) return '';
+  const d = new Date(String(value).replace(' ', 'T') + (String(value).endsWith('Z') ? '' : 'Z'));
+  if (Number.isNaN(d.getTime())) return '';
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts);
+}
+
 export default function ProductImportModal({ onClose, onAdded, showToast }) {
   const { t } = useT();
   const [query, setQuery] = useState('');
@@ -64,6 +76,52 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
   // NOT CONNECTED is a state, not an error: he has not done anything wrong.
   const [ordersState, setOrdersState] = useState(null);
+
+  // THE IMPORT LEDGER, keyed by product id.
+  //
+  // Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+  //
+  // The answer belongs HERE, on the row he is about to click, not on a separate
+  // history screen he would have to think to go and check. By the time he is
+  // looking at "Death Toll" in this list, the question is already live.
+  //
+  // THIS IS RECORDED HISTORY, NEVER AN OWNERSHIP GUESS. A row appears only if
+  // this app really performed the import or he wrote it down himself. Absence
+  // means "no record", NOT "you don't own it" -- anything added before this
+  // feature existed has no row, so the badge never claims the negative.
+  const [ledger, setLedger] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/products/ledger', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => { if (alive && body) setLedger(body.entries || []); })
+      // A ledger that fails to load must leave the badge ABSENT, never show a
+      // wrong one. Silent because it is an enhancement to the row, not the
+      // feature he came here for.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Index by product id AND by name, because a manual backfill row has no
+  // product id -- he remembers "Death Toll", not its MTGJSON filename.
+  const ledgerIndex = useMemo(() => {
+    const byId = new Map();
+    const byName = new Map();
+    for (const e of ledger || []) {
+      if (e.productId) byId.set(e.productId, e);
+      if (e.productName) byName.set(e.productName.trim().toLowerCase(), e);
+    }
+    return { byId, byName };
+  }, [ledger]);
+
+  const importedEntry = useCallback((edition, baseName) => {
+    if (!ledger) return null;
+    return ledgerIndex.byId.get(edition?.id)
+      || ledgerIndex.byName.get((edition?.name || '').trim().toLowerCase())
+      || ledgerIndex.byName.get((baseName || '').trim().toLowerCase())
+      || null;
+  }, [ledger, ledgerIndex]);
 
   const search = useCallback(async (q, k) => {
     setSearching(true);
@@ -222,14 +280,30 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
             {!searching && kind !== 'orders' && groups && groups.length > 0 && (
               <div className="pp-results">
-                {groups.map((g) => (
+                {groups.map((g) => {
+                  // One edition means one answer; several means the badge would
+                  // be ambiguous, so it moves down onto the edition buttons.
+                  const entry = g.editions.length === 1
+                    ? importedEntry(g.editions[0], g.base) : null;
+                  return (
                   <div key={`${g.kind}:${g.base}`}>
                     <button type="button" className="pp-prod" disabled={loading}
                       onClick={() => (g.editions.length > 1
                         ? setEditionFor(editionFor?.base === g.base ? null : g)
                         : openProduct(g.editions[0]))}>
                       <span className="pp-pmain">
-                        <span className="pp-pname">{g.base}</span>
+                        <span className="pp-pname">
+                          <span className="pp-nametext">{g.base}</span>
+                          {/* ADDED ALREADY. The whole point of the feature:
+                              answered on the row, before the click. */}
+                          {entry && (
+                            <span className={`pp-added ${entry.source}`}>
+                              {entry.source === 'manual'
+                                ? t('product.addedManual')
+                                : t('product.addedOn', { date: formatLedgerDate(entry.addedAt) })}
+                            </span>
+                          )}
+                        </span>
                         <span className="pp-pmeta">
                           {g.kind === 'precon' ? t('product.kindPrecon') : t('product.kindSecretLair')}
                           {/* The SET NAME, not the three-letter code. Zach
@@ -253,6 +327,7 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                         <div className="pp-edopts">
                           {g.editions.map((e) => {
                             const isFoil = /foil/i.test(e.name);
+                            const edEntry = importedEntry(e, null);
                             return (
                               <button key={e.id} type="button" className="pp-edopt"
                                 onClick={() => openProduct(e)}>
@@ -260,6 +335,17 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                                   {isFoil ? t('product.foil') : t('product.nonfoil')}
                                 </span>
                                 <span className="pp-edname">{e.name}</span>
+                                {/* The edition is what gets added, so this is
+                                    where the answer has to be when there is a
+                                    choice -- the foil and nonfoil twins are
+                                    separate imports. */}
+                                {edEntry && (
+                                  <span className={`pp-added ${edEntry.source}`}>
+                                    {edEntry.source === 'manual'
+                                      ? t('product.addedManual')
+                                      : t('product.addedOn', { date: formatLedgerDate(edEntry.addedAt) })}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -267,7 +353,8 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
