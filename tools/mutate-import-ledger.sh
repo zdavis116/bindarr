@@ -49,10 +49,18 @@ expect() {
     # Match the FAIL line only. An earlier version grepped the whole output and
     # always found "PASS: IL-TC1" first, reporting WRONG TEST for every
     # correctly-failing guard. The harness must not lie about the harness.
+    #
+    # ACCEPT ANY of the expected ids: a mutation can legitimately trip more than
+    # one guard, and the FIRST to fail is whichever runs earlier. Nesting a
+    # third .pp-markbtn trips IL-TC11 (which counts the buttons) before IL-TC12
+    # (which checks nesting) -- both are correct, and demanding one exact id
+    # reports a working guard as broken.
     local got; got=$(grep -o 'FAIL: IL-TC[0-9]*' /tmp/il-out | head -1 | sed 's/FAIL: //')
-    if [ "$got" = "$want" ]; then echo "  failed as intended: $got"
-    else echo "  !!! WRONG TEST: expected $want, got '${got:-<crash>}'"
-      FAILURES=$((FAILURES + 1)); fi
+    case " $want " in
+      *" $got "*) echo "  failed as intended: $got" ;;
+      *) echo "  !!! WRONG TEST: expected $want, got '${got:-<crash>}'"
+         FAILURES=$((FAILURES + 1)) ;;
+    esac
   fi
   restore
 }
@@ -141,40 +149,24 @@ try "delete entry also deletes the cards" IL-TC9 "$RT" \
 echo
 echo "=== mark-added mutations ==="
 
-# Double-tap on a scrolling list writes two conflicting claims about one
-# product.
-try "dedupe check removed" IL-TC10 "$RT" \
-  "    if (productId) {" \
-  "    if (false) {"
-
-# THE DANGEROUS ONE. If a verified import can be unmarked as easily as his own
-# note, one mis-tap destroys the only real evidence the app has.
-try "verified imports become unmarkable (product row)" IL-TC11 "$UI" \
-  "{g.editions.length === 1 && (!entry || entry.source === 'manual') && (" \
-  "{g.editions.length === 1 && ("
-
-try "verified imports become unmarkable (edition row)" IL-TC11 "$UI" \
-  "{(!edEntry || edEntry.source === 'manual') && (" \
-  "{(true) && ("
+# NOTE: the dedupe / mark-gate / marking-writes-cards mutations that lived here
+# are GONE, along with the feature. Hand-marking was removed at Zach's request,
+# so their anchors went stale and every one of them ABORTED -- a harness full of
+# mutations for deleted code reports problems that are not problems and buries
+# the real ones. The replacements for the removed state are further down
+# ("manual-mark route still writes rows", "unmark removed along with mark").
 
 # A button inside a button is unnested by the browser: rendered, in the DOM,
 # and NOT clickable. The exact reachability failure this project keeps hitting.
-try "mark button nested inside the row button" IL-TC12 "$UI" \
+#
+# The anchor is the EDITION row's button, because the product row's unmark is
+# now conditional and the Package icon it used to sit beside moved.
+try "mark button nested inside the row button" "IL-TC11 IL-TC12" "$UI" \
   "                        <Package size={15} className=\"pp-picon\" />
                       </button>" \
   "                        <Package size={15} className=\"pp-picon\" />
                         <button className=\"pp-markbtn\">x</button>
                       </button>"
-
-# Marking must write a NOTE, never cards.
-try "marking also writes collection rows" IL-TC13 "$RT" \
-  "    const result = await db.run(
-      \`INSERT INTO import_ledger
-         (user_id, kind, product_id, product_name, set_code, cards_added," \
-  "    await db.run(\`INSERT INTO collection (card_id) VALUES ('x')\`);
-    const result = await db.run(
-      \`INSERT INTO import_ledger
-         (user_id, kind, product_id, product_name, set_code, cards_added,"
 
 echo
 echo "=== added-to-top sort mutations ==="
