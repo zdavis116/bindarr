@@ -380,57 +380,25 @@ router.get('/ledger', async (req, res) => {
   }
 });
 
-// HAND-ENTER SOMETHING ALREADY ADDED.
+// HAND-ENTERING AN IMPORT IS NO LONGER POSSIBLE.
 //
-// He said he can list the precons he added before this existed. A backfilled
-// row is HIS MEMORY, not our evidence, so it is stored with source='manual' and
-// the UI must show that difference. Collapsing the two would turn a recollection
-// into a system record.
+// Zach: "Now that I marked everything I needed added. Can we take away the
+// ability to manually add precons. Because at this point it should no longer
+// be needed."
 //
-// This writes NO CARDS. It is a note that an import happened, nothing more --
-// which is why it cannot silently duplicate a real collection.
+// THE ROUTE IS GONE, not just the button. Removing a control from the UI while
+// leaving the endpoint live is a half-measure: the write is still reachable,
+// and the next component that wants a shortcut will find it. The ledger's whole
+// value is that `source: 'import'` means the app really did it -- the fewer
+// ways a row can be created by hand, the more that is worth.
+//
+// Existing manual rows from the backfill KEEP WORKING and can still be removed
+// via DELETE below; this only stops new ones being written.
 router.post('/ledger', async (req, res) => {
-  const { product_name: productName, kind, set_code: setCode,
-          product_id: productId,
-          cards_added: cardsAdded, note, added_at: addedAt } = req.body || {};
-  const name = typeof productName === 'string' ? productName.trim() : '';
-  if (!name) {
-    return res.status(400).json({ error: 'product_name is required' });
-  }
-  const allowedKinds = new Set(['precon', 'secretlair', 'order', 'other']);
-  const entryKind = allowedKinds.has(kind) ? kind : 'precon';
-  try {
-    // MARKING THE SAME PRODUCT TWICE IS NOT AN ERROR, AND NOT A SECOND ROW.
-    //
-    // The button that calls this sits on a list he scrolls; a double tap, or
-    // marking something already marked, must be a no-op rather than two
-    // conflicting claims about the same product. Only id-bearing rows can be
-    // deduped reliably -- a hand-typed name is not an identity.
-    if (productId) {
-      const existing = await db.get(
-        `SELECT id, source FROM import_ledger WHERE user_id = ? AND product_id = ?`,
-        [req.user.id, productId]
-      );
-      if (existing) {
-        return res.status(200).json({ id: existing.id, productName: name,
-          source: existing.source, alreadyRecorded: true });
-      }
-    }
-    const result = await db.run(
-      `INSERT INTO import_ledger
-         (user_id, kind, product_id, product_name, set_code, cards_added,
-          rows_added, source, note, added_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, 'manual', ?, COALESCE(?, CURRENT_TIMESTAMP))`,
-      [req.user.id, entryKind, productId || null, name, setCode || null,
-       Number.isFinite(cardsAdded) ? cardsAdded : 0,
-       typeof note === 'string' ? note : '',
-       addedAt || null]
-    );
-    res.status(201).json({ id: result.lastID, productName: name, source: 'manual' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to record that import' });
-  }
+  res.status(410).json({
+    error: 'Marking a product as added by hand is no longer supported. Import it instead.',
+    code: 'MANUAL_LEDGER_REMOVED',
+  });
 });
 
 // REMOVE A LEDGER ENTRY. Mistyped backfill, or an import he wants to disown.

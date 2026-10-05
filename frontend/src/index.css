@@ -6111,19 +6111,19 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 
 /* ADDED ALREADY.
    Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+   and later: "can you make all the badges show green so they stand out"
 
-   This is RECORDED HISTORY, never an ownership guess. Green reads as "yes,
-   done" -- which is only honest because a row exists solely when the app
-   really performed the import. A manual backfill is his own recollection, so
-   it is deliberately a DIFFERENT, quieter colour: the user must be able to
-   tell what the app knows from what he told it. */
+   ONE COLOUR, GREEN, for both sources. The muted grey on hand-marked rows was
+   doing a job nobody asked for -- it made his own backfill look second-class
+   and, worse, nearly invisible against the panel. The honest distinction he
+   actually needs is in the TEXT ("Added Oct 5" vs "Marked added"), which stays.
+   Now that hand-marking is gone the distinction is also historical: every new
+   row is a real import. */
 .pp-added { flex-shrink: 0; font-size: 0.67rem; font-weight: 700;
   letter-spacing: 0.01em; padding: 0.12rem 0.42rem; border-radius: 999px;
-  white-space: nowrap; }
-.pp-added.import { color: #7ddc9a; background: rgba(125,220,154,0.13);
+  white-space: nowrap;
+  color: #7ddc9a; background: rgba(125,220,154,0.13);
   border: 1px solid rgba(125,220,154,0.34); }
-.pp-added.manual { color: var(--text-muted); background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.16); }
 
 /* THE EDITION QUESTION. 332 of 751 Secret Lair drops have a foil twin whose
    name differs by a suffix, and picking wrong records cards he does not own.

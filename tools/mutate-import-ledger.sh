@@ -13,8 +13,9 @@ DB=backend/src/db.js
 RT=backend/src/routes/products.js
 SVC=backend/src/services/mtgjsonProducts.js
 UI=frontend/src/components/ProductImportModal.jsx
+CSS=frontend/src/index.css
 TEST=backend/test/e2e/import_ledger.test.js
-FILES="$DB $RT $SVC $UI"
+FILES="$DB $RT $SVC $UI $CSS"
 
 if ! git diff --quiet -- $FILES; then
   echo "REFUSING TO RUN: uncommitted changes in the files under test."
@@ -229,6 +230,38 @@ try "Select all re-ticks received cards" IL-TC16 "$UI" \
                 .filter((c) => c.alreadyAdded >= c.quantity)
                 .map((c) => c.scryfallId)))}>" \
   "              <button type=\"button\" onClick={() => setExcluded(new Set())}>"
+
+# Removing the BUTTON but leaving the ROUTE writing rows is the half-measure:
+# the hand-made write stays reachable.
+try "manual-mark route still writes rows" IL-TC10 "$RT" \
+  "  res.status(410).json({
+    error: 'Marking a product as added by hand is no longer supported. Import it instead.',
+    code: 'MANUAL_LEDGER_REMOVED',
+  });" \
+  "  await db.run(\`INSERT INTO import_ledger (user_id, kind, product_name, source)
+     VALUES (?, 'precon', ?, 'manual')\`, [req.user.id, req.body.product_name]);
+  res.status(201).json({ ok: true });"
+
+# Unmark must survive the removal, or a mis-marked row is permanent.
+try "unmark removed along with mark" IL-TC11 "$UI" \
+  "                      {g.editions.length === 1 && entry?.source === 'manual' && (" \
+  "                      {false && ("
+
+# A verified import must still have no control at all.
+try "verified imports become unmarkable" IL-TC11 "$UI" \
+  "                              {edEntry?.source === 'manual' && (" \
+  "                              {true && ("
+
+echo
+echo "=== badge colour mutations ==="
+
+# The muted grey variant comes back: his own marks fade out again.
+try "manual badges go grey again" IL-TC17 "$CSS" \
+  "  color: #7ddc9a; background: rgba(125,220,154,0.13);
+  border: 1px solid rgba(125,220,154,0.34); }" \
+  "  color: #7ddc9a; background: rgba(125,220,154,0.13);
+  border: 1px solid rgba(125,220,154,0.34); }
+.pp-added.manual { color: var(--text-muted); }"
 
 echo
 # THE HARNESS MUST NOT LIE. An earlier version of this pattern silently reverted

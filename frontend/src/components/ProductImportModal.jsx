@@ -13,7 +13,7 @@
 // Two steps, because he chose "show me the list first, let me confirm or untick
 // cards, then add": nothing is written until the final button.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, Search, Package, AlertTriangle, Check } from 'lucide-react';
+import { X, Search, Package, AlertTriangle } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { groupIntoSections, sectionCardCount } from './deckListSections.js';
 
@@ -137,37 +137,16 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
   //
   // THIS WRITES NO CARDS. It records that an import happened; the collection is
   // untouched. That is the whole reason it is safe to offer as one tap.
+  // MARKING BY HAND IS GONE. Zach: "Now that I marked everything I needed
+  // added. Can we take away the ability to manually add precons."
+  //
+  // markAdded() is DELETED, not merely unrendered. A function kept alive with
+  // no caller is a loaded gun for the next edit, and this one writes records
+  // that claim he owns something.
+  //
+  // `unmark` stays: it is the only way back from a mis-marked row, and the
+  // backfilled rows are still out there. The route behind it is unchanged.
   const [marking, setMarking] = useState(null);
-
-  const markAdded = async (edition, kind) => {
-    setMarking(edition.id);
-    try {
-      const res = await fetch('/api/products/ledger', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: edition.id,
-          product_name: edition.name,
-          set_code: edition.setCode || null,
-          kind: kind || 'precon',
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || t('product.errMark'));
-      // Re-read the ledger rather than patching local state: the server is the
-      // record, and it may have deduped rather than inserted.
-      const fresh = await fetch('/api/products/ledger', { credentials: 'include' });
-      if (fresh.ok) setLedger((await fresh.json()).entries || []);
-      showToast(body.alreadyRecorded
-        ? t('product.markAlready', { name: edition.name })
-        : t('product.markDone', { name: edition.name }), 'success');
-    } catch (err) {
-      showToast(err.message || t('product.errMark'), 'error');
-    } finally {
-      setMarking(null);
-    }
-  };
 
   const unmark = async (entryId, name) => {
     setMarking(entryId);
@@ -407,21 +386,30 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                         <Package size={15} className="pp-picon" />
                       </button>
 
-                      {/* MARK / UNMARK. Only where there is ONE edition -- with
-                          a foil twin the question "which one did you add?" has
-                          no answer at this level, so it moves onto the edition
-                          buttons below. A VERIFIED import has no control: the
-                          app recorded that itself and he must not be able to
-                          erase a real event by mistaking it for his own note. */}
-                      {g.editions.length === 1 && (!entry || entry.source === 'manual') && (
+                      {/* UNMARK ONLY. The mark action is gone.
+                          Zach: "Now that I marked everything I needed added.
+                          Can we take away the ability to manually add precons.
+                          Because at this point it should no longer be needed."
+
+                          The backfill was a one-off: the ledger could not know
+                          what he added before it existed, and now it does.
+                          Every future row comes from a real import, so a button
+                          that writes a hand-made record is a way to create a
+                          wrong one -- and an accidental tap would claim he owns
+                          a deck he does not.
+
+                          UNMARK SURVIVES, deliberately. It is the only way back
+                          from a mis-marked row, and removing the undo alongside
+                          the action would make a mistake permanent. A VERIFIED
+                          import still has no control at all: the app recorded
+                          that itself. */}
+                      {g.editions.length === 1 && entry?.source === 'manual' && (
                         <button type="button" className="pp-markbtn"
-                          disabled={marking === g.editions[0].id || marking === entry?.id}
-                          title={entry ? t('product.unmarkHint') : t('product.markHint')}
-                          onClick={() => (entry
-                            ? unmark(entry.id, g.base)
-                            : markAdded(g.editions[0], g.kind))}>
-                          {entry ? <X size={14} /> : <Check size={14} />}
-                          <span>{entry ? t('product.unmark') : t('product.mark')}</span>
+                          disabled={marking === entry.id}
+                          title={t('product.unmarkHint')}
+                          onClick={() => unmark(entry.id, g.base)}>
+                          <X size={14} />
+                          <span>{t('product.unmark')}</span>
                         </button>
                       )}
                     </div>
@@ -460,15 +448,13 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                                   </span>
                                 )}
                               </button>
-                              {(!edEntry || edEntry.source === 'manual') && (
+                              {edEntry?.source === 'manual' && (
                                 <button type="button" className="pp-markbtn"
-                                  disabled={marking === e.id || marking === edEntry?.id}
-                                  title={edEntry ? t('product.unmarkHint') : t('product.markHint')}
-                                  onClick={() => (edEntry
-                                    ? unmark(edEntry.id, e.name)
-                                    : markAdded(e, g.kind))}>
-                                  {edEntry ? <X size={14} /> : <Check size={14} />}
-                                  <span>{edEntry ? t('product.unmark') : t('product.mark')}</span>
+                                  disabled={marking === edEntry.id}
+                                  title={t('product.unmarkHint')}
+                                  onClick={() => unmark(edEntry.id, e.name)}>
+                                  <X size={14} />
+                                  <span>{t('product.unmark')}</span>
                                 </button>
                               )}
                               </div>

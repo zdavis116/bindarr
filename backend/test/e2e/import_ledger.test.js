@@ -255,53 +255,47 @@ async function runTests() {
     console.error('FAIL: IL-TC9 -', err.message);
     throw err;
   }
-  // IL-TC10: marking the same product twice does NOT create a second row.
+  // IL-TC10: hand-marking is GONE, route and all.
   //
-  // The mark button sits on a scrolling list; a double tap must be a no-op, not
-  // two conflicting claims about one product. Dedupe is by product_id, because
-  // only an id is an identity -- a typed name is not.
+  // Zach: "Now that I marked everything I needed added. Can we take away the
+  // ability to manually add precons. Because at this point it should no longer
+  // be needed."
   //
-  // The first version only asserted the SELECT text, and the mutation
-  // `if (productId)` -> `if (false)` left that string sitting in DEAD CODE, so
-  // the test passed while dedupe was off. Both the live guard AND the query's
-  // real behaviour are checked now.
+  // REMOVING THE BUTTON IS NOT REMOVING THE FEATURE. If POST /ledger still
+  // wrote rows, the write would stay reachable and the next component wanting
+  // a shortcut would find it. The ledger's value is that a row means the app
+  // really did the import.
   try {
     const post = SRC.slice(SRC.indexOf("router.post('/ledger'"));
     const body = post.slice(0, post.indexOf('router.delete'));
-    assert.match(body, /if\s*\(\s*productId\s*\)\s*\{/,
-      'the dedupe branch must actually run when a product_id is supplied');
-    assert.match(body, /SELECT id, source FROM import_ledger WHERE user_id = \? AND product_id = \?/,
-      'the manual route must look for an existing row by product_id');
-    assert.match(body, /alreadyRecorded: true/,
-      'a duplicate must report itself rather than inserting again');
-
-    // And the query really finds a prior row, rather than merely existing.
-    await db.run(
-      `INSERT INTO import_ledger (user_id, kind, product_id, product_name, source)
-       VALUES (1, 'precon', 'DedupeMe_DSC', 'Dedupe Me', 'manual')`);
-    const found = await db.get(
-      `SELECT id, source FROM import_ledger WHERE user_id = ? AND product_id = ?`,
-      [1, 'DedupeMe_DSC']);
-    assert.ok(found && found.id, 'the dedupe query must find the existing row');
-    const count = await db.get(
-      `SELECT COUNT(*) n FROM import_ledger WHERE product_id = 'DedupeMe_DSC'`);
-    assert.strictEqual(count.n, 1, 'exactly one row per marked product');
+    assert.doesNotMatch(body, /INSERT INTO import_ledger/,
+      'the manual-mark route must no longer write ledger rows');
+    assert.match(body, /MANUAL_LEDGER_REMOVED/,
+      'the route must refuse explicitly rather than 404 by accident');
+    // And the UI must not call it.
+    assert.ok(!/markAdded/.test(UI),
+      'markAdded must be DELETED, not merely unrendered');
+    assert.ok(!/t\('product\.mark'\)/.test(UI),
+      'the Mark added control must be gone from the picker');
     console.log('PASS: IL-TC10');
   } catch (err) {
     console.error('FAIL: IL-TC10 -', err.message);
     throw err;
   }
 
-  // IL-TC11: A VERIFIED IMPORT CANNOT BE UNMARKED FROM THE UI.
+  // IL-TC11: UNMARK SURVIVES, and only for his own rows.
   //
-  // The app recorded that event itself. If he could delete it as easily as his
-  // own note, one mis-tap destroys the only real evidence and the feature
-  // answers "did I add this?" with silence for a deck he definitely owns. The
-  // control renders only when there is no entry, or the entry is his own.
+  // Removing the undo alongside the action would make a mis-marked row
+  // permanent -- the backfilled rows are still in the ledger. A VERIFIED
+  // import still has no control at all: the app recorded that itself.
   try {
-    const guards = [...UI.matchAll(/!(\w*[Ee]ntry)\s*\|\|\s*\1\.source === 'manual'/g)];
+    assert.match(UI, /unmark\(/, 'unmark must still be reachable');
+    const guards = [...UI.matchAll(/(\w*[Ee]ntry)\??\.source === 'manual'/g)];
     assert.ok(guards.length >= 2,
-      `both the product row and the edition row must gate the mark control on source==='manual'; found ${guards.length}`);
+      `both rows must gate unmark on source==='manual'; found ${guards.length}`);
+    // The delete route is untouched.
+    assert.match(SRC, /DELETE FROM import_ledger WHERE id = \? AND user_id = \?/,
+      'the delete route must still work');
     console.log('PASS: IL-TC11');
   } catch (err) {
     console.error('FAIL: IL-TC11 -', err.message);
@@ -331,19 +325,43 @@ async function runTests() {
     throw err;
   }
 
-  // IL-TC13: marking writes NO cards. The entire safety of offering this as
-  // one tap rests on it being a note, not an import.
+  // IL-TC13: nothing in the ledger routes writes cards.
+  //
+  // The manual-mark route is gone, but the rule it existed under still holds
+  // for everything on this router: recording history must never put cardboard
+  // on his shelf.
   try {
     const post = SRC.slice(SRC.indexOf("router.post('/ledger'"));
     const body = post.slice(0, post.indexOf('router.delete'));
     assert.doesNotMatch(body, /INSERT INTO collection/i,
-      'the manual mark route must never write collection rows');
+      'a ledger route must never write collection rows');
     assert.doesNotMatch(body, /addCardToCollection|addCardsInOneTransaction/,
-      'the manual mark route must not call the card adder');
-    assert.match(body, /'manual'/, "rows written here must be marked 'manual'");
+      'a ledger route must not call the card adder');
     console.log('PASS: IL-TC13');
   } catch (err) {
     console.error('FAIL: IL-TC13 -', err.message);
+    throw err;
+  }
+
+  // IL-TC17: every badge is green.
+  //
+  // Zach: "can you make all the badges show green so they stand out"
+  //
+  // The muted grey on hand-marked rows made his own backfill nearly invisible.
+  // The honest distinction stays in the TEXT ("Added Oct 5" vs "Marked added"),
+  // not in a colour he has to squint at.
+  try {
+    const css = fs.readFileSync(
+      path.join(__dirname, '../../../frontend/src/index.css'), 'utf8');
+    assert.ok(!/\.pp-added\.manual\s*\{/.test(css),
+      'the muted manual badge variant must be gone');
+    const rule = css.slice(css.indexOf('.pp-added {'),
+                           css.indexOf('}', css.indexOf('.pp-added {')) + 1);
+    assert.match(rule, /color:\s*#7ddc9a/,
+      'the single .pp-added rule must carry the green colour itself');
+    console.log('PASS: IL-TC17');
+  } catch (err) {
+    console.error('FAIL: IL-TC17 -', err.message);
     throw err;
   }
   // IL-TC14: added products sort to the top BEFORE the result limit.
