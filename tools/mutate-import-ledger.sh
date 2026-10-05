@@ -88,6 +88,29 @@ try "orders path stops passing a descriptor" IL-TC4 "$RT" \
   "kind: 'order'," \
   "kindTYPO: 'order',"
 
+# The stronger version: drop the orders descriptor ENTIRELY. The first guard
+# matched /kind:\s*'order'/ against the whole file and survived the mutation
+# above, because an unrelated `kind: 'order'` elsewhere satisfied it.
+try "orders descriptor removed entirely" IL-TC4 "$RT" \
+  "const { added, failed, ledger } = await addCardsInOneTransaction(req.user, chosen, {
+      kind: 'order',
+      productId: String(order.id),
+      productName: \`Order \${order.orderNumber}\`,
+      setCode: null,
+    });" \
+  "const { added, failed, ledger } = await addCardsInOneTransaction(req.user, chosen);"
+
+# And the precon side of the same rule.
+try "precon descriptor removed entirely" IL-TC4 "$RT" \
+  "      {
+        kind: product.kind,
+        productId: product.id,
+        productName: product.name,
+        setCode: product.setCode,
+      },
+" \
+  ""
+
 # Log an import that added nothing: answers "did I add this?" with YES for a
 # product he does not own.
 try "empty imports get logged anyway" IL-TC5 "$RT" \

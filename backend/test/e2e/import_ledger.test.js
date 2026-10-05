@@ -108,13 +108,40 @@ async function runTests() {
   // project has already shipped a fix to one caller and left the other
   // (the repoint preview), producing a feature that was silently half-there.
   // A descriptor-less call would insert a row with a NULL product_name.
+  //
+  // ASSERT THE PROPERTY AT EACH CALL SITE, NOT A STRING THAT EXISTS SOMEWHERE.
+  // The first version matched /kind:\s*'order'/ against the whole file and
+  // passed while the orders descriptor was broken -- there is an unrelated
+  // `kind: 'order'` elsewhere in this file that satisfied it. A guard anchored
+  // to a shape rather than the intended case goes vacuous exactly like this.
   try {
-    const calls = [...SRC.matchAll(/addCardsInOneTransaction\s*\(/g)];
-    const callSites = calls.length - 1; // minus the declaration
-    assert.strictEqual(callSites, 2,
-      `expected 2 call sites, found ${callSites} -- a new caller must pass a descriptor`);
-    assert.match(SRC, /kind:\s*product\.kind/, 'precon path must pass a descriptor');
-    assert.match(SRC, /kind:\s*'order'/, 'orders path must pass a descriptor');
+    const decl = 'async function addCardsInOneTransaction';
+    const sites = [];
+    let from = SRC.indexOf(decl) + decl.length;
+    for (;;) {
+      const at = SRC.indexOf('addCardsInOneTransaction(', from);
+      if (at === -1) break;
+      // Read the full argument list of THIS call by balancing parentheses.
+      let depth = 0, end = SRC.indexOf('(', at);
+      const open = end;
+      do {
+        if (SRC[end] === '(') depth++;
+        else if (SRC[end] === ')') depth--;
+        end++;
+      } while (depth > 0 && end < SRC.length);
+      sites.push(SRC.slice(open, end));
+      from = end;
+    }
+    assert.strictEqual(sites.length, 2,
+      `expected 2 call sites, found ${sites.length} -- a new caller must pass a descriptor`);
+    for (const [i, args] of sites.entries()) {
+      // Three arguments, the third being a descriptor object with the fields
+      // the ledger row cannot be written without.
+      assert.match(args, /kind:/,
+        `call site ${i + 1} passes no kind -- descriptor missing`);
+      assert.match(args, /productName:/,
+        `call site ${i + 1} passes no productName -- the row would be NULL`);
+    }
     console.log('PASS: IL-TC4');
   } catch (err) {
     console.error('FAIL: IL-TC4 -', err.message);
