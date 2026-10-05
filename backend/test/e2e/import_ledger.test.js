@@ -288,11 +288,23 @@ async function runTests() {
   // Removing the undo alongside the action would make a mis-marked row
   // permanent -- the backfilled rows are still in the ledger. A VERIFIED
   // import still has no control at all: the app recorded that itself.
+  //
+  // ASSERT EACH RENDER SITE, NOT A COUNT OF MATCHES. The first version counted
+  // `source === 'manual'` across the whole file, so disabling ONE gate still
+  // left enough occurrences elsewhere to satisfy it -- both mutations passed
+  // while a gate was off. Every unmark button is located and its own condition
+  // checked.
   try {
     assert.match(UI, /unmark\(/, 'unmark must still be reachable');
-    const guards = [...UI.matchAll(/(\w*[Ee]ntry)\??\.source === 'manual'/g)];
-    assert.ok(guards.length >= 2,
-      `both rows must gate unmark on source==='manual'; found ${guards.length}`);
+    const sites = [...UI.matchAll(/className="pp-markbtn"/g)];
+    assert.strictEqual(sites.length, 2,
+      `expected exactly 2 unmark buttons, found ${sites.length}`);
+    for (const [i, m] of sites.entries()) {
+      // The JSX condition immediately preceding this button.
+      const before = UI.slice(Math.max(0, m.index - 220), m.index);
+      assert.match(before, /[Ee]ntry\??\.source === 'manual'\s*&&\s*\(/,
+        `unmark button ${i + 1} must be gated on source === 'manual'`);
+    }
     // The delete route is untouched.
     assert.match(SRC, /DELETE FROM import_ledger WHERE id = \? AND user_id = \?/,
       'the delete route must still work');
