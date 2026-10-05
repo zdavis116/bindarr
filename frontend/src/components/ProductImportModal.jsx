@@ -186,6 +186,35 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
     }
   };
 
+  // ADDED ONES FIRST.
+  //
+  // Zach: "when on precon view can we sort everything added to the top please"
+  //
+  // Sorted HERE, not in searchProducts, because the server has no idea what is
+  // in the ledger -- that is a per-user fact and the product catalogue is not.
+  //
+  // DERIVED, NEVER SORTED IN PLACE. `groups` is state owned by the search; a
+  // .sort() on it mutates that array and would reorder the list again on every
+  // unrelated re-render.
+  //
+  // Within each half the existing order is PRESERVED (newest release first),
+  // because that rule was a deliberate choice and he asked to lift the added
+  // ones out, not to replace it. Array.prototype.sort is stable in every engine
+  // this runs on, so returning 0 for same-group pairs keeps it.
+  const sortedGroups = useMemo(() => {
+    if (!groups) return groups;
+    // Until the ledger has loaded, DO NOT reorder. Sorting against a null
+    // ledger would show everything as unadded and then visibly jump once it
+    // arrives, which looks like a bug and moves a row out from under his tap.
+    if (!ledger) return groups;
+    const isAdded = (g) => (g.editions.length === 1
+      ? !!importedEntry(g.editions[0], g.base)
+      // With a foil twin, the group counts as added if EITHER edition is --
+      // the answer to "have I dealt with this drop?" is yes.
+      : g.editions.some((e) => !!importedEntry(e, null)));
+    return [...groups].sort((a, b) => (isAdded(b) ? 1 : 0) - (isAdded(a) ? 1 : 0));
+  }, [groups, ledger, importedEntry]);
+
   const search = useCallback(async (q, k) => {
     setSearching(true);
     setOrdersState(null);
@@ -343,7 +372,7 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
             {!searching && kind !== 'orders' && groups && groups.length > 0 && (
               <div className="pp-results">
-                {groups.map((g) => {
+                {sortedGroups.map((g) => {
                   // One edition means one answer; several means the badge would
                   // be ambiguous, so it moves down onto the edition buttons.
                   const entry = g.editions.length === 1

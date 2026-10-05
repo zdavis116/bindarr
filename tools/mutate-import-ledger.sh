@@ -175,6 +175,24 @@ try "marking also writes collection rows" IL-TC13 "$RT" \
          (user_id, kind, product_id, product_name, set_code, cards_added,"
 
 echo
+echo "=== added-to-top sort mutations ==="
+
+# The list renders the UNSORTED array: the sort exists but changes nothing.
+try "render ignores the sorted order" IL-TC14 "$UI" \
+  "{sortedGroups.map((g) => {" \
+  "{groups.map((g) => {"
+
+# Sorting state IN PLACE mutates the search results.
+try "sorts groups in place" IL-TC14 "$UI" \
+  "return [...groups].sort((a, b) =>" \
+  "return groups.sort((a, b) =>"
+
+# Reordering before the ledger arrives makes rows jump under his finger.
+try "reorders before the ledger loads" IL-TC14 "$UI" \
+  "    if (!ledger) return groups;" \
+  "    if (false) return groups;"
+
+echo
 # THE HARNESS MUST NOT LIE. An earlier version of this pattern silently reverted
 # a real fix by restoring from /tmp copies.
 if git diff --quiet -- $FILES; then

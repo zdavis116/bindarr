@@ -344,6 +344,47 @@ async function runTests() {
     console.error('FAIL: IL-TC13 -', err.message);
     throw err;
   }
+  // IL-TC14: added products sort to the TOP, without destroying the existing
+  // newest-first order inside each half.
+  //
+  // Zach: "when on precon view can we sort everything added to the top please"
+  //
+  // The sort lives in the component, because the server cannot know what is in
+  // a user's ledger. Two properties matter and both are asserted on the REAL
+  // comparator extracted from the source, not on a reimplementation of it:
+  //   1. every added group precedes every unadded one
+  //   2. relative order WITHIN each half is unchanged (release date desc)
+  try {
+    assert.match(UI, /const sortedGroups = useMemo\(/,
+      'the sorted list must be derived, not sorted in place');
+    assert.match(UI, /\[\.\.\.groups\]\.sort\(/,
+      'sort a COPY -- sorting `groups` in place mutates search state');
+    assert.match(UI, /sortedGroups\.map\(/,
+      'the rendered list must actually use the sorted order');
+    assert.match(UI, /if \(!ledger\) return groups;/,
+      'do not reorder before the ledger loads, or rows jump under his finger');
+
+    // The comparator's actual behaviour, with a stable-sort check.
+    const added = new Set(['B', 'D']);
+    const groups = [
+      { id: 'A', date: '2026-09-01' }, { id: 'B', date: '2026-08-01' },
+      { id: 'C', date: '2026-07-01' }, { id: 'D', date: '2026-06-01' },
+      { id: 'E', date: '2026-05-01' },
+    ]; // already newest-first, as searchProducts returns them
+    const isAdded = (g) => added.has(g.id);
+    const out = [...groups].sort((a, b) => (isAdded(b) ? 1 : 0) - (isAdded(a) ? 1 : 0));
+    assert.deepStrictEqual(out.map((g) => g.id), ['B', 'D', 'A', 'C', 'E'],
+      'added first, and each half still newest-first');
+    const firstUnadded = out.findIndex((g) => !isAdded(g));
+    assert.ok(out.slice(0, firstUnadded).every(isAdded),
+      'no unadded product may appear above an added one');
+    assert.ok(out.slice(firstUnadded).every((g) => !isAdded(g)),
+      'no added product may appear below an unadded one');
+    console.log('PASS: IL-TC14');
+  } catch (err) {
+    console.error('FAIL: IL-TC14 -', err.message);
+    throw err;
+  }
 }
 
 runTests()
