@@ -1123,10 +1123,6 @@
   "wizard.slot": "Platz {slot}",
   "product.addedOn": "Hinzugefügt {date}",
   "product.addedManual": "Als hinzugefügt markiert",
-  "product.unmark": "Entfernen",
-  "product.unmarkHint": "Notiz entfernen. Deine Karten bleiben unberührt.",
-  "product.markUndone": "Notiz für {name} entfernt",
-  "product.errMark": "Notiz konnte nicht aktualisiert werden",
   "product.cardAdded": "Hinzugefügt",
   "product.cardAddedPartial": "{n} von {total} hinzugefügt"
 }

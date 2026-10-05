@@ -1108,10 +1108,6 @@
   "wizard.slot": "{slot}번 칸",
   "product.addedOn": "{date} 추가됨",
   "product.addedManual": "추가됨으로 표시",
-  "product.unmark": "표시 해제",
-  "product.unmarkHint": "이 기록을 삭제합니다. 카드는 변경되지 않습니다.",
-  "product.markUndone": "{name}의 기록을 삭제했습니다",
-  "product.errMark": "기록을 업데이트할 수 없습니다",
   "product.cardAdded": "추가됨",
   "product.cardAddedPartial": "{total}장 중 {n}장 추가됨"
 }

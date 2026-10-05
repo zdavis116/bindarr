@@ -1138,10 +1138,6 @@
   "wizard.slot": "Espaço {slot}",
   "product.addedOn": "Adicionado {date}",
   "product.addedManual": "Marcado como adicionado",
-  "product.unmark": "Desmarcar",
-  "product.unmarkHint": "Remove esta nota. Suas cartas não são afetadas.",
-  "product.markUndone": "Nota removida para {name}",
-  "product.errMark": "Não foi possível atualizar a nota",
   "product.cardAdded": "Adicionada",
   "product.cardAddedPartial": "{n} de {total} adicionadas"
 }

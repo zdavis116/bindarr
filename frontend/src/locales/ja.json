@@ -1108,10 +1108,6 @@
   "wizard.slot": "スロット {slot}",
   "product.addedOn": "{date} に追加",
   "product.addedManual": "追加済みとして記録",
-  "product.unmark": "取り消す",
-  "product.unmarkHint": "この記録を削除します。カードは変更されません。",
-  "product.markUndone": "{name} の記録を削除しました",
-  "product.errMark": "記録を更新できませんでした",
   "product.cardAdded": "追加済み",
   "product.cardAddedPartial": "{total} 枚中 {n} 枚追加済み"
 }

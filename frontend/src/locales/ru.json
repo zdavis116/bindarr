@@ -1153,10 +1153,6 @@
   "wizard.slot": "Ячейка {slot}",
   "product.addedOn": "Добавлено {date}",
   "product.addedManual": "Отмечено как добавленное",
-  "product.unmark": "Снять отметку",
-  "product.unmarkHint": "Удаляет эту запись. Ваши карты не затрагиваются.",
-  "product.markUndone": "Запись для {name} удалена",
-  "product.errMark": "Не удалось обновить запись",
   "product.cardAdded": "Добавлена",
   "product.cardAddedPartial": "Добавлено {n} из {total}"
 }

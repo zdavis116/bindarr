@@ -123,47 +123,18 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
       || null;
   }, [ledger, ledgerIndex]);
 
-  // MARK SOMETHING HE ADDED BEFORE THIS FEATURE EXISTED.
+  // THE LEDGER IS READ-ONLY FROM THIS SCREEN.
   //
-  // Zach: "is there a way for me to mark precons I already added" -- the ledger
-  // starts empty and cannot know his history, so without this the feature is
-  // useless for exactly the two decks that prompted it.
+  // Zach: "Everything should be set and nothing should be able to be changed at
+  // this point."
   //
-  // MARKED FROM THE PICKER ROW, so the id and name come from MTGJSON rather
-  // than from typing. I hit the name-drift myself while testing: a row typed as
-  // "The Lost Caverns of Ixalan Commander: Blood Rites" never matches the
-  // product MTGJSON calls "Blood Rites", and the badge silently stays absent.
-  // Marking from the row cannot drift, because it carries the real id.
+  // Both hand-editing paths are DELETED, not unrendered: markAdded() wrote rows
+  // claiming he owned something, and unmark() destroyed them. The backfill is
+  // finished and correct, so each of those is now only a way to damage a record
+  // that is already right. A function kept alive with no caller is a loaded gun
+  // for the next edit.
   //
-  // THIS WRITES NO CARDS. It records that an import happened; the collection is
-  // untouched. That is the whole reason it is safe to offer as one tap.
-  // MARKING BY HAND IS GONE. Zach: "Now that I marked everything I needed
-  // added. Can we take away the ability to manually add precons."
-  //
-  // markAdded() is DELETED, not merely unrendered. A function kept alive with
-  // no caller is a loaded gun for the next edit, and this one writes records
-  // that claim he owns something.
-  //
-  // `unmark` stays: it is the only way back from a mis-marked row, and the
-  // backfilled rows are still out there. The route behind it is unchanged.
-  const [marking, setMarking] = useState(null);
-
-  const unmark = async (entryId, name) => {
-    setMarking(entryId);
-    try {
-      const res = await fetch(`/api/products/ledger/${entryId}`, {
-        method: 'DELETE', credentials: 'include',
-      });
-      if (!res.ok) throw new Error(t('product.errMark'));
-      const fresh = await fetch('/api/products/ledger', { credentials: 'include' });
-      if (fresh.ok) setLedger((await fresh.json()).entries || []);
-      showToast(t('product.markUndone', { name }), 'success');
-    } catch (err) {
-      showToast(err.message || t('product.errMark'), 'error');
-    } finally {
-      setMarking(null);
-    }
-  };
+  // The ledger now changes in exactly ONE way: a real import writes a row.
 
   // THE SORT LIVES ON THE SERVER. See searchProducts(addedIds).
   //
@@ -386,32 +357,19 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                         <Package size={15} className="pp-picon" />
                       </button>
 
-                      {/* UNMARK ONLY. The mark action is gone.
-                          Zach: "Now that I marked everything I needed added.
-                          Can we take away the ability to manually add precons.
-                          Because at this point it should no longer be needed."
+                      {/* THE LEDGER IS READ-ONLY.
+                          Zach: "Why is the unmarked button still there.
+                          Everything should be set and nothing should be able to
+                          be changed at this point."
 
-                          The backfill was a one-off: the ledger could not know
-                          what he added before it existed, and now it does.
-                          Every future row comes from a real import, so a button
-                          that writes a hand-made record is a way to create a
-                          wrong one -- and an accidental tap would claim he owns
-                          a deck he does not.
+                          He asked for hand-editing to go and I kept Unmark
+                          anyway, reasoning he might need an undo. He did not
+                          ask for one. The backfill is finished and correct, so
+                          every control that writes to the ledger by hand is now
+                          only a way to damage a record that is already right.
 
-                          UNMARK SURVIVES, deliberately. It is the only way back
-                          from a mis-marked row, and removing the undo alongside
-                          the action would make a mistake permanent. A VERIFIED
-                          import still has no control at all: the app recorded
-                          that itself. */}
-                      {g.editions.length === 1 && entry?.source === 'manual' && (
-                        <button type="button" className="pp-markbtn"
-                          disabled={marking === entry.id}
-                          title={t('product.unmarkHint')}
-                          onClick={() => unmark(entry.id, g.base)}>
-                          <X size={14} />
-                          <span>{t('product.unmark')}</span>
-                        </button>
-                      )}
+                          From here the ledger changes in exactly ONE way: a
+                          real import writes a row. */}
                     </div>
 
                     {/* THE EDITION CHOICE, inline under the row it belongs to. */}
@@ -448,15 +406,6 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                                   </span>
                                 )}
                               </button>
-                              {edEntry?.source === 'manual' && (
-                                <button type="button" className="pp-markbtn"
-                                  disabled={marking === edEntry.id}
-                                  title={t('product.unmarkHint')}
-                                  onClick={() => unmark(edEntry.id, e.name)}>
-                                  <X size={14} />
-                                  <span>{t('product.unmark')}</span>
-                                </button>
-                              )}
                               </div>
                             );
                           })}

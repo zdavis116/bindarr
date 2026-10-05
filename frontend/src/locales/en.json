@@ -1837,10 +1837,6 @@
   "deck.matchOnAnotherTab": "In this deck, but not on this tab.",
   "product.addedOn": "Added {date}",
   "product.addedManual": "Marked added",
-  "product.unmark": "Unmark",
-  "product.unmarkHint": "Remove this note. Your cards are not touched.",
-  "product.markUndone": "Removed the note for {name}",
-  "product.errMark": "Could not update that note",
   "product.cardAdded": "Added",
   "product.cardAddedPartial": "{n} of {total} added"
 }

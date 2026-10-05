@@ -242,14 +242,23 @@ async function runTests() {
     throw err;
   }
 
-  // IL-TC9: deleting a ledger entry must not delete cards. The note and the
-  // cardboard are separate facts.
+  // IL-TC9: no ledger route may ever touch the collection.
+  //
+  // The rule outlives the delete route it was written for. Recording or
+  // refusing history must never add or remove cardboard -- the note and the
+  // cards are separate facts, and this file now has three ledger handlers that
+  // all have to obey it.
   try {
-    const handler = SRC.slice(SRC.indexOf("router.delete('/ledger/:entryId'"));
-    const body = handler.slice(0, handler.indexOf('});'));
-    assert.doesNotMatch(body, /FROM\s+collection/i,
-      'deleting a ledger entry must never touch the collection');
-    assert.match(body, /DELETE FROM import_ledger/);
+    // Anchored on CODE, not on a comment: SRC has its comments stripped, so
+    // '// THE CONFIRM LIST' is not in it.
+    const start = SRC.indexOf("router.get('/ledger'");
+    const end = SRC.indexOf("router.get('/:id/cards'");
+    assert.ok(start > 0 && end > start, 'could not locate the ledger routes');
+    const ledgerRoutes = SRC.slice(start, end);
+    assert.doesNotMatch(ledgerRoutes, /FROM\s+collection/i,
+      'no ledger route may read or write the collection');
+    assert.doesNotMatch(ledgerRoutes, /addCardToCollection|addCardsInOneTransaction/,
+      'no ledger route may call the card adder');
     console.log('PASS: IL-TC9');
   } catch (err) {
     console.error('FAIL: IL-TC9 -', err.message);
@@ -283,31 +292,33 @@ async function runTests() {
     throw err;
   }
 
-  // IL-TC11: UNMARK SURVIVES, and only for his own rows.
+  // IL-TC11: THE LEDGER IS APPEND-ONLY. No hand-edit survives, UI or route.
   //
-  // Removing the undo alongside the action would make a mis-marked row
-  // permanent -- the backfilled rows are still in the ledger. A VERIFIED
-  // import still has no control at all: the app recorded that itself.
+  // Zach: "Why is the unmarked button still there. Everything should be set and
+  // nothing should be able to be changed at this point."
   //
-  // ASSERT EACH RENDER SITE, NOT A COUNT OF MATCHES. The first version counted
-  // `source === 'manual'` across the whole file, so disabling ONE gate still
-  // left enough occurrences elsewhere to satisfy it -- both mutations passed
-  // while a gate was off. Every unmark button is located and its own condition
-  // checked.
+  // I removed the write and kept the delete, reasoning he might want an undo.
+  // He had not asked for one. Both are gone now: the only way a ledger row is
+  // created is a real import, and no row can be destroyed from the app at all.
   try {
-    assert.match(UI, /unmark\(/, 'unmark must still be reachable');
-    const sites = [...UI.matchAll(/className="pp-markbtn"/g)];
-    assert.strictEqual(sites.length, 2,
-      `expected exactly 2 unmark buttons, found ${sites.length}`);
-    for (const [i, m] of sites.entries()) {
-      // The JSX condition immediately preceding this button.
-      const before = UI.slice(Math.max(0, m.index - 220), m.index);
-      assert.match(before, /[Ee]ntry\??\.source === 'manual'\s*&&\s*\(/,
-        `unmark button ${i + 1} must be gated on source === 'manual'`);
-    }
-    // The delete route is untouched.
-    assert.match(SRC, /DELETE FROM import_ledger WHERE id = \? AND user_id = \?/,
-      'the delete route must still work');
+    // No mark/unmark control of any kind remains in the picker.
+    assert.ok(!/pp-markbtn/.test(UI),
+      'no mark or unmark button may remain in the picker');
+    assert.ok(!/markAdded|unmark\(/.test(UI),
+      'both hand-edit functions must be DELETED, not merely unrendered');
+
+    // Both routes refuse, and neither touches the table.
+    const post = SRC.slice(SRC.indexOf("router.post('/ledger'"));
+    const postBody = post.slice(0, post.indexOf('router.delete'));
+    assert.match(postBody, /MANUAL_LEDGER_REMOVED/,
+      'POST /ledger must refuse explicitly');
+
+    const del = SRC.slice(SRC.indexOf("router.delete('/ledger/:entryId'"));
+    const delBody = del.slice(0, del.indexOf('});') + 3);
+    assert.doesNotMatch(delBody, /DELETE FROM import_ledger/,
+      'the delete route must no longer destroy ledger rows');
+    assert.match(delBody, /LEDGER_READ_ONLY/,
+      'the delete route must refuse explicitly');
     console.log('PASS: IL-TC11');
   } catch (err) {
     console.error('FAIL: IL-TC11 -', err.message);

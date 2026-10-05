@@ -1108,10 +1108,6 @@
   "wizard.slot": "第 {slot} 格",
   "product.addedOn": "{date} 已新增",
   "product.addedManual": "標記為已新增",
-  "product.unmark": "取消標記",
-  "product.unmarkHint": "刪除此記錄。你的卡牌不受影響。",
-  "product.markUndone": "已刪除 {name} 的記錄",
-  "product.errMark": "無法更新記錄",
   "product.cardAdded": "已新增",
   "product.cardAddedPartial": "已新增 {n}/{total}"
 }

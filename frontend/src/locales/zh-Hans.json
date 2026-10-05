@@ -1414,10 +1414,6 @@
   "wizard.slot": "第 {slot} 位",
   "product.addedOn": "{date} 已添加",
   "product.addedManual": "标记为已添加",
-  "product.unmark": "取消标记",
-  "product.unmarkHint": "删除此记录。你的卡牌不受影响。",
-  "product.markUndone": "已删除 {name} 的记录",
-  "product.errMark": "无法更新记录",
   "product.cardAdded": "已添加",
   "product.cardAddedPartial": "已添加 {n}/{total}"
 }

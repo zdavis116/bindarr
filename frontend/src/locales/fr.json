@@ -1138,10 +1138,6 @@
   "wizard.slot": "Emplacement {slot}",
   "product.addedOn": "Ajouté {date}",
   "product.addedManual": "Marqué comme ajouté",
-  "product.unmark": "Retirer",
-  "product.unmarkHint": "Supprime cette note. Vos cartes ne sont pas touchées.",
-  "product.markUndone": "Note supprimée pour {name}",
-  "product.errMark": "Impossible de mettre à jour la note",
   "product.cardAdded": "Ajoutée",
   "product.cardAddedPartial": "{n} sur {total} ajoutées"
 }

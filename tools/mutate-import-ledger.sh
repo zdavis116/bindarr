@@ -141,32 +141,52 @@ try "ledger routes declared after the parameterised ones" IL-TC8 "$RT" \
   "router.get('/ledger', async (req, res) => {" \
   "router.get('/zledger', async (req, res) => {"
 
-# Deleting history must never delete cardboard.
-try "delete entry also deletes the cards" IL-TC9 "$RT" \
-  "      \`DELETE FROM import_ledger WHERE id = ? AND user_id = ?\`," \
-  "      \`DELETE FROM collection WHERE id = ? AND user_id = ?\`,"
+# NO LEDGER ROUTE MAY TOUCH THE COLLECTION. The old anchor (a DELETE FROM
+# import_ledger that no longer exists) went stale when the route was withdrawn;
+# the RULE outlived it, so the mutation now adds a collection read to a ledger
+# handler instead.
+try "a ledger route reads the collection" IL-TC9 "$RT" \
+  "    const rows = await db.all(
+      \`SELECT id, kind, product_id AS productId, product_name AS productName," \
+  "    await db.all(\`SELECT id FROM collection WHERE user_id = ?\`, [req.user.id]);
+    const rows = await db.all(
+      \`SELECT id, kind, product_id AS productId, product_name AS productName,"
 
 echo
-echo "=== mark-added mutations ==="
+echo "=== append-only ledger mutations ==="
 
-# NOTE: the dedupe / mark-gate / marking-writes-cards mutations that lived here
-# are GONE, along with the feature. Hand-marking was removed at Zach's request,
-# so their anchors went stale and every one of them ABORTED -- a harness full of
-# mutations for deleted code reports problems that are not problems and buries
-# the real ones. The replacements for the removed state are further down
-# ("manual-mark route still writes rows", "unmark removed along with mark").
+# NOTE: the IL-TC12 nesting mutation is GONE with the button it nested. There is
+# no longer any control inside .pp-prod to misplace -- the ledger is read-only.
 
-# A button inside a button is unnested by the browser: rendered, in the DOM,
-# and NOT clickable. The exact reachability failure this project keeps hitting.
-#
-# The anchor is the EDITION row's button, because the product row's unmark is
-# now conditional and the Package icon it used to sit beside moved.
-try "mark button nested inside the row button" "IL-TC11 IL-TC12" "$UI" \
+# Removing the BUTTON but leaving the ROUTE writing rows is the half-measure:
+# the hand-made write stays reachable.
+try "manual-mark route still writes rows" IL-TC10 "$RT" \
+  "  res.status(410).json({
+    error: 'Marking a product as added by hand is no longer supported. Import it instead.',
+    code: 'MANUAL_LEDGER_REMOVED',
+  });" \
+  "  await db.run(\`INSERT INTO import_ledger (user_id, kind, product_name, source)
+     VALUES (?, 'precon', ?, 'manual')\`, [req.user.id, req.body.product_name]);
+  res.status(201).json({ ok: true });"
+
+# The delete route comes back: a ledger row -- including the app's OWN import
+# evidence -- can be destroyed again.
+try "delete route still destroys ledger rows" IL-TC11 "$RT" \
+  "  res.status(410).json({
+    error: 'The import history cannot be edited.',
+    code: 'LEDGER_READ_ONLY',
+  });" \
+  "  const r = await db.run(\`DELETE FROM import_ledger WHERE id = ? AND user_id = ?\`,
+    [req.params.entryId, req.user.id]);
+  res.json({ deleted: r.changes });"
+
+# An unmark control reappears in the picker.
+try "unmark button back in the picker" IL-TC11 "$UI" \
   "                        <Package size={15} className=\"pp-picon\" />
                       </button>" \
   "                        <Package size={15} className=\"pp-picon\" />
-                        <button className=\"pp-markbtn\">x</button>
-                      </button>"
+                      </button>
+                      <button className=\"pp-markbtn\" onClick={() => unmark(1)}>x</button>"
 
 echo
 echo "=== added-to-top sort mutations ==="
@@ -223,26 +243,11 @@ try "Select all re-ticks received cards" IL-TC16 "$UI" \
                 .map((c) => c.scryfallId)))}>" \
   "              <button type=\"button\" onClick={() => setExcluded(new Set())}>"
 
-# Removing the BUTTON but leaving the ROUTE writing rows is the half-measure:
-# the hand-made write stays reachable.
-try "manual-mark route still writes rows" IL-TC10 "$RT" \
-  "  res.status(410).json({
-    error: 'Marking a product as added by hand is no longer supported. Import it instead.',
-    code: 'MANUAL_LEDGER_REMOVED',
-  });" \
-  "  await db.run(\`INSERT INTO import_ledger (user_id, kind, product_name, source)
-     VALUES (?, 'precon', ?, 'manual')\`, [req.user.id, req.body.product_name]);
-  res.status(201).json({ ok: true });"
-
-# Unmark must survive the removal, or a mis-marked row is permanent.
-try "unmark removed along with mark" IL-TC11 "$UI" \
-  "                      {g.editions.length === 1 && entry?.source === 'manual' && (" \
-  "                      {false && ("
-
-# A verified import must still have no control at all.
-try "verified imports become unmarkable" IL-TC11 "$UI" \
-  "                              {edEntry?.source === 'manual' && (" \
-  "                              {true && ("
+# NOTE: the duplicate "manual-mark route still writes rows" and the two
+# mark-gate mutations that stood here are GONE. The gates they targeted were
+# deleted with the unmark button, so they only ever ABORTED on a stale anchor,
+# and the route mutation was already declared above. A harness carrying
+# mutations for removed code buries the real failures in noise.
 
 echo
 echo "=== badge colour mutations ==="

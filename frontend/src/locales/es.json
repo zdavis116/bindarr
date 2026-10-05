@@ -1452,10 +1452,6 @@
   "wizard.slot": "Hueco {slot}",
   "product.addedOn": "Añadido {date}",
   "product.addedManual": "Marcado como añadido",
-  "product.unmark": "Desmarcar",
-  "product.unmarkHint": "Elimina esta nota. Tus cartas no se tocan.",
-  "product.markUndone": "Nota eliminada para {name}",
-  "product.errMark": "No se pudo actualizar la nota",
   "product.cardAdded": "Añadida",
   "product.cardAddedPartial": "{n} de {total} añadidas"
 }

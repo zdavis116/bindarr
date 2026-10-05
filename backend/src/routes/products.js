@@ -401,21 +401,24 @@ router.post('/ledger', async (req, res) => {
   });
 });
 
-// REMOVE A LEDGER ENTRY. Mistyped backfill, or an import he wants to disown.
-// Deleting the note does NOT touch the cards -- the collection is a separate
-// fact and removing history must never silently remove cardboard.
+// THE LEDGER IS APPEND-ONLY. Both hand-edit routes refuse.
+//
+// Zach: "Why is the unmarked button still there. Everything should be set and
+// nothing should be able to be changed at this point."
+//
+// He asked for hand-editing to go; I removed the write and kept the delete,
+// reasoning he might want an undo. He had not asked for one. The backfill is
+// finished and correct, and a route that destroys a ledger row is now purely a
+// way to lose a record that is already right -- including the IMPORT rows, which
+// are the app's own evidence and were never his to begin with.
+//
+// 410 GONE, not 404: the distinction matters to anything reading this later.
+// The route existed, was deliberately withdrawn, and is not coming back.
 router.delete('/ledger/:entryId', async (req, res) => {
-  try {
-    const result = await db.run(
-      `DELETE FROM import_ledger WHERE id = ? AND user_id = ?`,
-      [req.params.entryId, req.user.id]
-    );
-    if (!result.changes) return res.status(404).json({ error: 'No such entry' });
-    res.json({ deleted: result.changes });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to delete that entry' });
-  }
+  res.status(410).json({
+    error: 'The import history cannot be edited.',
+    code: 'LEDGER_READ_ONLY',
+  });
 });
 
 // THE CONFIRM LIST.
