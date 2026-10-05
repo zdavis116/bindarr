@@ -204,8 +204,13 @@ function groupEditions(products) {
  * #200 by release date) was never in the response at all. A client-side sort
  * of a truncated list silently answers a different question.
  */
-async function searchProducts(query, { kind = null, limit = 40, addedIds = null } = {}) {
-  const all = await listProducts();
+async function searchProducts(query, { kind = null, limit = 40, addedIds = null,
+                                       catalogue = null } = {}) {
+  // `catalogue` is a test seam. searchProducts calls listProducts internally,
+  // so replacing the module export does NOT intercept it -- the test proved
+  // that by failing. An explicit parameter is honest about the dependency and
+  // lets the limit/sort interaction be exercised against a known list.
+  const all = catalogue || await listProducts();
   const q = String(query || '').trim().toLowerCase();
   const filtered = all.filter((p) => {
     if (kind && p.kind !== kind) return false;

@@ -357,21 +357,40 @@ async function runTests() {
   // client-side sort reorders only what arrived. "Explorers of the Deep" (LCC,
   // 2023) ranked ~#200 by release date and was never in the response at all.
   //
-  // THE SORT AND THE LIMIT MUST BE IN THE SAME PLACE. Asserted against the real
-  // service source plus its actual behaviour on a truncated list.
+  // THE SORT AND THE LIMIT MUST BE IN THE SAME PLACE. Asserted by CALLING the
+  // real searchProducts against a stub catalogue, not by reading its source.
+  //
+  // Source-text assertions went vacuous twice here: `sortAt < sliceAt` still
+  // held when a no-op sort was appended after the slice, and matching the word
+  // `addedPastCut` still held when the returned value stopped using it. Only
+  // running the function catches those.
   try {
-    const svc = stripComments(fs.readFileSync(
-      path.join(__dirname, '../../src/services/mtgjsonProducts.js'), 'utf8'));
-    assert.match(svc, /addedIds/,
-      'searchProducts must receive the ledger ids');
-    // The sort must come BEFORE the slice in the source, or the limit wins.
-    const sortAt = svc.indexOf('groups.sort(');
-    const sliceAt = svc.indexOf('.slice(0, limit)');
-    assert.ok(sortAt > 0 && sliceAt > 0, 'sort and slice must both exist');
-    assert.ok(sortAt < sliceAt,
-      'the added-first sort must run BEFORE the limit, or added products are cut');
-    assert.match(svc, /addedPastCut/,
-      'added products beyond the limit must still be returned');
+    const svc = require('../../src/services/mtgjsonProducts.js');
+
+    // A catalogue where the ADDED product is far past the limit by date.
+    const fake = [];
+    for (let i = 0; i < 60; i++) {
+      fake.push({ id: `NEW${i}`, name: `New ${i}`, kind: 'precon',
+        setCode: 'AAA', setName: 'A', releaseDate: `2026-${String((i % 12) + 1).padStart(2, '0')}-01` });
+    }
+    fake.push({ id: 'LATE', name: 'Explorers of the Deep', kind: 'precon',
+      setCode: 'LCC', setName: 'Lost Caverns', releaseDate: '2023-01-01' });
+
+    const unsorted = await svc.searchProducts('', { catalogue: fake, addedIds: new Set() });
+    assert.ok(!unsorted.groups.some((g) => g.base === 'Explorers of the Deep'),
+      'precondition: the 2023 product must fall outside the default limit');
+
+    const sorted = await svc.searchProducts('', { catalogue: fake, addedIds: new Set(['LATE']) });
+    const names = sorted.groups.map((g) => g.base);
+    assert.ok(names.includes('Explorers of the Deep'),
+      'an ADDED product beyond the limit must still be returned');
+    assert.strictEqual(names[0], 'Explorers of the Deep',
+      'added products must come FIRST, ahead of newer unadded ones');
+    // and the newest-first rule still holds among the unadded remainder
+    const dates = sorted.groups.slice(1).map((g) => g.editions[0].releaseDate);
+    assert.deepStrictEqual(dates, [...dates].sort().reverse(),
+      'unadded products must stay newest-first');
+
     // The route has to supply the ids, or the parameter is never exercised.
     assert.match(SRC, /SELECT product_id FROM import_ledger WHERE user_id = \? AND product_id IS NOT NULL/,
       'the search route must read the ledger');
@@ -380,29 +399,6 @@ async function runTests() {
     // regression by agreeing on the rows that made it through.
     assert.ok(!/sortedGroups/.test(UI),
       'the component must not re-sort a truncated list');
-
-    // BEHAVIOUR on a list longer than the limit -- the actual bug.
-    const added = new Set(['LATE']);
-    const all = [
-      { id: 'N1', d: '2026-09' }, { id: 'N2', d: '2026-08' },
-      { id: 'N3', d: '2026-07' }, { id: 'LATE', d: '2023-01' },
-    ];
-    const isAdded = (g) => added.has(g.id);
-    const sorted = [...all].sort((a, b) => {
-      const aa = isAdded(a), ba = isAdded(b);
-      if (aa !== ba) return aa ? -1 : 1;
-      return b.d.localeCompare(a.d);
-    });
-    assert.strictEqual(sorted[0].id, 'LATE',
-      'an added product from 2023 must outrank unadded 2026 ones');
-    const LIMIT = 2;
-    const head = sorted.slice(0, LIMIT);
-    const kept = new Set(head);
-    const past = sorted.filter((g) => isAdded(g) && !kept.has(g));
-    const out = [...past, ...head].map((g) => g.id);
-    assert.ok(out.includes('LATE'), 'the added product must survive the limit');
-    assert.deepStrictEqual(out, ['LATE', 'N1'],
-      'added first, then newest-first, within the limit');
     console.log('PASS: IL-TC14');
   } catch (err) {
     console.error('FAIL: IL-TC14 -', err.message);
