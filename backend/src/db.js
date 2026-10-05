@@ -1023,6 +1023,58 @@ async function initDb() {
   if (!appSettingsCols.some(c => c.name === 'card_rulings_refreshed_at')) {
     await run(`ALTER TABLE app_settings ADD COLUMN card_rulings_refreshed_at DATETIME`);
   }
+
+  // THE IMPORT LEDGER: what sealed product / order was added, and when.
+  //
+  // Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+  //
+  // Nothing recorded this. POST /api/products/:id/add wrote the cards into
+  // `collection` and threw the product identity away -- a card from the Death
+  // Toll precon was indistinguishable from one pulled out of a booster. The two
+  // places the history could have survived both failed: audit_logs is EMPTY
+  // (0 rows, measured on dev), and `collection.added_at` records only WHEN,
+  // never WHICH PRODUCT.
+  //
+  // THIS IS A LOG OF EVENTS, NOT A STATEMENT OF CURRENT OWNERSHIP. He asked for
+  // the ledger specifically and rejected ownership inference ("just the ledger
+  // -- record imports from now on, don't guess about the past"), because
+  // comparing a product's list against the collection genuinely cannot tell
+  // "bought the deck" from "owned those staples anyway". So breaking a precon
+  // apart for a deck does NOT retract its row: he still added it.
+  //
+  // Rows are never written by a guess. Every row is either a real import this
+  // app performed, or one he entered by hand and is marked as such (`source`).
+  await run(`
+    CREATE TABLE IF NOT EXISTS import_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      -- 'precon' | 'secretlair' | 'order'. What KIND of thing was added, so the
+      -- list can group and the UI can label it without parsing the name.
+      kind TEXT NOT NULL,
+      -- MTGJSON deck fileName, or the Mana Pool order id. Nullable because a
+      -- hand-entered backfill row may have no such identifier -- he remembers
+      -- the deck, not its MTGJSON filename.
+      product_id TEXT,
+      -- Denormalised ON PURPOSE. MTGJSON is fetched live with a TTL and can
+      -- rename or drop a product; the ledger must still read correctly years
+      -- later. A foreign key to a remote catalogue would rot.
+      product_name TEXT NOT NULL,
+      set_code TEXT,
+      -- What actually landed. Stored, not recomputed, because the collection
+      -- changes afterwards and this is a record of the EVENT.
+      cards_added INTEGER NOT NULL DEFAULT 0,
+      rows_added INTEGER NOT NULL DEFAULT 0,
+      -- 'import' = this app really did it. 'manual' = he told us it happened.
+      -- Never collapse these: a backfilled row is his memory, not our evidence.
+      source TEXT NOT NULL DEFAULT 'import' CHECK(source IN ('import', 'manual')),
+      note TEXT DEFAULT '',
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  // The only query this table serves is "my imports, newest first".
+  await run(`CREATE INDEX IF NOT EXISTS idx_import_ledger_user
+             ON import_ledger (user_id, added_at DESC)`);
   // The price-source priority order. An existing database has no such column,
   // and CREATE TABLE IF NOT EXISTS will not add one -- without this migration
   // every read of price_source_order throws on Zach's actual database while

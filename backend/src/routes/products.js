@@ -37,9 +37,14 @@ const MAX_CARDS = 500;
 // Each card carries its own quantity, finish, condition and optional purchase
 // price -- an order's cards are not all Near Mint nonfoil the way a sealed
 // precon's are.
-async function addCardsInOneTransaction(user, cards) {
+//
+// `descriptor` names WHAT is being added (kind, product id, name, set code).
+// It is required, and the ledger row is written in THIS transaction with the
+// cards, so the two can never disagree: either both land or neither does.
+async function addCardsInOneTransaction(user, cards, descriptor) {
   const added = [];
   const failed = [];
+  let ledger = null;
   await db.withTransaction(async () => {
     for (const card of cards) {
       try {
@@ -72,8 +77,40 @@ async function addCardsInOneTransaction(user, cards) {
         });
       }
     }
+    // INSIDE the transaction, after the cards. A ledger row committed while the
+    // card inserts rolled back would be a lie in the exact place he goes to
+    // find the truth.
+    ledger = await recordImport(user, descriptor, added);
   }, { timeoutMs: 120000 });
-  return { added, failed };
+  return { added, failed, ledger };
+}
+
+// RECORD THE IMPORT, INSIDE THE SAME TRANSACTION AS THE CARDS.
+//
+// Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+// Before this, the product identity was discarded the moment the cards landed.
+//
+// WHY THIS LIVES NEXT TO addCardsInOneTransaction AND IS CALLED BY IT, not by
+// each route: there are two paths to the same write (precons and Mana Pool
+// orders), and the skill's own lesson from the repoint bug is that fixing one
+// caller and leaving the other produces a feature that is silently half-there.
+// A route cannot add cards without also writing the ledger row, because it
+// never calls the adder directly.
+//
+// The row is written only when at least one card actually landed. An import
+// that failed entirely is not history, it is a failed attempt -- logging it
+// would answer "did I add this?" with YES for a product he does not own.
+async function recordImport(user, descriptor, added) {
+  const cardsAdded = added.reduce((n, a) => n + a.quantity, 0);
+  if (!cardsAdded) return null;
+  const result = await db.run(
+    `INSERT INTO import_ledger
+       (user_id, kind, product_id, product_name, set_code, cards_added, rows_added, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'import')`,
+    [user.id, descriptor.kind, descriptor.productId ?? null, descriptor.productName,
+     descriptor.setCode ?? null, cardsAdded, added.length]
+  );
+  return { id: result.lastID, cardsAdded, rowsAdded: added.length };
 }
 
 // Resolve a list of cards against card_cache in ONE query, flagging each.
@@ -213,7 +250,12 @@ router.post('/orders/:id/add', async (req, res) => {
 
     // The card records already carry the condition he bought and what he paid,
     // so unlike a precon nothing is overridden here.
-    const { added, failed } = await addCardsInOneTransaction(req.user, chosen);
+    const { added, failed, ledger } = await addCardsInOneTransaction(req.user, chosen, {
+      kind: 'order',
+      productId: String(order.id),
+      productName: `Order ${order.orderNumber}`,
+      setCode: null,
+    });
 
     await db.run(
       `UPDATE app_settings SET manapool_orders_synced_at = CURRENT_TIMESTAMP WHERE id = 1`);
@@ -248,6 +290,92 @@ router.get('/', async (req, res) => {
     res.json(result);
   } catch (error) {
     sendSourceError(res, error, 'Failed to search products');
+  }
+});
+
+// ===========================================================================
+// THE IMPORT LEDGER
+//
+// Zach: "tracking for what precon's I added to my collection. Because right now
+// I have 2 more I want to add but I am unsure if I added them or not."
+//
+// DECLARED BEFORE THE PARAMETERISED PRODUCT ROUTES. `/:id/cards` matches
+// `/ledger/anything` and `GET /:id` would match `/ledger` outright. This file
+// has already shipped that exact bug once -- every Mana Pool orders request was
+// swallowed by the precon handler looking for a product named "orders", a fully
+// built feature that was 0% reachable. Specific literal paths first, always.
+// ===========================================================================
+
+// WHAT HAVE I ADDED. Newest first, because the question is always about recent
+// history.
+router.get('/ledger', async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT id, kind, product_id AS productId, product_name AS productName,
+              set_code AS setCode, cards_added AS cardsAdded,
+              rows_added AS rowsAdded, source, note, added_at AS addedAt
+         FROM import_ledger
+        WHERE user_id = ?
+        ORDER BY added_at DESC, id DESC`,
+      [req.user.id]
+    );
+    res.json({ entries: rows, total: rows.length });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to read the import history' });
+  }
+});
+
+// HAND-ENTER SOMETHING ALREADY ADDED.
+//
+// He said he can list the precons he added before this existed. A backfilled
+// row is HIS MEMORY, not our evidence, so it is stored with source='manual' and
+// the UI must show that difference. Collapsing the two would turn a recollection
+// into a system record.
+//
+// This writes NO CARDS. It is a note that an import happened, nothing more --
+// which is why it cannot silently duplicate a real collection.
+router.post('/ledger', async (req, res) => {
+  const { product_name: productName, kind, set_code: setCode,
+          cards_added: cardsAdded, note, added_at: addedAt } = req.body || {};
+  const name = typeof productName === 'string' ? productName.trim() : '';
+  if (!name) {
+    return res.status(400).json({ error: 'product_name is required' });
+  }
+  const allowedKinds = new Set(['precon', 'secretlair', 'order', 'other']);
+  const entryKind = allowedKinds.has(kind) ? kind : 'precon';
+  try {
+    const result = await db.run(
+      `INSERT INTO import_ledger
+         (user_id, kind, product_id, product_name, set_code, cards_added,
+          rows_added, source, note, added_at)
+       VALUES (?, ?, NULL, ?, ?, ?, 0, 'manual', ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+      [req.user.id, entryKind, name, setCode || null,
+       Number.isFinite(cardsAdded) ? cardsAdded : 0,
+       typeof note === 'string' ? note : '',
+       addedAt || null]
+    );
+    res.status(201).json({ id: result.lastID, productName: name, source: 'manual' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to record that import' });
+  }
+});
+
+// REMOVE A LEDGER ENTRY. Mistyped backfill, or an import he wants to disown.
+// Deleting the note does NOT touch the cards -- the collection is a separate
+// fact and removing history must never silently remove cardboard.
+router.delete('/ledger/:entryId', async (req, res) => {
+  try {
+    const result = await db.run(
+      `DELETE FROM import_ledger WHERE id = ? AND user_id = ?`,
+      [req.params.entryId, req.user.id]
+    );
+    if (!result.changes) return res.status(404).json({ error: 'No such entry' });
+    res.json({ deleted: result.changes });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to delete that entry' });
   }
 });
 
@@ -319,9 +447,15 @@ router.post('/:id/add', async (req, res) => {
     //
     // A sealed product is new cardboard, so every card is Near Mint. An ORDER
     // is different -- it carries the condition he actually bought.
-    const { added, failed } = await addCardsInOneTransaction(
+    const { added, failed, ledger } = await addCardsInOneTransaction(
       req.user,
       chosen.map((c) => ({ ...c, condition: 'Near Mint' })),
+      {
+        kind: product.kind,
+        productId: product.id,
+        productName: product.name,
+        setCode: product.setCode,
+      },
     );
 
     const addedCards = added.reduce((n, a) => n + a.quantity, 0);
