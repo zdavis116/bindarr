@@ -84,13 +84,15 @@ try "recordImport moved outside the transaction" IL-TC3 "$RT" \
   ledger = await recordImport(user, descriptor, added);"
 
 # Fix one caller, forget the other -- the exact shape of the repoint bug.
-try "orders path stops passing a descriptor" IL-TC4 "$RT" \
-  "kind: 'order'," \
-  "kindTYPO: 'order',"
+#
+# NOTE: a tempting mutation here is to typo `kind: 'order',` -- do NOT add it
+# back. mutate() replaces the FIRST occurrence, and the first one in this file
+# is the legitimate `kind: 'order'` in the GET /orders/:id/cards RESPONSE, not
+# the descriptor. That mutation breaks an unrelated line, IL-TC4 correctly stays
+# green, and the harness reports a vacuous test that is not vacuous. The two
+# mutations below remove each descriptor outright, which is the real case.
 
-# The stronger version: drop the orders descriptor ENTIRELY. The first guard
-# matched /kind:\s*'order'/ against the whole file and survived the mutation
-# above, because an unrelated `kind: 'order'` elsewhere satisfied it.
+# Drop the orders descriptor ENTIRELY.
 try "orders descriptor removed entirely" IL-TC4 "$RT" \
   "const { added, failed, ledger } = await addCardsInOneTransaction(req.user, chosen, {
       kind: 'order',
