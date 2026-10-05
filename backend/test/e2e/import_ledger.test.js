@@ -258,13 +258,32 @@ async function runTests() {
   // The mark button sits on a scrolling list; a double tap must be a no-op, not
   // two conflicting claims about one product. Dedupe is by product_id, because
   // only an id is an identity -- a typed name is not.
+  //
+  // The first version only asserted the SELECT text, and the mutation
+  // `if (productId)` -> `if (false)` left that string sitting in DEAD CODE, so
+  // the test passed while dedupe was off. Both the live guard AND the query's
+  // real behaviour are checked now.
   try {
     const post = SRC.slice(SRC.indexOf("router.post('/ledger'"));
     const body = post.slice(0, post.indexOf('router.delete'));
+    assert.match(body, /if\s*\(\s*productId\s*\)\s*\{/,
+      'the dedupe branch must actually run when a product_id is supplied');
     assert.match(body, /SELECT id, source FROM import_ledger WHERE user_id = \? AND product_id = \?/,
       'the manual route must look for an existing row by product_id');
     assert.match(body, /alreadyRecorded: true/,
       'a duplicate must report itself rather than inserting again');
+
+    // And the query really finds a prior row, rather than merely existing.
+    await db.run(
+      `INSERT INTO import_ledger (user_id, kind, product_id, product_name, source)
+       VALUES (1, 'precon', 'DedupeMe_DSC', 'Dedupe Me', 'manual')`);
+    const found = await db.get(
+      `SELECT id, source FROM import_ledger WHERE user_id = ? AND product_id = ?`,
+      [1, 'DedupeMe_DSC']);
+    assert.ok(found && found.id, 'the dedupe query must find the existing row');
+    const count = await db.get(
+      `SELECT COUNT(*) n FROM import_ledger WHERE product_id = 'DedupeMe_DSC'`);
+    assert.strictEqual(count.n, 1, 'exactly one row per marked product');
     console.log('PASS: IL-TC10');
   } catch (err) {
     console.error('FAIL: IL-TC10 -', err.message);
