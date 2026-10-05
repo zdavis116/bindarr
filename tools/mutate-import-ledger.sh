@@ -178,13 +178,19 @@ try "marking also writes collection rows" IL-TC13 "$RT" \
 echo
 echo "=== added-to-top sort mutations ==="
 
-# THE BUG ZACH FOUND. Sorting after the limit reorders only the 40 rows that
-# survived, so an added product ranked ~#200 by date never appears at all.
-try "sort runs AFTER the limit" IL-TC14 "$SVC" \
-  "  const head = groups.slice(0, limit);" \
-  "  const head = groups.slice(0, limit); groups.sort((a,b)=>0);"
+# THE BUG ZACH FOUND. Sort by date only, with the added-first rule removed:
+# the limit then cuts an added product that ranks low by release date.
+#
+# NOTE: appending a second sort AFTER the slice does NOT reproduce it -- the
+# correct sort still ran, so the head is already right and the test rightly
+# stays green. The mutation has to REMOVE the added-first comparison.
+try "added-first comparison removed from the sort" IL-TC14 "$SVC" \
+  "    const aa = isAdded(a), ba = isAdded(b);
+    if (aa !== ba) return aa ? -1 : 1;" \
+  ""
 
-# Added products beyond the cut get dropped entirely.
+# Added products beyond the cut get dropped entirely. Only bites when MORE
+# than `limit` products are added, which is why IL-TC14 tests that case.
 try "added products past the cut are discarded" IL-TC14 "$SVC" \
   "  return { total: groups.length, groups: [...addedPastCut, ...head] };" \
   "  return { total: groups.length, groups: head };"

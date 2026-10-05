@@ -391,6 +391,17 @@ async function runTests() {
     assert.deepStrictEqual(dates, [...dates].sort().reverse(),
       'unadded products must stay newest-first');
 
+    // MORE ADDED PRODUCTS THAN THE LIMIT. Once he has marked more than `limit`
+    // products, the added ones stop fitting in the head and the overflow is the
+    // only thing keeping them visible -- "ALL DECKS marked as added should be
+    // at the top", not "the first 40 of them".
+    const manyAdded = new Set(fake.slice(0, 50).map((p) => p.id));
+    const over = await svc.searchProducts('', { catalogue: fake, addedIds: manyAdded });
+    const returned = new Set(over.groups.map((g) => g.editions[0].id));
+    const missingAdded = [...manyAdded].filter((id) => !returned.has(id));
+    assert.deepStrictEqual(missingAdded, [],
+      `every added product must be returned even past the limit (${missingAdded.length} dropped)`);
+
     // The route has to supply the ids, or the parameter is never exercised.
     assert.match(SRC, /SELECT product_id FROM import_ledger WHERE user_id = \? AND product_id IS NOT NULL/,
       'the search route must read the ledger');
