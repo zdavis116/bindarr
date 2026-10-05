@@ -1115,5 +1115,7 @@
   "product.markDone": "{name} を追加済みとして記録しました",
   "product.markAlready": "{name} はすでに記録済みです",
   "product.markUndone": "{name} の記録を削除しました",
-  "product.errMark": "記録を更新できませんでした"
+  "product.errMark": "記録を更新できませんでした",
+  "product.cardAdded": "追加済み",
+  "product.cardAddedPartial": "{total} 枚中 {n} 枚追加済み"
 }

@@ -1844,5 +1844,7 @@
   "product.markDone": "Marked {name} as already added",
   "product.markAlready": "{name} was already recorded",
   "product.markUndone": "Removed the note for {name}",
-  "product.errMark": "Could not update that note"
+  "product.errMark": "Could not update that note",
+  "product.cardAdded": "Added",
+  "product.cardAddedPartial": "{n} of {total} added"
 }

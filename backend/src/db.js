@@ -1075,6 +1075,36 @@ async function initDb() {
   // The only query this table serves is "my imports, newest first".
   await run(`CREATE INDEX IF NOT EXISTS idx_import_ledger_user
              ON import_ledger (user_id, added_at DESC)`);
+
+  // WHICH CARDS CAME IN, not just which product.
+  //
+  // Zach: "for my one manapool order I only received 7 of my 10 cards. When I
+  // add just those 7 can you show them as added on the order screen so I dont
+  // accidentally readd them"
+  //
+  // A partial import is the NORMAL case for an order -- a line can be refunded,
+  // short-shipped, or arrive later -- so "this order was imported" is not a
+  // usable answer. He needs the three outstanding cards to look different from
+  // the seven he already has.
+  //
+  // A SEPARATE TABLE, not a column on import_ledger: one import touches many
+  // cards, and a second partial import of the SAME order must add to this list
+  // rather than replace it. Keyed by scryfall id because that is the exact
+  // printing identity the rest of the app uses.
+  await run(`
+    CREATE TABLE IF NOT EXISTS import_ledger_cards (
+      ledger_id INTEGER NOT NULL REFERENCES import_ledger(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
+      -- The product/order this card came from, denormalised so the common
+      -- query ("what have I already taken from order X?") needs no join.
+      product_id TEXT NOT NULL,
+      scryfall_id TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_import_ledger_cards_lookup
+             ON import_ledger_cards (user_id, product_id, scryfall_id)`);
   // The price-source priority order. An existing database has no such column,
   // and CREATE TABLE IF NOT EXISTS will not add one -- without this migration
   // every read of price_source_order throws on Zach's actual database while

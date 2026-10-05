@@ -186,34 +186,14 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
     }
   };
 
-  // ADDED ONES FIRST.
+  // THE SORT LIVES ON THE SERVER. See searchProducts(addedIds).
   //
-  // Zach: "when on precon view can we sort everything added to the top please"
-  //
-  // Sorted HERE, not in searchProducts, because the server has no idea what is
-  // in the ledger -- that is a per-user fact and the product catalogue is not.
-  //
-  // DERIVED, NEVER SORTED IN PLACE. `groups` is state owned by the search; a
-  // .sort() on it mutates that array and would reorder the list again on every
-  // unrelated re-render.
-  //
-  // Within each half the existing order is PRESERVED (newest release first),
-  // because that rule was a deliberate choice and he asked to lift the added
-  // ones out, not to replace it. Array.prototype.sort is stable in every engine
-  // this runs on, so returning 0 for same-group pairs keeps it.
-  const sortedGroups = useMemo(() => {
-    if (!groups) return groups;
-    // Until the ledger has loaded, DO NOT reorder. Sorting against a null
-    // ledger would show everything as unadded and then visibly jump once it
-    // arrives, which looks like a bug and moves a row out from under his tap.
-    if (!ledger) return groups;
-    const isAdded = (g) => (g.editions.length === 1
-      ? !!importedEntry(g.editions[0], g.base)
-      // With a foil twin, the group counts as added if EITHER edition is --
-      // the answer to "have I dealt with this drop?" is yes.
-      : g.editions.some((e) => !!importedEntry(e, null)));
-    return [...groups].sort((a, b) => (isAdded(b) ? 1 : 0) - (isAdded(a) ? 1 : 0));
-  }, [groups, ledger, importedEntry]);
+  // This used to sort here, and Zach caught it: "Explorers of the deep is
+  // marked as added and isnt at the top". The search matches 611 products and
+  // returns 40, so sorting in the browser could only reorder what arrived --
+  // an added product ranked ~#200 by release date was never in the response.
+  // Re-sorting here now would merely hide a server regression behind a second
+  // rule that agrees with it on the rows that made it through.
 
   const search = useCallback(async (q, k) => {
     setSearching(true);
@@ -263,7 +243,19 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || t('product.errLoad'));
       setDetail(body);
-      setExcluded(new Set());
+      // ALREADY-TAKEN CARDS START UNTICKED.
+      //
+      // Zach: "I only received 7 of my 10 cards. When I add just those 7 can
+      // you show them as added on the order screen so I dont accidentally
+      // readd them"
+      //
+      // Defaulting them OFF is what actually prevents the double-add -- a
+      // label alone still leaves "Add" ready to re-import everything. He can
+      // still tick one deliberately (a second copy really did arrive), so this
+      // removes the accident, not the ability.
+      setExcluded(new Set((body.cards || [])
+        .filter((c) => c.alreadyAdded >= c.quantity)
+        .map((c) => c.scryfallId)));
     } catch (err) {
       showToast(err.message || t('product.errLoad'), 'error');
     } finally {
@@ -372,7 +364,7 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
             {!searching && kind !== 'orders' && groups && groups.length > 0 && (
               <div className="pp-results">
-                {sortedGroups.map((g) => {
+                {groups.map((g) => {
                   // One edition means one answer; several means the badge would
                   // be ambiguous, so it moves down onto the edition buttons.
                   const entry = g.editions.length === 1
@@ -567,7 +559,12 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
             </div>
 
             <div className="pp-selbar">
-              <button type="button" onClick={() => setExcluded(new Set())}>
+              {/* SELECT ALL MEANS "everything still outstanding".
+                  Re-ticking the cards he already received would hand the
+                  double-add straight back via the convenience button. */}
+              <button type="button" onClick={() => setExcluded(new Set(addable
+                .filter((c) => c.alreadyAdded >= c.quantity)
+                .map((c) => c.scryfallId)))}>
                 {t('product.selectAll')}
               </button>
               <button type="button"
@@ -588,7 +585,8 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                     <span>{sectionCardCount(s.cards)}</span>
                   </div>
                   {s.cards.map((c) => (
-                    <label key={c.scryfallId} className="pp-row">
+                    <label key={c.scryfallId}
+                      className={`pp-row${c.alreadyAdded ? ' pp-row-taken' : ''}`}>
                       <input type="checkbox"
                         checked={!excluded.has(c.scryfallId)}
                         onChange={() => toggle(c.scryfallId)} />
@@ -598,6 +596,18 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                       {c.finish !== 'nonfoil' && (
                         <span className="pp-foil">
                           {c.finish === 'etched' ? t('product.etched') : t('product.foil')}
+                        </span>
+                      )}
+                      {/* ALREADY TAKEN FROM THIS ORDER.
+                          A COUNT, not a tick: he ordered 2 and one arrived is
+                          a real case, and "added" would hide the outstanding
+                          copy. Only the fully-taken rows start unticked. */}
+                      {c.alreadyAdded > 0 && (
+                        <span className="pp-taken">
+                          {c.alreadyAdded >= c.quantity
+                            ? t('product.cardAdded')
+                            : t('product.cardAddedPartial',
+                                { n: c.alreadyAdded, total: c.quantity })}
                         </span>
                       )}
                     </label>

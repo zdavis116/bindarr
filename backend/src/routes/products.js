@@ -110,6 +110,21 @@ async function recordImport(user, descriptor, added) {
     [user.id, descriptor.kind, descriptor.productId ?? null, descriptor.productName,
      descriptor.setCode ?? null, cardsAdded, added.length]
   );
+  // AND WHICH CARDS. A partial order import is the normal case -- he received
+  // 7 of 10 -- so the per-card rows are what let the order screen show the
+  // seven as already taken and leave the three outstanding ones actionable.
+  // Written in the same transaction as everything else.
+  if (descriptor.productId) {
+    for (const a of added) {
+      if (!a.scryfallId) continue;
+      await db.run(
+        `INSERT INTO import_ledger_cards
+           (ledger_id, user_id, product_id, scryfall_id, quantity)
+         VALUES (?, ?, ?, ?, ?)`,
+        [result.lastID, user.id, descriptor.productId, a.scryfallId, a.quantity || 1]
+      );
+    }
+  }
   return { id: result.lastID, cardsAdded, rowsAdded: added.length };
 }
 
@@ -131,6 +146,31 @@ async function flagAgainstCatalogue(cards) {
   return cards.map((c) => ({
     ...c,
     inCatalogue: !!(c.scryfallId && known.has(c.scryfallId)),
+  }));
+}
+
+// FLAG THE CARDS ALREADY TAKEN FROM THIS PRODUCT.
+//
+// Zach: "for my one manapool order I only received 7 of my 10 cards. When I
+// add just those 7 can you show them as added on the order screen so I dont
+// accidentally readd them"
+//
+// Returns `alreadyAdded` (how many copies of this exact printing were imported
+// from THIS product before). Not a boolean, because a later shipment of the
+// remaining copies is a real case: 1 of 2 taken must not read as "done".
+async function flagAlreadyImported(cards, userId, productId) {
+  if (!productId) return cards.map((c) => ({ ...c, alreadyAdded: 0 }));
+  const rows = await db.all(
+    `SELECT scryfall_id, SUM(quantity) AS n
+       FROM import_ledger_cards
+      WHERE user_id = ? AND product_id = ?
+      GROUP BY scryfall_id`,
+    [userId, productId]
+  );
+  const taken = new Map(rows.map((r) => [r.scryfall_id, r.n]));
+  return cards.map((c) => ({
+    ...c,
+    alreadyAdded: (c.scryfallId && taken.get(c.scryfallId)) || 0,
   }));
 }
 
@@ -197,7 +237,8 @@ router.get('/orders/:id/cards', async (req, res) => {
     const { order, cards, skipped, totalCards } =
       await orders.fetchOrderCards(req.params.id, creds);
 
-    const resolved = await flagAgainstCatalogue(cards);
+    const resolved = await flagAlreadyImported(
+      await flagAgainstCatalogue(cards), req.user.id, String(order.id));
     const missing = resolved.filter((c) => !c.inCatalogue);
 
     res.json({
@@ -284,8 +325,21 @@ router.get('/', async (req, res) => {
   try {
     const { q, kind } = req.query;
     const allowed = new Set(['precon', 'secretlair']);
+    // THE LEDGER IS PART OF THE SEARCH, not a decoration applied afterwards.
+    //
+    // Zach: "ALL DECKS marked as added should be at the top". The search
+    // matches 611 products and returns 40, so sorting in the browser could
+    // only reorder the 40 that happened to arrive -- "Explorers of the Deep"
+    // (LCC, 2023) was never in the response. Passing the ids down means the
+    // sort runs BEFORE the limit, and every added product is kept regardless
+    // of where it falls by date.
+    const ledgerRows = await db.all(
+      `SELECT product_id FROM import_ledger WHERE user_id = ? AND product_id IS NOT NULL`,
+      [req.user.id]
+    );
     const result = await products.searchProducts(q, {
       kind: allowed.has(kind) ? kind : null,
+      addedIds: new Set(ledgerRows.map((r) => r.product_id)),
     });
     res.json(result);
   } catch (error) {
@@ -407,7 +461,10 @@ router.get('/:id/cards', async (req, res) => {
   try {
     const { product, cards, totalCards } = await products.fetchProductCards(req.params.id);
 
-    const resolved = await flagAgainstCatalogue(cards);
+    // Precons get the same treatment: he can untick cards there too, so a
+    // second visit must show what already came in.
+    const resolved = await flagAlreadyImported(
+      await flagAgainstCatalogue(cards), req.user.id, product.id);
 
     const missing = resolved.filter((c) => !c.inCatalogue);
     res.json({

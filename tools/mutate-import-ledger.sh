@@ -11,9 +11,10 @@ export PATH="$HOME/.cache/hermes-node20/node-v20.20.2-linux-x64/bin:$PATH"
 
 DB=backend/src/db.js
 RT=backend/src/routes/products.js
+SVC=backend/src/services/mtgjsonProducts.js
 UI=frontend/src/components/ProductImportModal.jsx
 TEST=backend/test/e2e/import_ledger.test.js
-FILES="$DB $RT $UI"
+FILES="$DB $RT $SVC $UI"
 
 if ! git diff --quiet -- $FILES; then
   echo "REFUSING TO RUN: uncommitted changes in the files under test."
@@ -177,20 +178,51 @@ try "marking also writes collection rows" IL-TC13 "$RT" \
 echo
 echo "=== added-to-top sort mutations ==="
 
-# The list renders the UNSORTED array: the sort exists but changes nothing.
-try "render ignores the sorted order" IL-TC14 "$UI" \
-  "{sortedGroups.map((g) => {" \
-  "{groups.map((g) => {"
+# THE BUG ZACH FOUND. Sorting after the limit reorders only the 40 rows that
+# survived, so an added product ranked ~#200 by date never appears at all.
+try "sort runs AFTER the limit" IL-TC14 "$SVC" \
+  "  const head = groups.slice(0, limit);" \
+  "  const head = groups.slice(0, limit); groups.sort((a,b)=>0);"
 
-# Sorting state IN PLACE mutates the search results.
-try "sorts groups in place" IL-TC14 "$UI" \
-  "return [...groups].sort((a, b) =>" \
-  "return groups.sort((a, b) =>"
+# Added products beyond the cut get dropped entirely.
+try "added products past the cut are discarded" IL-TC14 "$SVC" \
+  "  return { total: groups.length, groups: [...addedPastCut, ...head] };" \
+  "  return { total: groups.length, groups: head };"
 
-# Reordering before the ledger arrives makes rows jump under his finger.
-try "reorders before the ledger loads" IL-TC14 "$UI" \
-  "    if (!ledger) return groups;" \
-  "    if (false) return groups;"
+# The route stops telling the search what is in the ledger, so nothing is added.
+try "route stops passing addedIds" IL-TC14 "$RT" \
+  "      addedIds: new Set(ledgerRows.map((r) => r.product_id))," \
+  ""
+
+echo
+echo "=== per-card (partial order) mutations ==="
+
+# No per-card rows: "did I already take this card?" becomes unanswerable.
+try "import stops recording which cards" IL-TC15 "$RT" \
+  "        \`INSERT INTO import_ledger_cards
+           (ledger_id, user_id, product_id, scryfall_id, quantity)
+         VALUES (?, ?, ?, ?, ?)\`," \
+  "        \`INSERT INTO import_ledger (user_id, kind, product_name, source)
+         VALUES (?, ?, ?, 'import')\`,"
+
+# The order screen stops flagging what already came in.
+try "orders screen stops flagging taken cards" IL-TC16 "$RT" \
+  "    const resolved = await flagAlreadyImported(
+      await flagAgainstCatalogue(cards), req.user.id, String(order.id));" \
+  "    const resolved = await flagAgainstCatalogue(cards);"
+
+# A LABEL WITHOUT THE DEFAULT is the actual double-add: the seven received
+# cards stay ticked and Add re-imports all ten.
+try "already-received cards stay ticked" IL-TC16 "$UI" \
+  "      setExcluded(new Set((body.cards || [])" \
+  "      setExcluded(new Set([].concat(body.cards || [])" 
+
+# Select all hands the double-add straight back.
+try "Select all re-ticks received cards" IL-TC16 "$UI" \
+  "              <button type=\"button\" onClick={() => setExcluded(new Set(addable
+                .filter((c) => c.alreadyAdded >= c.quantity)
+                .map((c) => c.scryfallId)))}>" \
+  "              <button type=\"button\" onClick={() => setExcluded(new Set())}>"
 
 echo
 # THE HARNESS MUST NOT LIE. An earlier version of this pattern silently reverted

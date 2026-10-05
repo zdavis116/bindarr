@@ -1421,5 +1421,7 @@
   "product.markDone": "已将 {name} 标记为已添加",
   "product.markAlready": "{name} 已有记录",
   "product.markUndone": "已删除 {name} 的记录",
-  "product.errMark": "无法更新记录"
+  "product.errMark": "无法更新记录",
+  "product.cardAdded": "已添加",
+  "product.cardAddedPartial": "已添加 {n}/{total}"
 }

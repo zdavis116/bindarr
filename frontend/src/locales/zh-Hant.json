@@ -1115,5 +1115,7 @@
   "product.markDone": "已將 {name} 標記為已新增",
   "product.markAlready": "{name} 已有記錄",
   "product.markUndone": "已刪除 {name} 的記錄",
-  "product.errMark": "無法更新記錄"
+  "product.errMark": "無法更新記錄",
+  "product.cardAdded": "已新增",
+  "product.cardAddedPartial": "已新增 {n}/{total}"
 }

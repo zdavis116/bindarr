@@ -39,19 +39,21 @@ const SRC_RAW = fs.readFileSync(
 // ledger write entirely and the test still went green. A guard that matches the
 // prose explaining the rule instead of the rule itself is worse than no guard,
 // because it reports confidence it has not earned.
-const SRC = SRC_RAW
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+function stripComments(src) {
+  return src
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+}
+
+const SRC = stripComments(SRC_RAW);
 
 // The picker component. Comments stripped for the same reason as SRC: this
 // file explains its own rules at length, and a guard that matches the prose
 // instead of the JSX proves nothing.
 const UI_RAW = fs.readFileSync(
   path.join(__dirname, '../../../frontend/src/components/ProductImportModal.jsx'), 'utf8');
-const UI = UI_RAW
-  .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '')
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+const UI = stripComments(UI_RAW);
 
 async function runTests() {
   await db.initDb();
@@ -344,45 +346,124 @@ async function runTests() {
     console.error('FAIL: IL-TC13 -', err.message);
     throw err;
   }
-  // IL-TC14: added products sort to the TOP, without destroying the existing
-  // newest-first order inside each half.
+  // IL-TC14: added products sort to the top BEFORE the result limit.
   //
-  // Zach: "when on precon view can we sort everything added to the top please"
+  // Zach: "uhhh you are missing decks marked as added. Explorers of the deep is
+  // marked as added and isnt at the top. ALL DECKS marked as added should be at
+  // the top"
   //
-  // The sort lives in the component, because the server cannot know what is in
-  // a user's ledger. Two properties matter and both are asserted on the REAL
-  // comparator extracted from the source, not on a reimplementation of it:
-  //   1. every added group precedes every unadded one
-  //   2. relative order WITHIN each half is unchanged (release date desc)
+  // The first version sorted in the COMPONENT and was wrong in a way the tests
+  // could not see: the search matches 611 products and returns 40, so a
+  // client-side sort reorders only what arrived. "Explorers of the Deep" (LCC,
+  // 2023) ranked ~#200 by release date and was never in the response at all.
+  //
+  // THE SORT AND THE LIMIT MUST BE IN THE SAME PLACE. Asserted against the real
+  // service source plus its actual behaviour on a truncated list.
   try {
-    assert.match(UI, /const sortedGroups = useMemo\(/,
-      'the sorted list must be derived, not sorted in place');
-    assert.match(UI, /\[\.\.\.groups\]\.sort\(/,
-      'sort a COPY -- sorting `groups` in place mutates search state');
-    assert.match(UI, /sortedGroups\.map\(/,
-      'the rendered list must actually use the sorted order');
-    assert.match(UI, /if \(!ledger\) return groups;/,
-      'do not reorder before the ledger loads, or rows jump under his finger');
+    const svc = stripComments(fs.readFileSync(
+      path.join(__dirname, '../../src/services/mtgjsonProducts.js'), 'utf8'));
+    assert.match(svc, /addedIds/,
+      'searchProducts must receive the ledger ids');
+    // The sort must come BEFORE the slice in the source, or the limit wins.
+    const sortAt = svc.indexOf('groups.sort(');
+    const sliceAt = svc.indexOf('.slice(0, limit)');
+    assert.ok(sortAt > 0 && sliceAt > 0, 'sort and slice must both exist');
+    assert.ok(sortAt < sliceAt,
+      'the added-first sort must run BEFORE the limit, or added products are cut');
+    assert.match(svc, /addedPastCut/,
+      'added products beyond the limit must still be returned');
+    // The route has to supply the ids, or the parameter is never exercised.
+    assert.match(SRC, /SELECT product_id FROM import_ledger WHERE user_id = \? AND product_id IS NOT NULL/,
+      'the search route must read the ledger');
+    assert.match(SRC, /addedIds: new Set\(/, 'the route must pass addedIds down');
+    // And the component must NOT re-sort: a second rule would hide a server
+    // regression by agreeing on the rows that made it through.
+    assert.ok(!/sortedGroups/.test(UI),
+      'the component must not re-sort a truncated list');
 
-    // The comparator's actual behaviour, with a stable-sort check.
-    const added = new Set(['B', 'D']);
-    const groups = [
-      { id: 'A', date: '2026-09-01' }, { id: 'B', date: '2026-08-01' },
-      { id: 'C', date: '2026-07-01' }, { id: 'D', date: '2026-06-01' },
-      { id: 'E', date: '2026-05-01' },
-    ]; // already newest-first, as searchProducts returns them
+    // BEHAVIOUR on a list longer than the limit -- the actual bug.
+    const added = new Set(['LATE']);
+    const all = [
+      { id: 'N1', d: '2026-09' }, { id: 'N2', d: '2026-08' },
+      { id: 'N3', d: '2026-07' }, { id: 'LATE', d: '2023-01' },
+    ];
     const isAdded = (g) => added.has(g.id);
-    const out = [...groups].sort((a, b) => (isAdded(b) ? 1 : 0) - (isAdded(a) ? 1 : 0));
-    assert.deepStrictEqual(out.map((g) => g.id), ['B', 'D', 'A', 'C', 'E'],
-      'added first, and each half still newest-first');
-    const firstUnadded = out.findIndex((g) => !isAdded(g));
-    assert.ok(out.slice(0, firstUnadded).every(isAdded),
-      'no unadded product may appear above an added one');
-    assert.ok(out.slice(firstUnadded).every((g) => !isAdded(g)),
-      'no added product may appear below an unadded one');
+    const sorted = [...all].sort((a, b) => {
+      const aa = isAdded(a), ba = isAdded(b);
+      if (aa !== ba) return aa ? -1 : 1;
+      return b.d.localeCompare(a.d);
+    });
+    assert.strictEqual(sorted[0].id, 'LATE',
+      'an added product from 2023 must outrank unadded 2026 ones');
+    const LIMIT = 2;
+    const head = sorted.slice(0, LIMIT);
+    const kept = new Set(head);
+    const past = sorted.filter((g) => isAdded(g) && !kept.has(g));
+    const out = [...past, ...head].map((g) => g.id);
+    assert.ok(out.includes('LATE'), 'the added product must survive the limit');
+    assert.deepStrictEqual(out, ['LATE', 'N1'],
+      'added first, then newest-first, within the limit');
     console.log('PASS: IL-TC14');
   } catch (err) {
     console.error('FAIL: IL-TC14 -', err.message);
+    throw err;
+  }
+
+  // IL-TC15: a partial import records WHICH cards came in.
+  //
+  // Zach: "for my one manapool order I only received 7 of my 10 cards. When I
+  // add just those 7 can you show them as added on the order screen so I dont
+  // accidentally readd them"
+  //
+  // "This order was imported" cannot answer that -- a partial import is the
+  // normal case for an order, so the per-card rows are the whole feature.
+  try {
+    const cols = await db.all(`PRAGMA table_info(import_ledger_cards)`);
+    assert.ok(cols.length, 'import_ledger_cards must exist');
+    const names = cols.map((c) => c.name);
+    for (const req of ['ledger_id', 'user_id', 'product_id', 'scryfall_id', 'quantity']) {
+      assert.ok(names.includes(req), `import_ledger_cards needs ${req}`);
+    }
+    const rec = SRC.slice(SRC.indexOf('async function recordImport'));
+    const body = rec.slice(0, rec.indexOf('async function flagAgainstCatalogue'));
+    assert.match(body, /INSERT INTO import_ledger_cards/,
+      'recordImport must write the per-card rows');
+    assert.match(body, /a\.scryfallId/,
+      'the card rows must record the scryfall id actually added');
+    console.log('PASS: IL-TC15');
+  } catch (err) {
+    console.error('FAIL: IL-TC15 -', err.message);
+    throw err;
+  }
+
+  // IL-TC16: the card list reports what was already taken, and the UI cannot
+  // silently re-add it.
+  //
+  // A LABEL ALONE IS NOT ENOUGH: if the seven received cards stay ticked, the
+  // Add button is still primed to import all ten. The already-taken rows must
+  // start EXCLUDED, and "Select all" must not re-tick them -- that button would
+  // otherwise hand the double-add straight back.
+  try {
+    assert.match(SRC, /async function flagAlreadyImported/,
+      'the card endpoints need an already-imported flag');
+    // BOTH card endpoints, not just orders -- precons can be partially added too.
+    const calls = [...SRC.matchAll(/flagAlreadyImported\(/g)];
+    assert.ok(calls.length >= 3,
+      `both /:id/cards and /orders/:id/cards must flag (found ${calls.length - 1} call sites)`);
+    // A COUNT, not a boolean: 1 of 2 received must not read as done.
+    assert.match(SRC, /alreadyAdded:/, 'cards must carry an alreadyAdded count');
+    assert.match(UI, /c\.alreadyAdded >= c\.quantity/,
+      'only FULLY taken cards may be auto-excluded');
+    assert.match(UI, /setExcluded\(new Set\(\(body\.cards \|\| \[\]\)/,
+      'already-taken cards must start unticked');
+    // Select all must respect it.
+    const selAll = UI.slice(UI.indexOf("t('product.selectAll')") - 400,
+                            UI.indexOf("t('product.selectAll')"));
+    assert.match(selAll, /alreadyAdded >= c\.quantity/,
+      'Select all must not re-tick cards already received');
+    console.log('PASS: IL-TC16');
+  } catch (err) {
+    console.error('FAIL: IL-TC16 -', err.message);
     throw err;
   }
 }

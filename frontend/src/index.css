@@ -6208,6 +6208,20 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .pp-row-bad { cursor: default; opacity: 0.55; }
 .pp-tick-bad { border-style: dashed; }
 
+/* ALREADY TAKEN FROM THIS ORDER.
+   Zach: "I only received 7 of my 10 cards ... show them as added on the order
+   screen so I dont accidentally readd them"
+
+   Dimmed, NOT disabled. The row stays tickable because a second copy really
+   can arrive later -- the default is off, which removes the accident without
+   removing the choice. Milder than .pp-row-bad (0.55), which means "cannot be
+   added at all": these CAN be, he just probably does not want to. */
+.pp-row-taken { opacity: 0.72; }
+.pp-taken { flex-shrink: 0; margin-left: auto; font-size: 0.63rem;
+  font-weight: 700; white-space: nowrap; padding: 0.1rem 0.4rem;
+  border-radius: 999px; color: #7ddc9a;
+  background: rgba(125,220,154,0.12); border: 1px solid rgba(125,220,154,0.3); }
+
 .pp-cta { display: flex; gap: 0.6rem; }
 .pp-big { flex: 1; min-height: 46px; font-size: 0.92rem; font-weight: 700; }
 .pp-primary { flex: 2; }

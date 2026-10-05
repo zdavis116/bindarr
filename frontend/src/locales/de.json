@@ -1130,5 +1130,7 @@
   "product.markDone": "{name} als bereits hinzugefügt markiert",
   "product.markAlready": "{name} war bereits erfasst",
   "product.markUndone": "Notiz für {name} entfernt",
-  "product.errMark": "Notiz konnte nicht aktualisiert werden"
+  "product.errMark": "Notiz konnte nicht aktualisiert werden",
+  "product.cardAdded": "Hinzugefügt",
+  "product.cardAddedPartial": "{n} von {total} hinzugefügt"
 }

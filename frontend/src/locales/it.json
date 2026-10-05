@@ -1145,5 +1145,7 @@
   "product.markDone": "{name} segnato come già aggiunto",
   "product.markAlready": "{name} era già registrato",
   "product.markUndone": "Nota rimossa per {name}",
-  "product.errMark": "Impossibile aggiornare la nota"
+  "product.errMark": "Impossibile aggiornare la nota",
+  "product.cardAdded": "Aggiunta",
+  "product.cardAddedPartial": "{n} di {total} aggiunte"
 }

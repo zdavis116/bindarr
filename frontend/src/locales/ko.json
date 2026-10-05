@@ -1115,5 +1115,7 @@
   "product.markDone": "{name}을(를) 이미 추가됨으로 표시",
   "product.markAlready": "{name}은(는) 이미 기록되어 있습니다",
   "product.markUndone": "{name}의 기록을 삭제했습니다",
-  "product.errMark": "기록을 업데이트할 수 없습니다"
+  "product.errMark": "기록을 업데이트할 수 없습니다",
+  "product.cardAdded": "추가됨",
+  "product.cardAddedPartial": "{total}장 중 {n}장 추가됨"
 }
