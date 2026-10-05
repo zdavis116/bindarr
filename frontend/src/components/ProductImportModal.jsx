@@ -13,7 +13,7 @@
 // Two steps, because he chose "show me the list first, let me confirm or untick
 // cards, then add": nothing is written until the final button.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, Search, Package, AlertTriangle } from 'lucide-react';
+import { X, Search, Package, AlertTriangle, Check } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { groupIntoSections, sectionCardCount } from './deckListSections.js';
 
@@ -122,6 +122,69 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
       || ledgerIndex.byName.get((baseName || '').trim().toLowerCase())
       || null;
   }, [ledger, ledgerIndex]);
+
+  // MARK SOMETHING HE ADDED BEFORE THIS FEATURE EXISTED.
+  //
+  // Zach: "is there a way for me to mark precons I already added" -- the ledger
+  // starts empty and cannot know his history, so without this the feature is
+  // useless for exactly the two decks that prompted it.
+  //
+  // MARKED FROM THE PICKER ROW, so the id and name come from MTGJSON rather
+  // than from typing. I hit the name-drift myself while testing: a row typed as
+  // "The Lost Caverns of Ixalan Commander: Blood Rites" never matches the
+  // product MTGJSON calls "Blood Rites", and the badge silently stays absent.
+  // Marking from the row cannot drift, because it carries the real id.
+  //
+  // THIS WRITES NO CARDS. It records that an import happened; the collection is
+  // untouched. That is the whole reason it is safe to offer as one tap.
+  const [marking, setMarking] = useState(null);
+
+  const markAdded = async (edition, kind) => {
+    setMarking(edition.id);
+    try {
+      const res = await fetch('/api/products/ledger', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: edition.id,
+          product_name: edition.name,
+          set_code: edition.setCode || null,
+          kind: kind || 'precon',
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || t('product.errMark'));
+      // Re-read the ledger rather than patching local state: the server is the
+      // record, and it may have deduped rather than inserted.
+      const fresh = await fetch('/api/products/ledger', { credentials: 'include' });
+      if (fresh.ok) setLedger((await fresh.json()).entries || []);
+      showToast(body.alreadyRecorded
+        ? t('product.markAlready', { name: edition.name })
+        : t('product.markDone', { name: edition.name }), 'success');
+    } catch (err) {
+      showToast(err.message || t('product.errMark'), 'error');
+    } finally {
+      setMarking(null);
+    }
+  };
+
+  const unmark = async (entryId, name) => {
+    setMarking(entryId);
+    try {
+      const res = await fetch(`/api/products/ledger/${entryId}`, {
+        method: 'DELETE', credentials: 'include',
+      });
+      if (!res.ok) throw new Error(t('product.errMark'));
+      const fresh = await fetch('/api/products/ledger', { credentials: 'include' });
+      if (fresh.ok) setLedger((await fresh.json()).entries || []);
+      showToast(t('product.markUndone', { name }), 'success');
+    } catch (err) {
+      showToast(err.message || t('product.errMark'), 'error');
+    } finally {
+      setMarking(null);
+    }
+  };
 
   const search = useCallback(async (q, k) => {
     setSearching(true);
@@ -287,35 +350,60 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                     ? importedEntry(g.editions[0], g.base) : null;
                   return (
                   <div key={`${g.kind}:${g.base}`}>
-                    <button type="button" className="pp-prod" disabled={loading}
-                      onClick={() => (g.editions.length > 1
-                        ? setEditionFor(editionFor?.base === g.base ? null : g)
-                        : openProduct(g.editions[0]))}>
-                      <span className="pp-pmain">
-                        <span className="pp-pname">
-                          <span className="pp-nametext">{g.base}</span>
-                          {/* ADDED ALREADY. The whole point of the feature:
-                              answered on the row, before the click. */}
-                          {entry && (
-                            <span className={`pp-added ${entry.source}`}>
-                              {entry.source === 'manual'
-                                ? t('product.addedManual')
-                                : t('product.addedOn', { date: formatLedgerDate(entry.addedAt) })}
-                            </span>
-                          )}
+                    {/* THE ROW AND ITS MARK CONTROL ARE SIBLINGS IN A WRAPPER,
+                        never nested. `.pp-prod` is itself a <button>, and a
+                        button inside a button is invalid HTML -- the browser
+                        unnests it and the inner click target stops behaving.
+                        The wrapper is the hover/stripe surface instead. */}
+                    <div className="pp-prodrow">
+                      <button type="button" className="pp-prod" disabled={loading}
+                        onClick={() => (g.editions.length > 1
+                          ? setEditionFor(editionFor?.base === g.base ? null : g)
+                          : openProduct(g.editions[0]))}>
+                        <span className="pp-pmain">
+                          <span className="pp-pname">
+                            <span className="pp-nametext">{g.base}</span>
+                            {/* ADDED ALREADY. The whole point of the feature:
+                                answered on the row, before the click. */}
+                            {entry && (
+                              <span className={`pp-added ${entry.source}`}>
+                                {entry.source === 'manual'
+                                  ? t('product.addedManual')
+                                  : t('product.addedOn', { date: formatLedgerDate(entry.addedAt) })}
+                              </span>
+                            )}
+                          </span>
+                          <span className="pp-pmeta">
+                            {g.kind === 'precon' ? t('product.kindPrecon') : t('product.kindSecretLair')}
+                            {/* The SET NAME, not the three-letter code. Zach
+                                searched "Duskmourn" and got nothing; showing
+                                "DSC" would not have told him why a result
+                                matched either. */}
+                            {g.editions[0].setName ? ` · ${g.editions[0].setName}` : ''}
+                            {g.editions.length > 1 ? ` · ${t('product.nEditions', { n: g.editions.length })}` : ''}
+                          </span>
                         </span>
-                        <span className="pp-pmeta">
-                          {g.kind === 'precon' ? t('product.kindPrecon') : t('product.kindSecretLair')}
-                          {/* The SET NAME, not the three-letter code. Zach
-                              searched "Duskmourn" and got nothing; showing
-                              "DSC" would not have told him why a result
-                              matched either. */}
-                          {g.editions[0].setName ? ` · ${g.editions[0].setName}` : ''}
-                          {g.editions.length > 1 ? ` · ${t('product.nEditions', { n: g.editions.length })}` : ''}
-                        </span>
-                      </span>
-                      <Package size={15} className="pp-picon" />
-                    </button>
+                        <Package size={15} className="pp-picon" />
+                      </button>
+
+                      {/* MARK / UNMARK. Only where there is ONE edition -- with
+                          a foil twin the question "which one did you add?" has
+                          no answer at this level, so it moves onto the edition
+                          buttons below. A VERIFIED import has no control: the
+                          app recorded that itself and he must not be able to
+                          erase a real event by mistaking it for his own note. */}
+                      {g.editions.length === 1 && (!entry || entry.source === 'manual') && (
+                        <button type="button" className="pp-markbtn"
+                          disabled={marking === g.editions[0].id || marking === entry?.id}
+                          title={entry ? t('product.unmarkHint') : t('product.markHint')}
+                          onClick={() => (entry
+                            ? unmark(entry.id, g.base)
+                            : markAdded(g.editions[0], g.kind))}>
+                          {entry ? <X size={14} /> : <Check size={14} />}
+                          <span>{entry ? t('product.unmark') : t('product.mark')}</span>
+                        </button>
+                      )}
+                    </div>
 
                     {/* THE EDITION CHOICE, inline under the row it belongs to. */}
                     {editionFor?.base === g.base && (
@@ -329,7 +417,11 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                             const isFoil = /foil/i.test(e.name);
                             const edEntry = importedEntry(e, null);
                             return (
-                              <button key={e.id} type="button" className="pp-edopt"
+                              /* Same sibling rule as the product row: the mark
+                                 control cannot live inside .pp-edopt, which is
+                                 a button. */
+                              <div key={e.id} className="pp-edrow">
+                              <button type="button" className="pp-edopt"
                                 onClick={() => openProduct(e)}>
                                 <span className={`pp-edswatch ${isFoil ? 'foil' : 'plain'}`}>
                                   {isFoil ? t('product.foil') : t('product.nonfoil')}
@@ -347,6 +439,18 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                                   </span>
                                 )}
                               </button>
+                              {(!edEntry || edEntry.source === 'manual') && (
+                                <button type="button" className="pp-markbtn"
+                                  disabled={marking === e.id || marking === edEntry?.id}
+                                  title={edEntry ? t('product.unmarkHint') : t('product.markHint')}
+                                  onClick={() => (edEntry
+                                    ? unmark(edEntry.id, e.name)
+                                    : markAdded(e, g.kind))}>
+                                  {edEntry ? <X size={14} /> : <Check size={14} />}
+                                  <span>{edEntry ? t('product.unmark') : t('product.mark')}</span>
+                                </button>
+                              )}
+                              </div>
                             );
                           })}
                         </div>

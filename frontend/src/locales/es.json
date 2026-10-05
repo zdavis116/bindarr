@@ -1451,5 +1451,13 @@
   "wizard.selectAll": "Seleccionar todo",
   "wizard.slot": "Hueco {slot}",
   "product.addedOn": "Añadido {date}",
-  "product.addedManual": "Marcado como añadido"
+  "product.addedManual": "Marcado como añadido",
+  "product.mark": "Marcar añadido",
+  "product.unmark": "Desmarcar",
+  "product.markHint": "Registra que ya lo añadiste, sin añadir cartas",
+  "product.unmarkHint": "Elimina esta nota. Tus cartas no se tocan.",
+  "product.markDone": "{name} marcado como ya añadido",
+  "product.markAlready": "{name} ya estaba registrado",
+  "product.markUndone": "Nota eliminada para {name}",
+  "product.errMark": "No se pudo actualizar la nota"
 }

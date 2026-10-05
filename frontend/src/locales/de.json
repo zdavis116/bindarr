@@ -1122,5 +1122,13 @@
   "wizard.selectAll": "Alle auswählen",
   "wizard.slot": "Platz {slot}",
   "product.addedOn": "Hinzugefügt {date}",
-  "product.addedManual": "Als hinzugefügt markiert"
+  "product.addedManual": "Als hinzugefügt markiert",
+  "product.mark": "Als hinzugefügt",
+  "product.unmark": "Entfernen",
+  "product.markHint": "Notieren, dass du das bereits hinzugefügt hast – ohne Karten hinzuzufügen",
+  "product.unmarkHint": "Notiz entfernen. Deine Karten bleiben unberührt.",
+  "product.markDone": "{name} als bereits hinzugefügt markiert",
+  "product.markAlready": "{name} war bereits erfasst",
+  "product.markUndone": "Notiz für {name} entfernt",
+  "product.errMark": "Notiz konnte nicht aktualisiert werden"
 }

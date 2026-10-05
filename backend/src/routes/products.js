@@ -337,6 +337,7 @@ router.get('/ledger', async (req, res) => {
 // which is why it cannot silently duplicate a real collection.
 router.post('/ledger', async (req, res) => {
   const { product_name: productName, kind, set_code: setCode,
+          product_id: productId,
           cards_added: cardsAdded, note, added_at: addedAt } = req.body || {};
   const name = typeof productName === 'string' ? productName.trim() : '';
   if (!name) {
@@ -345,12 +346,28 @@ router.post('/ledger', async (req, res) => {
   const allowedKinds = new Set(['precon', 'secretlair', 'order', 'other']);
   const entryKind = allowedKinds.has(kind) ? kind : 'precon';
   try {
+    // MARKING THE SAME PRODUCT TWICE IS NOT AN ERROR, AND NOT A SECOND ROW.
+    //
+    // The button that calls this sits on a list he scrolls; a double tap, or
+    // marking something already marked, must be a no-op rather than two
+    // conflicting claims about the same product. Only id-bearing rows can be
+    // deduped reliably -- a hand-typed name is not an identity.
+    if (productId) {
+      const existing = await db.get(
+        `SELECT id, source FROM import_ledger WHERE user_id = ? AND product_id = ?`,
+        [req.user.id, productId]
+      );
+      if (existing) {
+        return res.status(200).json({ id: existing.id, productName: name,
+          source: existing.source, alreadyRecorded: true });
+      }
+    }
     const result = await db.run(
       `INSERT INTO import_ledger
          (user_id, kind, product_id, product_name, set_code, cards_added,
           rows_added, source, note, added_at)
-       VALUES (?, ?, NULL, ?, ?, ?, 0, 'manual', ?, COALESCE(?, CURRENT_TIMESTAMP))`,
-      [req.user.id, entryKind, name, setCode || null,
+       VALUES (?, ?, ?, ?, ?, ?, 0, 'manual', ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+      [req.user.id, entryKind, productId || null, name, setCode || null,
        Number.isFinite(cardsAdded) ? cardsAdded : 0,
        typeof note === 'string' ? note : '',
        addedAt || null]

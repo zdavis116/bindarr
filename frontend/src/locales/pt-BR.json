@@ -1137,5 +1137,13 @@
   "wizard.selectAll": "Selecionar tudo",
   "wizard.slot": "Espaço {slot}",
   "product.addedOn": "Adicionado {date}",
-  "product.addedManual": "Marcado como adicionado"
+  "product.addedManual": "Marcado como adicionado",
+  "product.mark": "Marcar adicionado",
+  "product.unmark": "Desmarcar",
+  "product.markHint": "Registra que você já adicionou isto, sem adicionar cartas",
+  "product.unmarkHint": "Remove esta nota. Suas cartas não são afetadas.",
+  "product.markDone": "{name} marcado como já adicionado",
+  "product.markAlready": "{name} já estava registrado",
+  "product.markUndone": "Nota removida para {name}",
+  "product.errMark": "Não foi possível atualizar a nota"
 }

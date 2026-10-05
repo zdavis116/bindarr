@@ -6068,11 +6068,36 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .pp-results { overflow-y: auto; min-height: 0; flex: 1;
   background: var(--bg-secondary); border: 1px solid var(--border-glass);
   border-radius: var(--radius-sm); }
+/* THE ROW IS NOW A WRAPPER holding the product button and its mark control as
+   SIBLINGS. A <button> cannot contain a <button> -- the browser unnests it and
+   the inner control stops working -- so the border and hover move here, and
+   .pp-prod loses its own border to avoid drawing two. */
+.pp-prodrow { display: flex; align-items: center;
+  border-bottom: 1px solid var(--border-glass); }
+.pp-prodrow:hover { background: rgba(255,255,255,0.03); }
 .pp-prod { display: flex; align-items: center; gap: 0.7rem; width: 100%;
   padding: 0.7rem 0.9rem; background: none; border: 0;
-  border-bottom: 1px solid var(--border-glass); color: var(--text-primary);
+  color: var(--text-primary); min-width: 0;
   font-family: inherit; text-align: left; cursor: pointer; }
-.pp-prod:hover { background: rgba(255,255,255,0.03); }
+
+/* MARK ADDED.
+   Zach: "is there a way for me to mark precons I already added"
+
+   Deliberately QUIET. The primary action on this row is still "open this
+   product and add it"; this is the escape hatch for history the app could not
+   know. It must never read as the main button, and it must never look like it
+   will add cards -- it writes a note and nothing else. */
+.pp-markbtn { display: inline-flex; align-items: center; gap: 0.3rem;
+  flex-shrink: 0; margin-right: 0.6rem; padding: 0.3rem 0.55rem;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass);
+  border-radius: 7px; color: var(--text-muted); cursor: pointer;
+  font-family: inherit; font-size: 0.7rem; font-weight: 650; white-space: nowrap; }
+.pp-markbtn:hover:not(:disabled) { color: var(--text-primary);
+  background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
+.pp-markbtn:disabled { opacity: 0.45; cursor: default; }
+/* The edition rows get the same sibling treatment. */
+.pp-edrow { display: flex; align-items: center; gap: 0.3rem; }
+.pp-edrow .pp-edopt { flex: 1; min-width: 0; }
 .pp-pmain { flex: 1; min-width: 0; }
 /* FLEX, NOT A PLAIN BLOCK. The badge is a CHILD of .pp-pname, and this rule
    was `white-space: nowrap` + `text-overflow: ellipsis` -- a nested badge gets

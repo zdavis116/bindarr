@@ -43,6 +43,16 @@ const SRC = SRC_RAW
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
 
+// The picker component. Comments stripped for the same reason as SRC: this
+// file explains its own rules at length, and a guard that matches the prose
+// instead of the JSX proves nothing.
+const UI_RAW = fs.readFileSync(
+  path.join(__dirname, '../../../frontend/src/components/ProductImportModal.jsx'), 'utf8');
+const UI = UI_RAW
+  .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
 async function runTests() {
   await db.initDb();
 
@@ -241,6 +251,78 @@ async function runTests() {
     console.log('PASS: IL-TC9');
   } catch (err) {
     console.error('FAIL: IL-TC9 -', err.message);
+    throw err;
+  }
+  // IL-TC10: marking the same product twice does NOT create a second row.
+  //
+  // The mark button sits on a scrolling list; a double tap must be a no-op, not
+  // two conflicting claims about one product. Dedupe is by product_id, because
+  // only an id is an identity -- a typed name is not.
+  try {
+    const post = SRC.slice(SRC.indexOf("router.post('/ledger'"));
+    const body = post.slice(0, post.indexOf('router.delete'));
+    assert.match(body, /SELECT id, source FROM import_ledger WHERE user_id = \? AND product_id = \?/,
+      'the manual route must look for an existing row by product_id');
+    assert.match(body, /alreadyRecorded: true/,
+      'a duplicate must report itself rather than inserting again');
+    console.log('PASS: IL-TC10');
+  } catch (err) {
+    console.error('FAIL: IL-TC10 -', err.message);
+    throw err;
+  }
+
+  // IL-TC11: A VERIFIED IMPORT CANNOT BE UNMARKED FROM THE UI.
+  //
+  // The app recorded that event itself. If he could delete it as easily as his
+  // own note, one mis-tap destroys the only real evidence and the feature
+  // answers "did I add this?" with silence for a deck he definitely owns. The
+  // control renders only when there is no entry, or the entry is his own.
+  try {
+    const guards = [...UI.matchAll(/!(\w*[Ee]ntry)\s*\|\|\s*\1\.source === 'manual'/g)];
+    assert.ok(guards.length >= 2,
+      `both the product row and the edition row must gate the mark control on source==='manual'; found ${guards.length}`);
+    console.log('PASS: IL-TC11');
+  } catch (err) {
+    console.error('FAIL: IL-TC11 -', err.message);
+    throw err;
+  }
+
+  // IL-TC12: the mark control is NOT nested inside the row button.
+  //
+  // `.pp-prod` and `.pp-edopt` are both <button>. A button inside a button is
+  // invalid HTML: the browser unnests it and the inner control silently stops
+  // being clickable -- rendered, present in the DOM, and unreachable. That is
+  // this project's recurring UI failure, so it is asserted structurally.
+  try {
+    for (const cls of ['pp-prod', 'pp-edopt']) {
+      const at = UI.indexOf(`className="${cls}"`);
+      assert.ok(at > 0, `${cls} not found`);
+      const close = UI.indexOf('</button>', at);
+      const inner = UI.slice(at, close);
+      assert.ok(!/pp-markbtn/.test(inner),
+        `the mark button must NOT be nested inside the ${cls} button`);
+    }
+    assert.match(UI, /className="pp-prodrow"/, 'product rows need a sibling wrapper');
+    assert.match(UI, /className="pp-edrow"/, 'edition rows need a sibling wrapper');
+    console.log('PASS: IL-TC12');
+  } catch (err) {
+    console.error('FAIL: IL-TC12 -', err.message);
+    throw err;
+  }
+
+  // IL-TC13: marking writes NO cards. The entire safety of offering this as
+  // one tap rests on it being a note, not an import.
+  try {
+    const post = SRC.slice(SRC.indexOf("router.post('/ledger'"));
+    const body = post.slice(0, post.indexOf('router.delete'));
+    assert.doesNotMatch(body, /INSERT INTO collection/i,
+      'the manual mark route must never write collection rows');
+    assert.doesNotMatch(body, /addCardToCollection|addCardsInOneTransaction/,
+      'the manual mark route must not call the card adder');
+    assert.match(body, /'manual'/, "rows written here must be marked 'manual'");
+    console.log('PASS: IL-TC13');
+  } catch (err) {
+    console.error('FAIL: IL-TC13 -', err.message);
     throw err;
   }
 }

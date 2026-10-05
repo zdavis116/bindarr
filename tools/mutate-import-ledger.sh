@@ -11,8 +11,9 @@ export PATH="$HOME/.cache/hermes-node20/node-v20.20.2-linux-x64/bin:$PATH"
 
 DB=backend/src/db.js
 RT=backend/src/routes/products.js
+UI=frontend/src/components/ProductImportModal.jsx
 TEST=backend/test/e2e/import_ledger.test.js
-FILES="$DB $RT"
+FILES="$DB $RT $UI"
 
 if ! git diff --quiet -- $FILES; then
   echo "REFUSING TO RUN: uncommitted changes in the files under test."
@@ -134,6 +135,44 @@ try "ledger routes declared after the parameterised ones" IL-TC8 "$RT" \
 try "delete entry also deletes the cards" IL-TC9 "$RT" \
   "      \`DELETE FROM import_ledger WHERE id = ? AND user_id = ?\`," \
   "      \`DELETE FROM collection WHERE id = ? AND user_id = ?\`,"
+
+echo
+echo "=== mark-added mutations ==="
+
+# Double-tap on a scrolling list writes two conflicting claims about one
+# product.
+try "dedupe check removed" IL-TC10 "$RT" \
+  "    if (productId) {" \
+  "    if (false) {"
+
+# THE DANGEROUS ONE. If a verified import can be unmarked as easily as his own
+# note, one mis-tap destroys the only real evidence the app has.
+try "verified imports become unmarkable (product row)" IL-TC11 "$UI" \
+  "{g.editions.length === 1 && (!entry || entry.source === 'manual') && (" \
+  "{g.editions.length === 1 && ("
+
+try "verified imports become unmarkable (edition row)" IL-TC11 "$UI" \
+  "{(!edEntry || edEntry.source === 'manual') && (" \
+  "{(true) && ("
+
+# A button inside a button is unnested by the browser: rendered, in the DOM,
+# and NOT clickable. The exact reachability failure this project keeps hitting.
+try "mark button nested inside the row button" IL-TC12 "$UI" \
+  "                        <Package size={15} className=\"pp-picon\" />
+                      </button>" \
+  "                        <Package size={15} className=\"pp-picon\" />
+                        <button className=\"pp-markbtn\">x</button>
+                      </button>"
+
+# Marking must write a NOTE, never cards.
+try "marking also writes collection rows" IL-TC13 "$RT" \
+  "    const result = await db.run(
+      \`INSERT INTO import_ledger
+         (user_id, kind, product_id, product_name, set_code, cards_added," \
+  "    await db.run(\`INSERT INTO collection (card_id) VALUES ('x')\`);
+    const result = await db.run(
+      \`INSERT INTO import_ledger
+         (user_id, kind, product_id, product_name, set_code, cards_added,"
 
 echo
 # THE HARNESS MUST NOT LIE. An earlier version of this pattern silently reverted
