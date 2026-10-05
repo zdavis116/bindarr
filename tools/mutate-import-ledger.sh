@@ -43,7 +43,10 @@ expect() {
     echo "  !!! STILL PASSED - $want does not guard this (VACUOUS TEST)"
     FAILURES=$((FAILURES + 1))
   else
-    local got; got=$(grep -o 'IL-TC[0-9]*' /tmp/il-out | head -1)
+    # Match the FAIL line only. An earlier version grepped the whole output and
+    # always found "PASS: IL-TC1" first, reporting WRONG TEST for every
+    # correctly-failing guard. The harness must not lie about the harness.
+    local got; got=$(grep -o 'FAIL: IL-TC[0-9]*' /tmp/il-out | head -1 | sed 's/FAIL: //')
     if [ "$got" = "$want" ]; then echo "  failed as intended: $got"
     else echo "  !!! WRONG TEST: expected $want, got '${got:-<crash>}'"
       FAILURES=$((FAILURES + 1)); fi

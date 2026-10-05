@@ -29,8 +29,19 @@ async function cleanup() {
   }
 }
 
-const SRC = fs.readFileSync(
+const SRC_RAW = fs.readFileSync(
   path.join(__dirname, '../../src/routes/products.js'), 'utf8');
+
+// STRIP COMMENTS BEFORE ASSERTING ON CODE.
+//
+// This file is heavily commented, and the first version of IL-TC3 passed
+// against a COMMENTED-OUT recordImport call: the mutation harness disabled the
+// ledger write entirely and the test still went green. A guard that matches the
+// prose explaining the rule instead of the rule itself is worse than no guard,
+// because it reports confidence it has not earned.
+const SRC = SRC_RAW
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
 
 async function runTests() {
   await db.initDb();
