@@ -1135,5 +1135,9 @@
   "wizard.nothingToMove": "Nenhuma carta para mover.",
   "wizard.page": "Página",
   "wizard.selectAll": "Selecionar tudo",
-  "wizard.slot": "Espaço {slot}"
+  "wizard.slot": "Espaço {slot}",
+  "product.addedOn": "Adicionado {date}",
+  "product.addedManual": "Marcado como adicionado",
+  "product.cardAdded": "Adicionada",
+  "product.cardAddedPartial": "{n} de {total} adicionadas"
 }

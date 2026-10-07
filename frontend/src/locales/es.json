@@ -1449,5 +1449,9 @@
   "wizard.nothingToMove": "No hay cartas que mover.",
   "wizard.page": "Página",
   "wizard.selectAll": "Seleccionar todo",
-  "wizard.slot": "Hueco {slot}"
+  "wizard.slot": "Hueco {slot}",
+  "product.addedOn": "Añadido {date}",
+  "product.addedManual": "Marcado como añadido",
+  "product.cardAdded": "Añadida",
+  "product.cardAddedPartial": "{n} de {total} añadidas"
 }

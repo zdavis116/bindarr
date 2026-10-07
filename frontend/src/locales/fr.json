@@ -1135,5 +1135,9 @@
   "wizard.nothingToMove": "Aucune carte à déplacer.",
   "wizard.page": "Page",
   "wizard.selectAll": "Tout sélectionner",
-  "wizard.slot": "Emplacement {slot}"
+  "wizard.slot": "Emplacement {slot}",
+  "product.addedOn": "Ajouté {date}",
+  "product.addedManual": "Marqué comme ajouté",
+  "product.cardAdded": "Ajoutée",
+  "product.cardAddedPartial": "{n} sur {total} ajoutées"
 }

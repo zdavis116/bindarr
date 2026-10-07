@@ -44,6 +44,18 @@ const SECTION_KEYS = {
   Other: 'mpc.sectionOther',
 };
 
+// A date he can act on, not a timestamp. "Sep 28" answers "did I already do
+// this?" faster than an ISO string, and the year appears only when it is not
+// the current one.
+function formatLedgerDate(value) {
+  if (!value) return '';
+  const d = new Date(String(value).replace(' ', 'T') + (String(value).endsWith('Z') ? '' : 'Z'));
+  if (Number.isNaN(d.getTime())) return '';
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts);
+}
+
 export default function ProductImportModal({ onClose, onAdded, showToast }) {
   const { t } = useT();
   const [query, setQuery] = useState('');
@@ -64,6 +76,74 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
   // NOT CONNECTED is a state, not an error: he has not done anything wrong.
   const [ordersState, setOrdersState] = useState(null);
+
+  // THE IMPORT LEDGER, keyed by product id.
+  //
+  // Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+  //
+  // The answer belongs HERE, on the row he is about to click, not on a separate
+  // history screen he would have to think to go and check. By the time he is
+  // looking at "Death Toll" in this list, the question is already live.
+  //
+  // THIS IS RECORDED HISTORY, NEVER AN OWNERSHIP GUESS. A row appears only if
+  // this app really performed the import or he wrote it down himself. Absence
+  // means "no record", NOT "you don't own it" -- anything added before this
+  // feature existed has no row, so the badge never claims the negative.
+  const [ledger, setLedger] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/products/ledger', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => { if (alive && body) setLedger(body.entries || []); })
+      // A ledger that fails to load must leave the badge ABSENT, never show a
+      // wrong one. Silent because it is an enhancement to the row, not the
+      // feature he came here for.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Index by product id AND by name, because a manual backfill row has no
+  // product id -- he remembers "Death Toll", not its MTGJSON filename.
+  const ledgerIndex = useMemo(() => {
+    const byId = new Map();
+    const byName = new Map();
+    for (const e of ledger || []) {
+      if (e.productId) byId.set(e.productId, e);
+      if (e.productName) byName.set(e.productName.trim().toLowerCase(), e);
+    }
+    return { byId, byName };
+  }, [ledger]);
+
+  const importedEntry = useCallback((edition, baseName) => {
+    if (!ledger) return null;
+    return ledgerIndex.byId.get(edition?.id)
+      || ledgerIndex.byName.get((edition?.name || '').trim().toLowerCase())
+      || ledgerIndex.byName.get((baseName || '').trim().toLowerCase())
+      || null;
+  }, [ledger, ledgerIndex]);
+
+  // THE LEDGER IS READ-ONLY FROM THIS SCREEN.
+  //
+  // Zach: "Everything should be set and nothing should be able to be changed at
+  // this point."
+  //
+  // Both hand-editing paths are DELETED, not unrendered: markAdded() wrote rows
+  // claiming he owned something, and unmark() destroyed them. The backfill is
+  // finished and correct, so each of those is now only a way to damage a record
+  // that is already right. A function kept alive with no caller is a loaded gun
+  // for the next edit.
+  //
+  // The ledger now changes in exactly ONE way: a real import writes a row.
+
+  // THE SORT LIVES ON THE SERVER. See searchProducts(addedIds).
+  //
+  // This used to sort here, and Zach caught it: "Explorers of the deep is
+  // marked as added and isnt at the top". The search matches 611 products and
+  // returns 40, so sorting in the browser could only reorder what arrived --
+  // an added product ranked ~#200 by release date was never in the response.
+  // Re-sorting here now would merely hide a server regression behind a second
+  // rule that agrees with it on the rows that made it through.
 
   const search = useCallback(async (q, k) => {
     setSearching(true);
@@ -113,7 +193,19 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || t('product.errLoad'));
       setDetail(body);
-      setExcluded(new Set());
+      // ALREADY-TAKEN CARDS START UNTICKED.
+      //
+      // Zach: "I only received 7 of my 10 cards. When I add just those 7 can
+      // you show them as added on the order screen so I dont accidentally
+      // readd them"
+      //
+      // Defaulting them OFF is what actually prevents the double-add -- a
+      // label alone still leaves "Add" ready to re-import everything. He can
+      // still tick one deliberately (a second copy really did arrive), so this
+      // removes the accident, not the ability.
+      setExcluded(new Set((body.cards || [])
+        .filter((c) => c.alreadyAdded >= c.quantity)
+        .map((c) => c.scryfallId)));
     } catch (err) {
       showToast(err.message || t('product.errLoad'), 'error');
     } finally {
@@ -222,26 +314,63 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
 
             {!searching && kind !== 'orders' && groups && groups.length > 0 && (
               <div className="pp-results">
-                {groups.map((g) => (
+                {groups.map((g) => {
+                  // One edition means one answer; several means the badge would
+                  // be ambiguous, so it moves down onto the edition buttons.
+                  const entry = g.editions.length === 1
+                    ? importedEntry(g.editions[0], g.base) : null;
+                  return (
                   <div key={`${g.kind}:${g.base}`}>
-                    <button type="button" className="pp-prod" disabled={loading}
-                      onClick={() => (g.editions.length > 1
-                        ? setEditionFor(editionFor?.base === g.base ? null : g)
-                        : openProduct(g.editions[0]))}>
-                      <span className="pp-pmain">
-                        <span className="pp-pname">{g.base}</span>
-                        <span className="pp-pmeta">
-                          {g.kind === 'precon' ? t('product.kindPrecon') : t('product.kindSecretLair')}
-                          {/* The SET NAME, not the three-letter code. Zach
-                              searched "Duskmourn" and got nothing; showing
-                              "DSC" would not have told him why a result
-                              matched either. */}
-                          {g.editions[0].setName ? ` · ${g.editions[0].setName}` : ''}
-                          {g.editions.length > 1 ? ` · ${t('product.nEditions', { n: g.editions.length })}` : ''}
+                    {/* THE ROW AND ITS MARK CONTROL ARE SIBLINGS IN A WRAPPER,
+                        never nested. `.pp-prod` is itself a <button>, and a
+                        button inside a button is invalid HTML -- the browser
+                        unnests it and the inner click target stops behaving.
+                        The wrapper is the hover/stripe surface instead. */}
+                    <div className="pp-prodrow">
+                      <button type="button" className="pp-prod" disabled={loading}
+                        onClick={() => (g.editions.length > 1
+                          ? setEditionFor(editionFor?.base === g.base ? null : g)
+                          : openProduct(g.editions[0]))}>
+                        <span className="pp-pmain">
+                          <span className="pp-pname">
+                            <span className="pp-nametext">{g.base}</span>
+                            {/* ADDED ALREADY. The whole point of the feature:
+                                answered on the row, before the click. */}
+                            {entry && (
+                              <span className={`pp-added ${entry.source}`}>
+                                {entry.source === 'manual'
+                                  ? t('product.addedManual')
+                                  : t('product.addedOn', { date: formatLedgerDate(entry.addedAt) })}
+                              </span>
+                            )}
+                          </span>
+                          <span className="pp-pmeta">
+                            {g.kind === 'precon' ? t('product.kindPrecon') : t('product.kindSecretLair')}
+                            {/* The SET NAME, not the three-letter code. Zach
+                                searched "Duskmourn" and got nothing; showing
+                                "DSC" would not have told him why a result
+                                matched either. */}
+                            {g.editions[0].setName ? ` · ${g.editions[0].setName}` : ''}
+                            {g.editions.length > 1 ? ` · ${t('product.nEditions', { n: g.editions.length })}` : ''}
+                          </span>
                         </span>
-                      </span>
-                      <Package size={15} className="pp-picon" />
-                    </button>
+                        <Package size={15} className="pp-picon" />
+                      </button>
+
+                      {/* THE LEDGER IS READ-ONLY.
+                          Zach: "Why is the unmarked button still there.
+                          Everything should be set and nothing should be able to
+                          be changed at this point."
+
+                          He asked for hand-editing to go and I kept Unmark
+                          anyway, reasoning he might need an undo. He did not
+                          ask for one. The backfill is finished and correct, so
+                          every control that writes to the ledger by hand is now
+                          only a way to damage a record that is already right.
+
+                          From here the ledger changes in exactly ONE way: a
+                          real import writes a row. */}
+                    </div>
 
                     {/* THE EDITION CHOICE, inline under the row it belongs to. */}
                     {editionFor?.base === g.base && (
@@ -253,21 +382,39 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                         <div className="pp-edopts">
                           {g.editions.map((e) => {
                             const isFoil = /foil/i.test(e.name);
+                            const edEntry = importedEntry(e, null);
                             return (
-                              <button key={e.id} type="button" className="pp-edopt"
+                              /* Same sibling rule as the product row: the mark
+                                 control cannot live inside .pp-edopt, which is
+                                 a button. */
+                              <div key={e.id} className="pp-edrow">
+                              <button type="button" className="pp-edopt"
                                 onClick={() => openProduct(e)}>
                                 <span className={`pp-edswatch ${isFoil ? 'foil' : 'plain'}`}>
                                   {isFoil ? t('product.foil') : t('product.nonfoil')}
                                 </span>
                                 <span className="pp-edname">{e.name}</span>
+                                {/* The edition is what gets added, so this is
+                                    where the answer has to be when there is a
+                                    choice -- the foil and nonfoil twins are
+                                    separate imports. */}
+                                {edEntry && (
+                                  <span className={`pp-added ${edEntry.source}`}>
+                                    {edEntry.source === 'manual'
+                                      ? t('product.addedManual')
+                                      : t('product.addedOn', { date: formatLedgerDate(edEntry.addedAt) })}
+                                  </span>
+                                )}
                               </button>
+                              </div>
                             );
                           })}
                         </div>
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -347,7 +494,12 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
             </div>
 
             <div className="pp-selbar">
-              <button type="button" onClick={() => setExcluded(new Set())}>
+              {/* SELECT ALL MEANS "everything still outstanding".
+                  Re-ticking the cards he already received would hand the
+                  double-add straight back via the convenience button. */}
+              <button type="button" onClick={() => setExcluded(new Set(addable
+                .filter((c) => c.alreadyAdded >= c.quantity)
+                .map((c) => c.scryfallId)))}>
                 {t('product.selectAll')}
               </button>
               <button type="button"
@@ -368,7 +520,8 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                     <span>{sectionCardCount(s.cards)}</span>
                   </div>
                   {s.cards.map((c) => (
-                    <label key={c.scryfallId} className="pp-row">
+                    <label key={c.scryfallId}
+                      className={`pp-row${c.alreadyAdded ? ' pp-row-taken' : ''}`}>
                       <input type="checkbox"
                         checked={!excluded.has(c.scryfallId)}
                         onChange={() => toggle(c.scryfallId)} />
@@ -378,6 +531,18 @@ export default function ProductImportModal({ onClose, onAdded, showToast }) {
                       {c.finish !== 'nonfoil' && (
                         <span className="pp-foil">
                           {c.finish === 'etched' ? t('product.etched') : t('product.foil')}
+                        </span>
+                      )}
+                      {/* ALREADY TAKEN FROM THIS ORDER.
+                          A COUNT, not a tick: he ordered 2 and one arrived is
+                          a real case, and "added" would hide the outstanding
+                          copy. Only the fully-taken rows start unticked. */}
+                      {c.alreadyAdded > 0 && (
+                        <span className="pp-taken">
+                          {c.alreadyAdded >= c.quantity
+                            ? t('product.cardAdded')
+                            : t('product.cardAddedPartial',
+                                { n: c.alreadyAdded, total: c.quantity })}
                         </span>
                       )}
                     </label>

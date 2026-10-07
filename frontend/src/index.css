@@ -6068,16 +6068,49 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
 .pp-results { overflow-y: auto; min-height: 0; flex: 1;
   background: var(--bg-secondary); border: 1px solid var(--border-glass);
   border-radius: var(--radius-sm); }
+/* THE ROW IS NOW A WRAPPER holding the product button and its mark control as
+   SIBLINGS. A <button> cannot contain a <button> -- the browser unnests it and
+   the inner control stops working -- so the border and hover move here, and
+   .pp-prod loses its own border to avoid drawing two. */
+.pp-prodrow { display: flex; align-items: center;
+  border-bottom: 1px solid var(--border-glass); }
+.pp-prodrow:hover { background: rgba(255,255,255,0.03); }
 .pp-prod { display: flex; align-items: center; gap: 0.7rem; width: 100%;
   padding: 0.7rem 0.9rem; background: none; border: 0;
-  border-bottom: 1px solid var(--border-glass); color: var(--text-primary);
+  color: var(--text-primary); min-width: 0;
   font-family: inherit; text-align: left; cursor: pointer; }
-.pp-prod:hover { background: rgba(255,255,255,0.03); }
+
+/* The mark/unmark button styles are GONE with the controls themselves -- the
+   ledger is append-only now. .pp-prodrow stays: it is the row wrapper, and the
+   border/hover live on it. */
+.pp-edrow { display: flex; align-items: center; gap: 0.3rem; }
+.pp-edrow .pp-edopt { flex: 1; min-width: 0; }
 .pp-pmain { flex: 1; min-width: 0; }
-.pp-pname { font-size: 0.9rem; font-weight: 650; display: block;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* FLEX, NOT A PLAIN BLOCK. The badge is a CHILD of .pp-pname, and this rule
+   was `white-space: nowrap` + `text-overflow: ellipsis` -- a nested badge gets
+   clipped by the parent's ellipsis the moment the name is long. The name
+   truncates; the badge keeps its width and stays readable. */
+.pp-pname { font-size: 0.9rem; font-weight: 650;
+  display: flex; align-items: center; gap: 0.45rem; min-width: 0; }
+.pp-pname > .pp-nametext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pp-pmeta { font-size: 0.73rem; color: var(--text-muted); display: block; }
 .pp-picon { color: var(--text-muted); flex-shrink: 0; }
+
+/* ADDED ALREADY.
+   Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+   and later: "can you make all the badges show green so they stand out"
+
+   ONE COLOUR, GREEN, for both sources. The muted grey on hand-marked rows was
+   doing a job nobody asked for -- it made his own backfill look second-class
+   and, worse, nearly invisible against the panel. The honest distinction he
+   actually needs is in the TEXT ("Added Oct 5" vs "Marked added"), which stays.
+   Now that hand-marking is gone the distinction is also historical: every new
+   row is a real import. */
+.pp-added { flex-shrink: 0; font-size: 0.67rem; font-weight: 700;
+  letter-spacing: 0.01em; padding: 0.12rem 0.42rem; border-radius: 999px;
+  white-space: nowrap;
+  color: #7ddc9a; background: rgba(125,220,154,0.13);
+  border: 1px solid rgba(125,220,154,0.34); }
 
 /* THE EDITION QUESTION. 332 of 751 Secret Lair drops have a foil twin whose
    name differs by a suffix, and picking wrong records cards he does not own.
@@ -6161,6 +6194,20 @@ body.on-dashboard .view-transition > .dash { flex: 1 1 auto; min-height: 0; heig
   background: linear-gradient(135deg,#ff8fd3,#8fd3ff,#8fffc4,#ffe98f); }
 .pp-row-bad { cursor: default; opacity: 0.55; }
 .pp-tick-bad { border-style: dashed; }
+
+/* ALREADY TAKEN FROM THIS ORDER.
+   Zach: "I only received 7 of my 10 cards ... show them as added on the order
+   screen so I dont accidentally readd them"
+
+   Dimmed, NOT disabled. The row stays tickable because a second copy really
+   can arrive later -- the default is off, which removes the accident without
+   removing the choice. Milder than .pp-row-bad (0.55), which means "cannot be
+   added at all": these CAN be, he just probably does not want to. */
+.pp-row-taken { opacity: 0.72; }
+.pp-taken { flex-shrink: 0; margin-left: auto; font-size: 0.63rem;
+  font-weight: 700; white-space: nowrap; padding: 0.1rem 0.4rem;
+  border-radius: 999px; color: #7ddc9a;
+  background: rgba(125,220,154,0.12); border: 1px solid rgba(125,220,154,0.3); }
 
 .pp-cta { display: flex; gap: 0.6rem; }
 .pp-big { flex: 1; min-height: 46px; font-size: 0.92rem; font-weight: 700; }

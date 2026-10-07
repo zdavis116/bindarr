@@ -1023,6 +1023,88 @@ async function initDb() {
   if (!appSettingsCols.some(c => c.name === 'card_rulings_refreshed_at')) {
     await run(`ALTER TABLE app_settings ADD COLUMN card_rulings_refreshed_at DATETIME`);
   }
+
+  // THE IMPORT LEDGER: what sealed product / order was added, and when.
+  //
+  // Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+  //
+  // Nothing recorded this. POST /api/products/:id/add wrote the cards into
+  // `collection` and threw the product identity away -- a card from the Death
+  // Toll precon was indistinguishable from one pulled out of a booster. The two
+  // places the history could have survived both failed: audit_logs is EMPTY
+  // (0 rows, measured on dev), and `collection.added_at` records only WHEN,
+  // never WHICH PRODUCT.
+  //
+  // THIS IS A LOG OF EVENTS, NOT A STATEMENT OF CURRENT OWNERSHIP. He asked for
+  // the ledger specifically and rejected ownership inference ("just the ledger
+  // -- record imports from now on, don't guess about the past"), because
+  // comparing a product's list against the collection genuinely cannot tell
+  // "bought the deck" from "owned those staples anyway". So breaking a precon
+  // apart for a deck does NOT retract its row: he still added it.
+  //
+  // Rows are never written by a guess. Every row is either a real import this
+  // app performed, or one he entered by hand and is marked as such (`source`).
+  await run(`
+    CREATE TABLE IF NOT EXISTS import_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      -- 'precon' | 'secretlair' | 'order'. What KIND of thing was added, so the
+      -- list can group and the UI can label it without parsing the name.
+      kind TEXT NOT NULL,
+      -- MTGJSON deck fileName, or the Mana Pool order id. Nullable because a
+      -- hand-entered backfill row may have no such identifier -- he remembers
+      -- the deck, not its MTGJSON filename.
+      product_id TEXT,
+      -- Denormalised ON PURPOSE. MTGJSON is fetched live with a TTL and can
+      -- rename or drop a product; the ledger must still read correctly years
+      -- later. A foreign key to a remote catalogue would rot.
+      product_name TEXT NOT NULL,
+      set_code TEXT,
+      -- What actually landed. Stored, not recomputed, because the collection
+      -- changes afterwards and this is a record of the EVENT.
+      cards_added INTEGER NOT NULL DEFAULT 0,
+      rows_added INTEGER NOT NULL DEFAULT 0,
+      -- 'import' = this app really did it. 'manual' = he told us it happened.
+      -- Never collapse these: a backfilled row is his memory, not our evidence.
+      source TEXT NOT NULL DEFAULT 'import' CHECK(source IN ('import', 'manual')),
+      note TEXT DEFAULT '',
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  // The only query this table serves is "my imports, newest first".
+  await run(`CREATE INDEX IF NOT EXISTS idx_import_ledger_user
+             ON import_ledger (user_id, added_at DESC)`);
+
+  // WHICH CARDS CAME IN, not just which product.
+  //
+  // Zach: "for my one manapool order I only received 7 of my 10 cards. When I
+  // add just those 7 can you show them as added on the order screen so I dont
+  // accidentally readd them"
+  //
+  // A partial import is the NORMAL case for an order -- a line can be refunded,
+  // short-shipped, or arrive later -- so "this order was imported" is not a
+  // usable answer. He needs the three outstanding cards to look different from
+  // the seven he already has.
+  //
+  // A SEPARATE TABLE, not a column on import_ledger: one import touches many
+  // cards, and a second partial import of the SAME order must add to this list
+  // rather than replace it. Keyed by scryfall id because that is the exact
+  // printing identity the rest of the app uses.
+  await run(`
+    CREATE TABLE IF NOT EXISTS import_ledger_cards (
+      ledger_id INTEGER NOT NULL REFERENCES import_ledger(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
+      -- The product/order this card came from, denormalised so the common
+      -- query ("what have I already taken from order X?") needs no join.
+      product_id TEXT NOT NULL,
+      scryfall_id TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_import_ledger_cards_lookup
+             ON import_ledger_cards (user_id, product_id, scryfall_id)`);
   // The price-source priority order. An existing database has no such column,
   // and CREATE TABLE IF NOT EXISTS will not add one -- without this migration
   // every read of price_source_order throws on Zach's actual database while

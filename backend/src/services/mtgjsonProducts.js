@@ -189,9 +189,28 @@ function groupEditions(products) {
  *
  * Returns edition GROUPS, not raw products: the screen shows one row per drop
  * and asks about the finish afterwards.
+ *
+ * `addedIds` is the set of product ids already in the user's import ledger.
+ * THE SORT MUST HAPPEN BEFORE THE LIMIT, which is why this is a parameter
+ * rather than something the client does afterwards.
+ *
+ * Zach: "uhhh you are missing decks marked as added. Explorers of the deep is
+ * marked as added and isnt at the top. ALL DECKS marked as added should be at
+ * the top"
+ *
+ * He was right and my first fix was in the wrong place. Sorting in the
+ * component can only reorder the rows that ARRIVED: this search matches 611
+ * products and returns 40, so "Explorers of the Deep" (LCC, 2023 -- roughly
+ * #200 by release date) was never in the response at all. A client-side sort
+ * of a truncated list silently answers a different question.
  */
-async function searchProducts(query, { kind = null, limit = 40 } = {}) {
-  const all = await listProducts();
+async function searchProducts(query, { kind = null, limit = 40, addedIds = null,
+                                       catalogue = null } = {}) {
+  // `catalogue` is a test seam. searchProducts calls listProducts internally,
+  // so replacing the module export does NOT intercept it -- the test proved
+  // that by failing. An explicit parameter is honest about the dependency and
+  // lets the limit/sort interaction be exercised against a known list.
+  const all = catalogue || await listProducts();
   const q = String(query || '').trim().toLowerCase();
   const filtered = all.filter((p) => {
     if (kind && p.kind !== kind) return false;
@@ -207,14 +226,27 @@ async function searchProducts(query, { kind = null, limit = 40 } = {}) {
       || (p.setCode || '').toLowerCase() === q;
   });
   const groups = groupEditions(filtered);
-  // Newest first: Zach is far likelier to be adding a product he just bought
-  // than one from 2013.
+  // ADDED FIRST, THEN NEWEST FIRST -- in that order, and BEFORE the slice.
+  //
+  // "ALL DECKS marked as added should be at the top", including ones that
+  // would fall outside the 40 returned. Within each half the newest-first rule
+  // is kept: Zach is far likelier to be adding a product he just bought than
+  // one from 2013.
+  const isAdded = (g) => !!addedIds && g.editions.some((e) => addedIds.has(e.id));
   groups.sort((a, b) => {
+    const aa = isAdded(a), ba = isAdded(b);
+    if (aa !== ba) return aa ? -1 : 1;
     const da = a.editions[0].releaseDate || '';
     const db = b.editions[0].releaseDate || '';
     return db.localeCompare(da);
   });
-  return { total: groups.length, groups: groups.slice(0, limit) };
+  // EVERY added product survives the limit, even past the cut. Returning 40 of
+  // 611 by date is fine for browsing, but silently dropping something he told
+  // us he owns is the exact complaint this fixes.
+  const head = groups.slice(0, limit);
+  const kept = new Set(head);
+  const addedPastCut = groups.filter((g) => isAdded(g) && !kept.has(g));
+  return { total: groups.length, groups: [...addedPastCut, ...head] };
 }
 
 /**

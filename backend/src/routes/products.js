@@ -37,9 +37,14 @@ const MAX_CARDS = 500;
 // Each card carries its own quantity, finish, condition and optional purchase
 // price -- an order's cards are not all Near Mint nonfoil the way a sealed
 // precon's are.
-async function addCardsInOneTransaction(user, cards) {
+//
+// `descriptor` names WHAT is being added (kind, product id, name, set code).
+// It is required, and the ledger row is written in THIS transaction with the
+// cards, so the two can never disagree: either both land or neither does.
+async function addCardsInOneTransaction(user, cards, descriptor) {
   const added = [];
   const failed = [];
+  let ledger = null;
   await db.withTransaction(async () => {
     for (const card of cards) {
       try {
@@ -72,8 +77,55 @@ async function addCardsInOneTransaction(user, cards) {
         });
       }
     }
+    // INSIDE the transaction, after the cards. A ledger row committed while the
+    // card inserts rolled back would be a lie in the exact place he goes to
+    // find the truth.
+    ledger = await recordImport(user, descriptor, added);
   }, { timeoutMs: 120000 });
-  return { added, failed };
+  return { added, failed, ledger };
+}
+
+// RECORD THE IMPORT, INSIDE THE SAME TRANSACTION AS THE CARDS.
+//
+// Zach: "I have 2 more I want to add but I am unsure if I added them or not."
+// Before this, the product identity was discarded the moment the cards landed.
+//
+// WHY THIS LIVES NEXT TO addCardsInOneTransaction AND IS CALLED BY IT, not by
+// each route: there are two paths to the same write (precons and Mana Pool
+// orders), and the skill's own lesson from the repoint bug is that fixing one
+// caller and leaving the other produces a feature that is silently half-there.
+// A route cannot add cards without also writing the ledger row, because it
+// never calls the adder directly.
+//
+// The row is written only when at least one card actually landed. An import
+// that failed entirely is not history, it is a failed attempt -- logging it
+// would answer "did I add this?" with YES for a product he does not own.
+async function recordImport(user, descriptor, added) {
+  const cardsAdded = added.reduce((n, a) => n + a.quantity, 0);
+  if (!cardsAdded) return null;
+  const result = await db.run(
+    `INSERT INTO import_ledger
+       (user_id, kind, product_id, product_name, set_code, cards_added, rows_added, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'import')`,
+    [user.id, descriptor.kind, descriptor.productId ?? null, descriptor.productName,
+     descriptor.setCode ?? null, cardsAdded, added.length]
+  );
+  // AND WHICH CARDS. A partial order import is the normal case -- he received
+  // 7 of 10 -- so the per-card rows are what let the order screen show the
+  // seven as already taken and leave the three outstanding ones actionable.
+  // Written in the same transaction as everything else.
+  if (descriptor.productId) {
+    for (const a of added) {
+      if (!a.scryfallId) continue;
+      await db.run(
+        `INSERT INTO import_ledger_cards
+           (ledger_id, user_id, product_id, scryfall_id, quantity)
+         VALUES (?, ?, ?, ?, ?)`,
+        [result.lastID, user.id, descriptor.productId, a.scryfallId, a.quantity || 1]
+      );
+    }
+  }
+  return { id: result.lastID, cardsAdded, rowsAdded: added.length };
 }
 
 // Resolve a list of cards against card_cache in ONE query, flagging each.
@@ -94,6 +146,31 @@ async function flagAgainstCatalogue(cards) {
   return cards.map((c) => ({
     ...c,
     inCatalogue: !!(c.scryfallId && known.has(c.scryfallId)),
+  }));
+}
+
+// FLAG THE CARDS ALREADY TAKEN FROM THIS PRODUCT.
+//
+// Zach: "for my one manapool order I only received 7 of my 10 cards. When I
+// add just those 7 can you show them as added on the order screen so I dont
+// accidentally readd them"
+//
+// Returns `alreadyAdded` (how many copies of this exact printing were imported
+// from THIS product before). Not a boolean, because a later shipment of the
+// remaining copies is a real case: 1 of 2 taken must not read as "done".
+async function flagAlreadyImported(cards, userId, productId) {
+  if (!productId) return cards.map((c) => ({ ...c, alreadyAdded: 0 }));
+  const rows = await db.all(
+    `SELECT scryfall_id, SUM(quantity) AS n
+       FROM import_ledger_cards
+      WHERE user_id = ? AND product_id = ?
+      GROUP BY scryfall_id`,
+    [userId, productId]
+  );
+  const taken = new Map(rows.map((r) => [r.scryfall_id, r.n]));
+  return cards.map((c) => ({
+    ...c,
+    alreadyAdded: (c.scryfallId && taken.get(c.scryfallId)) || 0,
   }));
 }
 
@@ -160,7 +237,8 @@ router.get('/orders/:id/cards', async (req, res) => {
     const { order, cards, skipped, totalCards } =
       await orders.fetchOrderCards(req.params.id, creds);
 
-    const resolved = await flagAgainstCatalogue(cards);
+    const resolved = await flagAlreadyImported(
+      await flagAgainstCatalogue(cards), req.user.id, String(order.id));
     const missing = resolved.filter((c) => !c.inCatalogue);
 
     res.json({
@@ -213,7 +291,12 @@ router.post('/orders/:id/add', async (req, res) => {
 
     // The card records already carry the condition he bought and what he paid,
     // so unlike a precon nothing is overridden here.
-    const { added, failed } = await addCardsInOneTransaction(req.user, chosen);
+    const { added, failed, ledger } = await addCardsInOneTransaction(req.user, chosen, {
+      kind: 'order',
+      productId: String(order.id),
+      productName: `Order ${order.orderNumber}`,
+      setCode: null,
+    });
 
     await db.run(
       `UPDATE app_settings SET manapool_orders_synced_at = CURRENT_TIMESTAMP WHERE id = 1`);
@@ -242,13 +325,100 @@ router.get('/', async (req, res) => {
   try {
     const { q, kind } = req.query;
     const allowed = new Set(['precon', 'secretlair']);
+    // THE LEDGER IS PART OF THE SEARCH, not a decoration applied afterwards.
+    //
+    // Zach: "ALL DECKS marked as added should be at the top". The search
+    // matches 611 products and returns 40, so sorting in the browser could
+    // only reorder the 40 that happened to arrive -- "Explorers of the Deep"
+    // (LCC, 2023) was never in the response. Passing the ids down means the
+    // sort runs BEFORE the limit, and every added product is kept regardless
+    // of where it falls by date.
+    const ledgerRows = await db.all(
+      `SELECT product_id FROM import_ledger WHERE user_id = ? AND product_id IS NOT NULL`,
+      [req.user.id]
+    );
     const result = await products.searchProducts(q, {
       kind: allowed.has(kind) ? kind : null,
+      addedIds: new Set(ledgerRows.map((r) => r.product_id)),
     });
     res.json(result);
   } catch (error) {
     sendSourceError(res, error, 'Failed to search products');
   }
+});
+
+// ===========================================================================
+// THE IMPORT LEDGER
+//
+// Zach: "tracking for what precon's I added to my collection. Because right now
+// I have 2 more I want to add but I am unsure if I added them or not."
+//
+// DECLARED BEFORE THE PARAMETERISED PRODUCT ROUTES. `/:id/cards` matches
+// `/ledger/anything` and `GET /:id` would match `/ledger` outright. This file
+// has already shipped that exact bug once -- every Mana Pool orders request was
+// swallowed by the precon handler looking for a product named "orders", a fully
+// built feature that was 0% reachable. Specific literal paths first, always.
+// ===========================================================================
+
+// WHAT HAVE I ADDED. Newest first, because the question is always about recent
+// history.
+router.get('/ledger', async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT id, kind, product_id AS productId, product_name AS productName,
+              set_code AS setCode, cards_added AS cardsAdded,
+              rows_added AS rowsAdded, source, note, added_at AS addedAt
+         FROM import_ledger
+        WHERE user_id = ?
+        ORDER BY added_at DESC, id DESC`,
+      [req.user.id]
+    );
+    res.json({ entries: rows, total: rows.length });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to read the import history' });
+  }
+});
+
+// HAND-ENTERING AN IMPORT IS NO LONGER POSSIBLE.
+//
+// Zach: "Now that I marked everything I needed added. Can we take away the
+// ability to manually add precons. Because at this point it should no longer
+// be needed."
+//
+// THE ROUTE IS GONE, not just the button. Removing a control from the UI while
+// leaving the endpoint live is a half-measure: the write is still reachable,
+// and the next component that wants a shortcut will find it. The ledger's whole
+// value is that `source: 'import'` means the app really did it -- the fewer
+// ways a row can be created by hand, the more that is worth.
+//
+// Existing manual rows from the backfill KEEP WORKING and can still be removed
+// via DELETE below; this only stops new ones being written.
+router.post('/ledger', async (req, res) => {
+  res.status(410).json({
+    error: 'Marking a product as added by hand is no longer supported. Import it instead.',
+    code: 'MANUAL_LEDGER_REMOVED',
+  });
+});
+
+// THE LEDGER IS APPEND-ONLY. Both hand-edit routes refuse.
+//
+// Zach: "Why is the unmarked button still there. Everything should be set and
+// nothing should be able to be changed at this point."
+//
+// He asked for hand-editing to go; I removed the write and kept the delete,
+// reasoning he might want an undo. He had not asked for one. The backfill is
+// finished and correct, and a route that destroys a ledger row is now purely a
+// way to lose a record that is already right -- including the IMPORT rows, which
+// are the app's own evidence and were never his to begin with.
+//
+// 410 GONE, not 404: the distinction matters to anything reading this later.
+// The route existed, was deliberately withdrawn, and is not coming back.
+router.delete('/ledger/:entryId', async (req, res) => {
+  res.status(410).json({
+    error: 'The import history cannot be edited.',
+    code: 'LEDGER_READ_ONLY',
+  });
 });
 
 // THE CONFIRM LIST.
@@ -262,7 +432,10 @@ router.get('/:id/cards', async (req, res) => {
   try {
     const { product, cards, totalCards } = await products.fetchProductCards(req.params.id);
 
-    const resolved = await flagAgainstCatalogue(cards);
+    // Precons get the same treatment: he can untick cards there too, so a
+    // second visit must show what already came in.
+    const resolved = await flagAlreadyImported(
+      await flagAgainstCatalogue(cards), req.user.id, product.id);
 
     const missing = resolved.filter((c) => !c.inCatalogue);
     res.json({
@@ -319,9 +492,15 @@ router.post('/:id/add', async (req, res) => {
     //
     // A sealed product is new cardboard, so every card is Near Mint. An ORDER
     // is different -- it carries the condition he actually bought.
-    const { added, failed } = await addCardsInOneTransaction(
+    const { added, failed, ledger } = await addCardsInOneTransaction(
       req.user,
       chosen.map((c) => ({ ...c, condition: 'Near Mint' })),
+      {
+        kind: product.kind,
+        productId: product.id,
+        productName: product.name,
+        setCode: product.setCode,
+      },
     );
 
     const addedCards = added.reduce((n, a) => n + a.quantity, 0);

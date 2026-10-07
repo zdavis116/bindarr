@@ -1150,5 +1150,9 @@
   "wizard.nothingToMove": "Нет карт для перемещения.",
   "wizard.page": "Страница",
   "wizard.selectAll": "Выбрать все",
-  "wizard.slot": "Ячейка {slot}"
+  "wizard.slot": "Ячейка {slot}",
+  "product.addedOn": "Добавлено {date}",
+  "product.addedManual": "Отмечено как добавленное",
+  "product.cardAdded": "Добавлена",
+  "product.cardAddedPartial": "Добавлено {n} из {total}"
 }
