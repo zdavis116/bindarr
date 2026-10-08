@@ -70,17 +70,7 @@ assert old in s, 'anchor'
 io.open(p,'w',encoding='utf8').write(s.replace(old,'',1))
 "
 
-# 4. The name stops being lazy -> a comma'd name truncates.
-mutate "greedy name match" "$PARSER" "
-import io
-p='$PARSER'; s=io.open(p,encoding='utf8').read()
-old=r'String.raw\`(?<name>.+?)\s+\` +'
-new=r'String.raw\`(?<name>.+)\s+\` +'
-assert old in s, 'anchor'
-io.open(p,'w',encoding='utf8').write(s.replace(old,new,1))
-"
-
-# 5. The route stops parsing the pasted text.
+# 4. The route stops parsing the pasted text.
 mutate "route ignores posted text" "$ROUTE" "
 import io
 p='$ROUTE'; s=io.open(p,encoding='utf8').read()
@@ -90,7 +80,7 @@ assert old in s, 'anchor'
 io.open(p,'w',encoding='utf8').write(s.replace(old,new,1))
 "
 
-# 6. The UI posts client-parsed rows on commit instead of the text.
+# 5. The UI posts client-parsed rows on commit instead of the text.
 mutate "commit posts rows, not the text" "$UI" "
 import io
 p='$UI'; s=io.open(p,encoding='utf8').read()
@@ -102,7 +92,7 @@ assert old in s, 'anchor'
 io.open(p,'w',encoding='utf8').write(s.replace(old,new,1))
 "
 
-# 7. One locale loses a key -> t() would render the raw dotted key.
+# 6. One locale loses a key -> t() would render the raw dotted key.
 mutate "a locale loses import.pasteHint" "frontend/src/locales/ru.json" "
 import json, io
 p='frontend/src/locales/ru.json'
@@ -111,6 +101,19 @@ assert 'import.pasteHint' in d, 'anchor'
 del d['import.pasteHint']
 io.open(p,'w',encoding='utf8').write(json.dumps(d,ensure_ascii=False,indent=2)+'\n')
 "
+
+# NOTE: a "greedy vs lazy name" mutation was tried here and REMOVED.
+#
+# Replacing (?<name>.+?) with (?<name>.+) is an EQUIVALENT MUTANT, not a gap in
+# the tests. The pattern is anchored with $ and the trailing groups are
+# mandatory, so backtracking lands both forms on the same match -- verified
+# against "1 Erase (Not the Urza Legacy One) (PLST) AKH-4", a real card whose
+# NAME contains brackets. Both yield name="Erase (Not the Urza Legacy One)",
+# set=PLST, num=AKH-4.
+#
+# Leaving it in would have reported a sound test as vacuous forever, and
+# "fixing" the test to catch it would have meant asserting on the regex source
+# instead of behaviour -- the exact vacuous shape this harness exists to find.
 
 printf '\n==========================================\n'
 printf 'mutations caught: %s   vacuous/aborted: %s\n' "$pass" "$fail"
