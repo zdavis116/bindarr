@@ -475,6 +475,63 @@ async function runTests() {
     throw err;
   }
 
+  // IL-TC18: a Secret Lair Commander deck is reachable from the Secret Lair
+  // filter, even though MTGJSON types it "Commander Deck" (kind 'precon').
+  //
+  // Zach bought "Secret Lair Commander Deck: Odds and Ends", filtered to Secret
+  // Lair, and found nothing -- then pointed out Hatsune Miku and Goblin Storm
+  // were already in the app. Both carry setCode SLD with type "Commander Deck",
+  // so both were only ever reachable under PRECON. The filter is named after
+  // where he bought it, so SLD belongs in it regardless of type.
+  //
+  // Asserted by CALLING searchProducts, not by reading its source: a source
+  // regex here would pass against a filter that returned the row and then
+  // dropped it later, which is exactly how IL-TC14's first version went vacuous.
+  try {
+    const svc = require('../../src/services/mtgjsonProducts.js');
+
+    const fake = [
+      { id: 'GoblinStorm_SLD', name: 'Goblin Storm', kind: 'precon',
+        type: 'Commander Deck', setCode: 'SLD', setName: 'Secret Lair Drop',
+        releaseDate: '2026-05-18' },
+      { id: 'HatsuneMiku_SLD', name: 'Hatsune Miku', kind: 'precon',
+        type: 'Commander Deck', setCode: 'SLD', setName: 'Secret Lair Drop',
+        releaseDate: '2026-08-10' },
+      { id: 'Goblingram_SLD', name: 'Goblingram', kind: 'secretlair',
+        type: 'Secret Lair Drop', setCode: 'SLD', setName: 'Secret Lair Drop',
+        releaseDate: '2024-05-30' },
+      { id: 'DeathToll_DSC', name: 'Death Toll', kind: 'precon',
+        type: 'Commander Deck', setCode: 'DSC', setName: 'Duskmourn Commander',
+        releaseDate: '2024-09-27' },
+    ];
+
+    const sl = await svc.searchProducts('', { kind: 'secretlair', catalogue: fake });
+    const slNames = sl.groups.map((g) => g.base);
+    assert.ok(slNames.includes('Goblin Storm'),
+      'an SLD Commander deck must appear under the Secret Lair filter');
+    assert.ok(slNames.includes('Hatsune Miku'),
+      'every SLD Commander deck must appear, not just the first');
+    assert.ok(slNames.includes('Goblingram'),
+      'ordinary Secret Lair drops must still appear');
+
+    // THE FILTER MUST STILL FILTER. Without this, "return everything" passes.
+    assert.ok(!slNames.includes('Death Toll'),
+      'a non-SLD precon must NOT leak into the Secret Lair filter');
+
+    // One-way by design: these are Commander decks and stay under precon too.
+    const pre = await svc.searchProducts('', { kind: 'precon', catalogue: fake });
+    const preNames = pre.groups.map((g) => g.base);
+    assert.ok(preNames.includes('Goblin Storm') && preNames.includes('Death Toll'),
+      'SLD Commander decks must remain reachable under precon');
+    assert.ok(!preNames.includes('Goblingram'),
+      'an ordinary Secret Lair drop must NOT leak into the precon filter');
+
+    console.log('PASS: IL-TC18');
+  } catch (err) {
+    console.error('FAIL: IL-TC18 -', err.message);
+    throw err;
+  }
+
   // IL-TC15: a partial import records WHICH cards came in.
   //
   // Zach: "for my one manapool order I only received 7 of my 10 cards. When I

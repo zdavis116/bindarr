@@ -213,7 +213,25 @@ async function searchProducts(query, { kind = null, limit = 40, addedIds = null,
   const all = catalogue || await listProducts();
   const q = String(query || '').trim().toLowerCase();
   const filtered = all.filter((p) => {
-    if (kind && p.kind !== kind) return false;
+    // A SECRET LAIR COMMANDER DECK IS BOTH THINGS AT ONCE.
+    //
+    // MTGJSON splits a product's set CODE from its TYPE, and three products so
+    // far carry code SLD with type "Commander Deck": Goblin Storm (2026-05-18),
+    // Hatsune Miku (2026-08-10) and -- once catalogued -- Odds and Ends. They
+    // map to kind 'precon' because the type says Commander Deck, so filtering
+    // to Secret Lair hid the very products Zach bought FROM Secret Lair.
+    //
+    // Zach went looking for "Odds and Ends" under Secret Lair and found
+    // nothing, then learned Miku and Goblin Storm had been filed under precon
+    // the whole time. The classification is MTGJSON's and it is not wrong --
+    // but the filter is named after where he bought it, so an SLD product
+    // belongs in the Secret Lair filter whatever its type.
+    //
+    // Deliberately one-way: these products stay in 'precon' as well, because
+    // they ARE Commander decks and removing them from that filter would just
+    // move the same surprise somewhere else.
+    if (kind && p.kind !== kind
+        && !(kind === 'secretlair' && p.setCode === 'SLD')) return false;
     if (!q) return true;
     // MATCH THE PRODUCT NAME, THE SET NAME, OR THE SET CODE.
     //
