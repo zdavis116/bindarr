@@ -5,6 +5,7 @@ const db = require('../db');
 const { generateExportCSV } = require('../utils/csvExporters');
 const { parseThirdPartyCSV } = require('../utils/csvMappers');
 const { resolveRows } = require('../utils/importResolver');
+const { parseDecklist } = require('../utils/decklistParser');
 const { displayPrinting } = require('../utils/finishes');
 
 // A ManaBox dump of a large collection is a few thousand rows. This is a
@@ -96,19 +97,54 @@ router.get('/export', async (req, res) => {
 //   POST /import             resolve and insert, report the same summary
 
 async function runImport(req, res, { commit }) {
-  const { rows, format = 'manabox' } = req.body || {};
+  const { rows, format = 'manabox', text } = req.body || {};
 
-  if (!Array.isArray(rows) || rows.length === 0) {
+  // A PASTED LIST IS JUST ANOTHER SOURCE OF ROWS.
+  //
+  // Zach: "it would be nice if that could just take a pasted in list as well.
+  // But it needs set code and number to be valid list."
+  //
+  // Parsed here and then handed to the SAME resolve/preview/commit pipeline as
+  // a CSV, rather than given its own route. A second import path would have to
+  // re-implement the resolution rescue, the all-or-nothing write and the
+  // admission boundary -- three things that are easy to get subtly wrong and
+  // that nobody would notice had drifted until a bad row landed.
+  let pasteSkipped = [];
+  let effectiveRows = rows;
+  let effectiveFormat = format;
+
+  if (typeof text === 'string' && text.trim()) {
+    const parsed = parseDecklist(text);
+    effectiveRows = parsed.rows;
+    pasteSkipped = parsed.skipped;
+    // Already in the mapped row shape; parseThirdPartyCSV must not run over it.
+    effectiveFormat = null;
+
+    if (effectiveRows.length === 0) {
+      return res.status(400).json({
+        error: 'No card lines found. Each line needs a quantity, a name, a set'
+             + ' code in brackets and a collector number — for example'
+             + ' "1 Sol Ring (SLD) 2132".',
+        skipped: pasteSkipped
+      });
+    }
+  }
+
+  if (!Array.isArray(effectiveRows) || effectiveRows.length === 0) {
     return res.status(400).json({ error: 'No rows to import.' });
   }
-  if (rows.length > MAX_IMPORT_ROWS) {
+  if (effectiveRows.length > MAX_IMPORT_ROWS) {
     return res.status(413).json({
-      error: `That file has ${rows.length} rows; the limit is ${MAX_IMPORT_ROWS}.`
+      error: `That file has ${effectiveRows.length} rows; the limit is ${MAX_IMPORT_ROWS}.`
     });
   }
 
-  const mapped = parseThirdPartyCSV(rows, format);
+  const rowsForImport = effectiveRows;
+  const mapped = effectiveFormat
+    ? parseThirdPartyCSV(rowsForImport, effectiveFormat)
+    : rowsForImport;
   const { resolved, rejected } = await resolveRows(mapped);
+
 
   // DECISIONS FROM THE REVIEW SCREEN.
   //
@@ -165,9 +201,15 @@ async function runImport(req, res, { commit }) {
   const finalResolved = resolved.concat(rescued);
 
   const summary = {
-    total: rows.length,
+    // THE TOTAL COUNTS THE LINES HE PASTED, NOT THE ONES WE UNDERSTOOD.
+    //
+    // Counting only parsed rows would report "40 of 40 matched" for a paste of
+    // 91 lines where 51 were unparseable -- a true sentence that answers the
+    // wrong question. Unparseable lines are added to the rejections below with
+    // their own line numbers and text.
+    total: rowsForImport.length + pasteSkipped.length,
     matched: finalResolved.length,
-    rejected: stillRejected.length,
+    rejected: stillRejected.length + pasteSkipped.length,
     resolvedByHand: rescued.length,
     copies: finalResolved.reduce((n, r) => n + Number(r.row.quantity || 0), 0),
     matchedBy: finalResolved.reduce((acc, r) => {
@@ -177,15 +219,26 @@ async function runImport(req, res, { commit }) {
     // Every rejection, with enough detail to fix the source row. Zach: "Report
     // it as rejected" -- so the file imports what it can and names what it
     // could not, rather than refusing wholesale.
-    rejections: stillRejected.map(r => ({
-      row: r.index + 1,
-      card: r.label,
-      reason: r.reason,
-      detail: r.detail || null,
-      // The printings this row could be, when Bindarr knows them. The review
-      // screen offers these inline instead of sending him back to ManaBox.
-      candidates: r.candidates || null
-    }))
+    rejections: [
+      // Lines the parser could not read at all, quoted back verbatim so the
+      // offending text is visible without counting rows by hand.
+      ...pasteSkipped.map(s => ({
+        row: s.line,
+        card: s.text,
+        reason: 'unreadable_line',
+        detail: 'needs "<qty> <name> (SET) <number>"',
+        candidates: null
+      })),
+      ...stillRejected.map(r => ({
+        row: r.row && r.row.source_line ? r.row.source_line : r.index + 1,
+        card: r.label,
+        reason: r.reason,
+        detail: r.detail || null,
+        // The printings this row could be, when Bindarr knows them. The review
+        // screen offers these inline instead of sending him back to ManaBox.
+        candidates: r.candidates || null
+      }))
+    ]
   };
 
   if (!commit) {
