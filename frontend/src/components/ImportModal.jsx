@@ -72,7 +72,45 @@ function ImportModal({ onClose, onImported, showToast }) {
   const [result, setResult] = useState(null);
   // Row index -> { card_id, quantity } or { skip: true }
   const [choices, setChoices] = useState({});
+  const [pasteMode, setPasteMode] = useState(false);
+  const [pasteText, setPasteText] = useState('');
   const fileRef = useRef(null);
+
+  // PASTE A LIST.
+  //
+  // Zach: "it would be nice if that could just take a pasted in list as well.
+  // But it needs set code and number to be valid list."
+  //
+  // The text goes to the server verbatim; parsing lives in ONE place
+  // (backend/src/utils/decklistParser.js) so the preview and the commit cannot
+  // disagree about what the paste meant.
+  const previewPaste = async () => {
+    const text = pasteText.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/import/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast && showToast(data.error || t('import.errPreview'));
+        setBusy(false);
+        return;
+      }
+      setFileName(t('import.pastedList'));
+      setRows([]);
+      setPreview(data);
+      setChoices({});
+      setPhase('review');
+    } catch (err) {
+      showToast && showToast(err.message || t('import.errPreview'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const readFile = async (file) => {
     if (!file) return;
@@ -114,10 +152,18 @@ function ImportModal({ onClose, onImported, showToast }) {
   const commit = async () => {
     setBusy(true);
     try {
+      // A PASTE COMMITS THE TEXT, NOT THE PARSED ROWS.
+      //
+      // The server re-parses on commit so the preview and the write can never
+      // disagree: if the client sent rows it parsed itself, a parser change on
+      // one side would silently add different cards than the ones reviewed.
+      const body = pasteMode
+        ? { text: pasteText, resolutions: choices }
+        : { rows, format: 'manabox', resolutions: choices };
       const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, format: 'manabox', resolutions: choices })
+        body: JSON.stringify(body)
       });
       const data = await res.json();
       if (!res.ok) {
@@ -188,7 +234,7 @@ function ImportModal({ onClose, onImported, showToast }) {
 
         <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
 
-          {phase === 'pick' && (
+          {phase === 'pick' && !pasteMode && (
             <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
               <Upload size={40} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem',
@@ -202,6 +248,56 @@ function ImportModal({ onClose, onImported, showToast }) {
                       disabled={busy} onClick={() => fileRef.current?.click()}>
                 {busy ? t('import.reading') : t('import.chooseFile')}
               </button>
+              {/* The second route to the same pipeline. A separate button
+                  rather than a tab strip: there are exactly two sources and a
+                  tab row for two items is more chrome than choice. */}
+              <button className="btn btn-secondary"
+                      style={{ width: '100%', minHeight: 46, marginTop: '0.6rem' }}
+                      disabled={busy} onClick={() => setPasteMode(true)}>
+                {t('import.pasteInstead')}
+              </button>
+            </div>
+          )}
+
+          {phase === 'pick' && pasteMode && (
+            <div style={{ padding: '0.5rem 0.25rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem',
+                          marginBottom: '0.75rem', lineHeight: 1.5 }}>
+                {t('import.pasteHint')}
+              </p>
+              {/* The format, shown rather than described. Zach's own list is
+                  the example, so the shape he already has is visibly the shape
+                  that works. */}
+              <pre style={{
+                background: 'var(--surface-1)', border: '1px solid var(--border-glass)',
+                borderRadius: 'var(--radius-md)', padding: '0.6rem 0.75rem',
+                fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0 0.75rem',
+                overflowX: 'auto', whiteSpace: 'pre', lineHeight: 1.6
+              }}>{'1 Aboleth Spawn (CLB) 662\n1 Yennett, Cryptic Sovereign (SLD) 2121 *F*'}</pre>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={t('import.pastePlaceholder')}
+                spellCheck={false}
+                style={{
+                  width: '100%', minHeight: 180, boxSizing: 'border-box',
+                  background: 'var(--surface-1)', color: 'var(--text-primary)',
+                  border: '1px solid var(--border-glass)',
+                  borderRadius: 'var(--radius-md)', padding: '0.7rem',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  fontSize: '0.78rem', lineHeight: 1.5, resize: 'vertical'
+                }} />
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <button className="btn btn-secondary" style={{ flex: '0 0 auto', minHeight: 46 }}
+                        disabled={busy}
+                        onClick={() => { setPasteMode(false); setPasteText(''); }}>
+                  {t('common.back')}
+                </button>
+                <button className="btn btn-primary" style={{ flex: 1, minHeight: 46 }}
+                        disabled={busy || !pasteText.trim()} onClick={previewPaste}>
+                  {busy ? t('import.reading') : t('import.previewList')}
+                </button>
+              </div>
             </div>
           )}
 
