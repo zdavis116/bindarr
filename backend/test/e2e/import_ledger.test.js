@@ -475,7 +475,7 @@ async function runTests() {
     throw err;
   }
 
-  // IL-TC17: a Secret Lair Commander deck is reachable from the Secret Lair
+  // IL-TC18: a Secret Lair Commander deck is reachable from the Secret Lair
   // filter, even though MTGJSON types it "Commander Deck" (kind 'precon').
   //
   // Zach bought "Secret Lair Commander Deck: Odds and Ends", filtered to Secret
@@ -526,9 +526,9 @@ async function runTests() {
     assert.ok(!preNames.includes('Goblingram'),
       'an ordinary Secret Lair drop must NOT leak into the precon filter');
 
-    console.log('PASS: IL-TC17');
+    console.log('PASS: IL-TC18');
   } catch (err) {
-    console.error('FAIL: IL-TC17 -', err.message);
+    console.error('FAIL: IL-TC18 -', err.message);
     throw err;
   }
 
