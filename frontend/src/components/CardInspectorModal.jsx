@@ -1,3 +1,4 @@
+import { planStackEdit } from './stackEdit.js';
 import { useState, useEffect, useRef } from 'react';
 import { Z_MODAL } from '../utils/zLayers';
 import { RefreshCw, X, Trash2, Star, Maximize2, ExternalLink } from 'lucide-react';
@@ -574,14 +575,15 @@ function CardInspectorModal({
       // bug. Verify the path the user actually takes, not the one that looks
       // plausible.
       const memberIds = Array.isArray(card?.member_ids) ? card.member_ids : null;
-      const stackSize = memberIds ? memberIds.length : null;
       const wanted = parseInt(q, 10);
 
-      if (stackSize && stackSize > 1 && Number.isFinite(wanted)
-          && wanted >= 1 && wanted < stackSize) {
+      // The arithmetic -- what to delete, what to add, which rows to edit --
+      // lives in stackEdit.js where it is tested with real numbers.
+      const plan = planStackEdit(memberIds, wanted);
+      if (plan.doomed.length > 0) {
         // Keep the first `wanted` rows; the oldest is likeliest to carry the
         // purchase price and storage slot he set up.
-        const doomed = memberIds.slice(wanted);
+        const doomed = plan.doomed;
         const del = await fetch('/api/collection/bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -591,16 +593,15 @@ function CardInspectorModal({
           showToast && showToast(t('inspector.errUpdate'), 'error');
           return;
         }
-        // Fall through: the surviving row still needs the other fields this
-        // form edits -- condition, printing, price, notes. One save path, not
-        // two that can disagree.
       }
+      const sendQty = plan.sendQty;
 
-      const res = await fetch(`/api/collection/${targetEntryId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quantity: parseInt(q, 10),
+      // EVERY ROW THE TILE STANDS FOR GETS THE EDIT, not just the key row.
+      // Zach flipped a stack of 6 to foil: one row changed, the old quantity
+      // spawned 5 more foils, and the other 5 nonfoils stayed -> "7 foil, 5
+      // nonfoil". Fields go to each surviving row; `quantity` only to the key
+      // row, because on the server it means "insert this many more".
+      const fields = {
           condition,
           printing,
           // WHICH PRINTING this copy is. Zach: "I need to edit a card's set
@@ -613,8 +614,27 @@ function CardInspectorModal({
           is_trade: isTrade ? 1 : 0,
           favorite: favorite ? 1 : 0,
           notes
-        })
+        };
+      const survivors = plan.survivors;
+      const res = await fetch(`/api/collection/${targetEntryId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...fields, quantity: sendQty })
       });
+      if (res.ok) {
+        for (const otherId of survivors) {
+          const r = await fetch(`/api/collection/${otherId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fields)
+          });
+          if (!r.ok) {
+            showToast && showToast(t('inspector.errUpdate'), 'error');
+            onUpdate && onUpdate();
+            return;
+          }
+        }
+      }
       if (res.ok) {
         card.quantity = parseInt(q, 10);
         card.condition = condition;

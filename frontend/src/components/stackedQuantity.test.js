@@ -20,6 +20,7 @@
 //
 // A SUCCESS RESPONSE FOR A CHANGE THAT CANNOT HAPPEN is worse than an error:
 // nothing looks broken, so the user repeats it and doubts the app instead.
+import { planStackEdit } from './stackEdit.js';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -69,15 +70,14 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
   assert.match(body, /const memberIds = Array\.isArray\(card\?\.member_ids\) \? card\.member_ids : null;/,
     'the stacked-quantity handling must live in handleSave -- the function '
     + 'the Save button calls. In handleQuickToggle it is dead code');
-  assert.match(body, /wanted >= 1 && wanted < stackSize/,
-    'only a DECREASE within the stack is handled this way; raising a '
-    + 'quantity is adding cards, which is a different operation');
-  assert.match(body, /memberIds\.slice\(wanted\)/,
-    'keep the first `wanted` rows and remove the rest -- the oldest row is '
-    + 'the one most likely to carry the purchase price and storage slot');
+  assert.match(body, /const plan = planStackEdit\(memberIds, wanted\);/,
+    'handleSave must use planStackEdit -- the tested arithmetic -- not its own');
   assert.match(body, /entry_ids: doomed, action: 'delete'/,
-    'removal must go through the same bulk endpoint the selection UI uses, '
-    + 'or the two paths can disagree about what removing a copy means');
+    'removal must go through the same bulk endpoint the selection UI uses');
+  assert.match(body, /JSON\.stringify\(\{ \.\.\.fields, quantity: sendQty \}\)/,
+    'the key row must get sendQty, never the raw tile total');
+  assert.match(body, /for \(const otherId of survivors\)[\s\S]*?JSON\.stringify\(fields\)/,
+    'every surviving row of the tile gets the same field edit (foil etc.)');
 
   // And it must NOT be sitting in the toggle handler, where it cannot fire.
   const toggle = /const handleQuickToggle = async \(field, value\) => \{[\s\S]*?\n  \};/.exec(modal);
@@ -115,19 +115,14 @@ const pass = (id, what) => { console.log(`PASS: ${id} - ${what}`); passed++; };
 {
   start('QTY-TC3');
   const save = /const handleSave = async \(e\) => \{[\s\S]*?\n  \};/.exec(modal)[0];
-  const block = /const memberIds = [\s\S]*?\n      \}/.exec(save);
-  assert.ok(block, 'the stacked-quantity branch could not be found in handleSave');
-  // handleSave IS the quantity path -- it is what the Save button submits --
-  // so there is no field to gate on here. What must be gated is the stack
-  // size and the direction of the change.
-  assert.match(block[0], /stackSize > 1/,
-    'a single-row tile must take the normal PUT; deleting its only row would '
-    + 'remove the card entirely when the user asked to set a number');
-  assert.match(block[0], /Number\.isFinite\(wanted\)/,
+  // The gate is planStackEdit; assert its BEHAVIOUR, not its text.
+  assert.match(save, /planStackEdit\(memberIds, wanted\)/);
+  assert.deepEqual(planStackEdit([7], 1).doomed, [],
+    'a single-row tile must never delete its only row');
+  assert.deepEqual(planStackEdit([1, 2, 3], NaN).doomed, [],
     'an unparseable quantity must not reach a delete');
-  assert.match(block[0], /wanted >= 1/,
-    'quantity 0 must not go down this path -- removing every copy is a '
-    + 'delete, not a quantity edit, and should be deliberate');
+  assert.deepEqual(planStackEdit([1, 2, 3], 0).doomed, [],
+    'quantity 0 must not delete -- removing every copy is a deliberate delete');
   pass('QTY-TC3', 'the delete path is narrowly gated');
 }
 
