@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Flashlight, X, Search, Trash2, RefreshCw, Check } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { sortForReview, isWeakMatch } from './scanStaging';
+import { getPrintings } from '../utils/cardOptions';
 
 // THE DESKTOP SCANNER LAYOUT, transcribed from the mockup Zach approved:
 //   sketches/scanner-desktop/c-balanced.html
@@ -125,6 +126,50 @@ export default function DesktopScanLayout({
     setBusyId(null);
     setState(staging.getState());
   };
+  // IN-PLACE SET AND FINISH. Zach: "when it appears in the scanned card list I
+  // cant easily update the set and finish... make sure if I do update it on
+  // the fly it actually captures the update."
+  //
+  // "Captures" is enforced three ways, not hoped for:
+  //   1. Every change is written to the SERVER row immediately (resolve /
+  //      PATCH), and Add All commits from the server table -- so there is no
+  //      local-only edit that a commit could miss.
+  //   2. The table is re-read from the server after the write, so what he
+  //      sees is what was stored, not what he picked. A rejected write shows
+  //      as an error and the cell snaps back to the stored value.
+  //   3. Add All is DISABLED while any edit is in flight (pendingEdits), so a
+  //      fast click cannot commit the row before its change lands.
+  const [printingsById, setPrintingsById] = useState({});
+  const [pendingEdits, setPendingEdits] = useState(0);
+  const [editError, setEditError] = useState(null);
+  const loadPrintings = async (entry) => {
+    if (!entry.card_id || printingsById[entry.id]) return;
+    try {
+      const res = await fetch(`/api/scan-stage/${entry.id}/printings`);
+      const body = res.ok ? await res.json() : null;
+      setPrintingsById(m => ({ ...m, [entry.id]: body?.printings || [] }));
+    } catch { /* the select keeps showing the current printing */ }
+  };
+  const edit = async (entry, write) => {
+    setPendingEdits(n => n + 1);
+    setBusyId(entry.id);
+    setEditError(null);
+    const r = await write();
+    if (r && r.ok === false) setEditError(r.error || 'Update failed');
+    setBusyId(null);
+    setPendingEdits(n => n - 1);
+    setState(staging.getState());
+  };
+  const changePrinting = (entry, cardId) => {
+    const p = (printingsById[entry.id] || []).find(x => x.id === cardId);
+    // Keep his finish if the new printing exists in it; otherwise the first
+    // finish that printing really has (a nonfoil-only set cannot hold a foil).
+    const offered = getPrintings(p?.finishes).map(o => o.value);
+    const finish = offered.includes(entry.finish) ? entry.finish : offered[0];
+    return edit(entry, () => staging.resolveEntry(entry.id, cardId, { finish }));
+  };
+  const changeFinish = (entry, finish) =>
+    edit(entry, () => staging.updateEntry(entry.id, { finish }));
   const discard = async (entry) => {
     setBusyId(entry.id);
     await staging.discardEntry(entry.id);
@@ -305,12 +350,47 @@ export default function DesktopScanLayout({
                           </div>
                         )}
                       </td>
-                      <td className="set">
+                      <td className="set" onClick={ev => { if (!isUnresolved) ev.stopPropagation(); }}>
                         {isUnresolved
                           ? <span className="dsk-needs">{t('scan.needsPrintingShort')}</span>
-                          : `${(e.set_id || '').toUpperCase()}${e.number ? ` #${e.number}` : ''}`}
+                          : (
+                            <select className="dsk-cellselect" value={e.card_id}
+                              aria-label={t('scan.colSet')}
+                              title={e.set_name || ''}
+                              disabled={busyId === e.id}
+                              onFocus={() => loadPrintings(e)}
+                              onMouseDown={() => loadPrintings(e)}
+                              onChange={ev => changePrinting(e, ev.target.value)}>
+                              {/* The current printing is always an option, so
+                                  the select shows the truth before the list
+                                  has loaded. */}
+                              {!(printingsById[e.id] || []).some(p => p.id === e.card_id) && (
+                                <option value={e.card_id}>
+                                  {`${(e.set_id || '').toUpperCase()}${e.number ? ` #${e.number}` : ''}`}
+                                </option>
+                              )}
+                              {(printingsById[e.id] || []).map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {`${(p.set_id || '').toUpperCase()} #${p.number} · ${p.set_name || ''}`}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                       </td>
-                      <td className="fin">{e.finish || 'nonfoil'}</td>
+                      <td className="fin" onClick={ev => { if (!isUnresolved) ev.stopPropagation(); }}>
+                        {isUnresolved ? (e.finish || 'nonfoil') : (
+                          <select className="dsk-cellselect" value={e.finish || 'nonfoil'}
+                            aria-label={t('scan.colFinish')}
+                            disabled={busyId === e.id}
+                            onChange={ev => changeFinish(e, ev.target.value)}>
+                            {/* Only finishes this printing exists in -- plus
+                                the stored one if the catalogue disagrees, so
+                                the cell never misreports what is saved. */}
+                            {[...new Set([...getPrintings(e.finishes).map(o => o.value), e.finish || 'nonfoil'])]
+                              .map(f => <option key={f} value={f}>{f}</option>)}
+                          </select>
+                        )}
+                      </td>
                       <td className="when" data-tick={tick}>{when}</td>
                       <td className="qty">
                         <span className="dsk-qtyctl" onClick={ev => ev.stopPropagation()}>
@@ -391,7 +471,9 @@ export default function DesktopScanLayout({
           {/* (mockup:305) footer */}
           <div className="dsk-foot">
             <span className="dsk-count">
-              {state.error
+              {editError
+                ? <span className="dsk-needs">{t('scan.rowEditFailed', { error: editError })}</span>
+                : state.error
                 ? <span className="dsk-needs">{t('scan.stagingCommitFailed', { error: state.error })}</span>
                 : result?.ok
                   ? <span className="dsk-ok"><Check size={13} /> {t('scan.stagingCommitted', { count: result.committed })}</span>
@@ -408,7 +490,7 @@ export default function DesktopScanLayout({
               {t('scan.clear')}
             </button>
             <button type="button" className="dsk-btn primary" onClick={commit}
-              disabled={!rows.length || blocked || committing}>
+              disabled={!rows.length || blocked || committing || pendingEdits > 0}>
               {committing
                 ? t('scan.adding')
                 : blocked

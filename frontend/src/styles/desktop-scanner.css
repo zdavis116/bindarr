@@ -332,4 +332,13 @@
   }
   .dsk-btn.ghost { color: var(--text-secondary); }
   .dsk-empty { padding: 3rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.84rem; }
+
+  /* In-row set / finish pickers (scan list). Sized to the cell, styled like
+     the surrounding text so the table still reads as a list, not a form. */
+  .dsk-table select.dsk-cellselect {
+    max-width: 100%; background: transparent; color: inherit;
+    border: 1px solid var(--border-glass); border-radius: var(--radius-sm, 6px);
+    padding: 0.15rem 0.3rem; font: inherit; cursor: pointer;
+  }
+  .dsk-table select.dsk-cellselect:disabled { opacity: 0.5; cursor: wait; }
 }

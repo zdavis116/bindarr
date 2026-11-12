@@ -912,7 +912,7 @@ router.get('/scan-stage', async (req, res) => {
     const since = Number.isSafeInteger(sinceRaw) && sinceRaw > 0 ? sinceRaw : null;
 
     const rows = await db.all(
-      `SELECT s.*, c.name, c.set_id, c.number, c.image_url
+      `SELECT s.*, c.name, c.set_id, c.set_name, c.number, c.image_url, c.finishes
          FROM scan_staging s
          LEFT JOIN card_cache c ON c.id = s.card_id
         WHERE s.user_id = ?${since ? ' AND s.id > ?' : ''}
@@ -938,8 +938,12 @@ router.get('/scan-stage', async (req, res) => {
         card_id: r.card_id,
         name: r.name,
         set_id: r.set_id,
+        set_name: r.set_name || null,
         number: r.number,
         image_url: r.image_url,
+        // The finishes THIS printing exists in, so the row's finish picker can
+        // offer only real ones without a second request.
+        finishes: (() => { try { return JSON.parse(r.finishes || '[]'); } catch { return []; } })(),
         quantity: r.quantity,
         finish: r.finish,
         condition: r.condition,
@@ -1112,6 +1116,41 @@ router.post('/scan-stage/:id/resolve', async (req, res) => {
     }
     console.error('scan-stage resolve failed:', error);
     res.status(500).json({ error: 'Failed to resolve staged scan' });
+  }
+});
+
+// EVERY PRINTING OF A STAGED ROW'S CARD, for changing the set in place.
+//
+// Zach: "when it appears in the scanned card list I cant easily update the set
+// and finish" -- the only way was retyping the name into the search box. The
+// scanner already knows WHICH CARD it is; what he is correcting is which
+// printing. So the choices are the same oracle card's other printings, newest
+// first, with the finishes each one exists in. Choosing one goes through the
+// existing /resolve route, so there is still exactly one write path.
+router.get('/scan-stage/:id/printings', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
+    }
+    const row = await db.get(
+      `SELECT s.card_id, c.oracle_id FROM scan_staging s
+         LEFT JOIN card_cache c ON c.id = s.card_id
+        WHERE s.id = ? AND s.user_id = ?`, [id, req.user.id]);
+    if (!row) return res.status(404).json({ error: 'Staged entry not found' });
+    if (!row.oracle_id) return res.json({ printings: [] });
+    const rows = await db.all(
+      `SELECT id, set_id, set_name, number, finishes FROM card_cache
+        WHERE oracle_id = ? ORDER BY set_name COLLATE NOCASE, number`, [row.oracle_id]);
+    res.json({
+      printings: rows.map(r => ({
+        id: r.id, set_id: r.set_id, set_name: r.set_name, number: r.number,
+        finishes: (() => { try { return JSON.parse(r.finishes || '[]'); } catch { return []; } })(),
+      })),
+    });
+  } catch (error) {
+    console.error('scan-stage printings failed:', error);
+    res.status(500).json({ error: 'Failed to load printings' });
   }
 });
 

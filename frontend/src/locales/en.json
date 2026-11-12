@@ -1844,5 +1844,6 @@
   "wizard.nothingToMove": "No cards to move.",
   "wizard.page": "Page",
   "wizard.selectAll": "Select all",
-  "wizard.slot": "Slot {slot}"
+  "wizard.slot": "Slot {slot}",
+  "scan.rowEditFailed": "Change not saved: {error}"
 }
