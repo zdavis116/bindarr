@@ -247,6 +247,12 @@ db.initDb()
             return cardRulings.refreshRulings({}).catch((err) => {
               console.error('Card rulings refresh failed:', err.message);
             });
+          }).then(() => {
+            // THE SCANNER'S CARD LIST, chained for the same reason: it is
+            // built from card_cache, so it must follow a finished swap. A new
+            // set is not scannable until this runs (see scanIndexRefresh.js
+            // for the Star Trek report that made it automatic). Never throws.
+            return require('./scanIndexRefresh').refreshScanIndexIfStale({ db });
           });
         }).catch((err) => {
           // A refresh already in flight is the GUARD WORKING, not a failure.
@@ -290,6 +296,10 @@ db.initDb()
       const STALE_CATALOGUE_MS = DAY;
 
       const startupCatchUp = async () => {
+        // The scanner list is checked on its own: a catalogue that is CURRENT
+        // can still have an index built weeks before it (prod, Nov 2026). The
+        // check is a file read and a date compare; it builds only when stale.
+        require('./scanIndexRefresh').refreshScanIndexIfStale({ db });
         try {
           const age = await cardCatalogue.msSinceLastRefresh();
           if (age === null || age > STALE_CATALOGUE_MS) {
