@@ -463,6 +463,56 @@ async function main() {
     pass('FST-TC14', 'staged rows can be pinned to the capture they came from');
   }
 
+  // --- FST-TC15: an in-place SET + FINISH change is what gets ADDED -------
+  //
+  // Zach: "when it appears in the scanned card list I cant easily update the
+  // set and finish... make sure if I do update it on the fly it actually
+  // captures the update." So this follows the desktop row's exact calls --
+  // list printings, resolve to another, PATCH the finish -- and then checks the
+  // COLLECTION row Add All wrote, not the staging row or the API's say-so.
+  {
+    await api('/api/scan-stage', { method: 'DELETE' });
+    await db.run(
+      `INSERT INTO card_cache (id, oracle_id, name, set_id, set_name, number, finishes)
+       VALUES (?,?,?,?,?,?,?), (?,?,?,?,?,?,?)`,
+      ['bolt-trk', 'oracle-bolt', 'Lightning Bolt', 'trk', 'Star Trek', '9', '["nonfoil","foil"]',
+       'bolt-sld', 'oracle-bolt', 'Lightning Bolt', 'sld', 'Secret Lair Drop', '7', '["foil"]']);
+    const staged = await api('/api/scan-stage', { method: 'POST', body: { card_id: 'card-bolt' } });
+    const sid = staged.body.id || (await api('/api/scan-stage')).body.entries[0].id;
+
+    const pr = await api(`/api/scan-stage/${sid}/printings`);
+    assert.strictEqual(pr.status, 200, JSON.stringify(pr.body));
+    const ids = pr.body.printings.map(p => p.id).sort();
+    assert.deepStrictEqual(ids, ['bolt-sld', 'bolt-trk', 'card-bolt'], 'every printing of the SAME card, nothing else');
+    assert.deepStrictEqual(pr.body.printings.find(p => p.id === 'bolt-sld').finishes, ['foil']);
+
+    const rs = await api(`/api/scan-stage/${sid}/resolve`, { method: 'POST', body: { card_id: 'bolt-trk', finish: 'nonfoil' } });
+    assert.strictEqual(rs.status, 200, JSON.stringify(rs.body));
+    const fp = await api(`/api/scan-stage/${sid}`, { method: 'PATCH', body: { finish: 'foil' } });
+    assert.strictEqual(fp.status, 200, JSON.stringify(fp.body));
+
+    const listed = (await api('/api/scan-stage')).body.entries.find(e => e.id === sid);
+    assert.strictEqual(listed.set_id, 'trk');
+    assert.strictEqual(listed.set_name, 'Star Trek');
+    assert.strictEqual(listed.finish, 'foil');
+    assert.deepStrictEqual(listed.finishes, ['nonfoil', 'foil'], 'list carries the finishes the picker offers');
+
+    const before = await db.get(`SELECT COUNT(*) n FROM collection WHERE user_id = ? AND card_id = 'bolt-trk'`, [userId]);
+    const c = await api('/api/scan-stage/commit', { method: 'POST' });
+    assert.strictEqual(c.status, 200, JSON.stringify(c.body));
+    const owned = await db.all(
+      `SELECT card_id, printing, quantity FROM collection WHERE user_id = ? AND card_id IN ('card-bolt','bolt-trk','bolt-sld')`, [userId]);
+    const trk = owned.filter(o => o.card_id === 'bolt-trk');
+    assert.strictEqual(trk.length - before.n, 1, `edited printing must be the one added: ${JSON.stringify(owned)}`);
+    assert.strictEqual(trk[trk.length - 1].printing, 'Foil', 'edited finish must be the one added');
+    assert.ok(!owned.some(o => o.card_id === 'card-bolt' && o.printing === 'Foil'), 'old printing not added');
+
+    // Another user's row is not readable through the printings route.
+    const other = await api('/api/scan-stage/999999/printings');
+    assert.strictEqual(other.status, 404);
+    pass('FST-TC15', 'an in-place set and finish change is exactly what Add All writes');
+  }
+
   console.log(`\nscan_staging.test.js: ${passed} cases passed`);
   server.close();
   process.exit(0);
